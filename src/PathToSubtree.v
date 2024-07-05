@@ -22,6 +22,9 @@ Definition spath : Set := nat * vpath.
 Definition app_spath_vpath (p : spath) (q : vpath) := (fst p, snd p ++ q).
 Notation "p +++ q" := (app_spath_vpath p q) (right associativity, at level 60).
 
+Lemma app_spath_vpath_nil_r p : p +++ nil = p.
+Proof. apply injective_projections; cbn; reflexivity || apply app_nil_r. Qed.
+
 Lemma app_spath_vpath_assoc p q r : p +++ q ++ r = (p +++ q) +++ r.
 Proof. unfold app_spath_vpath. rewrite app_assoc. reflexivity. Qed.
 
@@ -60,6 +63,11 @@ Qed.
 (* Prefixness and disjointness for spaths: *)
 Definition prefix p q := exists r, p +++ r = q.
 
+Definition strict_prefix p q := exists i r, p +++ (i :: r) = q.
+
+Lemma strict_prefix_is_prefix p q : strict_prefix p q -> prefix p q.
+Proof. intros (? & ? & ?). eexists. eassumption. Qed.
+
 Definition disj (p q : spath) :=
 (fst p <> fst q) \/ (fst p = fst q /\ vdisj (snd p) (snd q)).
 
@@ -86,6 +94,51 @@ destruct (Nat.eq_dec (fst p) (fst q)) as [<- | ].
     unfold app_spath_vpath. cbn. rewrite H. reflexivity.
   + apply CompDisj. right. auto.
 - apply CompDisj. unfold disj. auto.
+Qed.
+
+Variant StrictComparable (p q : spath) : Prop :=
+| StrictCompPrefixLeft (H : strict_prefix p q)
+| StrictCompPrefixRight (H : strict_prefix q p)
+| StrictCompEq (H : p = q)
+| StrictCompDisj (H : disj p q).
+
+Lemma strict_comparable_spaths p q : StrictComparable p q.
+Proof.
+Admitted.
+
+Lemma app_same_nil {A : Type} (x y : list A) (H :x ++ y = x) : y = nil.
+Proof. eapply app_inv_head. rewrite H, app_nil_r. reflexivity. Qed.
+
+Lemma prefix_antisym p q (H : prefix p q) (G : prefix q p) : p = q.
+Proof.
+  destruct H as [r <-]. destruct G as [r' G]. unfold app_spath_vpath in G.
+  apply (f_equal snd) in G; cbn in G. rewrite <-app_assoc in G.
+  apply app_same_nil, app_eq_nil in G. destruct G as [-> _].
+  rewrite app_spath_vpath_nil_r. reflexivity.
+Qed.
+
+Lemma strict_prefix_irrefl p : ~strict_prefix p p.
+Proof.
+  intros (? & ? & ?). apply (f_equal snd) in H. unfold app_spath_vpath in H.
+  apply app_same_nil in H. inversion H.
+Qed.
+
+Corollary strict_prefix_antisym p q (H : strict_prefix p q) (G : strict_prefix q p) : False.
+Proof.
+  destruct (prefix_antisym p q).
+  - apply strict_prefix_is_prefix. assumption.
+  - apply strict_prefix_is_prefix. assumption.
+  - eapply strict_prefix_irrefl. exact H.
+Qed.
+
+Lemma disj_l_prefix p q r : disj p q -> prefix p r -> disj r q.
+Proof.
+  intros [ | (? & ? & ? & ? & ? & ? & ? & Hsnd_p & ?) ] [? <-].
+  - left. assumption.
+  - right.  split; try assumption. simpl. repeat eexists.
+    + eassumption.
+    + rewrite Hsnd_p. rewrite <-app_assoc. reflexivity.
+    + eassumption.
 Qed.
 
 (* We introduce this class in order to define overloadable notations for extraction and substitution.
@@ -403,6 +456,40 @@ Section ExtractSubst.
     - rewrite nth_error_map_nth_neq by assumption. reflexivity.
     - rewrite e in *. rewrite nth_error_map_nth_eq. simplify_option.
       rewrite subst_extract_vdisj; auto.
+  Qed.
+
+  Lemma subst_extract_prefix S p q v (H : valid_spath S p) :
+    S{{p +++ q <- v}}{{p}} = S{{p}}{{q <- v}}.
+  Admitted.
+
+  Variant same_constructor : value -> value -> Prop :=
+  | SameZero z : same_constructor (vZero z) (vZero z)
+  | SameUnit u v w : same_constructor (vUnit u v) (vUnit u w)
+  | SameBin b v0 v1 w0 w1 : same_constructor (vBin b v0 v1) (vBin b w0 w1).
+
+  Global Instance refl_same_constructor : Reflexive same_constructor.
+  Proof. intros [ | | ]; constructor. Qed.
+
+  Global Instance sym_same_constructor : Symmetric same_constructor.
+  Proof. intros ? ? [ | | ]; constructor. Qed.
+
+  Global Instance trans_same_constructor : Transitive same_constructor.
+  Proof. intros ? ? ? [ | | ] H; inversion H; constructor. Qed.
+
+  Lemma same_constructor_subst (v w : value) i p : same_constructor v (v{{i :: p <- w}}).
+  Proof. destruct v; repeat (constructor || destruct i as [ | i]). Qed.
+
+  Lemma same_constructor_subst_disj S sp sq v :
+    valid_spath S sp -> valid_spath S sq -> disj sq sp ->
+    same_constructor (S{{sp}}) (S{{sq <- v}}{{sp}}).
+  Proof. intros. rewrite subst_extract_disj; reflexivity || assumption. Qed.
+
+  Lemma same_constructor_subst_strict_prefix S sp sq v :
+    valid_spath S sp -> strict_prefix sp sq ->
+    same_constructor (S{{sp}}) (S{{sq <- v}}{{sp}}).
+  Proof.
+    intros ? (? & ? & <-). rewrite subst_extract_prefix by assumption.
+    apply same_constructor_subst.
   Qed.
 End ExtractSubst.
 
