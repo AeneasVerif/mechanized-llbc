@@ -30,6 +30,8 @@ Proof. unfold app_spath_vpath. rewrite app_assoc. reflexivity. Qed.
 
 Definition vprefix (p q : vpath) := exists r, p ++ r = q.
 
+Definition vstrict_prefix (p q : vpath) := exists i r, p ++ i :: r = q.
+
 Definition vdisj (p q : vpath) :=
   exists (r p' q' : vpath) i j, i <> j /\ p = r ++ (i :: p') /\ q = r ++ (j :: q').
 
@@ -37,27 +39,29 @@ Global Instance vdisj_symmetric : Symmetric vdisj.
 Proof. intros ? ? (v & p & q & i & j & ? & ? & ?). exists v, q, p, j, i. auto. Qed.
 
 Variant vComparable (p q : vpath) : Prop :=
-| vCompPrefixLeft (H : vprefix p q)
-| vCompPrefixRight (H : vprefix q p)
+| vCompEq (H : p = q)
+| vCompStrictPrefixLeft (H : vstrict_prefix p q)
+| vCompStrictPrefixRight (H : vstrict_prefix q p)
 | vCompDisj (H : vdisj p q).
 
 Lemma comparable_cons p q i (H : vComparable p q) : vComparable (i :: p) (i :: q).
 Proof.
-  destruct H as [[r <-] | [r <-] | (r & ? & ? & ? & ? & ? & -> & ->)].
-  - apply vCompPrefixLeft. exists r. cbn. reflexivity.
-  - apply vCompPrefixRight. exists r. cbn. reflexivity.
+  destruct H as [ <- | (j & r & <-) | (j & r & <-) | (r & ? & ? & ? & ? & ? & -> & ->)].
+  - apply vCompEq. reflexivity.
+  - apply vCompStrictPrefixLeft. exists j, r. reflexivity.
+  - apply vCompStrictPrefixRight. exists j, r. reflexivity.
   - apply vCompDisj. exists (i :: r). repeat eexists. assumption.
 Qed.
 
 Lemma comparable_vpaths p : forall q, vComparable p q.
 Proof.
-  induction p as [ | i p' IH]; intro q.
-  - apply vCompPrefixLeft. eexists. reflexivity.
-  - destruct q as [ | j q'].
-    + apply vCompPrefixRight. eexists. reflexivity.
-    + destruct (Nat.eq_dec i j) as [<- | diff].
-      * apply comparable_cons, IH.
-      * apply vCompDisj. exists nil. repeat eexists. assumption.
+  induction p as [ | i p' IH]; intro q; destruct q as [ | j q'].
+  - apply vCompEq. reflexivity.
+  - apply vCompStrictPrefixLeft. exists j, q'. reflexivity.
+  - apply vCompStrictPrefixRight. exists i, p'. reflexivity.
+  - destruct (Nat.eq_dec i j) as [<- | diff].
+    + apply comparable_cons, IH.
+    + apply vCompDisj. exists nil. repeat eexists. assumption.
 Qed.
 
 (* Prefixness and disjointness for spaths: *)
@@ -79,32 +83,22 @@ intros p q [? | [? ?]].
 Qed.
 
 Variant Comparable (p q : spath) : Prop :=
-| CompPrefixLeft (H : prefix p q)
-| CompPrefixRight (H : prefix q p)
+| CompEq (H : p = q)
+| CompStrictPrefixLeft (H : strict_prefix p q)
+| CompStrictPrefixRight (H : strict_prefix q p)
 | CompDisj (H : disj p q).
 
 Lemma comparable_spaths p q : Comparable p q.
 Proof.
 rewrite (surjective_pairing p), (surjective_pairing q).
 destruct (Nat.eq_dec (fst p) (fst q)) as [<- | ].
-- destruct (comparable_vpaths (snd p) (snd q)).
-  + apply CompPrefixLeft. destruct H as [v ?]. exists v.
-    unfold app_spath_vpath. cbn. rewrite H. reflexivity.
-  + apply CompPrefixRight. destruct H as [v ?]. exists v.
-    unfold app_spath_vpath. cbn. rewrite H. reflexivity.
+- destruct (comparable_vpaths (snd p) (snd q)) as [ <- | (i & r & <-) | (i & r & <-) | ].
+  + apply CompEq. reflexivity.
+  + apply CompStrictPrefixLeft. exists i, r. unfold app_spath_vpath. cbn. reflexivity.
+  + apply CompStrictPrefixRight. exists i, r. unfold app_spath_vpath. cbn. reflexivity.
   + apply CompDisj. right. auto.
-- apply CompDisj. unfold disj. auto.
+- apply CompDisj. left. cbn. assumption.
 Qed.
-
-Variant StrictComparable (p q : spath) : Prop :=
-| StrictCompPrefixLeft (H : strict_prefix p q)
-| StrictCompPrefixRight (H : strict_prefix q p)
-| StrictCompEq (H : p = q)
-| StrictCompDisj (H : disj p q).
-
-Lemma strict_comparable_spaths p q : StrictComparable p q.
-Proof.
-Admitted.
 
 Lemma app_same_nil {A : Type} (x y : list A) (H :x ++ y = x) : y = nil.
 Proof. eapply app_inv_head. rewrite H, app_nil_r. reflexivity. Qed.
