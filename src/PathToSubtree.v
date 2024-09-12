@@ -6,38 +6,55 @@ Require Import base.
 
 Local Open Scope option_monad_scope.
 
-(* Chemins, préfixes, chemins disjoints *)
+(* Paths, prefixes and disjointness *)
 
-(* Un vpath est une liste d'entiers naturels, caractérisant une sous-valeur dans une valeur (vue
-   en tant qu'arbre). Il s'agit d'une liste d'entiers [i_0, i_1, ...], où i_0, i_1, ...
-   correspondent aux indices des branches des arbres que l'on prend lorsqu'on descend dans l'arbre
-   en partant de la racine. *)
+(* A vpath ("value path") is the data structure used to uniquely represent nodes in a tree. The
+ * integers in the list are the indices of the subvalues we take, going down from the root to the
+ * node in the tree. It is called "vpath" because it will mostly be used by values in
+ * intermediate languages between LLBC# and HLPL.
+ * The vpaths are used to:
+ * - Get the subvalue at a node.
+ * - Set a subvalue at a node.
+ * TODO: motivate the comparison between vpaths (prefix, equal, disjoint).
+ *)
 Definition vpath := list nat.
 
-(* Un `spath` est un chemin vers une valeur dans l'état. Il s'agit d'une paire (i, p) avec i
-   un indice de de Bruijn, et p est un chemin vers cette sous-valeur dans la valeur stockée à
-   l'indice i. TODO: incompréhensible. *)
+(* A spath ("state path") is the data structure used to uniquely represent nodes in a memory state,
+ * represented as a list of pairs (b, v) where b is a binder and v a value. A spath is a pair
+ * (i, p) where i is the index of a pair (b, v) in the state, and p is a vpath in the value v. *)
 Definition spath : Set := nat * vpath.
 
+(* The concatenation of a spath and a vpath. *)
 Definition app_spath_vpath (p : spath) (q : vpath) := (fst p, snd p ++ q).
+(* TODO: place the notation in a scope? *)
 Notation "p +++ q" := (app_spath_vpath p q) (right associativity, at level 60).
 
 Lemma app_spath_vpath_nil_r p : p +++ nil = p.
-Proof. apply injective_projections; cbn; reflexivity || apply app_nil_r. Qed.
+Proof. apply injective_projections; reflexivity || apply app_nil_r. Qed.
 
 Lemma app_spath_vpath_assoc p q r : p +++ q ++ r = (p +++ q) +++ r.
 Proof. unfold app_spath_vpath. rewrite app_assoc. reflexivity. Qed.
 
+(* The large and strict prefix relations between two paths. *)
 Definition vprefix (p q : vpath) := exists r, p ++ r = q.
-
 Definition vstrict_prefix (p q : vpath) := exists i r, p ++ i :: r = q.
 
+(* Two paths p and q are disjoint if neither is the prefix of the other. The most useful
+ * characterization, that we are defining here, is that p and q are of the form
+ * r ++ [i] ++ p' and r ++ [i] ++ q', where r is the longest common prefix, and where i <> j are
+ * the first indices where p and q differ.
+ *)
 Definition vdisj (p q : vpath) :=
   exists (r p' q' : vpath) i j, i <> j /\ p = r ++ (i :: p') /\ q = r ++ (j :: q').
 
 Global Instance vdisj_symmetric : Symmetric vdisj.
 Proof. intros ? ? (v & p & q & i & j & ? & ? & ?). exists v, q, p, j, i. auto. Qed.
 
+(* Showing that every two paths are comparable.
+ * TODO: an alternative is to define a function comp p q that returns a result (Eq, StrictLeft,
+ * StrictRight, Disj), and show that the result of the function is equivalent to on of the
+ * relations we defined earlier.
+ *)
 Variant vComparable (p q : vpath) : Prop :=
 | vCompEq (H : p = q)
 | vCompStrictPrefixLeft (H : vstrict_prefix p q)
@@ -136,7 +153,7 @@ Proof.
 Qed.
 
 (* We introduce this class in order to define overloadable notations for extraction and substitution.
-   It is parameterized by three types:
+  It is parameterized by three types:
    - C: the "carrier". Either state or value. *)
 Class ExtractSubst {C P V : Type} := {
   extract : C -> P -> V;
