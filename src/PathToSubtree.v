@@ -152,6 +152,297 @@ Proof.
     + eassumption.
 Qed.
 
+Declare Scope GetSetPath_scope.
+
+Class GetSetPath (V : Type) := {
+  constructors : Type; (* a `constructor` type *)
+  arity : constructors -> nat;
+  subvalues : V -> list V;
+  get_constructor : V -> constructors;
+  fold : constructors -> list V -> V;
+  bot : V;
+
+  length_subvalues_is_arity v : length (subvalues v) = arity (get_constructor v);
+  constructor_subvalues_inj v w :
+    get_constructor v = get_constructor w -> subvalues v = subvalues w -> v = w;
+  constructor_fold c vs : length vs = arity c -> get_constructor (fold c vs) = c;
+  subvalues_fold c vs : length vs = arity c -> subvalues (fold c vs) = vs;
+  subvalues_bot : subvalues bot = nil;
+}.
+
+(*
+Notation "v [[ p ]]" := (get v p) (left associativity, at level 50) : GetSetPath_scope.
+Notation "v [[ p <- w ]]" := (set v p w) (left associativity, at level 50) : GetSetPath_scope.
+ *)
+Notation get_subval_or_bot w i :=
+  (match nth_error (subvalues w) i with
+    | Some u => u
+    | None => bot
+  end).
+Definition vget {V} `{GetSetPath V} : vpath -> V -> V := 
+  fold_left (fun w i => get_subval_or_bot w i).
+Notation "v [[ p ]]" := (vget p v) (left associativity, at level 50) : GetSetPath_scope.
+
+Fixpoint vset {V} `{GetSetPath V} (p : vpath) (w : V) (v : V) :=
+  match p with
+  | nil => w
+  | i :: q => fold (get_constructor v) (map_nth (subvalues v) i (vset q w))
+  end.
+Notation "v [[ p <- w ]]" := (vset p w v) (left associativity, at level 50).
+
+Open Scope GetSetPath_scope.
+
+Section GetSetPath.
+  Context {V : Type}.
+  Context {get_set_path : GetSetPath V}.
+
+  Lemma vget_app v p q : v[[p ++ q]] = v[[p]][[q]].
+  Proof. unfold vget. apply fold_left_app. Qed.
+
+  (* A vpath p is valid with regards to a value v if we can follow its indices down the value v
+   * interpreted as a tree. *)
+  Inductive valid_vpath : V -> vpath -> Prop :=
+    | valid_nil v : valid_vpath v nil
+    | valid_cons v i p w :
+        nth_error (subvalues v) i = Some w -> valid_vpath w p -> valid_vpath v (i :: p).
+
+  Lemma valid_vpath_app v p q :
+    valid_vpath v (p ++ q) <-> valid_vpath v p /\ valid_vpath (v[[p]]) q.
+  Proof.
+    split.
+    - revert v. induction p as [ | i p IHp].
+      + split. constructor. assumption.
+      + intros v H. inversion H. subst. split.
+        * econstructor; try apply IHp; eassumption.
+        * apply IHp. simplify_option.
+    - intros (valid_p & valid_q). induction valid_p.
+      + exact valid_q.
+      + cbn. econstructor.
+        * eassumption.
+        * cbn in valid_q. simplify_option.
+  Qed.
+
+  (* We characterize invalid path by their longest prefix q. It means that the next index i is
+   * such that [...] *)
+  Definition invalid_vpath v p :=
+    exists q i r, p = q ++ i :: r /\ valid_vpath v q /\ nth_error (subvalues (v[[q]])) i = None.
+
+  Lemma valid_or_invalid p : forall v, valid_vpath v p \/ invalid_vpath v p.
+  Proof.
+    induction p as [ | i p IHp].
+    - left. constructor.
+    - intro v. destruct (nth_error (subvalues v) i) as [w | ] eqn:EQN.
+      + destruct (IHp w) as [ | (q & j & r & -> & valid_q & G)].
+        * left. econstructor; eassumption.
+        * right. exists (i :: q), j, r. repeat split.
+          -- econstructor; eassumption.
+          -- cbn. rewrite EQN. exact G.
+      + right. exists nil, i, p. repeat split; constructor || assumption.
+  Qed.
+
+  Lemma not_valid_and_invalid v p : valid_vpath v p -> invalid_vpath v p -> False.
+  Proof.
+    intros H (q & i & r & -> & valid_p & G). apply valid_vpath_app in H.
+    destruct H as [_ H]. inversion H. simplify_option.
+  Qed.
+
+  (* The vget function is defined in such a way that for any invalid path p, v[[p]] = bot.
+   * This relies on two design choices:
+   * - For a value v, if the index i is the index of a subvalue, then v[[i :: r]] = bot[[r]].
+   * - `bot` has 0 subvalues (`subvalues_bot` axiom), so bot[[r]] = r.
+   *)
+  Lemma vget_invalid v p : invalid_vpath v p -> v[[p]] = bot.
+  Proof.
+    intros (q & i & r & -> & _ & H). rewrite vget_app. cbn. rewrite H.
+     induction r.
+    - reflexivity.
+    - cbn. rewrite subvalues_bot, nth_error_nil. assumption.
+  Qed.
+
+  (* A useful criterion for validity: if v[[p]] <> bot, then p is a valid path for v.
+     This is going to be the main way of proving validity. *)
+  Corollary get_not_bot_valid_vpath v p (H : v[[p]] <> bot) : valid_vpath v p.
+  Proof.
+    destruct (valid_or_invalid p v).
+    - assumption.
+    - exfalso. apply H. apply vget_invalid. assumption.
+  Qed.
+
+  Lemma get_constructor_fold_map_nth v f i :
+    get_constructor (fold (get_constructor v) (map_nth (subvalues v) i f)) = get_constructor v.
+  Proof. apply constructor_fold. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
+
+  Lemma subvalues_fold_map_nth v f i :
+    subvalues (fold (get_constructor v) (map_nth (subvalues v) i f)) = map_nth (subvalues v) i f.
+  Proof. apply subvalues_fold. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
+
+  Lemma set_get_vprefix v w p q (H : valid_vpath v p) :
+    v[[p ++ q <- w]][[p]] = v[[p]][[q <- w]].
+  Proof.
+    induction H as [ | v i p u subval_v_i valid_u_p IH].
+    - reflexivity.
+    - cbn. rewrite subvalues_fold_map_nth, nth_error_map_nth_eq. simplify_option.
+  Qed.
+
+  Corollary get_set_vequal v w p : valid_vpath v p -> v[[p <- w]][[p]] = w.
+  Proof. intro. rewrite<- (app_nil_r p) at 2. rewrite set_get_vprefix; auto. Qed.
+
+  Lemma set_valid v w p (H : valid_vpath v p) : valid_vpath (v[[p <- w]]) p.
+  Proof.
+    induction H as [ | ? ? ? ? H].
+    - constructor.
+    - econstructor.
+      + cbn. rewrite subvalues_fold_map_nth, nth_error_map_nth_eq, H. reflexivity.
+      + assumption.
+  Qed.
+
+  Corollary get_set_prefix_right v w p q (H : valid_vpath v p) :
+    v[[p <- w]][[p ++ q]] = w[[q]].
+  Proof. rewrite vget_app, get_set_vequal; try apply set_valid; auto. Qed.
+
+
+  (* TODO: move *)
+  Lemma map_nth_invariant [A : Type] (l : list A) n x f
+    (Hx : nth_error l n = Some x) (Hf : f x = x) : map_nth l n f = l.
+  Proof.
+    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
+    - rewrite nth_error_map_nth_eq. autodestruct.
+    - rewrite nth_error_map_nth_neq; auto.
+  Qed.
+
+  (* TODO: move *)
+  Lemma map_nth_equal_Some [A : Type] (l : list A) n x f g
+    (Hx : nth_error l n = Some x) (Hfg : f x = g x) : map_nth l n f = map_nth l n g.
+  Proof.
+    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
+    - rewrite !nth_error_map_nth_eq. autodestruct.
+    - rewrite !nth_error_map_nth_neq; auto.
+  Qed.
+
+  (* TODO: move *)
+  Lemma map_nth_equal_None [A : Type] (l : list A) n f
+    (Hx : nth_error l n = None) : map_nth l n f = l.
+  Proof.
+    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
+    - rewrite !nth_error_map_nth_eq. autodestruct.
+    - rewrite !nth_error_map_nth_neq; auto.
+  Qed.
+
+  (* TODO: move *)
+  Lemma map_nth_compose [A : Type] (l : list A) n f g :
+    map_nth (map_nth l n g) n f = map_nth l n (fun x => f (g x)).
+  Proof.
+    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
+    - rewrite !nth_error_map_nth_eq. autodestruct.
+    - rewrite !nth_error_map_nth_neq; auto.
+  Qed.
+
+  (* TODO: move *)
+  Lemma map_nth_equiv [A : Type] (l : list A) n f g
+    (Hfg : forall x, f x = g x) : map_nth l n f = map_nth l n g.
+  Proof.
+    destruct (nth_error l n) eqn:EQN.
+    - eapply map_nth_equal_Some; eauto.
+    - rewrite !map_nth_equal_None; auto.
+  Qed.
+
+  Lemma _vset_app_split v p q w (H : valid_vpath v p) :
+    v[[p ++ q <- w]] = v[[p <- v[[p]][[q <- w]]]].
+  Proof.
+    induction H.
+    - reflexivity.
+    - cbn. f_equal. eapply map_nth_equal_Some; simplify_option.
+  Qed.
+
+  (* Note: the validity hypothesis could be removed. *)
+  Lemma vset_same v p (H : valid_vpath v p) : v[[p <- v[[p]]]] = v.
+  Proof.
+    induction H.
+    - reflexivity.
+    - apply constructor_subvalues_inj.
+      + apply get_constructor_fold_map_nth.
+      + cbn. rewrite subvalues_fold_map_nth. eapply map_nth_invariant; simplify_option.
+  Qed.
+
+  (* vset is defined in such a way that v[[p <- w]] is v when p is invalid.
+   * To understand why, take v[[i :: r <- w]] when i >= length (subvalues v):
+   * - The constructor of v[[i :: r <- w]] is the same constructor as v.
+   * - The vset function is recursively applied in the i-th subvalue of v. But because the list
+   *   of subvalues does not contained an i-th subvalue, because of the definiton of map_nth, the
+   *   list of subvalues of v[[i :: r <- w]] is the same as for v.
+   * This trick allows us to omit validity hypotheses in some lemmas.
+   *)
+  Lemma vset_invalid v p w : invalid_vpath v p -> v[[p <- w]] = v.
+  Proof.
+    intros (q & i & r & -> & valid_q & H). rewrite<- (vset_same v q) at 2 by assumption.
+    rewrite _vset_app_split by assumption. f_equal. cbn.
+    apply constructor_subvalues_inj.
+    - apply get_constructor_fold_map_nth.
+    - rewrite subvalues_fold_map_nth. apply map_nth_equal_None. assumption.
+  Qed.
+
+  Lemma set_get_disj_aux v i j p q w :
+    i <> j -> v[[i :: p <- w]][[j :: q]] = v[[j :: q]].
+  Proof. intro. cbn. rewrite subvalues_fold_map_nth, nth_error_map_nth_neq; auto. Qed.
+
+  Lemma set_get_vdisj v w p q (Hvdisj : vdisj p q) :
+    v[[p <- w]][[q]] = v[[q]].
+  Proof.
+    destruct (valid_or_invalid p v) as [H | ].
+    - destruct Hvdisj as (r & p' & q' & i & j & diff & -> & ->).
+      apply valid_vpath_app in H. destruct H as [H _].
+      rewrite !vget_app, set_get_vprefix by assumption. apply set_get_disj_aux. assumption.
+    - rewrite vset_invalid; auto.
+  Qed.
+
+  Lemma vset_twice_equal p x y : forall v, v[[p <- x]][[p <- y]] = v[[p <- y]].
+  Proof.
+    induction p; intro v.
+    - reflexivity.
+    - apply constructor_subvalues_inj.
+      + cbn. rewrite !get_constructor_fold_map_nth. reflexivity.
+      + cbn. rewrite !subvalues_fold_map_nth, map_nth_compose. apply map_nth_equiv. assumption.
+  Qed.
+
+  (* Now the we proved that v[[p <- ?]] = v when p in invalid, we can remove the validity
+   * hypothesis from the theorem _vset_app_split. *)
+  Lemma vset_app_split v p q w : v[[p ++ q <- w]] = v[[p <- v[[p]][[q <- w]]]].
+  Proof.
+    destruct (valid_or_invalid p v) as [ | H].
+    - apply _vset_app_split. assumption.
+    - rewrite !vset_invalid; try auto.
+      destruct (valid_or_invalid (p ++ q) v) as [G | ]; try assumption.
+      exfalso. apply valid_vpath_app in G. destruct G as [? _].
+      eapply not_valid_and_invalid; eassumption.
+  Qed.
+
+  Lemma vset_twice_prefix_right v p q x y : vprefix q p -> v[[p <- x]][[q <- y]] = v[[q <- y]].
+  Proof. intros (? & <-). rewrite vset_app_split, vset_twice_equal. reflexivity. Qed.
+
+  Lemma vset_twice_prefix_left v p q x y : v[[p <- x]][[p ++ q <- y]] = v[[p <- x[[q <- y]]]].
+  Proof.
+    rewrite vset_app_split, vset_twice_equal. destruct (valid_or_invalid p v).
+    - rewrite get_set_vequal; auto.
+    - rewrite !vset_invalid; auto.
+  Qed.
+
+  Lemma vset_twice_disj_commute_aux v p q i j x y :
+    i <> j -> v[[i :: p <- x]][[j :: q <- y]] = v[[j :: q <- y]][[i :: p <- x]].
+  Proof.
+    intro. apply constructor_subvalues_inj.
+    - cbn. rewrite !get_constructor_fold_map_nth. reflexivity.
+    - cbn. rewrite !subvalues_fold_map_nth. apply map_nth_neq_commute. assumption.
+  Qed.
+
+  Lemma vset_twice_disj_commute v p q x y :
+    vdisj p q -> v[[p <- x]][[q <- y]] = v[[q <- y]][[p <- x]].
+  Proof.
+    intros (r & p' & q' & i & j & ? & -> & ->).
+    rewrite !(vset_app_split v). rewrite !vset_twice_prefix_left.
+    rewrite vset_twice_disj_commute_aux; auto.
+  Qed.
+End GetSetPath.
+
 (* We introduce this class in order to define overloadable notations for extraction and substitution.
   It is parameterized by three types:
    - C: the "carrier". Either state or value. *)

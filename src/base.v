@@ -4,6 +4,11 @@ Require Import OptionMonad.
 
 Local Open Scope option_monad_scope.
 
+(* This lemma is missing from the standard library. *)
+Lemma nth_error_None_nth [A : Type] (l : list A) (n : nat) (d : A) :
+  nth_error l n = None -> nth n l d = d.
+Proof. intro. apply nth_overflow, nth_error_None. assumption. Qed.
+
 Class EqDec (A : Type) := {
   eq_dec (a b : A) : {a = b} + {a <> b};
 }.
