@@ -300,52 +300,6 @@ Section GetSetPath.
     v[[p <- w]][[p ++ q]] = w[[q]].
   Proof. rewrite vget_app, get_set_vequal; try apply set_valid; auto. Qed.
 
-
-  (* TODO: move *)
-  Lemma map_nth_invariant [A : Type] (l : list A) n x f
-    (Hx : nth_error l n = Some x) (Hf : f x = x) : map_nth l n f = l.
-  Proof.
-    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite nth_error_map_nth_eq. autodestruct.
-    - rewrite nth_error_map_nth_neq; auto.
-  Qed.
-
-  (* TODO: move *)
-  Lemma map_nth_equal_Some [A : Type] (l : list A) n x f g
-    (Hx : nth_error l n = Some x) (Hfg : f x = g x) : map_nth l n f = map_nth l n g.
-  Proof.
-    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite !nth_error_map_nth_eq. autodestruct.
-    - rewrite !nth_error_map_nth_neq; auto.
-  Qed.
-
-  (* TODO: move *)
-  Lemma map_nth_equal_None [A : Type] (l : list A) n f
-    (Hx : nth_error l n = None) : map_nth l n f = l.
-  Proof.
-    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite !nth_error_map_nth_eq. autodestruct.
-    - rewrite !nth_error_map_nth_neq; auto.
-  Qed.
-
-  (* TODO: move *)
-  Lemma map_nth_compose [A : Type] (l : list A) n f g :
-    map_nth (map_nth l n g) n f = map_nth l n (fun x => f (g x)).
-  Proof.
-    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite !nth_error_map_nth_eq. autodestruct.
-    - rewrite !nth_error_map_nth_neq; auto.
-  Qed.
-
-  (* TODO: move *)
-  Lemma map_nth_equiv [A : Type] (l : list A) n f g
-    (Hfg : forall x, f x = g x) : map_nth l n f = map_nth l n g.
-  Proof.
-    destruct (nth_error l n) eqn:EQN.
-    - eapply map_nth_equal_Some; eauto.
-    - rewrite !map_nth_equal_None; auto.
-  Qed.
-
   Lemma _vset_app_split v p q w (H : valid_vpath v p) :
     v[[p ++ q <- w]] = v[[p <- v[[p]][[q <- w]]]].
   Proof.

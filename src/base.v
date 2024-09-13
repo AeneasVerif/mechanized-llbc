@@ -4,19 +4,6 @@ Require Import OptionMonad.
 
 Local Open Scope option_monad_scope.
 
-(* This lemma is missing from the standard library. *)
-Lemma nth_error_None_nth [A : Type] (l : list A) (n : nat) (d : A) :
-  nth_error l n = None -> nth n l d = d.
-Proof. intro. apply nth_overflow, nth_error_None. assumption. Qed.
-
-Class EqDec (A : Type) := {
-  eq_dec (a b : A) : {a = b} + {a <> b};
-}.
-
-Class Inhabited (A : Type) := {
-  default : A
-}.
-
 (* TODO: move in a separate file? *)
 Section Map_nth.
   Context {A : Type}.
@@ -75,11 +62,43 @@ Section Map_nth.
       repeat rewrite nth_error_map_nth_eq || rewrite nth_error_map_nth_neq by auto; easy.
   Qed.
 
-  Lemma map_nth_eq_commute l n f g (H : forall x, nth_error l n = Some x -> g (f x) = f (g x)) :
-    map_nth (map_nth l n f) n g = map_nth (map_nth l n g) n f.
+  Lemma map_nth_invariant (l : list A) n x f
+    (Hx : nth_error l n = Some x) (Hf : f x = x) : map_nth l n f = l.
   Proof.
     apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite !nth_error_map_nth_eq. autodestruct. rewrite H; reflexivity.
+    - rewrite nth_error_map_nth_eq. autodestruct.
+    - rewrite nth_error_map_nth_neq; auto.
+  Qed.
+
+  Lemma map_nth_equal_Some (l : list A) n x f g
+    (Hx : nth_error l n = Some x) (Hfg : f x = g x) : map_nth l n f = map_nth l n g.
+  Proof.
+    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
+    - rewrite !nth_error_map_nth_eq. autodestruct.
     - rewrite !nth_error_map_nth_neq; auto.
+  Qed.
+
+  Lemma map_nth_equal_None (l : list A) n f
+    (Hx : nth_error l n = None) : map_nth l n f = l.
+  Proof.
+    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
+    - rewrite !nth_error_map_nth_eq. autodestruct.
+    - rewrite !nth_error_map_nth_neq; auto.
+  Qed.
+
+  Lemma map_nth_compose (l : list A) n f g :
+    map_nth (map_nth l n g) n f = map_nth l n (fun x => f (g x)).
+  Proof.
+    apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
+    - rewrite !nth_error_map_nth_eq. autodestruct.
+    - rewrite !nth_error_map_nth_neq; auto.
+  Qed.
+
+  Lemma map_nth_equiv (l : list A) n f g
+    (Hfg : forall x, f x = g x) : map_nth l n f = map_nth l n g.
+  Proof.
+    destruct (nth_error l n) eqn:EQN.
+    - eapply map_nth_equal_Some; eauto.
+    - rewrite !map_nth_equal_None; auto.
   Qed.
 End Map_nth.
