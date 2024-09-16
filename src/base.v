@@ -4,6 +4,10 @@ Require Import OptionMonad.
 
 Local Open Scope option_monad_scope.
 
+Class EqDec (A : Type) := {
+  eq_dec (a b : A) : {a = b} + {a <> b};
+}.
+
 (* TODO: move in a separate file? *)
 Section Map_nth.
   Context {A : Type}.

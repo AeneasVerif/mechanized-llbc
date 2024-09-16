@@ -519,6 +519,24 @@ Section GetSetPath.
     - rewrite !map_nth_compose. apply map_nth_equiv. intro. cbn. f_equal.
       apply vset_twice_disj_commute. assumption.
   Qed.
+
+  Context `{EqDecBinder : EqDec B}.
+
+  Fixpoint find_binder (S : list (B * V)) (b : B) : option nat := match S with
+  | nil => None
+  | (b', _) :: S' => if eq_dec b b' then Some 0 else SOME i <- find_binder S' b IN Some (1 + i)
+  end.
+
+  Lemma find_binder_prop S b :
+    forall i, find_binder S b = Some i -> exists v, nth_error S i = Some (b, v).
+  Proof. induction S as [ | bv S' IH]; simplify_option. congruence. Qed.
+
+  Corollary find_binder_valid S b i (H : find_binder S b = Some i) : valid_spath S (i, nil).
+  Proof.
+    apply find_binder_prop in H. destruct H as (v & ?). exists v. split.
+    - cbn. rewrite H. reflexivity.
+    - apply valid_nil.
+  Qed.
 End GetSetPath.
 
 (* We introduce this class in order to define overloadable notations for extraction and substitution.
