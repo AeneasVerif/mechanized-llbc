@@ -153,6 +153,7 @@ Proof.
 Qed.
 
 Declare Scope GetSetPath_scope.
+Open Scope GetSetPath_scope.
 
 Class GetSetPath (V : Type) := {
   constructors : Type; (* a `constructor` type *)
@@ -170,10 +171,6 @@ Class GetSetPath (V : Type) := {
   subvalues_bot : subvalues bot = nil;
 }.
 
-(*
-Notation "v [[ p ]]" := (get v p) (left associativity, at level 50) : GetSetPath_scope.
-Notation "v [[ p <- w ]]" := (set v p w) (left associativity, at level 50) : GetSetPath_scope.
- *)
 Notation get_subval_or_bot w i :=
   (match nth_error (subvalues w) i with
     | Some u => u
@@ -268,20 +265,24 @@ Section GetSetPath.
     - exfalso. apply H. apply vget_invalid. assumption.
   Qed.
 
-  Lemma get_constructor_fold_map_nth v f i :
-    get_constructor (fold (get_constructor v) (map_nth (subvalues v) i f)) = get_constructor v.
+  Lemma constructor_vset_cons v i p w :
+    get_constructor (v[[i :: p <- w]]) = get_constructor v.
   Proof. apply constructor_fold. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
 
-  Lemma subvalues_fold_map_nth v f i :
-    subvalues (fold (get_constructor v) (map_nth (subvalues v) i f)) = map_nth (subvalues v) i f.
+  Lemma subvalues_vset_cons v i p w :
+    subvalues (v[[i :: p <- w]]) = map_nth (subvalues v) i (vset p w).
   Proof. apply subvalues_fold. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
+
+  Lemma vget_cons v i p : v[[i :: p]] = (get_subval_or_bot v i)[[p]].
+  Proof. reflexivity. Qed.
 
   Lemma set_get_vprefix v w p q (H : valid_vpath v p) :
     v[[p ++ q <- w]][[p]] = v[[p]][[q <- w]].
   Proof.
     induction H as [ | v i p u subval_v_i valid_u_p IH].
     - reflexivity.
-    - cbn. rewrite subvalues_fold_map_nth, nth_error_map_nth_eq. simplify_option.
+    - rewrite vget_cons, <-app_comm_cons, subvalues_vset_cons, nth_error_map_nth_eq.
+      simplify_option.
   Qed.
 
   Corollary get_set_vequal v w p : valid_vpath v p -> v[[p <- w]][[p]] = w.
@@ -292,7 +293,7 @@ Section GetSetPath.
     induction H as [ | ? ? ? ? H].
     - constructor.
     - econstructor.
-      + cbn. rewrite subvalues_fold_map_nth, nth_error_map_nth_eq, H. reflexivity.
+      + rewrite subvalues_vset_cons, nth_error_map_nth_eq, H. reflexivity.
       + assumption.
   Qed.
 
@@ -314,8 +315,8 @@ Section GetSetPath.
     induction H.
     - reflexivity.
     - apply constructor_subvalues_inj.
-      + apply get_constructor_fold_map_nth.
-      + cbn. rewrite subvalues_fold_map_nth. eapply map_nth_invariant; simplify_option.
+      + apply constructor_vset_cons.
+      + rewrite subvalues_vset_cons. eapply map_nth_invariant; simplify_option.
   Qed.
 
   (* vset is defined in such a way that v[[p <- w]] is v when p is invalid.
@@ -329,15 +330,15 @@ Section GetSetPath.
   Lemma vset_invalid v p w : invalid_vpath v p -> v[[p <- w]] = v.
   Proof.
     intros (q & i & r & -> & valid_q & H). rewrite<- (vset_same v q) at 2 by assumption.
-    rewrite _vset_app_split by assumption. f_equal. cbn.
+    rewrite _vset_app_split by assumption. f_equal.
     apply constructor_subvalues_inj.
-    - apply get_constructor_fold_map_nth.
-    - rewrite subvalues_fold_map_nth. apply map_nth_equal_None. assumption.
+    - apply constructor_vset_cons.
+    - rewrite subvalues_vset_cons. apply map_nth_equal_None. assumption.
   Qed.
 
   Lemma set_get_disj_aux v i j p q w :
     i <> j -> v[[i :: p <- w]][[j :: q]] = v[[j :: q]].
-  Proof. intro. cbn. rewrite subvalues_fold_map_nth, nth_error_map_nth_neq; auto. Qed.
+  Proof. intro. rewrite vget_cons, subvalues_vset_cons, nth_error_map_nth_neq; auto. Qed.
 
   Lemma set_get_vdisj v w p q (Hvdisj : vdisj p q) :
     v[[p <- w]][[q]] = v[[q]].
@@ -354,8 +355,8 @@ Section GetSetPath.
     induction p; intro v.
     - reflexivity.
     - apply constructor_subvalues_inj.
-      + cbn. rewrite !get_constructor_fold_map_nth. reflexivity.
-      + cbn. rewrite !subvalues_fold_map_nth, map_nth_compose. apply map_nth_equiv. assumption.
+      + rewrite !constructor_vset_cons. reflexivity.
+      + rewrite !subvalues_vset_cons, map_nth_compose. apply map_nth_equiv. assumption.
   Qed.
 
   (* Now the we proved that v[[p <- ?]] = v when p in invalid, we can remove the validity
@@ -384,8 +385,8 @@ Section GetSetPath.
     i <> j -> v[[i :: p <- x]][[j :: q <- y]] = v[[j :: q <- y]][[i :: p <- x]].
   Proof.
     intro. apply constructor_subvalues_inj.
-    - cbn. rewrite !get_constructor_fold_map_nth. reflexivity.
-    - cbn. rewrite !subvalues_fold_map_nth. apply map_nth_neq_commute. assumption.
+    - rewrite !constructor_vset_cons. reflexivity.
+    - rewrite !subvalues_vset_cons. apply map_nth_neq_commute. assumption.
   Qed.
 
   Lemma vset_twice_disj_commute v p q x y :
