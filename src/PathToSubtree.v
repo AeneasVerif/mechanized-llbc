@@ -155,19 +155,19 @@ Qed.
 Declare Scope GetSetPath_scope.
 Open Scope GetSetPath_scope.
 
-Class GetSetPath (V : Type) := {
+Class Value (V : Type) := {
   constructors : Type; (* a `constructor` type *)
   arity : constructors -> nat;
   subvalues : V -> list V;
   get_constructor : V -> constructors;
-  fold : constructors -> list V -> V;
+  fold_value : constructors -> list V -> V;
   bot : V;
 
   length_subvalues_is_arity v : length (subvalues v) = arity (get_constructor v);
   constructor_subvalues_inj v w :
     get_constructor v = get_constructor w -> subvalues v = subvalues w -> v = w;
-  constructor_fold c vs : length vs = arity c -> get_constructor (fold c vs) = c;
-  subvalues_fold c vs : length vs = arity c -> subvalues (fold c vs) = vs;
+  get_constructor_fold_value c vs : length vs = arity c -> get_constructor (fold_value c vs) = c;
+  subvalues_fold_value c vs : length vs = arity c -> subvalues (fold_value c vs) = vs;
   subvalues_bot : subvalues bot = nil;
 }.
 
@@ -176,33 +176,35 @@ Notation get_subval_or_bot w i :=
     | Some u => u
     | None => bot
   end).
-Definition vget {V} `{GetSetPath V} : vpath -> V -> V := 
+Definition vget {V} `{Value V} : vpath -> V -> V := 
   fold_left (fun w i => get_subval_or_bot w i).
 Notation "v [[ p ]]" := (vget p v) (left associativity, at level 50) : GetSetPath_scope.
 
-Fixpoint vset {V} `{GetSetPath V} (p : vpath) (w : V) (v : V) :=
+Fixpoint vset {V} `{Value V} (p : vpath) (w : V) (v : V) :=
   match p with
   | nil => w
-  | i :: q => fold (get_constructor v) (map_nth (subvalues v) i (vset q w))
+  | i :: q => fold_value (get_constructor v) (map_nth (subvalues v) i (vset q w))
   end.
 Notation "v [[ p <- w ]]" := (vset p w v) (left associativity, at level 50).
 
 Notation get_val S i := (SOME c <- nth_error S i IN Some (snd c)).
 
-Definition sget {V B} `{GetSetPath V} (p : spath) (S : list (B * V)) : V := 
+Definition state B V := list (B * V).
+
+Definition sget {V B} `{Value V} (p : spath) (S : state B V) : V := 
   match get_val S (fst p) with
   | Some v => v[[snd p]]
   | None => bot
   end.
 Notation "v [ p ]" := (sget p v) (left associativity, at level 50) : GetSetPath_scope.
 
-Definition sset {V B} `{GetSetPath V} (p : spath) (v : V) (S : list (B * V)) :=
+Definition sset {V B} `{Value V} (p : spath) (v : V) (S : state B V) :=
   map_nth S (fst p) (fun c => (fst c, (snd c)[[snd p <- v]])).
 Notation "S [ p <- v ]" := (sset p v S) (left associativity, at level 50).
 
 Section GetSetPath.
   Context {V : Type}.
-  Context {get_set_path : GetSetPath V}.
+  Context {IsValue : Value V}.
   Context {B : Type}.
 
   Lemma vget_app v p q : v[[p ++ q]] = v[[p]][[q]].
@@ -287,16 +289,16 @@ Section GetSetPath.
 
   Lemma constructor_vset_cons v i p w :
     get_constructor (v[[i :: p <- w]]) = get_constructor v.
-  Proof. apply constructor_fold. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
+  Proof. apply get_constructor_fold_value. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
 
   Lemma subvalues_vset_cons v i p w :
     subvalues (v[[i :: p <- w]]) = map_nth (subvalues v) i (vset p w).
-  Proof. apply subvalues_fold. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
+  Proof. apply subvalues_fold_value. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
 
   Lemma vget_cons v i p : v[[i :: p]] = (get_subval_or_bot v i)[[p]].
   Proof. reflexivity. Qed.
 
-  Lemma set_get_vprefix v w p q (H : valid_vpath v p) :
+  Lemma vget_vset_prefix v w p q (H : valid_vpath v p) :
     v[[p ++ q <- w]][[p]] = v[[p]][[q <- w]].
   Proof.
     induction H as [ | v i p u subval_v_i valid_u_p IH].
@@ -305,8 +307,8 @@ Section GetSetPath.
       simplify_option.
   Qed.
 
-  Corollary get_set_vequal v w p : valid_vpath v p -> v[[p <- w]][[p]] = w.
-  Proof. intro. rewrite<- (app_nil_r p) at 2. rewrite set_get_vprefix; auto. Qed.
+  Corollary vget_vset_equal v w p : valid_vpath v p -> v[[p <- w]][[p]] = w.
+  Proof. intro. rewrite<- (app_nil_r p) at 2. rewrite vget_vset_prefix; auto. Qed.
 
   Lemma set_valid v w p (H : valid_vpath v p) : valid_vpath (v[[p <- w]]) p.
   Proof.
@@ -317,9 +319,9 @@ Section GetSetPath.
       + assumption.
   Qed.
 
-  Corollary get_set_prefix_right v w p q (H : valid_vpath v p) :
+  Corollary vget_vset_prefix_right v w p q (H : valid_vpath v p) :
     v[[p <- w]][[p ++ q]] = w[[q]].
-  Proof. rewrite vget_app, get_set_vequal; try apply set_valid; auto. Qed.
+  Proof. rewrite vget_app, vget_vset_equal; try apply set_valid; auto. Qed.
 
   Lemma _vset_app_split v p q w (H : valid_vpath v p) :
     v[[p ++ q <- w]] = v[[p <- v[[p]][[q <- w]]]].
@@ -356,17 +358,17 @@ Section GetSetPath.
     - rewrite subvalues_vset_cons. apply map_nth_equal_None. assumption.
   Qed.
 
-  Lemma set_get_disj_aux v i j p q w :
+  Lemma vset_vget_disj_aux v i j p q w :
     i <> j -> v[[i :: p <- w]][[j :: q]] = v[[j :: q]].
   Proof. intro. rewrite vget_cons, subvalues_vset_cons, nth_error_map_nth_neq; auto. Qed.
 
-  Lemma set_get_vdisj v w p q (Hvdisj : vdisj p q) :
+  Lemma vset_vget_disj v w p q (Hvdisj : vdisj p q) :
     v[[p <- w]][[q]] = v[[q]].
   Proof.
     destruct (valid_or_invalid p v) as [H | ].
     - destruct Hvdisj as (r & p' & q' & i & j & diff & -> & ->).
       apply valid_vpath_app in H. destruct H as [H _].
-      rewrite !vget_app, set_get_vprefix by assumption. apply set_get_disj_aux. assumption.
+      rewrite !vget_app, vget_vset_prefix by assumption. apply vset_vget_disj_aux. assumption.
     - rewrite vset_invalid; auto.
   Qed.
 
@@ -394,7 +396,7 @@ Section GetSetPath.
   Lemma vset_twice_prefix_left v p q x y : v[[p <- x]][[p ++ q <- y]] = v[[p <- x[[q <- y]]]].
   Proof.
     rewrite vset_app_split, vset_twice_equal. destruct (valid_or_invalid p v).
-    - rewrite get_set_vequal; auto.
+    - rewrite vget_vset_equal; auto.
     - rewrite !vset_invalid; auto.
   Qed.
 
@@ -415,17 +417,17 @@ Section GetSetPath.
   Qed.
 
   (* Similar theory for getting and setting values in a state. *)
-  Lemma vset_app (S : list (B * V)) p q : S[p +++ q] = S[p][[q]].
+  Lemma vset_app (S : state B V) p q : S[p +++ q] = S[p][[q]].
   Proof.
     unfold sget, app_spath_vpath. cbn. destruct (get_val S (fst p)).
     - apply vget_app.
     - rewrite vget_bot. reflexivity.
   Qed.
 
-  Definition valid_spath (S : list (B * V)) (p : spath) :=
+  Definition valid_spath (S : state B V) (p : spath) :=
     exists v, get_val S (fst p) = Some v /\ valid_vpath v (snd p).
 
-  Lemma valid_spath_app (S : list (B * V)) p q :
+  Lemma valid_spath_app (S : state B V) p q :
     valid_spath S (p +++ q) <-> valid_spath S p /\ valid_vpath (S[p]) q.
   Proof.
     split.
@@ -438,18 +440,18 @@ Section GetSetPath.
       + apply valid_vpath_app. unfold sget in G. rewrite H in G. auto.
   Qed.
 
-  Lemma get_not_bot_valid_spath (S : list (B * V)) p (H : S[p] <> bot) : valid_spath S p.
+  Lemma get_not_bot_valid_spath (S : state B V) p (H : S[p] <> bot) : valid_spath S p.
   Proof.
     unfold sget in H. destruct (get_val S (fst p)) as [v | ] eqn:EQN.
     - exists v. split. { assumption. } apply get_not_bot_valid_vpath. assumption.
     - exfalso. apply H. reflexivity.
   Qed.
 
-  Lemma sset_sget_prefix (S : list (B * V)) v p q :
+  Lemma sset_sget_prefix (S : state B V) v p q :
     valid_spath S p -> S[p +++ q <- v][p] = S[p][[q <- v]].
   Proof.
     intros (w & Hget & Hvalid). unfold sget, sset.
-    rewrite nth_error_map_nth_eq. simplify_option. rewrite set_get_vprefix; auto.
+    rewrite nth_error_map_nth_eq. simplify_option. rewrite vget_vset_prefix; auto.
   Qed.
 
   Lemma sset_sget_equal S p v : valid_spath S p -> S[p <- v][p] = v.
@@ -458,7 +460,7 @@ Section GetSetPath.
     rewrite sset_sget_prefix; auto.
   Qed.
 
-  Lemma sset_valid (S : list (B * V)) p v : valid_spath S p -> valid_spath (S[p <- v]) p.
+  Lemma sset_valid (S : state B V) p v : valid_spath S p -> valid_spath (S[p <- v]) p.
   Proof.
     intros (w & ? & ?). exists (w[[snd p <- v]]). split.
     - unfold sset. rewrite nth_error_map_nth_eq. simplify_option.
@@ -471,7 +473,7 @@ Section GetSetPath.
 
   (* During the proof of this theorem, we implicitely use the fact that if the spath p is
    * invalid, then the spath q is invalid, and S[q <- w] = S. *)
-  Lemma constructor_sset_sget_strict_prefix (S : list (B * V)) p q w :
+  Lemma constructor_sset_sget_strict_prefix (S : state B V) p q w :
     strict_prefix p q -> get_constructor (S[q <- w][p]) = get_constructor (S[p]).
   Proof.
     intros (i & r & <-).
@@ -485,14 +487,14 @@ Section GetSetPath.
     - unfold sget, sset. rewrite nth_error_map_nth_eq. simplify_option.
   Qed.
 
-  Lemma sset_sget_disj (S : list (B * V)) p v q : disj p q -> S[p <- v][q] = S[q].
+  Lemma sset_sget_disj (S : state B V) p v q : disj p q -> S[p <- v][q] = S[q].
   Proof.
     unfold sset, sget. intros [ | (<- & Hdisj)].
     - rewrite nth_error_map_nth_neq by assumption. reflexivity.
-    - rewrite nth_error_map_nth_eq. autodestruct. intro. apply set_get_vdisj. assumption.
+    - rewrite nth_error_map_nth_eq. autodestruct. intro. apply vset_vget_disj. assumption.
   Qed.
 
-  Lemma sset_twice_prefix_right (S : list (B * V)) p q x y :
+  Lemma sset_twice_prefix_right (S : state B V) p q x y :
     prefix q p -> S[p <- x][q <- y] = S[q <- y].
   Proof.
     intros (r & <-). unfold sset. cbn. rewrite map_nth_compose. cbn. apply map_nth_equiv.
@@ -501,17 +503,17 @@ Section GetSetPath.
     - exists r. reflexivity.
   Qed.
 
-  Corollary sset_twice_equal (S : list (B * V)) p x y : S[p <- x][p <- y] = S[p <- y].
+  Corollary sset_twice_equal (S : state B V) p x y : S[p <- x][p <- y] = S[p <- y].
   Proof. apply sset_twice_prefix_right. exists nil. apply app_spath_vpath_nil_r. Qed.
 
-  Lemma sset_twice_preix_left (S : list (B * V)) p q x y :
+  Lemma sset_twice_preix_left (S : state B V) p q x y :
     S[p <- x][p +++ q <- y] = S[p <- x[[q <- y]]].
   Proof.
     unfold sset. cbn. rewrite map_nth_compose. cbn. apply map_nth_equiv.
     intro. rewrite vset_twice_prefix_left. reflexivity.
   Qed.
 
-  Lemma sset_twice_disj_commute (S : list (B * V)) p q v w :
+  Lemma sset_twice_disj_commute (S : state B V) p q v w :
     disj p q -> S[p <- v][q <- w] = S[q <- w][p <- v].
   Proof.
     unfold sset. intros [ | (<- & ?)].
@@ -522,7 +524,7 @@ Section GetSetPath.
 
   Context `{EqDecBinder : EqDec B}.
 
-  Fixpoint find_binder (S : list (B * V)) (b : B) : option nat := match S with
+  Fixpoint find_binder (S : state B V) (b : B) : option nat := match S with
   | nil => None
   | (b', _) :: S' => if eq_dec b b' then Some 0 else SOME i <- find_binder S' b IN Some (1 + i)
   end.
@@ -538,10 +540,11 @@ Section GetSetPath.
     - apply valid_nil.
   Qed.
 
-  Lemma truc S p q (H : subvalues (S[p]) = nil) (valid_w : valid_spath S q) : prefix p q -> p = q.
+  Lemma get_nil_prefix_right S p q (H : subvalues (S[p]) = nil) (valid_w : valid_spath S q) :
+    prefix p q -> q = p.
   Proof.
     intros (r & <-). destruct r.
-    - symmetry. apply app_spath_vpath_nil_r.
+    - apply app_spath_vpath_nil_r.
     - exfalso. rewrite valid_spath_app in valid_w. destruct valid_w as [_ valid_queue].
       inversion valid_queue. rewrite H, nth_error_nil in *. simplify_option.
   Qed.
