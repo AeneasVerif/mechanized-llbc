@@ -126,11 +126,11 @@ Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop 
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
 | Eval_Deref_MutBorrow q l v
     (imm_or_mut : perm <> Mov)
-    (extract_q : sget q S = borrow^m(l, v)) :
+    (extract_q : S.[q] = borrow^m(l, v)) :
     eval_proj S perm Deref q (q +++ [0])
 (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
 | Eval_Deref_Ptr_Locs q q' l w (imm_or_mut : perm <> Mov) :
-    sget q S = ptr(l) -> sget q' S = loc(l, w) ->
+    S.[q] = ptr(l) -> sget q' S = loc(l, w) ->
     eval_proj S perm Deref q q'
 (* Coresponds to R-Loc and W-Loc in the article. *)
 | Eval_Loc proj q q' l v (imm_or_mut : perm <> Mov) (extract_q : sget q S = loc(l, v)) :
