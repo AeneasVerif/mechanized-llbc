@@ -106,60 +106,43 @@ Definition HLPL_plus_state := state HLPL_plus_binder HLPL_plus_val.
 Declare Scope hlpl_plus_scope.
 Delimit Scope hlpl_plus_scope with hlpl_plus.
 
+(* TODO: move in lang.v *)
 Reserved Notation "'bot'" (at level 50).
 Reserved Notation "'loan^m' l" (at level 50).
-Reserved Notation "'borrow^m' l v" (at level 50).
-Reserved Notation "'loc' l v" (at level 50).
+Reserved Notation "'borrow^m' ( l , v )" (at level 50, l at next level, v at next level).
+Reserved Notation "'loc' ( l , v )" (at level 50, l at next level, v at next level).
 Reserved Notation "'ptr' l" (at level 50).
 
-Notation "'bot'" := (@vZero HLPL_plus_zero HLPL_plus_unit HLPL_plus_bin HLPL_plus_bot): hlpl_plus_scope.
-Notation "'loan^m' l" := (@vZero HLPL_plus_zero HLPL_plus_unit HLPL_plus_bin (HLPL_plus_loan l))
-  : hlpl_plus_scope.
-Notation "'ptr' l" := (@vZero HLPL_plus_zero HLPL_plus_unit HLPL_plus_bin (HLPL_plus_ptr l))
-  : hlpl_plus_scope.
-Notation "'borrow^m' l v" := (@vUnit HLPL_plus_zero HLPL_plus_unit HLPL_plus_bin (HLPL_plus_borrow l) v)
-  : hlpl_plus_scope.
-Notation "'loc' l v" := (@vUnit HLPL_plus_zero HLPL_plus_unit HLPL_plus_bin (HLPL_plus_loc l) v)
-  : hlpl_plus_scope.
+Notation "'bot'" := HLPL_plus_bot: hlpl_plus_scope.
+Notation "'loan^m' l" := (HLPL_plus_mut_loan l) : hlpl_plus_scope.
+Notation "'borrow^m' ( l  , v )" := (HLPL_plus_mut_borrow l v) : hlpl_plus_scope.
+Notation "'loc' ( l , v )" := (HLPL_plus_loc l v) : hlpl_plus_scope.
+Notation "'ptr' l" := (HLPL_plus_ptr l) : hlpl_plus_scope.
 
 (* Bind Scope hlpl_plus_scope with HLPL_plus_val. *)
 Open Scope hlpl_plus_scope.
 
-
-Global Instance Inhabited_HLPL_plus_val : Inhabited HLPL_plus_val := { default := bot }.
-
-(*
-Variant eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop :=
+Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop :=
+(* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
 | Eval_Deref_MutBorrow q l v
     (imm_or_mut : perm <> Mov)
-    (extract_q : S{{q}} = vUnit (HLPL_plus_borrow l) v) :
+    (extract_q : sget q S = borrow^m(l, v)) :
     eval_proj S perm Deref q (q +++ [0])
+(* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
 | Eval_Deref_Ptr_Locs q q' l w (imm_or_mut : perm <> Mov) :
-    S{{q}} = vZero (HLPL_plus_ptr l) -> valid_spath S q' -> S{{q'}} = vUnit (HLPL_plus_loc l) w ->
-    eval_proj S perm Deref q q'.
-
-(* TODO: name *)
-Variant eval_path_epsilon (S : HLPL_plus_state) perm : spath -> spath -> Prop :=
-| Eval_Loc q l v (imm_or_mut : perm <> Mov) (extract_q : S{{q}} = vUnit (HLPL_plus_loc l) v) :
-    eval_path_epsilon S perm q (q +++ [0]).
-*)
+    sget q S = ptr(l) -> sget q' S = loc(l, w) ->
+    eval_proj S perm Deref q q'
+(* Coresponds to R-Loc and W-Loc in the article. *)
+| Eval_Loc proj q q' l v (imm_or_mut : perm <> Mov) (extract_q : sget q S = loc(l, v)) :
+    eval_proj S perm proj (q +++ [0]) q' -> eval_proj S perm proj q q
+.
 
 (* TODO: eval_path represents a computation, that evaluates and accumulate the result over [...] *)
-Inductive eval_path (s : HLPL_plus_state) : path -> permission -> spath -> spath -> Prop :=
-(* Corresponds to R-Base and W-Base in the paper. *)
-| Eval_nil perm pi : eval_path s [] perm pi pi
-(* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the paper. *)
-| Eval_Deref_MutBorrow p q l v r
-    (extract_q : s{{q}} = vUnit (HLPL_plus_borrow l) v)
-    (eval_q : eval_path s p Mut (q +++ [0]) r) :
-    eval_path s (Deref :: p) Mut q r
-| Eval_Deref_Ptr_Locs p q q' l w r :
-    s{{q}} = vZero (HLPL_plus_ptr l) -> valid_spath s q' -> s{{q'}} = vUnit (HLPL_plus_loc l) w ->
-    eval_path s p Mut q' r ->
-    eval_path s (Deref :: p) Mut q r
-| Eval_Loc proj P q r l v (extract_q : s{{q}} = vUnit (HLPL_plus_loc l) v) :
-    eval_path s (proj :: P) Mut (q +++ [0]) r -> eval_path s (proj :: P) Mut q r.
-Print eval_path.
+Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop :=
+(* Corresponds to R-Base and W-Base in the article. *)
+| Eval_nil pi : eval_path S perm [] pi pi
+| Eval_cons proj P p q r: eval_proj S perm proj p q -> eval_path S perm P q r ->
+    eval_path S perm (proj :: P) p r.
 
 Lemma eval_path_valid (s : HLPL_plus_state) p perm q r
   (valid_q : valid_spath s q) (eval_q_r : eval_path s p perm q r) :
