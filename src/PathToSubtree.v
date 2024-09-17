@@ -81,6 +81,36 @@ Proof.
     + apply vCompDisj. exists nil. repeat eexists. assumption.
 Qed.
 
+
+(* Another try for comparison. *)
+Fixpoint longest_prefix (p q : vpath) :=
+  match p, q with
+  | nil, _ => (p, q)
+  | _, nil => (p, q)
+  | i :: p', j :: q' => if Nat.eq_dec i j then longest_prefix p' q' else (p, q)
+  end.
+
+Lemma longest_prefix_prop p p' q' :
+  forall q, longest_prefix p q = (p', q') -> exists r, p = r ++ p' /\ q = r ++ q'.
+Proof.
+  induction p as [ | i p].
+  - intros q H. exists nil. inversion H. auto.
+  - intros [ | j q] H.
+    + exists nil. inversion H. auto.
+    + cbn in H. destruct (Nat.eq_dec i j) as [<- | ].
+      * specialize (IHp _ H). destruct IHp as (r & -> & ->). exists (i :: r). auto.
+      * exists nil. inversion H. auto.
+Qed.
+
+(*
+Lemma longest_prefix_head_diff p q i j p' q' (H : longest_prefix p q = (i :: p', j :: q')) : i <> j.
+Proof.
+  revert q H. induction p as [ | p0 p IH]; intros q H; inversion H as [uwu]. destruct q as [ | q0]; try inversion H.
+  destruct (Nat.eq_dec p0 q0).
+  - eapply IHp. eassumption.
+  - inversion H1. subst. 
+ *)
+
 (* Prefixness and disjointness for spaths: *)
 Definition prefix p q := exists r, p +++ r = q.
 
