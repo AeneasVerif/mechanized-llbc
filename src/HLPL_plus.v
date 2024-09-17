@@ -4,19 +4,19 @@ Require Import lang.
 Require Import List.
 Import ListNotations.
 
-Variant HLPL_plus_zero :=
+Inductive HLPL_plus_val :=
 | HLPL_plus_bot
 | HLPL_plus_int (n : nat) (* TODO: use Aeneas integer types? *)
-| HLPL_plus_loan (l : loan_id)
-| HLPL_plus_ptr (l : loan_id).
-
-Variant HLPL_plus_unit :=
-| HLPL_plus_borrow (l : loan_id)
-| HLPL_plus_loc (l : loan_id).
-
-Variant HLPL_plus_bin := .
-
-Notation HLPL_plus_val := (value HLPL_plus_zero HLPL_plus_unit HLPL_plus_bin).
+| HLPL_plus_mut_loan (l : loan_id)
+| HLPL_plus_mut_borrow (l : loan_id) (v : HLPL_plus_val)
+(*
+| HLPL_plus_shr_loan (l : loan_id) (v : HLPL_plus_val)
+| HLPL_plus_shr_borrow (l : loan_id)
+ *)
+| HLPL_plus_loc (l : loan_id) (v : HLPL_plus_val)
+| HLPL_plus_ptr (l : loan_id)
+(* | HLPL_plus_pair (v0 : HLPL_plus_val) (v1 : HLPL_plus_val) *)
+.
 
 Variant HLPL_plus_binder :=
 | Var (v : var)
@@ -26,7 +26,82 @@ Variant HLPL_plus_binder :=
 Program Global Instance EqDec_binder : EqDec HLPL_plus_binder.
 Next Obligation. repeat decide equality. Qed.
 
-Notation HLPL_plus_state := (state HLPL_plus_zero HLPL_plus_unit HLPL_plus_bin HLPL_plus_binder).
+Variant HLPL_plus_constructor :=
+| HLPL_plus_botC
+| HLPL_plus_intC (n : nat)
+| HLPL_plus_mut_loanC (l : loan_id)
+| HLPL_plus_mut_borrowC (l : loan_id)
+| HLPL_plus_locC (l : loan_id)
+| HLPL_plus_ptrC (l : loan_id)
+.
+
+Definition HLPL_plus_arity c := match c with
+| HLPL_plus_botC => 0
+| HLPL_plus_intC _ => 0
+| HLPL_plus_mut_loanC _ => 0
+| HLPL_plus_mut_borrowC _ => 1
+| HLPL_plus_locC _ => 1
+| HLPL_plus_ptrC _ => 0
+end.
+
+Definition HLPL_plus_get_constructor v := match v with
+| HLPL_plus_bot => HLPL_plus_botC
+| HLPL_plus_int n => HLPL_plus_intC n
+| HLPL_plus_mut_loan l => HLPL_plus_mut_loanC l
+| HLPL_plus_mut_borrow l _ => HLPL_plus_mut_borrowC l
+| HLPL_plus_loc l _ => HLPL_plus_locC l
+| HLPL_plus_ptr l => HLPL_plus_ptrC l
+end.
+
+Definition HLPL_plus_subvalues v := match v with
+| HLPL_plus_bot => []
+| HLPL_plus_int _ => []
+| HLPL_plus_mut_loan _ => []
+| HLPL_plus_mut_borrow _ v => [v]
+| HLPL_plus_loc _ v => [v]
+| HLPL_plus_ptr l => []
+end.
+
+Definition HLPL_plus_fold c vs := match c, vs with
+| HLPL_plus_intC n, [] => HLPL_plus_int n
+| HLPL_plus_mut_loanC l, [] => HLPL_plus_mut_loan l
+| HLPL_plus_mut_borrowC l, [v] => HLPL_plus_mut_borrow l v
+| HLPL_plus_locC l, [v] => HLPL_plus_loc l v
+| HLPL_plus_ptrC l, [] => HLPL_plus_ptr l
+| _, _ => HLPL_plus_bot
+end.
+
+Program Instance ValueHLPL : Value HLPL_plus_val := {
+  constructors := HLPL_plus_constructor;
+  arity := HLPL_plus_arity;
+  get_constructor := HLPL_plus_get_constructor;
+  subvalues := HLPL_plus_subvalues;
+  fold_value := HLPL_plus_fold;
+  bot := HLPL_plus_bot;
+}.
+Next Obligation. destruct v; reflexivity. Qed.
+Next Obligation.
+destruct v; destruct w; inversion eq_constructor; inversion eq_subvalues; reflexivity.
+Qed.
+
+Lemma length_1_is_singleton [A : Type] [l : list A] : length l = 1 -> exists a, l = [a].
+Proof.
+  intro H. destruct l as [ | a l'].
+  - inversion H.
+  - exists a. f_equal. apply length_zero_iff_nil. inversion H. auto.
+Qed.
+Next Obligation.
+  destruct c; (rewrite length_zero_iff_nil in H; rewrite H) ||
+              destruct (length_1_is_singleton H) as [? ->];
+              reflexivity.
+Qed.
+Next Obligation.
+  destruct c; (rewrite length_zero_iff_nil in H; rewrite H) ||
+              destruct (length_1_is_singleton H) as [? ->];
+              reflexivity.
+Qed.
+
+Definition HLPL_plus_state := state HLPL_plus_binder HLPL_plus_val.
 
 Declare Scope hlpl_plus_scope.
 Delimit Scope hlpl_plus_scope with hlpl_plus.

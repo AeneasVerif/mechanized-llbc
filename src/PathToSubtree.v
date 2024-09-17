@@ -164,10 +164,10 @@ Class Value (V : Type) := {
   bot : V;
 
   length_subvalues_is_arity v : length (subvalues v) = arity (get_constructor v);
-  constructor_subvalues_inj v w :
-    get_constructor v = get_constructor w -> subvalues v = subvalues w -> v = w;
-  get_constructor_fold_value c vs : length vs = arity c -> get_constructor (fold_value c vs) = c;
-  subvalues_fold_value c vs : length vs = arity c -> subvalues (fold_value c vs) = vs;
+  constructor_subvalues_inj v w (eq_constructor : get_constructor v = get_constructor w) 
+                                (eq_subvalues : subvalues v = subvalues w) : v = w;
+  get_constructor_fold_value c vs (H : length vs = arity c) : get_constructor (fold_value c vs) = c;
+  subvalues_fold_value c vs (H : length vs = arity c) : subvalues (fold_value c vs) = vs;
   subvalues_bot : subvalues bot = nil;
 }.
 
