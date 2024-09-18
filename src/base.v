@@ -1,12 +1,20 @@
 Require Import List.
 Require Import PeanoNat.
 Require Import OptionMonad.
+Import ListNotations.
 
 Local Open Scope option_monad_scope.
 
 Class EqDec (A : Type) := {
   eq_dec (a b : A) : {a = b} + {a <> b};
 }.
+
+Lemma length_1_is_singleton [A : Type] [l : list A] : length l = 1 -> exists a, l = [a].
+Proof.
+  intro H. destruct l as [ | a l'].
+  - inversion H.
+  - exists a. f_equal. apply length_zero_iff_nil. inversion H. auto.
+Qed.
 
 (* TODO: move in a separate file? *)
 Section Map_nth.
