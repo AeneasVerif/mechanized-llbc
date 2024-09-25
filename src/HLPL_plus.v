@@ -119,17 +119,18 @@ Open Scope hlpl_plus_scope.
 
 Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop :=
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
-| Eval_Deref_MutBorrow q l v
+| Eval_Deref_MutBorrow q l
     (imm_or_mut : perm <> Mov)
-    (get_q : S.[q] = borrow^m(l, v)) :
+    (get_q : get_constructor (S.[q]) = HLPL_plus_mut_borrowC l) :
     eval_proj S perm Deref q (q +++ [0])
 (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
-| Eval_Deref_Ptr_Locs q q' l w (imm_or_mut : perm <> Mov)
-    (get_q : S.[q] = ptr(l)) (get_q' : S.[q'] = loc(l, w)) :
+| Eval_Deref_Ptr_Locs q q' l (imm_or_mut : perm <> Mov)
+    (get_q : S.[q] = ptr(l)) (get_q' : get_constructor (S.[q']) = HLPL_plus_locC l) :
     eval_proj S perm Deref q q'
 (* Coresponds to R-Loc and W-Loc in the article. *)
-| Eval_Loc proj q q' l v (imm_or_mut : perm <> Mov) (get_q : sget q S = loc(l, v)) :
-    eval_proj S perm proj (q +++ [0]) q' -> eval_proj S perm proj q q'
+| Eval_Loc proj q q' l (imm_or_mut : perm <> Mov)
+    (get_q : get_constructor (S.[q]) = HLPL_plus_locC l)
+    (eval_proj_rec : eval_proj S perm proj (q +++ [0]) q') : eval_proj S perm proj q q'
 .
 
 (* TODO: eval_path represents a computation, that evaluates and accumulate the result over [...] *)
@@ -139,13 +140,16 @@ Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop 
 | Eval_cons proj P p q r: eval_proj S perm proj p q -> eval_path S perm P q r ->
     eval_path S perm (proj :: P) p r.
 
+Notation eval_place S perm p r :=
+  (exists i, find_binder S (Var (fst p)) = Some i /\ eval_path S perm (snd p) (i, []) r).
+
 Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
 Proof.
   induction H.
   - apply valid_spath_app. split.
-    + apply get_not_bot_valid_spath. rewrite get_q. discriminate.
-    + rewrite get_q. econstructor; reflexivity || constructor.
-  - apply get_not_bot_valid_spath. rewrite get_q'. discriminate.
+    + apply get_not_bot_valid_spath. destruct (S.[q]); discriminate.
+    + destruct (S.[q]); inversion get_q. econstructor; reflexivity || constructor.
+  - apply get_not_bot_valid_spath. destruct (S.[q']); discriminate.
   - apply IHeval_proj.
 Qed.
 
