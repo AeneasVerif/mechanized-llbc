@@ -447,6 +447,7 @@ Section GetSetPath.
   Qed.
 
   (* Similar theory for getting and setting values in a state. *)
+  (* TODO: rename this lemma `sget_app` *)
   Lemma vset_app (S : state B V) p q : S.[p +++ q] = S.[p].[[q]].
   Proof.
     unfold sget, app_spath_vpath. cbn. destruct (get_val S (fst p)).

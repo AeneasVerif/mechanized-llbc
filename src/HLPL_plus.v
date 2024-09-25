@@ -83,7 +83,6 @@ Next Obligation. destruct v; reflexivity. Qed.
 Next Obligation.
 destruct v; destruct w; inversion eq_constructor; inversion eq_subvalues; reflexivity.
 Qed.
-
 Next Obligation.
   destruct c; (rewrite length_zero_iff_nil in H; rewrite H) ||
               destruct (length_1_is_singleton H) as [? ->];
@@ -101,7 +100,8 @@ Declare Scope hlpl_plus_scope.
 Delimit Scope hlpl_plus_scope with hlpl_plus.
 
 (* TODO: move in lang.v *)
-(* TODO: set every priority to 0 ?)
+(* TODO: set every priority to 0? *)
+(* TODO: notations for constructors? *)
 Reserved Notation "'bot'" (at level 50).
 Reserved Notation "'loan^m' l" (at level 50).
 Reserved Notation "'borrow^m' ( l , v )" (at level 50, l at next level, v at next level).
