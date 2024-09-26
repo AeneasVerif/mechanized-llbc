@@ -236,7 +236,7 @@ Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Reorg_refl S : reorg S S
 | Reorg_trans S0 S1 S2 : reorg S0 S1 -> reorg S1 S2 -> reorg S0 S2
 | Reorg_end_borrow_m S (p q : spath) l v :
-    S.[p] = loan^m(l) -> S.[q] = borrow^m(l, v) ->
+    disj p q -> S.[p] = loan^m(l) -> S.[q] = borrow^m(l, v) ->
     ~contains_loan v -> not_in_borrow S q ->
     reorg S (S.[p <- v].[q <- bot]).
 

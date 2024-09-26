@@ -199,7 +199,7 @@ Inductive reorg : LLBC_state -> LLBC_state -> Prop :=
 | Reorg_none S : reorg S S
 | Reorg_seq S0 S1 S2 : reorg S0 S1 -> reorg S1 S2 -> reorg S0 S2
 | Reorg_end_borrow_m S (p q : spath) l v :
-    S.[p] = loan^m(l) -> S.[q] = borrow^m(l, v) ->
+    disj p q -> S.[p] = loan^m(l) -> S.[q] = borrow^m(l, v) ->
     ~contains_loan v -> not_in_borrow S q ->
     reorg S (S.[p <- v].[q <- bot]).
 
@@ -402,6 +402,7 @@ Proof.
     cbn. eapply Eval_reorg.
     { eapply Reorg_seq.
       - apply Reorg_end_borrow_m with (p := (1, [0])) (q := (9, [])) (l := 1).
+        + left. discriminate.
         + reflexivity.
         + reflexivity.
         + intros (p & valid_p & is_loan).
@@ -409,6 +410,7 @@ Proof.
           destruct is_loan as (? & H). inversion H.
         + intros q (? & _). apply prefix_nil. assumption.
       - cbn. apply Reorg_end_borrow_m with (l := 0) (p := (6, [])) (q := (1, [])).
+        + left. discriminate.
         + reflexivity.
         + reflexivity.
         + intros (p & valid_p & is_loan).
