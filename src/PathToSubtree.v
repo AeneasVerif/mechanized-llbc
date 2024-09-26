@@ -83,15 +83,18 @@ Qed.
 
 
 (* Another try for comparison. *)
-Fixpoint longest_prefix (p q : vpath) :=
+(* Let r be the longest common prefix of p and q. Let p' and q' be the vpaths such that p = r ++ p'
+ * and q = r ++ q'. p' and q' are called the "common suffixes".
+ * TODO: search if there is already a terminology in the literature. *)
+Fixpoint longest_common_suffixes (p q : vpath) :=
   match p, q with
   | nil, _ => (p, q)
   | _, nil => (p, q)
-  | i :: p', j :: q' => if Nat.eq_dec i j then longest_prefix p' q' else (p, q)
+  | i :: p', j :: q' => if Nat.eq_dec i j then longest_common_suffixes p' q' else (p, q)
   end.
 
-Lemma longest_prefix_prop p p' q' :
-  forall q, longest_prefix p q = (p', q') -> exists r, p = r ++ p' /\ q = r ++ q'.
+Lemma longest_common_suffixes_prefix p p' q' :
+  forall q, longest_common_suffixes p q = (p', q') -> exists r, p = r ++ p' /\ q = r ++ q'.
 Proof.
   induction p as [ | i p].
   - intros q H. exists nil. inversion H. auto.
@@ -102,14 +105,31 @@ Proof.
       * exists nil. inversion H. auto.
 Qed.
 
-(*
-Lemma longest_prefix_head_diff p q i j p' q' (H : longest_prefix p q = (i :: p', j :: q')) : i <> j.
+Lemma longest_common_suffixes_head_diff p q i j p' q' :
+  longest_common_suffixes p q = (i :: p', j :: q') -> i <> j.
 Proof.
-  revert q H. induction p as [ | p0 p IH]; intros q H; inversion H as [uwu]. destruct q as [ | q0]; try inversion H.
-  destruct (Nat.eq_dec p0 q0).
-  - eapply IHp. eassumption.
-  - inversion H1. subst. 
- *)
+  revert q. induction p as [ | p0 p IH]; intros q H; try discriminate H.
+  destruct q as [ | q0]; try discriminate H.
+  cbn in H. destruct (Nat.eq_dec p0 q0) as [-> | ].
+  - eapply IH. exact H.
+  - inversion H. subst. assumption.
+Qed.
+
+Lemma longest_common_suffixes_strip p q r :
+  longest_common_suffixes (p ++ q) (p ++ r) = longest_common_suffixes q r.
+Proof.
+  induction p as [ | i ]; try reflexivity. cbn. destruct (Nat.eq_dec i i); easy.
+Qed.
+
+Variant CompResult :=  CompEqR | CompStrictPrefixLeftR | CompStrictPrefixRightR | CompDisjR.
+
+Definition decide_vcomparison p q :=
+  match longest_common_suffixes p q with
+  | (nil, nil) => CompEqR
+  | (nil, _ :: _) => CompStrictPrefixLeftR
+  | (_ :: _, nil) => CompStrictPrefixRightR
+  | (_ :: _, _ :: _) => CompDisjR
+  end.
 
 (* Prefixness and disjointness for spaths: *)
 Definition prefix p q := exists r, p +++ r = q.
@@ -134,6 +154,44 @@ Variant Comparable (p q : spath) : Prop :=
 | CompStrictPrefixLeft (H : strict_prefix p q)
 | CompStrictPrefixRight (H : strict_prefix q p)
 | CompDisj (H : disj p q).
+
+Definition decide_comparison (p q : spath) :=
+  if (Nat.eq_dec (fst p) (fst q))
+  then match longest_common_suffixes (snd p) (snd q) with
+    | (nil, nil) => CompEqR
+    | (nil, _ :: _) => CompStrictPrefixLeftR
+    | (_ :: _, nil) => CompStrictPrefixRightR
+    | (_ :: _, _ :: _) => CompDisjR
+  end
+  else CompDisjR.
+
+Lemma decide_comparison_eq p q : decide_comparison p q = CompEqR <-> p = q.
+Proof.
+  unfold decide_comparison. split.
+  - intro H. rewrite (surjective_pairing p), (surjective_pairing q).
+    destruct (Nat.eq_dec (fst p) (fst q)) as [<- | ]; try discriminate H.
+    destruct (longest_common_suffixes (snd p) (snd q)) as (p' & q') eqn:G.
+    apply longest_common_suffixes_prefix in G. destruct G as (r & -> & ->).
+    destruct p'; destruct q'; easy.
+  - intros <-. destruct (Nat.eq_dec (fst p) (fst p)); try easy.
+    rewrite<- (app_nil_r (snd p)). rewrite longest_common_suffixes_strip. reflexivity.
+Qed.
+
+Lemma decide_strict_prefix_left p q :
+  decide_comparison p q = CompStrictPrefixLeftR <-> strict_prefix p q.
+Proof.
+  unfold decide_comparison. split.
+  - intro H. rewrite (surjective_pairing p), (surjective_pairing q).
+    destruct (Nat.eq_dec (fst p) (fst q)) as [<-| ]; try discriminate H.
+    destruct (longest_common_suffixes (snd p) (snd q)) as (p' & q') eqn:G.
+    apply longest_common_suffixes_prefix in G. destruct G as (r & -> & ->).
+    destruct p'; destruct q' as [ | i q']; try discriminate H.
+    exists i, q'. unfold app_spath_vpath. rewrite app_nil_r. reflexivity.
+  - intros (i & r & <-). destruct (Nat.eq_dec (fst p) _); try easy.
+    rewrite<- (app_nil_r (snd p)). cbn. rewrite longest_common_suffixes_strip.
+    reflexivity.
+Qed.
+    
 
 Lemma comparable_spaths p q : Comparable p q.
 Proof.
