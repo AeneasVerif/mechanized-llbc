@@ -162,9 +162,6 @@ Proof.
   - apply IHeval_q_r. eapply eval_proj_valid. eassumption.
 Qed.
 
-Notation eval_place S perm p r :=
-  (exists i, find_binder S (Var (fst p)) = Some i /\ eval_path S perm (snd p) (i, []) r).
-
 Lemma eval_place_valid s p perm pi (H : eval_place s perm p pi) : valid_spath s pi.
 Proof.
   destruct H as (? & ? & ?). eapply eval_path_valid; try eassumption.
@@ -256,126 +253,167 @@ Inductive eval_stmt : HLPL_plus_state -> statement -> statement_result -> HLPL_p
 | Eval_assign S S' p rv v sp : eval_rvalue S rv v S' -> eval_place S' Mut p sp ->
     ~contains_outer_loc (S'.[sp]) -> ~contains_outer_loan (S'.[sp]) ->
     eval_stmt S (ASSIGN p <- rv) rUnit ((Anon, S'.[sp]) :: S'.[sp <- v])
-.
+| Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> eval_stmt S1 stmt r S2 -> eval_stmt S0 stmt r S2.
 
 (* TODO: introduce well-formedness judgement. *)
-Variant le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
-(*
+
+Inductive le_state : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Le_refl S : le_state S S
 | Le_trans S0 S1 S2 : le_state S0 S1 -> le_state S1 S2 -> le_state S0 S2
-*)
-| Le_MutBorrow_To_Ptr S l p q v : disj p q -> S{{p}} = vZero (HLPL_plus_loan l) ->
-    S{{q}} = vUnit (HLPL_plus_borrow l) v ->
-    le_state_base (S{{p <- vUnit (HLPL_plus_loc l) v}}{{q <- vZero (HLPL_plus_ptr l)}}) S.
+| Le_MutBorrow_To_Ptr S l p q v : disj p q -> S.[p] = loan^m(l) ->
+    S.[q] = borrow^m(l, v) ->
+    le_state (S.[p <- loc(l, v)].[q <- ptr(l)]) S.
 
+(*
 Inductive refl_trans_closure {A : Type} (R : A -> A -> Prop) : A -> A -> Prop :=
 | Cl_base x y : R x y -> refl_trans_closure R x y
 | Cl_refl x : refl_trans_closure R x x
 | Cl_trans x y z : refl_trans_closure R x y -> refl_trans_closure R y z -> refl_trans_closure R x z.
 
 Definition le_state := refl_trans_closure le_state_base.
+ *)
+
+(* TODO: rename this DB `sset_sget` *)
+Create HintDb sget_sset.
+(* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
+ * solve the validity hypothesis. *)
+Hint Rewrite @sset_sget_equal
+  using apply get_not_bot_valid_spath; autorewrite with sget_sset; try discriminate : sget_sset.
+(* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), provided that a
+ * disjointness hypothesis is already present in the context. *)
+Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sget_sset.
 
 Section MutBorrow_to_Ptr.
+  (* TODO: introduce `perm` in the context, and the hypothesis perm <> Mut *)
   Context (S_r : HLPL_plus_state).
-  Context (l : loan_id).
+  Context (l0 : loan_id).
   Context (v : HLPL_plus_val).
   Context (sp_loan sp_borrow : spath).
-  Context (valid_sp_loan : valid_spath S_r sp_loan).
-  Context (valid_sp_borrow : valid_spath S_r sp_borrow).
   Context (Hdisj : disj sp_loan sp_borrow).
-  Context (HS_r_loan : S_r{{sp_loan}} = vZero (HLPL_plus_loan l)).
-  Context (HS_r_borrow : S_r{{sp_borrow}} = vUnit (HLPL_plus_borrow l) v).
-  Notation S_l := (S_r{{sp_loan <- vUnit (HLPL_plus_loc l) v}}{{sp_borrow <- vZero (HLPL_plus_ptr l)}}).
+  Context (HS_r_loan : S_r.[sp_loan] = loan^m(l0)).
+  Context (HS_r_borrow : S_r.[sp_borrow] = borrow^m(l0, v)).
+  Notation S_l := (S_r.[sp_loan <- loc(l0, v)].[sp_borrow <- ptr(l0)]).
 
-  Notation "sp_l ~ sp_r" :=
-    ((sp_l = sp_r) \/
-     (exists vp_tail, sp_l = sp_loan +++ [0] ++ vp_tail /\ sp_r = sp_borrow +++ [0] ++ vp_tail))
-  (at level 1).
+  Hint Rewrite HS_r_borrow : sget_sset.
+  Hint Rewrite HS_r_loan : sget_sset.
 
-  Lemma rel_prefix_sp_borrow sp_l sp_r (H : sp_l ~ sp_r)
-    (pref : strict_prefix sp_r sp_borrow) : sp_l = sp_r.
+  (* TODO: name *)
+  Inductive rel : spath -> spath -> Prop :=
+  | Rel_deref_sp_borrow : rel sp_loan (sp_borrow +++ [0])
+  | Rel_sp_borrow_strict_prefix q : rel (sp_loan +++ 0 :: q) (sp_borrow +++ 0 :: q)
+  | Rel_other q : ~strict_prefix sp_borrow q -> rel q q.
+
+  (* TODO: name *)
+  Lemma get_loc_rel q l (H : get_constructor (S_r.[q]) = HLPL_plus_locC l) :
+    exists q', rel q' q /\ get_constructor (S_l.[q']) = HLPL_plus_locC l.
   Proof.
-    destruct H as [ | H].
-    - assumption.
-    - exfalso. eapply strict_prefix_antisym.
-      + exact pref.
-      + destruct H as (vp_tail & _ & ?). exists 0, vp_tail. auto.
+    destruct (decidable_prefix sp_borrow q) as [([ | i r] & <-) | sp_borrow_not_prefix].
+    - rewrite app_spath_vpath_nil_r in H. rewrite HS_r_borrow in H. discriminate.
+    - rewrite vset_app in H. autorewrite with sget_sset in H.
+      assert (i = 0) as ->.
+      { eapply (get_arity_0 (borrow^m(l0, v)) i).
+        - reflexivity.
+        - intros G. rewrite G in H. discriminate. }
+      exists (sp_loan +++ 0 :: r). split. { constructor. }
+      rewrite vset_app. autorewrite with sget_sset. exact H.
+    - exists q. split.
+      (* comparison reasonning: *)
+      + apply Rel_other. intro. apply sp_borrow_not_prefix, strict_prefix_is_prefix. assumption.
+      + rewrite constructor_sset_sget_not_prefix by assumption.
+        rewrite constructor_sset_sget_not_prefix.
+        * exact H.
+        * intro G. apply (get_nil_prefix_right S_r) in G.
+          -- subst. rewrite HS_r_loan in H. discriminate.
+          -- rewrite HS_r_loan. reflexivity.
+          -- apply get_not_bot_valid_spath. intro K. rewrite K in H. discriminate.
   Qed.
 
-  Lemma rel_sp_borrow sp_l : sp_l ~ sp_borrow -> sp_l = sp_borrow.
+  Lemma eval_proj_mut_sp_borrow_strict_prefix proj r q
+    (H : eval_proj S_r Mut proj (sp_borrow +++ 0 :: r) q) :
+    exists q', rel q' q /\ eval_proj S_l Mut proj (sp_loan +++ 0 :: r) q'.
   Proof.
-    intros [? | H].
-    - assumption.
-    - exfalso. apply (strict_prefix_irrefl sp_borrow).
-      destruct H as (vp_tail & _ & ?). exists 0, vp_tail. auto.
+    remember (sp_borrow +++ 0 :: r) as p. revert r Heqp. induction H; intros r ?.
+    - subst. exists ((sp_loan +++ 0 :: r) +++ [0]). split.
+      + rewrite<- !app_spath_vpath_assoc. cbn. constructor.
+      + apply Eval_Deref_MutBorrow with (l := l); try discriminate.
+        rewrite vset_app in *. autorewrite with sget_sset in *. assumption.
+    - subst. apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
+      exists q_loc. split; try assumption.
+      apply Eval_Deref_Ptr_Locs with (l := l); try auto.
+      rewrite vset_app in *. autorewrite with sget_sset in *. assumption.
+    - subst. specialize (IHeval_proj (r ++ [0])). destruct IHeval_proj as (q'' & ? & ?).
+      + rewrite<- app_spath_vpath_assoc. reflexivity.
+      + exists q''. split; try assumption.
+        apply Eval_Loc with (l := l).
+        * discriminate.
+        * rewrite vset_app in *. autorewrite with sget_sset in *. assumption.
+        * rewrite<- app_spath_vpath_assoc. assumption.
   Qed.
 
-  (* TODO: General property of paths *)
-  Lemma strict_prefix_sp_borrow q : strict_prefix q sp_borrow ->
-    strict_prefix q sp_loan \/ disj q sp_loan.
-  Admitted.
-
-  Lemma strict_prefix_sp_borrow_same_constructor q :
-    valid_spath S_r q -> strict_prefix q sp_borrow ->
-    same_constructor (S_l{{q}}) (S_r{{q}}).
+  Lemma eval_proj_mut_not_prefix_sp_borrow proj q r
+    (not_prefix : ~strict_prefix sp_borrow q) (H : eval_proj S_r Mut proj q r) :
+    exists r', rel r' r /\ eval_proj S_l Mut proj q r'.
   Proof.
-    intros ? H. etransitivity.
-    - symmetry. apply same_constructor_subst_strict_prefix. admit. assumption.
-    - apply strict_prefix_sp_borrow in H. destruct H.
-      + symmetry. apply same_constructor_subst_strict_prefix; assumption.
-      + symmetry. apply same_constructor_subst_disj. assumption. assumption. symmetry. assumption.
+    induction H.
+    - destruct (decidable_spath_eq q sp_borrow) as [-> | ].
+      + exists sp_loan. split. { constructor. }
+        apply Eval_Deref_Ptr_Locs with (l := l0); autorewrite with sget_sset; easy.
+      + exists (q +++ [0]). split.
+        { apply Rel_other. intros ?%strict_prefix_app_last.
+          (* sp_borrow can neither be a strict prefix nor be equal to q. *)
+          admit.
+        }
+      apply Eval_Deref_MutBorrow with (l := l); try discriminate.
+      admit.
+    - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
+      exists q_loc. split; try assumption.
+      apply Eval_Deref_Ptr_Locs with (l := l); try auto.
+      admit.
+    - destruct IHeval_proj as (r' & ? & ?).
+      { intros ?%strict_prefix_app_last.
+        (* Two cases:
+           - either sp_borrow is a strict prefix of p (impossible)
+           - or sp_borrow = q, but in this case, get_q becomes contradictory.
+         *)
+        admit. }
+      exists r'. split; try assumption. apply Eval_Loc with (l := l); try easy.
+      admit.
   Admitted.
 
-  (* TODO: only true for perm >= Mut, not for perm = Imm *)
-  Lemma eval_path_mut_borrow_to_ptr p sp_r sp_r' (H : eval_path S_r p Mut sp_r sp_r') :
-    valid_spath S_r sp_r -> forall sp_l, valid_spath S_l sp_l -> sp_l ~ sp_r ->
-      exists sp_l', sp_l' ~ sp_r' /\ eval_path S_l p Mut sp_l sp_l'.
+  Lemma eval_proj_mut_borrow_to_ptr proj q_l q_r q'_r :
+    rel q_l q_r -> eval_proj S_r Mut proj q_r q'_r ->
+    exists q'_l, rel q'_l q'_r /\ eval_proj S_l Mut proj q_l q'_l.
   Proof.
-    induction H as [ | | |]. Print eval_path. Check eval_path_ind.
-    - intros _ sp_l _ [ | (vp_tail & -> & ->)].
-      + exists sp_l. split; auto || constructor.
-      + eexists. split. right. exists vp_tail. split; reflexivity. constructor. 
-    - intros valid_sp_r sp_l valid_sp_l rel.
-      destruct (strict_comparable_spaths q sp_borrow) as [ Hprefix | | | ].
-      + apply rel_prefix_sp_borrow in rel; try assumption. rewrite rel.
-        assert (same_cons : same_constructor (S_l{{q}}) (S_r{{q}})).
-        { apply strict_prefix_sp_borrow_same_constructor. assumption. assumption. }
-        rewrite extract_q in same_cons.
-        destruct IHeval_path with (sp_l := q +++ [0]).
-        * admit. (* Validity argument, should be automatic. *)
-        * admit. (* Validity argument. *)
-        * auto.
-        * destruct H0. exists x. split; try assumption. eapply Eval_Deref_MutBorrow. admit. assumption.
-  Admitted.
+    intros [ | r | q G] H.
+    - apply eval_proj_mut_sp_borrow_strict_prefix in H. destruct H as (q'_l & ? & ?).
+      exists q'_l. split; try assumption.
+      apply Eval_Loc with (l := l0); discriminate || auto.
+      autorewrite with sget_sset. reflexivity.
+    - apply eval_proj_mut_sp_borrow_strict_prefix. assumption.
+    - apply eval_proj_mut_not_prefix_sp_borrow; assumption.
+  Qed.
 
-Lemma eval_place_mut_borrow_to_ptr p sp_r (H : eval_place S_r p Mut sp_r) :
-  exists sp_l, sp_l ~ sp_r /\ eval_place S_l p Mut sp_l.
-Proof.
-  destruct H as (i & ? & H).
-  apply eval_path_mut_borrow_to_ptr with (sp_l := (i, [])) in H.
-  - destruct H as (sp_l & ? & ?). exists sp_l. split; try assumption.
-    exists i. split. (* Need a lemma that says that substitution doesn't affect find_index. *)
-    admit. assumption.
-  - eapply find_index_valid_spath. eassumption.
-  - apply find_index_valid_spath with (b := Var (fst p)). admit. (* same. *)
-  - auto.
-Admitted.
+  Corollary eval_path_mut_borrow_to_ptr P q_r q'_r :
+    eval_path S_r Mut P q_r q'_r -> forall q_l, rel q_l q_r ->
+    exists q'_l, rel q'_l q'_r /\ eval_path S_l Mut P q_l q'_l.
+  Proof.
+    intros H. induction H.
+    - eexists. split. eassumption. constructor.
+    - intros q_l ?. apply eval_proj_mut_borrow_to_ptr with (q_l := q_l) in H; try assumption.
+      destruct H as (q'_l & rel_q'_l & ?).
+      destruct (IHeval_path q'_l rel_q'_l) as (q''_l & ? & ?).
+      exists q''_l. split. { assumption. }
+      apply Eval_cons with (q := q'_l); assumption.
+  Qed.
+
+  Corollary eval_place_mut_borrow_to_ptr p pi_r :
+    eval_place S_r Mut p pi_r ->
+    exists pi_l, rel pi_l pi_r /\ eval_place S_l Mut p pi_l.
+  Proof.
+    intros (i & ? & H). apply eval_path_mut_borrow_to_ptr with (q_l := (i, [])) in H.
+    - destruct H as (q'_l & rel & ?). exists q'_l. split. { assumption. }
+      exists i. split. { (* Doing ssets don't change the indexes *) admit. }
+      assumption.
+    - apply Rel_other. apply not_strict_prefix_nil.
+  Admitted.
 End MutBorrow_to_Ptr.
-
-(* TODO: simulation for eval_op *)
-Lemma eval_rvalue_sim S_l S_r S'_r rv v_r (Hle : le_state_base S_l S_r)
-  (Heval_rv : eval_rvalue S_r rv v_r S'_r) :
-  exists v_l S'_l, eval_rvalue S_l rv v_l S'_l /\ le_state ((Anon, v_l) :: S'_l) ((Anon, v_r) :: S'_r).
-Proof.
-  induction Heval_rv.
-  - admit. (* TODO: lemma for operands. *)
-  - admit. (* Same. *)
-  - destruct Hle as [S_r l' sp_loan sp_borrow].
-    eapply eval_place_mut_borrow_to_ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow) in H.
-    + admit.
-    + admit. (* missing validity condition. *)
-    + admit. (* same *)
-    + assumption.
-    + eassumption.
-    + eassumption.
-Admitted.

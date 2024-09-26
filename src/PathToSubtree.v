@@ -205,7 +205,7 @@ destruct (Nat.eq_dec (fst p) (fst q)) as [<- | ].
 - apply CompDisj. left. cbn. assumption.
 Qed.
 
-Lemma app_same_nil {A : Type} (x y : list A) (H :x ++ y = x) : y = nil.
+Lemma app_same_nil {A : Type} (x y : list A) (H : x ++ y = x) : y = nil.
 Proof. eapply app_inv_head. rewrite H, app_nil_r. reflexivity. Qed.
 
 Lemma prefix_antisym p q (H : prefix p q) (G : prefix q p) : p = q.
@@ -222,6 +222,18 @@ Proof.
   apply app_same_nil in H. inversion H.
 Qed.
 
+Corollary not_prefix_left_strict_prefix_right p q : strict_prefix q p -> ~ prefix p q.
+Proof.
+  intros ? ?. destruct (prefix_antisym p q).
+  - assumption.
+  - apply strict_prefix_is_prefix. assumption.
+  - apply (strict_prefix_irrefl p). assumption.
+Qed.
+
+Local Instance : Reflexive prefix.
+Proof. intro p. exists nil. apply app_spath_vpath_nil_r. Qed.
+
+(* TODO: do I need this lemma? *)
 Corollary strict_prefix_antisym p q (H : strict_prefix p q) (G : strict_prefix q p) : False.
 Proof.
   destruct (prefix_antisym p q).
@@ -230,6 +242,7 @@ Proof.
   - eapply strict_prefix_irrefl. exact H.
 Qed.
 
+(* TODO: do I need this lemma? *)
 Lemma disj_l_prefix p q r : disj p q -> prefix p r -> disj r q.
 Proof.
   intros [ | (? & ? & ? & ? & ? & ? & ? & Hsnd_p & ?) ] [? <-].
@@ -238,6 +251,50 @@ Proof.
     + eassumption.
     + rewrite Hsnd_p. rewrite <-app_assoc. reflexivity.
     + eassumption.
+Qed.
+
+(* TODO: check that it doesn't break anything. *)
+(* TODO: move *)
+Local Hint Unfold app_spath_vpath : core.
+Lemma not_prefix_disj p q : disj p q -> ~prefix p q.
+Proof.
+  intros [ | (_ & (r' & p' & q' & i & j & diff & H & G))] (r & <-).
+  - auto.
+  - cbn in *. rewrite H in G. rewrite<- app_assoc in G. cbn in G.
+    apply app_inv_head_iff in G. inversion G. auto.
+Qed.
+
+Lemma decidable_spath_eq (p q : spath) : p = q \/ p <> q.
+Admitted.
+
+Lemma decidable_prefix p q : prefix p q \/ ~prefix p q.
+Proof.
+  destruct (comparable_spaths p q) as [<- | | | ].
+  - left. reflexivity.
+  - left. apply strict_prefix_is_prefix. assumption.
+  - right. apply not_prefix_left_strict_prefix_right. assumption.
+  - right. apply not_prefix_disj. assumption.
+Qed.
+
+Lemma vstrict_prefix_app_last p q i : vstrict_prefix p (q ++ i :: nil) -> vprefix p q.
+Proof.
+  intros (j & r & ?).
+  destruct exists_last with (l := j :: r) as (r' & j' & G). { symmetry. apply nil_cons. }
+  rewrite G in H. apply f_equal with (f := @removelast _) in H.
+  rewrite app_assoc in H. rewrite !removelast_last in H. exists r'. exact H.
+Qed.
+
+Corollary strict_prefix_app_last p q i : strict_prefix p (q +++ i :: nil) -> prefix p q.
+Proof.
+  intros (j & r & H). inversion H.
+  destruct (vstrict_prefix_app_last (snd p) (snd q) i) as (r' & ?).
+  - exists j, r. assumption.
+  - exists r'. apply injective_projections; assumption.
+Qed.
+
+Lemma not_strict_prefix_nil (p : spath) i : ~strict_prefix p (i, nil).
+Proof.
+  intros (? & ? & H). apply (f_equal snd) in H. eapply app_cons_not_nil. symmetry. exact H.
 Qed.
 
 Declare Scope GetSetPath_scope.
@@ -504,6 +561,14 @@ Section GetSetPath.
     rewrite vset_twice_disj_commute_aux; auto.
   Qed.
 
+  Lemma get_arity_0 v i p : length (subvalues v) = 1 -> v.[[i :: p]] <> bot -> i = 0.
+  Proof.
+    intros H G. apply get_not_bot_valid_vpath in G. inversion G.
+    apply length_1_is_singleton in H. destruct H as (? & H). rewrite H in *. destruct i.
+    - reflexivity.
+    - rewrite nth_error_cons, nth_error_nil in *. simplify_option.
+  Qed.
+
   (* Similar theory for getting and setting values in a state. *)
   (* TODO: rename this lemma `sget_app` *)
   Lemma vset_app (S : state B V) p q : S.[p +++ q] = S.[p].[[q]].
@@ -536,6 +601,8 @@ Section GetSetPath.
     - exfalso. apply H. reflexivity.
   Qed.
 
+
+
   Lemma sset_sget_prefix (S : state B V) v p q :
     valid_spath S p -> S.[p +++ q <- v].[p] = S.[p].[[q <- v]].
   Proof.
@@ -560,6 +627,13 @@ Section GetSetPath.
     S.[p <- v].[p +++ q] = v.[[q]].
   Proof. rewrite vset_app, sset_sget_equal; auto. Qed.
 
+  Lemma sset_sget_disj (S : state B V) p v q : disj p q -> S.[p <- v].[q] = S.[q].
+  Proof.
+    unfold sset, sget. intros [ | (<- & Hdisj)].
+    - rewrite nth_error_map_nth_neq by assumption. reflexivity.
+    - rewrite nth_error_map_nth_eq. autodestruct. intro. apply vset_vget_disj. assumption.
+  Qed.
+
   (* During the proof of this theorem, we implicitely use the fact that if the spath p is
    * invalid, then the spath q is invalid, and S.[q <- w] = S. *)
   Lemma constructor_sset_sget_strict_prefix (S : state B V) p q w :
@@ -576,11 +650,14 @@ Section GetSetPath.
     - unfold sget, sset. rewrite nth_error_map_nth_eq. simplify_option.
   Qed.
 
-  Lemma sset_sget_disj (S : state B V) p v q : disj p q -> S.[p <- v].[q] = S.[q].
+  Lemma constructor_sset_sget_not_prefix (S : state B V) p q w (H : ~prefix q p) :
+    get_constructor (S.[q <- w].[p]) = get_constructor (S.[p]).
   Proof.
-    unfold sset, sget. intros [ | (<- & Hdisj)].
-    - rewrite nth_error_map_nth_neq by assumption. reflexivity.
-    - rewrite nth_error_map_nth_eq. autodestruct. intro. apply vset_vget_disj. assumption.
+    destruct (comparable_spaths p q) as [<- | | | ].
+    - destruct H. reflexivity.
+    - apply constructor_sset_sget_strict_prefix. assumption.
+    - destruct H. apply strict_prefix_is_prefix. assumption.
+    - rewrite sset_sget_disj; reflexivity || symmetry; assumption.
   Qed.
 
   Lemma sset_twice_prefix_right (S : state B V) p q x y :
