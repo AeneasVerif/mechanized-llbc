@@ -1,7 +1,1 @@
-*.vo
-*.vos
-*.vok
-*.glob
-CoqMakefile.conf
-CoqMakefile
-.CoqMakefile.d
+_build

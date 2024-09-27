@@ -1,6 +1,23 @@
-all: CoqMakefile
-	+@$(MAKE) -f CoqMakefile all
-.PHONY: all
+DUNE?=dune
+DUNEARGS?=--display=short
 
-CoqMakefile: _CoqProject Makefile
-	$(COQBIN)coq_makefile -f _CoqProject -o CoqMakefile
+BUILDCMD?=$(DUNE) build $(DUNEARGS)
+CLEANCMD?=$(DUNE) clean $(DUNEARGS)
+
+all:
+	@$(BUILDCMD) -- @all
+
+%.vo:FORCE
+	@$(BUILDCMD) -- "$@"
+
+%.required_vo:FORCE
+# A trick from https://github.com/ocaml/dune/issues/7972#issue-1757514337
+# to build the .vo files needed to check interactively $*.v
+	@$(DUNE) coq top $(DUNEARGS) --toplevel=true -- $*.v
+
+clean:
+	@$(CLEANCMD)
+#	@rm -f -- .lia.cache
+
+.PHONY:all clean FORCE
+FORCE:
