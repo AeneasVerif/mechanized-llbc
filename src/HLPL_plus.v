@@ -385,16 +385,16 @@ Section MutBorrow_to_Ptr.
     (H : eval_proj S_r Mut proj (sp_borrow +++ 0 :: r) q) :
     exists q', rel q' q /\ eval_proj S_l Mut proj (sp_loan +++ 0 :: r) q'.
   Proof.
-    remember (sp_borrow +++ 0 :: r) as p. revert r Heqp. induction H; intros r ?.
-    - subst. exists ((sp_loan +++ 0 :: r) +++ [0]). split.
-      + rewrite<- !app_spath_vpath_assoc. cbn. constructor.
+    remember (sp_borrow +++ 0 :: r) as p. revert r Heqp. induction H; intros r ->.
+    - exists ((sp_loan +++ 0 :: r) +++ [0]). split.
+      + rewrite<- !app_spath_vpath_assoc. constructor.
       + apply Eval_Deref_MutBorrow with (l := l); try discriminate.
         rewrite vset_app in *. autorewrite with sget_sset in *. assumption.
-    - subst. apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
+    - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
       exists q_loc. split; try assumption.
       apply Eval_Deref_Ptr_Locs with (l := l); try auto.
       rewrite vset_app in *. autorewrite with sget_sset in *. assumption.
-    - subst. specialize (IHeval_proj (r ++ [0])). destruct IHeval_proj as (q'' & ? & ?).
+    - specialize (IHeval_proj (r ++ [0])). destruct IHeval_proj as (q'' & ? & ?).
       + rewrite<- app_spath_vpath_assoc. reflexivity.
       + exists q''. split; try assumption.
         apply Eval_Loc with (l := l).
