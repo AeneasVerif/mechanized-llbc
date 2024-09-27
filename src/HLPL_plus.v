@@ -125,7 +125,7 @@ Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop 
     eval_proj S perm Deref q (q +++ [0])
 (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
 | Eval_Deref_Ptr_Locs q q' l (imm_or_mut : perm <> Mov)
-    (get_q : S.[q] = ptr(l)) (get_q' : get_constructor (S.[q']) = HLPL_plus_locC l) :
+    (get_q : get_constructor (S.[q]) = HLPL_plus_ptrC l) (get_q' : get_constructor (S.[q']) = HLPL_plus_locC l) :
     eval_proj S perm Deref q q'
 (* Coresponds to R-Loc and W-Loc in the article. *)
 | Eval_Loc proj q q' l (imm_or_mut : perm <> Mov)
@@ -275,13 +275,53 @@ Definition le_state := refl_trans_closure le_state_base.
 
 (* TODO: rename this DB `sset_sget` *)
 Create HintDb sget_sset.
+
+Ltac solve_validity :=
+  apply get_not_bot_valid_spath; autorewrite with sget_sset; discriminate.
+
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
- * solve the validity hypothesis. *)
+ * solve the validity hypothesis by proving that S.[p] <> bot. *)
 Hint Rewrite @sset_sget_equal
-  using apply get_not_bot_valid_spath; autorewrite with sget_sset; try discriminate : sget_sset.
+  using solve_validity : sget_sset.
 (* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), provided that a
  * disjointness hypothesis is already present in the context. *)
 Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sget_sset.
+
+(* Automating proofs of ~prefix p q. *)
+(* TODO: move *)
+(* TODO: automate proofs for more comparisons. *)
+Lemma prefix_if_equal_or_strict_prefix p q : prefix p q -> p = q \/ strict_prefix p q.
+Proof.
+  intros ([ | i r] & <-).
+  - left. symmetry. apply app_spath_vpath_nil_r.
+  - right. exists i, r. reflexivity.
+Qed.
+
+Corollary prove_not_prefix p q : p <> q -> ~strict_prefix p q -> ~prefix p q.
+Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
+
+Ltac prove_not_atom :=
+  match goal with
+  | H : ~strict_prefix ?p ?q |- ~strict_prefix ?p ?q => exact H
+  | H : ?p <> ?q |- ?p <> ?q => exact H
+  | H : ?q <> ?p |- ?p <> ?q => symmetry; exact H
+  | _ => ()
+  end.
+
+Ltac reduce_not_prefix :=
+  apply prove_not_prefix; try prove_not_atom.
+
+(* Automatically proving that p <> q using the following facts:
+   - S.[p] = v
+   - S.[q] is of constructor c
+   - v is not of constructor c
+*)
+Ltac constructor_neq :=
+  match goal with
+  | H : ?S.[?p] = ?v, G : get_constructor (?S.[?q]) = ?c |- ?p <> ?q =>
+      let EQ := fresh "EQ" in
+      intro EQ; rewrite EQ in H; rewrite H in G; discriminate
+  end.
 
 Section MutBorrow_to_Ptr.
   (* TODO: introduce `perm` in the context, and the hypothesis perm <> Mut *)
@@ -296,6 +336,23 @@ Section MutBorrow_to_Ptr.
 
   Hint Rewrite HS_r_borrow : sget_sset.
   Hint Rewrite HS_r_loan : sget_sset.
+
+  (* comparison reasonning: *)
+  Lemma sp_loan_not_prefix q :
+    get_constructor (S_r.[q]) <> HLPL_plus_botC ->
+    get_constructor (S_r.[q]) <> HLPL_plus_mut_loanC l0 -> ~prefix sp_loan q.
+  Proof.
+    intros H G ->%(get_nil_prefix_right S_r).
+    - rewrite HS_r_loan in G. easy.
+    - rewrite HS_r_loan. reflexivity.
+    - apply get_not_bot_valid_spath. intros ?%(f_equal get_constructor). easy.
+  Qed.
+  Ltac solve_sp_loan_not_prefix :=
+    apply sp_loan_not_prefix;
+    match goal with
+      | H : ?get_constr = _ |- ?get_constr <> _ => rewrite H
+    end;
+    discriminate.
 
   (* TODO: name *)
   Inductive rel : spath -> spath -> Prop :=
@@ -320,12 +377,8 @@ Section MutBorrow_to_Ptr.
       (* comparison reasonning: *)
       + apply Rel_other. intro. apply sp_borrow_not_prefix, strict_prefix_is_prefix. assumption.
       + rewrite constructor_sset_sget_not_prefix by assumption.
-        rewrite constructor_sset_sget_not_prefix.
-        * exact H.
-        * intro G. apply (get_nil_prefix_right S_r) in G.
-          -- subst. rewrite HS_r_loan in H. discriminate.
-          -- rewrite HS_r_loan. reflexivity.
-          -- apply get_not_bot_valid_spath. intro K. rewrite K in H. discriminate.
+        rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
+        assumption.
   Qed.
 
   Lemma eval_proj_mut_sp_borrow_strict_prefix proj r q
@@ -359,26 +412,24 @@ Section MutBorrow_to_Ptr.
       + exists sp_loan. split. { constructor. }
         apply Eval_Deref_Ptr_Locs with (l := l0); autorewrite with sget_sset; easy.
       + exists (q +++ [0]). split.
-        { apply Rel_other. intros ?%strict_prefix_app_last.
-          (* sp_borrow can neither be a strict prefix nor be equal to q. *)
-          admit.
-        }
-      apply Eval_Deref_MutBorrow with (l := l); try discriminate.
-      admit.
+        { apply Rel_other. enough (~prefix sp_borrow q) by (intros K%strict_prefix_app_last; easy). reduce_not_prefix. }
+        apply Eval_Deref_MutBorrow with (l := l); try discriminate.
+        rewrite constructor_sset_sget_not_prefix by reduce_not_prefix.
+        rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
+        assumption.
     - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
       exists q_loc. split; try assumption.
       apply Eval_Deref_Ptr_Locs with (l := l); try auto.
-      admit.
+      rewrite constructor_sset_sget_not_prefix by (reduce_not_prefix; constructor_neq).
+      rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
+      assumption.
     - destruct IHeval_proj as (r' & ? & ?).
-      { intros ?%strict_prefix_app_last.
-        (* Two cases:
-           - either sp_borrow is a strict prefix of p (impossible)
-           - or sp_borrow = q, but in this case, get_q becomes contradictory.
-         *)
-        admit. }
+      { intros G%strict_prefix_app_last; revert G. reduce_not_prefix. constructor_neq. }
       exists r'. split; try assumption. apply Eval_Loc with (l := l); try easy.
-      admit.
-  Admitted.
+      rewrite constructor_sset_sget_not_prefix by (reduce_not_prefix; constructor_neq).
+      rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
+      assumption.
+  Qed.
 
   Lemma eval_proj_mut_borrow_to_ptr proj q_l q_r q'_r :
     rel q_l q_r -> eval_proj S_r Mut proj q_r q'_r ->
