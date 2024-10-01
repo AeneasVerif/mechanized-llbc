@@ -101,18 +101,29 @@ Delimit Scope hlpl_plus_scope with hlpl_plus.
 
 (* TODO: move in lang.v *)
 (* TODO: set every priority to 0? *)
-(* TODO: notations for constructors? *)
-Reserved Notation "'bot'" (at level 50).
-Reserved Notation "'loan^m' l" (at level 50).
-Reserved Notation "'borrow^m' ( l , v )" (at level 50, l at next level, v at next level).
-Reserved Notation "'loc' ( l , v )" (at level 50, l at next level, v at next level).
-Reserved Notation "'ptr' ( l )" (at level 50).
+Reserved Notation "'bot'" (at level 0).
+Reserved Notation "'loan^m' ( l )" (at level 0).
+Reserved Notation "'borrow^m' ( l , v )" (at level 0, l at next level, v at next level).
+Reserved Notation "'loc' ( l , v )" (at level 0, l at next level, v at next level).
+Reserved Notation "'ptr' ( l )" (at level 0).
+
+Reserved Notation "'botC'" (at level 0).
+Reserved Notation "'loanC^m'( l )" (at level 0).
+Reserved Notation "'borrow^m' ( l )" (at level 0, l at next level).
+Reserved Notation "'locC' ( l , )" (at level 0, l at next level).
+Reserved Notation "'ptrC' ( l )" (at level 0).
 
 Notation "'bot'" := HLPL_plus_bot: hlpl_plus_scope.
-Notation "'loan^m' l" := (HLPL_plus_mut_loan l) : hlpl_plus_scope.
+Notation "'loan^m' ( l )" := (HLPL_plus_mut_loan l) : hlpl_plus_scope.
 Notation "'borrow^m' ( l  , v )" := (HLPL_plus_mut_borrow l v) : hlpl_plus_scope.
 Notation "'loc' ( l , v )" := (HLPL_plus_loc l v) : hlpl_plus_scope.
 Notation "'ptr' ( l )" := (HLPL_plus_ptr l) : hlpl_plus_scope.
+
+Notation "'botC'" := HLPL_plus_botC: hlpl_plus_scope.
+Notation "'loanC^m' ( l )" := (HLPL_plus_mut_loanC l) : hlpl_plus_scope.
+Notation "'borrowC^m' ( l )" := (HLPL_plus_mut_borrowC l) : hlpl_plus_scope.
+Notation "'locC' ( l )" := (HLPL_plus_locC l) : hlpl_plus_scope.
+Notation "'ptrC' ( l )" := (HLPL_plus_ptrC l) : hlpl_plus_scope.
 
 (* Bind Scope hlpl_plus_scope with HLPL_plus_val. *)
 Open Scope hlpl_plus_scope.
@@ -121,15 +132,15 @@ Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop 
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
 | Eval_Deref_MutBorrow q l
     (imm_or_mut : perm <> Mov)
-    (get_q : get_constructor (S.[q]) = HLPL_plus_mut_borrowC l) :
+    (get_q : get_constructor (S.[q]) = borrowC^m(l)) :
     eval_proj S perm Deref q (q +++ [0])
 (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
 | Eval_Deref_Ptr_Locs q q' l (imm_or_mut : perm <> Mov)
-    (get_q : get_constructor (S.[q]) = HLPL_plus_ptrC l) (get_q' : get_constructor (S.[q']) = HLPL_plus_locC l) :
+    (get_q : get_constructor (S.[q]) = ptrC(l)) (get_q' : get_constructor (S.[q']) = locC(l)) :
     eval_proj S perm Deref q q'
 (* Coresponds to R-Loc and W-Loc in the article. *)
 | Eval_Loc proj q q' l (imm_or_mut : perm <> Mov)
-    (get_q : get_constructor (S.[q]) = HLPL_plus_locC l)
+    (get_q : get_constructor (S.[q]) = locC(l))
     (eval_proj_rec : eval_proj S perm proj (q +++ [0]) q') : eval_proj S perm proj q q'
 .
 
@@ -273,19 +284,18 @@ Inductive refl_trans_closure {A : Type} (R : A -> A -> Prop) : A -> A -> Prop :=
 Definition le_state := refl_trans_closure le_state_base.
  *)
 
-(* TODO: rename this DB `sset_sget` *)
-Create HintDb sget_sset.
+Create HintDb sset_sget.
 
 Ltac solve_validity :=
-  apply get_not_bot_valid_spath; autorewrite with sget_sset; discriminate.
+  apply get_not_bot_valid_spath; autorewrite with sset_sget; discriminate.
 
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
 Hint Rewrite @sset_sget_equal
-  using solve_validity : sget_sset.
+  using solve_validity : sset_sget.
 (* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), provided that a
  * disjointness hypothesis is already present in the context. *)
-Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sget_sset.
+Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sset_sget.
 
 (* Automating proofs of ~prefix p q. *)
 (* TODO: move *)
@@ -334,13 +344,13 @@ Section MutBorrow_to_Ptr.
   Context (HS_r_borrow : S_r.[sp_borrow] = borrow^m(l0, v)).
   Notation S_l := (S_r.[sp_loan <- loc(l0, v)].[sp_borrow <- ptr(l0)]).
 
-  Hint Rewrite HS_r_borrow : sget_sset.
-  Hint Rewrite HS_r_loan : sget_sset.
+  Hint Rewrite HS_r_borrow : sset_sget.
+  Hint Rewrite HS_r_loan : sset_sget.
 
   (* comparison reasonning: *)
   Lemma sp_loan_not_prefix q :
-    get_constructor (S_r.[q]) <> HLPL_plus_botC ->
-    get_constructor (S_r.[q]) <> HLPL_plus_mut_loanC l0 -> ~prefix sp_loan q.
+    get_constructor (S_r.[q]) <> botC ->
+    get_constructor (S_r.[q]) <> loanC^m(l0) -> ~prefix sp_loan q.
   Proof.
     intros H G ->%(get_nil_prefix_right S_r).
     - rewrite HS_r_loan in G. easy.
@@ -361,18 +371,18 @@ Section MutBorrow_to_Ptr.
   | Rel_other q : ~strict_prefix sp_borrow q -> rel q q.
 
   (* TODO: name *)
-  Lemma get_loc_rel q l (H : get_constructor (S_r.[q]) = HLPL_plus_locC l) :
-    exists q', rel q' q /\ get_constructor (S_l.[q']) = HLPL_plus_locC l.
+  Lemma get_loc_rel q l (H : get_constructor (S_r.[q]) = locC(l)) :
+    exists q', rel q' q /\ get_constructor (S_l.[q']) = locC(l).
   Proof.
     destruct (decidable_prefix sp_borrow q) as [([ | i r] & <-) | sp_borrow_not_prefix].
     - rewrite app_spath_vpath_nil_r in H. rewrite HS_r_borrow in H. discriminate.
-    - rewrite vset_app in H. autorewrite with sget_sset in H.
+    - rewrite vset_app in H. autorewrite with sset_sget in H.
       assert (i = 0) as ->.
       { eapply (get_arity_0 (borrow^m(l0, v)) i).
         - reflexivity.
         - intros G. rewrite G in H. discriminate. }
       exists (sp_loan +++ 0 :: r). split. { constructor. }
-      rewrite vset_app. autorewrite with sget_sset. exact H.
+      rewrite vset_app. autorewrite with sset_sget. exact H.
     - exists q. split.
       (* comparison reasonning: *)
       + apply Rel_other. intro. apply sp_borrow_not_prefix, strict_prefix_is_prefix. assumption.
@@ -389,17 +399,17 @@ Section MutBorrow_to_Ptr.
     - exists ((sp_loan +++ 0 :: r) +++ [0]). split.
       + rewrite<- !app_spath_vpath_assoc. constructor.
       + apply Eval_Deref_MutBorrow with (l := l); try discriminate.
-        rewrite vset_app in *. autorewrite with sget_sset in *. assumption.
+        rewrite vset_app in *. autorewrite with sset_sget in *. assumption.
     - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
       exists q_loc. split; try assumption.
       apply Eval_Deref_Ptr_Locs with (l := l); try auto.
-      rewrite vset_app in *. autorewrite with sget_sset in *. assumption.
+      rewrite vset_app in *. autorewrite with sset_sget in *. assumption.
     - specialize (IHeval_proj (r ++ [0])). destruct IHeval_proj as (q'' & ? & ?).
       + rewrite<- app_spath_vpath_assoc. reflexivity.
       + exists q''. split; try assumption.
         apply Eval_Loc with (l := l).
         * discriminate.
-        * rewrite vset_app in *. autorewrite with sget_sset in *. assumption.
+        * rewrite vset_app in *. autorewrite with sset_sget in *. assumption.
         * rewrite<- app_spath_vpath_assoc. assumption.
   Qed.
 
@@ -410,7 +420,7 @@ Section MutBorrow_to_Ptr.
     induction H.
     - destruct (decidable_spath_eq q sp_borrow) as [-> | ].
       + exists sp_loan. split. { constructor. }
-        apply Eval_Deref_Ptr_Locs with (l := l0); autorewrite with sget_sset; easy.
+        apply Eval_Deref_Ptr_Locs with (l := l0); autorewrite with sset_sget; easy.
       + exists (q +++ [0]). split.
         { apply Rel_other. enough (~prefix sp_borrow q) by (intros K%strict_prefix_app_last; easy). reduce_not_prefix. }
         apply Eval_Deref_MutBorrow with (l := l); try discriminate.
@@ -439,7 +449,7 @@ Section MutBorrow_to_Ptr.
     - apply eval_proj_mut_sp_borrow_strict_prefix in H. destruct H as (q'_l & ? & ?).
       exists q'_l. split; try assumption.
       apply Eval_Loc with (l := l0); discriminate || auto.
-      autorewrite with sget_sset. reflexivity.
+      autorewrite with sset_sget. reflexivity.
     - apply eval_proj_mut_sp_borrow_strict_prefix. assumption.
     - apply eval_proj_mut_not_prefix_sp_borrow; assumption.
   Qed.
