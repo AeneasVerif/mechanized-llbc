@@ -569,9 +569,7 @@ Section GetSetPath.
     - rewrite nth_error_cons, nth_error_nil in *. simplify_option.
   Qed.
 
-  (* Similar theory for getting and setting values in a state. *)
-  (* TODO: rename this lemma `sget_app` *)
-  Lemma vset_app (S : state B V) p q : S.[p +++ q] = S.[p].[[q]].
+  Lemma sget_app (S : state B V) p q : S.[p +++ q] = S.[p].[[q]].
   Proof.
     unfold sget, app_spath_vpath. cbn. destruct (get_val S (fst p)).
     - apply vget_app.
@@ -625,7 +623,7 @@ Section GetSetPath.
 
   Lemma sget_sset_prefix_right S v p q (H : valid_spath S p) :
     S.[p <- v].[p +++ q] = v.[[q]].
-  Proof. rewrite vset_app, sset_sget_equal; auto. Qed.
+  Proof. rewrite sget_app, sset_sget_equal; auto. Qed.
 
   Lemma sset_sget_disj (S : state B V) p v q : disj p q -> S.[p <- v].[q] = S.[q].
   Proof.

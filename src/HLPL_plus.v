@@ -386,14 +386,14 @@ Section MutBorrow_to_Ptr.
   Proof.
     destruct (decidable_prefix sp_borrow q) as [([ | i r] & <-) | sp_borrow_not_prefix].
     - rewrite app_spath_vpath_nil_r in H. rewrite HS_r_borrow in H. discriminate.
-    - rewrite vset_app in H. autorewrite with sset_sget in H.
+    - rewrite sget_app in H. autorewrite with sset_sget in H.
       assert (i = 0) as ->.
       { eapply (get_arity_0 (borrow^m(l0, v)) i).
         - reflexivity.
         - intros G. rewrite G in H. discriminate.
       }
       exists (sp_loan +++ 0 :: r). split. { rewrite<- !app_spath_vpath_assoc. constructor. }
-      rewrite vset_app. autorewrite with sset_sget. exact H.
+      rewrite sget_app. autorewrite with sset_sget. exact H.
     - exists q. split.
       (* comparison reasonning: *)
       + apply Rel_other. intros ?%strict_prefix_app_last. auto.
@@ -410,17 +410,17 @@ Section MutBorrow_to_Ptr.
     - exists ((sp_loan +++ 0 :: r) +++ [0]). split.
       + rewrite<- !app_spath_vpath_assoc. constructor.
       + apply Eval_Deref_MutBorrow with (l := l); try assumption.
-        rewrite vset_app in *. autorewrite with sset_sget in *. assumption.
+        rewrite sget_app in *. autorewrite with sset_sget in *. assumption.
     - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
       exists (q_loc +++ [0]). split; try assumption.
       apply Eval_Deref_Ptr_Locs with (l := l); try assumption.
-      rewrite vset_app in *. autorewrite with sset_sget in *. assumption.
+      rewrite sget_app in *. autorewrite with sset_sget in *. assumption.
     - specialize (IHeval_proj (r ++ [0])). destruct IHeval_proj as (q'' & ? & ?).
       + rewrite<- app_spath_vpath_assoc. reflexivity.
       + exists q''. split; try assumption.
         apply Eval_Loc with (l := l).
         * assumption.
-        * rewrite vset_app in *. autorewrite with sset_sget in *. assumption.
+        * rewrite sget_app in *. autorewrite with sset_sget in *. assumption.
         * rewrite<- app_spath_vpath_assoc. assumption.
   Qed.
 
