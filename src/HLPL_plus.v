@@ -480,8 +480,8 @@ Section MutBorrow_to_Ptr.
   Proof.
     intros (i & ? & H). apply eval_path_mut_borrow_to_ptr with (q_l := (i, [])) in H.
     - destruct H as (q'_l & rel & ?). exists q'_l. split. { assumption. }
-      exists i. split. { (* Doing ssets don't change the indexes *) admit. }
+      exists i. split. { rewrite! find_binder_sset. assumption. }
       assumption.
     - apply Rel_other. apply not_strict_prefix_nil.
-  Admitted.
+  Qed.
 End MutBorrow_to_Ptr.

@@ -334,6 +334,8 @@ Notation "v .[[ p <- w ]]" := (vset p w v) (left associativity, at level 50).
 
 Notation get_val S i := (SOME c <- nth_error S i IN Some (snd c)).
 
+Notation get_binder S i := (SOME c <- nth_error S i IN Some (fst c)).
+
 Definition state B V := list (B * V).
 
 Definition sget {V B} `{Value V} (p : spath) (S : state B V) : V := 
@@ -692,6 +694,61 @@ Section GetSetPath.
   | nil => None
   | (b', _) :: S' => if eq_dec b b' then Some 0 else SOME i <- find_binder S' b IN Some (1 + i)
   end.
+
+  Lemma find_binder_Some S b i :
+    find_binder S b = Some i <-> get_binder S i = Some b /\ forall j, j < i -> get_binder S j <> Some b.
+  Proof.
+    split.
+    - revert i. induction S as [ | (b' & v) S' IH].
+      + discriminate.
+      + intros i H. cbn in H. destruct (eq_dec b b') as [<- | neq ].
+        * simplify_option. easy.
+        * destruct (find_binder S' b) as [n | ]; try discriminate.
+          injection H. intros <-. destruct (IH n) as (IH0 & IH1). { reflexivity. }
+          split; try assumption.
+          intros j ?. rewrite nth_error_cons. destruct j. 
+          -- simplify_option.
+          -- apply IH1, Nat.succ_lt_mono. assumption.
+    - revert i. induction S as [ | (b' & v) S' IH]; intros i (get_i & get_j).
+      + rewrite nth_error_nil in get_i. discriminate.
+      + cbn. destruct (eq_dec b b') as [<- | ].
+        * destruct i; try reflexivity. exfalso. apply (get_j 0); try reflexivity.
+          apply Nat.lt_0_succ.
+        * destruct i as [ | i'].
+          -- simplify_option.
+          -- rewrite (IH i'). { reflexivity. } split; try assumption.
+             intros j ?. apply (get_j (1 + j)). apply Nat.succ_lt_mono in H. exact H.
+  Qed.
+
+  Lemma find_binder_None S b :
+    find_binder S b = None <-> forall i, get_binder S i <> Some b.
+  Proof.
+    split.
+    - intro H. induction S as [ | (b' & v) S' IH].
+      + intro. rewrite nth_error_nil. discriminate.
+      + intros [ | i'].
+        * intros [=->]. cbn in H. destruct (eq_dec b b); easy.
+        * apply IH. cbn in H. destruct (eq_dec b b'); simplify_option.
+    - induction S as [ | (b' & v) S' IH].
+      + reflexivity.
+      + intro. cbn. destruct (eq_dec b b') as [<- | ].
+        * exfalso. apply (H 0). reflexivity.
+        * rewrite IH. { reflexivity. } intro i. specialize (H (1 + i)). apply H.
+  Qed.
+
+  Lemma get_binder_sset (S : state B V) i p v : get_binder (S.[p <- v]) i = get_binder S i.
+  Proof.
+    unfold sset. destruct (Nat.eq_dec (fst p) i) as [-> | ].
+    - rewrite nth_error_map_nth_eq. simplify_option.
+    - rewrite nth_error_map_nth_neq; auto.
+  Qed.
+
+  Corollary find_binder_sset S b p v : find_binder (S.[p <- v]) b = find_binder S b.
+  Proof.
+    destruct (find_binder S b) eqn:H.
+    - apply find_binder_Some. setoid_rewrite get_binder_sset. apply find_binder_Some, H.
+    - apply find_binder_None. setoid_rewrite get_binder_sset. apply find_binder_None, H.
+  Qed.
 
   Lemma find_binder_prop S b :
     forall i, find_binder S b = Some i -> exists v, nth_error S i = Some (b, v).
