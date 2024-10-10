@@ -227,6 +227,7 @@ Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_ptr l : copy_val (ptr(l)) (ptr(l))
 | Copy_loc l v w : copy_val v w -> copy_val (loc(l, v)) w.
 
+(* TODO: rename `eval_operand` *)
 Variant eval_op (S : HLPL_plus_state) : operand -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
 | Eval_IntConst n : eval_op S (IntConst n) (HLPL_plus_int n) S
 | Eval_copy (p : place) pi v : eval_place S Imm p pi -> copy_val (S.[pi]) v ->
@@ -297,8 +298,14 @@ Definition le_state := refl_trans_closure le_state_base.
 
 Create HintDb sset_sget.
 
+(* Try to automatically solve the validity hypothesis by proving that S.[p] <> bot. *)
 Ltac solve_validity :=
-  apply get_not_bot_valid_spath; autorewrite with sset_sget; discriminate.
+  apply get_not_bot_valid_spath;
+  autorewrite with sset_sget;
+  match goal with
+  | H : ?S.[?p] = ?v |- ?S.[?p] <> ?q => rewrite H; discriminate
+  | _ => discriminate
+  end.
 
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
@@ -485,3 +492,24 @@ Section MutBorrow_to_Ptr.
     - apply Rel_other. apply not_strict_prefix_nil.
   Qed.
 End MutBorrow_to_Ptr.
+
+Lemma le_state_app_last S_l S_r v0 (H : le_state S_l S_r) : 
+  le_state (S_l ++ [(Anon, v0)]) (S_r ++ [(Anon, v0)]).
+Proof.
+  induction H.
+  - apply Le_refl.
+  - apply Le_trans with (S1 := S1 ++ [(Anon, v0)]); assumption.
+  - rewrite !sset_app_state by solve_validity. apply Le_MutBorrow_To_Ptr; try assumption.
+    all: rewrite sget_app_state by solve_validity; assumption.
+Qed.
+
+Lemma operand_preserves_HLPL_plus_rel S_l S_r S'_r op v_r (Hle_state : le_state S_l S_r)
+  (Heval : eval_op S_r op v_r S'_r) :
+  exists S'_l v_l, le_state (S'_l ++ [(Anon, v_l)]) (S'_r ++ [(Anon, v_r)]) /\
+                   eval_op S_l op v_l S'_l.
+Proof.
+  destruct op.
+  - inversion Heval. subst. exists S_l, (HLPL_plus_int n). split.
+    + apply le_state_app_last. assumption.
+    + constructor.
+Admitted.

@@ -688,6 +688,30 @@ Section GetSetPath.
       apply vset_twice_disj_commute. assumption.
   Qed.
 
+  Lemma sget_app_state (S S' : state B V) p : valid_spath S p -> (S ++ S').[p] = S.[p].
+  Proof.
+    intros (w & (? & _)). unfold sget. rewrite nth_error_app1. { reflexivity. }
+    apply nth_error_Some. simplify_option.
+  Qed.
+
+  Lemma sset_app_state (S S' : state B V) p v :
+    valid_spath S p -> S.[p <- v] ++ S' = (S ++ S').[p <- v].
+  Proof.
+    intros (w & (? & ?)). unfold sset. apply nth_error_ext. intro i.
+    destruct (Nat.lt_ge_cases i (length S)) as [ | ].
+    - destruct (Nat.eq_dec (fst p) i) as [-> | ].
+      + rewrite nth_error_map_nth_eq.
+        rewrite !nth_error_app1 by (try rewrite map_nth_length; assumption).
+        apply nth_error_map_nth_eq.
+      + rewrite nth_error_map_nth_neq by assumption.
+        rewrite !nth_error_app1 by (try rewrite map_nth_length; assumption).
+        apply nth_error_map_nth_neq. assumption.
+    - rewrite nth_error_map_nth_neq.
+      { rewrite !nth_error_app2; try rewrite map_nth_length; auto. }
+      apply Nat.lt_neq. unfold lt. transitivity (length S); try assumption.
+      apply nth_error_Some. simplify_option.
+  Qed.
+
   Context `{EqDecBinder : EqDec B}.
 
   Fixpoint find_binder (S : state B V) (b : B) : option nat := match S with
