@@ -398,7 +398,36 @@ Hint Rewrite @sset_sget_equal
  * disjointness hypothesis is already present in the context. *)
 Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sset_sget.
 
-(* Automating proofs of ~prefix p q. *)
+(* A _comparison_ `C p q` between is one of those relation:
+   - `p = q` or `p <> q`
+   - `prefix p q` or `~prefix p q`
+   - `strict_prefix p q` or `~strict_prefix p q`
+   - `disj p q` or `~disj p q`
+ *)
+(* We are going to define a tactic called "reduce_comp" to assist the proof of comparisons between
+ * two paths p and q, using comparisons in the hypotheses as much as possible.
+ * 
+ * The key idea is that there are four possible "atomic" comparisons: p = q, strict_prefix p q,
+ * strict_prefix q p and disj p q. These comparisons are atomic in the sense that for any p and q,
+ * exactly one of those is true.
+ *
+ * Every comparison C p q is equivalent to a disjunction of atomic comparisons. By contraposition,
+ * this means that every comparison C p q is equivalent to the conjuction of the negation of
+ * atomas. For example:
+ * - prefix p q <-> (p = q \/ strict_prefix p q) <-> (~strict_prefix q p /\ ~disj p q)
+ * - ~prefix p q <-> (strict_prefix q p \/ ~disj p q) <-> (p <> q /\ ~strict_prefix p q)
+ * - disj p q <-> disj p q <-> (p <> q /\ ~strict_prefix p q /\ ~strict_prefix q p)
+ *
+ * Thus, to prove a comparison C p q in the goal, reduce_comp works the following way:
+ * - It generates the negative atomic relations necessary to prove C p q
+ * - For each negative atomic relation, it tries to prove it automatically using the hypotheses.
+ * The negative atomic relations that could not be automatically proven are left as subgoals. This
+ * tactic never fails (as long as the goal is a comparison).
+ *
+ * Note: this tactic is not complete yet, more comparisons have to be added. It's also subject to
+ * change.
+ *)
+
 (* TODO: move *)
 (* TODO: automate proofs for more comparisons. *)
 Lemma prefix_if_equal_or_strict_prefix p q : prefix p q -> p = q \/ strict_prefix p q.
@@ -411,16 +440,26 @@ Qed.
 Corollary prove_not_prefix p q : p <> q -> ~strict_prefix p q -> ~prefix p q.
 Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
 
+Lemma prove_disj p q : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
+Proof. destruct (comparable_spaths p q); easy. Qed.
+
 Ltac prove_not_atom :=
   match goal with
-  | H : ~strict_prefix ?p ?q |- ~strict_prefix ?p ?q => exact H
   | H : ?p <> ?q |- ?p <> ?q => exact H
   | H : ?q <> ?p |- ?p <> ?q => symmetry; exact H
-  | _ => ()
+  | H : ~prefix ?p ?q |- ?p <> ?q => intros ->; apply H; reflexivity
+  | H : ~strict_prefix ?p ?q |- ~strict_prefix ?p ?q => exact H
+  | H : ~prefix ?p ?q |- ~strict_prefix ?p ?q => intro; apply H, strict_prefix_is_prefix; assumption
+  | _ => idtac
   end.
 
-Ltac reduce_not_prefix :=
-  apply prove_not_prefix; try prove_not_atom.
+Ltac reduce_comp :=
+  unfold not; (* Used to prove both negations of the form ~C p q and C p q -> False *)
+  match goal with
+  | |- prefix ?p ?q -> False => apply prove_not_prefix
+  | |- disj ?p ?q => apply prove_disj
+  end;
+  prove_not_atom.
 
 (* Automatically proving that p <> q using the following facts:
    - S.[p] = v
@@ -523,21 +562,21 @@ Section MutBorrow_to_Ptr.
       + exists (sp_loan +++ [0]). split. { constructor. }
         apply Eval_Deref_Ptr_Locs with (l := l0); autorewrite with sset_sget; easy.
       + exists (q +++ [0]). split.
-        { apply Rel_other. enough (~prefix sp_borrow q) by (intros K%strict_prefix_app_last; easy). reduce_not_prefix. }
+        { apply Rel_other. enough (~prefix sp_borrow q) by (intros K%strict_prefix_app_last; easy). reduce_comp. }
         apply Eval_Deref_MutBorrow with (l := l); try assumption.
-        rewrite constructor_sset_sget_not_prefix by reduce_not_prefix.
+        rewrite constructor_sset_sget_not_prefix by reduce_comp.
         rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
         assumption.
     - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
       exists (q_loc +++ [0]). split; try assumption.
       apply Eval_Deref_Ptr_Locs with (l := l); try auto.
-      rewrite constructor_sset_sget_not_prefix by (reduce_not_prefix; constructor_neq).
+      rewrite constructor_sset_sget_not_prefix by (reduce_comp; constructor_neq).
       rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
       assumption.
     - destruct IHeval_proj as (r' & ? & ?).
-      { intros G%strict_prefix_app_last; revert G. reduce_not_prefix. constructor_neq. }
+      { intros G%strict_prefix_app_last; revert G. reduce_comp. constructor_neq. }
       exists r'. split; try assumption. apply Eval_Loc with (l := l); try easy.
-      rewrite constructor_sset_sget_not_prefix by (reduce_not_prefix; constructor_neq).
+      rewrite constructor_sset_sget_not_prefix by (reduce_comp; constructor_neq).
       rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
       assumption.
   Qed.

@@ -230,7 +230,7 @@ Proof.
   - apply (strict_prefix_irrefl p). assumption.
 Qed.
 
-Local Instance : Reflexive prefix.
+Global Instance : Reflexive prefix.
 Proof. intro p. exists nil. apply app_spath_vpath_nil_r. Qed.
 
 (* TODO: do I need this lemma? *)
