@@ -150,7 +150,8 @@ Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop 
 Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop :=
 (* Corresponds to R-Base and W-Base in the article. *)
 | Eval_nil pi : eval_path S perm [] pi pi
-| Eval_cons proj P p q r: eval_proj S perm proj p q -> eval_path S perm P q r ->
+| Eval_cons proj P p q r
+    (Heval_proj : eval_proj S perm proj p q) (Heval_path : eval_path S perm P q r) :
     eval_path S perm (proj :: P) p r.
 
 Notation eval_place S perm p r :=
@@ -331,7 +332,7 @@ Definition preserves_le_state (R : HLPL_plus_state -> HLPL_plus_state -> Prop) :
    - R = eval_op op
    - R = eval_rv rv
    The following definition states that R is preserved by le_state, which means that if we have
-   Sr >= Sl and a transition from Sr to Sr' producing a value vr (with R), then there exists a state 
+   Sr >= Sl and a transition from Sr to Sr' producing a value vr (with R), then there exists a state
    S'l and a value vl that complete the following square:
 
       Sr   >=    Sl
@@ -596,11 +597,20 @@ Section MutBorrow_to_Ptr.
   Proof.
     intros H. induction H.
     - eexists. split. eassumption. constructor.
-    - intros q_l ?. apply eval_proj_mut_borrow_to_ptr with (q_l := q_l) in H; try assumption.
-      destruct H as (q'_l & rel_q'_l & ?).
+    - intros q_l ?.
+      apply eval_proj_mut_borrow_to_ptr with (q_l := q_l) in Heval_proj; try assumption.
+      destruct Heval_proj as (q'_l & rel_q'_l & ?).
       destruct (IHeval_path q'_l rel_q'_l) as (q''_l & ? & ?).
       exists q''_l. split. { assumption. }
       apply Eval_cons with (q := q'_l); assumption.
+  Qed.
+
+  Lemma eval_path_mut_borrow_to_ptr_Mov P q q' :
+    eval_path S_r Mov P q q' -> eval_path S_l Mov P q q'.
+  Proof.
+    intro H. induction H.
+    - constructor.
+    - destruct Heval_proj; easy.
   Qed.
 
   Corollary eval_place_mut_borrow_to_ptr p pi_r :
@@ -612,6 +622,21 @@ Section MutBorrow_to_Ptr.
       exists i. split. { rewrite! find_binder_sset. assumption. }
       assumption.
     - apply Rel_other. apply not_strict_prefix_nil.
+  Qed.
+
+  Corollary eval_place_mut_borrow_to_ptr_Mov p pi :
+    eval_place S_r Mov p pi -> eval_place S_l Mov p pi.
+  Proof.
+    intros (i & ? & H). apply eval_path_mut_borrow_to_ptr_Mov with (q := (i, [])) in H.
+    exists i. split; try assumption. rewrite! find_binder_sset. assumption.
+  Qed.
+
+  Lemma eval_place_mut_borrow_to_ptr_Mov_comp p pi :
+    eval_place S_r Mov p pi -> ~strict_prefix sp_borrow pi.
+  Proof.
+    intros (i & ? & H). remember (i, []) as pi0. induction H.
+    - rewrite Heqpi0. apply not_strict_prefix_nil.
+    - destruct Heval_proj; easy.
   Qed.
 End MutBorrow_to_Ptr.
 
