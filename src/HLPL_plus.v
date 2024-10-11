@@ -156,6 +156,9 @@ Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop 
 Notation eval_place S perm p r :=
   (exists i, find_binder S (Var (fst p)) = Some i /\ eval_path S perm (snd p) (i, []) r).
 
+(* TODO: replace the notation by a definition, with Hint Unfold. *)
+Local Notation "S |-{p} p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
+
 Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
 Proof.
   induction H.
@@ -228,12 +231,15 @@ Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_loc l v w : copy_val v w -> copy_val (loc(l, v)) w.
 
 (* TODO: rename `eval_operand` *)
-Variant eval_op (S : HLPL_plus_state) : operand -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
-| Eval_IntConst n : eval_op S (IntConst n) (HLPL_plus_int n) S
-| Eval_copy (p : place) pi v : eval_place S Imm p pi -> copy_val (S.[pi]) v ->
-    eval_op S (Copy p) v S
-| Eval_move (p : place) pi : eval_place S Mov p pi -> ~contains_loan (S.[pi]) -> ~contains_bot (S.[pi]) ->
-  eval_op S (Move p) (S.[pi]) (S.[pi <- bot]).
+Local Reserved Notation "S |-{op} op => v , S'" (at level 60).
+
+Variant eval_op : operand -> HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
+| Eval_IntConst S n : S |-{op} IntConst n => HLPL_plus_int n, S
+| Eval_copy S (p : place) pi v : eval_place S Imm p pi -> copy_val (S.[pi]) v ->
+    S |-{op} Copy p => v, S
+| Eval_move S (p : place) pi : eval_place S Mov p pi -> ~contains_loan (S.[pi]) -> ~contains_bot (S.[pi]) ->
+    S |-{op} Move p => S.[pi], S.[pi <- bot]
+where "S |-{op} op => v , S'" := (eval_op op S v S').
 
 (* FIXME *)
 Variant get_loc_id (S : HLPL_plus_state) : spath -> option loan_id -> Prop :=
@@ -242,11 +248,12 @@ Variant get_loc_id (S : HLPL_plus_state) : spath -> option loan_id -> Prop :=
   | GetLocId_nil i : get_loc_id S (i, []) None.
 
 Variant eval_rvalue (S : HLPL_plus_state) : rvalue -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
-| Eval_just op v S' : eval_op S op v S' -> eval_rvalue S (Just op) v S'
+| Eval_just op v S' : (S |-{op} op => v, S') -> eval_rvalue S (Just op) v S'
 (* For the moment, the only operation is the natural sum. *)
-| Eval_bin_op S' S'' op_l op_r m n : eval_op S op_l (HLPL_plus_int m) S' ->
-   eval_op S' op_r (HLPL_plus_int n) S'' ->
-   eval_rvalue S (BinOp op_l op_r) (HLPL_plus_int (m + n)) S''
+| Eval_bin_op S' S'' op_l op_r m n :
+    (S |-{op} op_l => HLPL_plus_int m, S') ->
+    (S' |-{op} op_r => HLPL_plus_int n, S'') ->
+    eval_rvalue S (BinOp op_l op_r) (HLPL_plus_int (m + n)) S''
 | Eval_pointer_loc p pi l : eval_place S Mut p pi -> get_loc_id S pi (Some l) ->
     ~contains_loan (S.[pi]) -> ~contains_bot (S.[pi]) ->
     eval_rvalue S (&mut p) (ptr(l)) S
@@ -254,6 +261,8 @@ Variant eval_rvalue (S : HLPL_plus_state) : rvalue -> HLPL_plus_val -> HLPL_plus
     ~contains_loan (S.[pi]) -> ~contains_bot (S.[pi]) ->
     is_fresh l S ->
     eval_rvalue S (&mut p) (ptr(l)) (S.[pi <- loc(l, S.[pi])]).
+
+Local Notation "S |-{rv} rv => v , S'" := (eval_rvalue S rv v S') (at level 50).
 
 Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Reorg_refl S : reorg S S
@@ -273,28 +282,102 @@ Inductive eval_stmt : HLPL_plus_state -> statement -> statement_result -> HLPL_p
     (eval_stmt_r : eval_stmt S1 stmt_r r S2) : eval_stmt S0 (stmt_l ;; stmt_r) r S2
 | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : eval_stmt S0 stmt_l rPanic S1) :
     eval_stmt S0 (stmt_l ;; stmt_r) rPanic S1
-| Eval_assign S S' p rv v sp : eval_rvalue S rv v S' -> eval_place S' Mut p sp ->
+| Eval_assign S S' p rv v sp : (S |-{rv} rv => v, S') -> eval_place S' Mut p sp ->
     ~contains_outer_loc (S'.[sp]) -> ~contains_outer_loan (S'.[sp]) ->
     eval_stmt S (ASSIGN p <- rv) rUnit (S'.[sp <- v] ++ [(Anon, S'.[sp])])
 | Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> eval_stmt S1 stmt r S2 -> eval_stmt S0 stmt r S2.
 
+Local Notation "S |-{rv} stmt => r , S'" := (eval_stmt S stmt r S') (at level 50).
+
 (* TODO: introduce well-formedness judgement. *)
 
-Inductive le_state : HLPL_plus_state -> HLPL_plus_state -> Prop :=
-| Le_refl S : le_state S S
-| Le_trans S0 S1 S2 : le_state S0 S1 -> le_state S1 S2 -> le_state S0 S2
-| Le_MutBorrow_To_Ptr S l p q v : disj p q -> S.[p] = loan^m(l) ->
-    S.[q] = borrow^m(l, v) ->
-    le_state (S.[p <- loc(l, v)].[q <- ptr(l)]) S.
+Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
+| Le_MutBorrow_To_Ptr S l sp_loan sp_borrow v (Hdisj : disj sp_loan sp_borrow)
+    (HS_loan :S.[sp_loan] = loan^m(l)) (HS_borrow : S.[sp_borrow] = borrow^m(l, v)) :
+    le_state_base (S.[sp_loan <- loc(l, v)].[sp_borrow <- ptr(l)]) S.
 
-(*
 Inductive refl_trans_closure {A : Type} (R : A -> A -> Prop) : A -> A -> Prop :=
 | Cl_base x y : R x y -> refl_trans_closure R x y
 | Cl_refl x : refl_trans_closure R x x
 | Cl_trans x y z : refl_trans_closure R x y -> refl_trans_closure R y z -> refl_trans_closure R x z.
 
 Definition le_state := refl_trans_closure le_state_base.
+
+(* With le_state, we are generally going to prove preservation properties, of the following forms:
  *)
+(* Let R be a transition relation. For example:
+   - R = reorg
+   - R = eval_stmt s r
+   The following definition states that R is preserved by le_state, which means that if we have
+   Sr >= Sl and a transition from Sr to Sr' (with R), then there exists a state S'l that complete
+   the following square:
+
+    Sr >=  Sl
+
+    |      |
+    R      R
+    |      |
+    v      v
+
+   Sr' >= S'l
+
+ *)
+Definition preserves_le_state (R : HLPL_plus_state -> HLPL_plus_state -> Prop) :=
+  (forall Sl Sr, le_state Sl Sr ->
+   forall S'r, R Sr S'r  -> exists S'l, R Sl S'l /\ le_state S'l S'r).
+
+(* TODO harmonization: change the type of R to "val -> state -> state" *)
+(* Let R be a transition relation that produced a value. For example:
+   - R = eval_op op
+   - R = eval_rv rv
+   The following definition states that R is preserved by le_state, which means that if we have
+   Sr >= Sl and a transition from Sr to Sr' producing a value vr (with R), then there exists a state 
+   S'l and a value vl that complete the following square:
+
+      Sr   >=    Sl
+
+      |          |
+      R          R
+      |          |
+      v          v
+
+   Sr', vr >= S'l, vl
+
+ *)
+Definition preserves_le_state_val (R : HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state -> Prop) :=
+  (forall Sl Sr, le_state Sl Sr ->
+   forall vr S'r, R Sr vr S'r ->
+   exists vl S'l, R Sl vl S'l /\ le_state (S'l ++ [(Anon, vl)]) (S'r ++ [(Anon, vr)])).
+
+(* To prove a preservation result, we are proving it on the base cases, and using the lemmas to
+ * skip the reflexivity and transitivity cases: *)
+Lemma preserves_le_state_if_preserves_le_state_base R
+  (H : forall Sl Sr, le_state_base Sl Sr ->
+       forall S'r, R Sr S'r  -> exists S'l, R Sl S'l /\ le_state S'l S'r) :
+  preserves_le_state R.
+Proof.
+  intros Sl Sr Hle_state. induction Hle_state as [ | Sr | Sl Smid Sr _ IHl _ IHr].
+  - intros. eapply H; eassumption.
+  - intros S'r ?. exists S'r. split. assumption. apply Cl_refl.
+  - intros S'r HRr.
+    destruct (IHr S'r HRr) as (S'mid & HRmid & ?). destruct (IHl S'mid HRmid) as (S'l & ? & ?).
+    exists S'l. split; try assumption. eapply Cl_trans; eassumption.
+Qed.
+
+Lemma preserves_le_state_val_if_preserves_le_state_base R
+  (H : forall Sl Sr, le_state_base Sl Sr ->
+       forall vr S'r, R Sr vr S'r ->
+       exists vl S'l, R Sl vl S'l /\ le_state (S'l ++ [(Anon, vl)]) (S'r ++ [(Anon, vr)])) :
+  preserves_le_state_val R.
+Proof.
+  intros Sl Sr Hle_state. induction Hle_state as [ | Sr | Sl Smid Sr _ IHl _ IHr].
+  - intros. eapply H; eassumption.
+  - intros vr S'r ?. exists vr, S'r. split. assumption. apply Cl_refl.
+  - intros vr S'r HRr.
+    destruct (IHr vr S'r HRr) as (vmid & S'mid & HRmid & ?).
+    destruct (IHl vmid S'mid HRmid) as (vl & S'l & ? & ?).
+    exists vl, S'l. split; try assumption. eapply Cl_trans; eassumption.
+Qed.
 
 Create HintDb sset_sget.
 
@@ -493,23 +576,28 @@ Section MutBorrow_to_Ptr.
   Qed.
 End MutBorrow_to_Ptr.
 
-Lemma le_state_app_last S_l S_r v0 (H : le_state S_l S_r) : 
+Lemma le_state_app_last S_l S_r v0 (H : le_state S_l S_r) :
   le_state (S_l ++ [(Anon, v0)]) (S_r ++ [(Anon, v0)]).
 Proof.
-  induction H.
-  - apply Le_refl.
-  - apply Le_trans with (S1 := S1 ++ [(Anon, v0)]); assumption.
-  - rewrite !sset_app_state by solve_validity. apply Le_MutBorrow_To_Ptr; try assumption.
+  induction H as [? ? H | | ].
+  - destruct H. rewrite !sset_app_state by solve_validity.
+    apply Cl_base, Le_MutBorrow_To_Ptr; try assumption.
     all: rewrite sget_app_state by solve_validity; assumption.
+  - apply Cl_refl.
+  - eapply Cl_trans; eassumption.
 Qed.
 
-Lemma operand_preserves_HLPL_plus_rel S_l S_r S'_r op v_r (Hle_state : le_state S_l S_r)
-  (Heval : eval_op S_r op v_r S'_r) :
-  exists S'_l v_l, le_state (S'_l ++ [(Anon, v_l)]) (S'_r ++ [(Anon, v_r)]) /\
-                   eval_op S_l op v_l S'_l.
+Lemma operand_preserves_HLPL_plus_rel op : preserves_le_state_val (eval_op op).
 Proof.
-  destruct op.
-  - inversion Heval. subst. exists S_l, (HLPL_plus_int n). split.
-    + apply le_state_app_last. assumption.
+  apply preserves_le_state_val_if_preserves_le_state_base.
+  intros Sl Sr Hle vr S'r Heval. destruct Heval.
+  - exists (HLPL_plus_int n), Sl. split.
     + constructor.
+    + apply le_state_app_last. constructor. assumption.
+  - admit.
+  - destruct Hle.
+    (* The moved value cannot contain a loan, but it can contain a borrow. Two cases:
+       - either pi <= sp_borrow
+       - either pi and sp_borrow are disjoint.
+     *)
 Admitted.
