@@ -189,18 +189,29 @@ Qed.
 
 (* Setting up the definitions for judgements like "loan \notin v" or
    "l is fresh". *)
-Definition state_contains (H : HLPL_plus_val -> Prop) (S : HLPL_plus_state) :=
-  exists p, valid_spath S p /\ H (S.[p]).
+Definition not_state_contains (P : HLPL_plus_val -> Prop) (S : HLPL_plus_state) :=
+  forall p, valid_spath S p -> ~P (S.[p]).
 
-Definition value_contains (H : HLPL_plus_val -> Prop) (v : HLPL_plus_val) :=
-  exists p, valid_vpath v p /\ H (v.[[p]]).
+Definition not_value_contains (P : HLPL_plus_val -> Prop) (v : HLPL_plus_val) :=
+  forall p, valid_vpath v p -> ~P (v.[[p]]).
 
-Definition is_loan (v : HLPL_plus_val) :=
-  exists l, v = loan^m(l).
-Definition contains_loan := value_contains is_loan.
+Lemma not_value_contains_not_prefix P (S : HLPL_plus_state) p q
+  (Hnot_contains : not_value_contains P (S.[p])) (HP : P (S.[q])) (Hvalid : valid_spath S q) :
+  ~prefix p q.
+Proof.
+  intros (r & <-). apply valid_spath_app in Hvalid. apply Hnot_contains with (p := r); [easy | ]. 
+  rewrite<- sget_app. assumption.
+Qed.
+
+Variant is_loan : HLPL_plus_val -> Prop :=
+| IsLoan_MutLoan l : is_loan (loan^m(l)).
+Definition not_contains_loan := not_value_contains is_loan.
 
 Definition is_mut_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
 
+(* ~contains_outer_loan v <->
+   forall l p, v.[[p]] = loan^m(l) -> exists q, vprefix q p /\ is_mut_borrow v.[[q]]
+ *)
 Definition contains_outer_loan v :=
   exists l p, v.[[p]] = loan^m(l) /\ (forall q, vprefix q p -> ~is_mut_borrow (v.[[q]])).
 
@@ -208,7 +219,7 @@ Definition contains_outer_loc (v : HLPL_plus_val) :=
   exists l w p, v.[[p]] = loc(l, w) /\ (forall q, vprefix q p -> ~is_mut_borrow (v.[[q]])).
 
 Definition is_loc (v : HLPL_plus_val) := exists l w, v = loc(l, w).
-Definition contains_loc := value_contains is_loc.
+Definition not_contains_loc := not_value_contains is_loc.
 
 Variant is_loan_id (l : loan_id) : HLPL_plus_val -> Prop  :=
 | Is_loan_id_loan : is_loan_id l (loan^m(l))
@@ -216,15 +227,15 @@ Variant is_loan_id (l : loan_id) : HLPL_plus_val -> Prop  :=
 | Is_loan_id_ptr : is_loan_id l (ptr(l))
 | Is_loan_id_loc w : is_loan_id l (loc(l, w)).
 
-Definition is_fresh l S := ~state_contains (is_loan_id l) S.
+Definition is_fresh l S := not_state_contains (is_loan_id l) S.
 
 Definition is_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
 
 Definition not_in_borrow (S : HLPL_plus_state) p :=
   forall q, prefix q p /\ is_borrow (S.[q]) -> q = p.
 
-Definition contains_bot (v : HLPL_plus_val) :=
-  value_contains (fun w => w = bot) v.
+Definition not_contains_bot (v : HLPL_plus_val) :=
+  not_value_contains (fun w => w = bot) v.
 
 Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_plus_int n) (HLPL_plus_int n)
@@ -238,7 +249,7 @@ Variant eval_op : operand -> HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state
 | Eval_IntConst S n : S |-{op} IntConst n => HLPL_plus_int n, S
 | Eval_copy S (p : place) pi v : eval_place S Imm p pi -> copy_val (S.[pi]) v ->
     S |-{op} Copy p => v, S
-| Eval_move S (p : place) pi : eval_place S Mov p pi -> ~contains_loan (S.[pi]) -> ~contains_bot (S.[pi]) ->
+| Eval_move S (p : place) pi : eval_place S Mov p pi -> not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
     S |-{op} Move p => S.[pi], S.[pi <- bot]
 where "S |-{op} op => v , S'" := (eval_op op S v S').
 
@@ -256,10 +267,10 @@ Variant eval_rvalue (S : HLPL_plus_state) : rvalue -> HLPL_plus_val -> HLPL_plus
     (S' |-{op} op_r => HLPL_plus_int n, S'') ->
     eval_rvalue S (BinOp op_l op_r) (HLPL_plus_int (m + n)) S''
 | Eval_pointer_loc p pi l : eval_place S Mut p pi -> get_loc_id S pi (Some l) ->
-    ~contains_loan (S.[pi]) -> ~contains_bot (S.[pi]) ->
+    not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
     eval_rvalue S (&mut p) (ptr(l)) S
 | Eval_pointer p pi l : eval_place S Mut p pi -> get_loc_id S pi None ->
-    ~contains_loan (S.[pi]) -> ~contains_bot (S.[pi]) ->
+    not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
     is_fresh l S ->
     eval_rvalue S (&mut p) (ptr(l)) (S.[pi <- loc(l, S.[pi])]).
 
@@ -270,7 +281,7 @@ Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Reorg_trans S0 S1 S2 : reorg S0 S1 -> reorg S1 S2 -> reorg S0 S2
 | Reorg_end_borrow_m S (p q : spath) l v :
     disj p q -> S.[p] = loan^m(l) -> S.[q] = borrow^m(l, v) ->
-    ~contains_loan v -> not_in_borrow S q ->
+    not_contains_loan v -> not_in_borrow S q ->
     reorg S (S.[p <- v].[q <- bot]).
 
 (* When introducing non-terminating features (loops or recursivity), the signature of the relation
@@ -387,6 +398,8 @@ Create HintDb sset_sget.
 (* TODO: is the call to autorewrite with sset_sget necessary? *)
 Ltac solve_validity :=
   apply get_not_bot_valid_spath;
+  (* If the hypothesis is of the form S.[p <- v].[q] <> bot, tries to reduce it before
+     applying the hypotheses. *)
   autorewrite with sset_sget;
   match goal with
   | H : ?S.[?p] = ?v |- ?S.[?p] <> ?q => rewrite H; discriminate
