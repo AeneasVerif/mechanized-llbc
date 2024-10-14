@@ -383,11 +383,18 @@ Qed.
 Create HintDb sset_sget.
 
 (* Try to automatically solve the validity hypothesis by proving that S.[p] <> bot. *)
+(* TODO: also solve validity when S.[p] = bot. *)
+(* TODO: is the call to autorewrite with sset_sget necessary? *)
 Ltac solve_validity :=
   apply get_not_bot_valid_spath;
   autorewrite with sset_sget;
   match goal with
   | H : ?S.[?p] = ?v |- ?S.[?p] <> ?q => rewrite H; discriminate
+  | H : get_constructor (?S.[?p]) = ?c |- ?S.[?p] <> ?q =>
+    let EQ := fresh "EQ" in
+    intro EQ;
+    rewrite EQ in H;
+    discriminate
   | _ => discriminate
   end.
 
@@ -398,6 +405,10 @@ Hint Rewrite @sset_sget_equal
 (* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), provided that a
  * disjointness hypothesis is already present in the context. *)
 Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sset_sget.
+
+(* TODO: if I manage to get rid of the autorewrite call in solve_validity, move in upwards. *)
+Goal forall (S : HLPL_plus_state) p l, get_constructor (S.[p]) = locC(l) -> valid_spath S p.
+Proof. intros. solve_validity. Qed.
 
 (* A _comparison_ `C p q` between is one of those relation:
    - `p = q` or `p <> q`
@@ -444,15 +455,45 @@ Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
 Lemma prove_disj p q : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
 Proof. destruct (comparable_spaths p q); easy. Qed.
 
+(* TODO: move *)
+Lemma get_nil_prefix_right'  {V : Type} {IsValue : Value V} {B : Type} (S : state B V)
+  (p q : spath) :
+subvalues (S .[ p]) = [] -> valid_spath S q -> ~strict_prefix p q.
+Proof.
+  intros H G K. assert (q = p) as ->.
+  { eapply get_nil_prefix_right; try eassumption. apply strict_prefix_is_prefix. assumption. }
+  eapply strict_prefix_irrefl. eassumption.
+Qed.
+
 Ltac prove_not_atom :=
   match goal with
+  (* Trying to automatically prove p <> q *)
   | H : ?p <> ?q |- ?p <> ?q => exact H
   | H : ?q <> ?p |- ?p <> ?q => symmetry; exact H
   | H : ~prefix ?p ?q |- ?p <> ?q => intros ->; apply H; reflexivity
+  | H : ?S.[?p] = ?v, G : get_constructor (?S.[?q]) = ?c |- ?p <> ?q =>
+      let EQ := fresh "EQ" in
+      intro EQ;
+      rewrite EQ in H;
+      rewrite H in G;
+      discriminate
+
+  (* Trying to automatically prove ~strict_prefix p q *)
   | H : ~strict_prefix ?p ?q |- ~strict_prefix ?p ?q => exact H
   | H : ~prefix ?p ?q |- ~strict_prefix ?p ?q => intro; apply H, strict_prefix_is_prefix; assumption
+  (* When we have a hypotheses H : S.[p] = v with v a 0-ary value (for example, v = loan^m(l)),
+     we try to prove that p cannot be a strict prefix of q by using the validity of q: *)
+  | H : ?S.[?p] = ?v |- ~strict_prefix ?p ?q =>
+      let G := fresh "G" in
+      (* Trying to automatically prove that p has no subvalues, this branch fails if we can't. *)
+      assert (G : subvalues (S.[p]) = []) by (rewrite H; reflexivity);
+      apply (get_nil_prefix_right' S p q G);
+      try solve_validity
   | _ => idtac
   end.
+
+Goal forall (S : HLPL_plus_state) p q l, S.[p] = loan^m(l) -> S.[q] = HLPL_plus_int 3 -> ~strict_prefix p q.
+Proof. intros. prove_not_atom. Qed.
 
 Ltac reduce_comp :=
   unfold not; (* Used to prove both negations of the form ~C p q and C p q -> False *)
@@ -461,18 +502,6 @@ Ltac reduce_comp :=
   | |- disj ?p ?q => apply prove_disj
   end;
   prove_not_atom.
-
-(* Automatically proving that p <> q using the following facts:
-   - S.[p] = v
-   - S.[q] is of constructor c
-   - v is not of constructor c
-*)
-Ltac constructor_neq :=
-  match goal with
-  | H : ?S.[?p] = ?v, G : get_constructor (?S.[?q]) = ?c |- ?p <> ?q =>
-      let EQ := fresh "EQ" in
-      intro EQ; rewrite EQ in H; rewrite H in G; discriminate
-  end.
 
 Section MutBorrow_to_Ptr.
   Context (S_r : HLPL_plus_state).
@@ -487,23 +516,6 @@ Section MutBorrow_to_Ptr.
 
   Hint Rewrite HS_r_borrow : sset_sget.
   Hint Rewrite HS_r_loan : sset_sget.
-
-  (* comparison reasonning: *)
-  Lemma sp_loan_not_prefix q :
-    get_constructor (S_r.[q]) <> botC ->
-    get_constructor (S_r.[q]) <> loanC^m(l0) -> ~prefix sp_loan q.
-  Proof.
-    intros H G ->%(get_nil_prefix_right S_r).
-    - rewrite HS_r_loan in G. easy.
-    - rewrite HS_r_loan. reflexivity.
-    - apply get_not_bot_valid_spath. intros ?%(f_equal get_constructor). easy.
-  Qed.
-  Ltac solve_sp_loan_not_prefix :=
-    apply sp_loan_not_prefix;
-    match goal with
-      | H : ?get_constr = _ |- ?get_constr <> _ => rewrite H
-    end;
-    discriminate.
 
   (* TODO: name *)
   Inductive rel : spath -> spath -> Prop :=
@@ -528,8 +540,7 @@ Section MutBorrow_to_Ptr.
       (* comparison reasonning: *)
       + apply Rel_other. intros ?%strict_prefix_app_last. auto.
       + rewrite constructor_sset_sget_not_prefix by assumption.
-        rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
-        assumption.
+        rewrite constructor_sset_sget_not_prefix by reduce_comp. assumption.
   Qed.
 
   Lemma eval_proj_mut_sp_borrow_strict_prefix proj r q
@@ -566,19 +577,19 @@ Section MutBorrow_to_Ptr.
         { apply Rel_other. enough (~prefix sp_borrow q) by (intros K%strict_prefix_app_last; easy). reduce_comp. }
         apply Eval_Deref_MutBorrow with (l := l); try assumption.
         rewrite constructor_sset_sget_not_prefix by reduce_comp.
-        rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
+        rewrite constructor_sset_sget_not_prefix by reduce_comp.
         assumption.
     - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
       exists (q_loc +++ [0]). split; try assumption.
       apply Eval_Deref_Ptr_Locs with (l := l); try auto.
-      rewrite constructor_sset_sget_not_prefix by (reduce_comp; constructor_neq).
-      rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
+      rewrite constructor_sset_sget_not_prefix by reduce_comp.
+      rewrite constructor_sset_sget_not_prefix by reduce_comp.
       assumption.
     - destruct IHeval_proj as (r' & ? & ?).
-      { intros G%strict_prefix_app_last; revert G. reduce_comp. constructor_neq. }
+      { intros G%strict_prefix_app_last; revert G. reduce_comp. }
       exists r'. split; try assumption. apply Eval_Loc with (l := l); try easy.
-      rewrite constructor_sset_sget_not_prefix by (reduce_comp; constructor_neq).
-      rewrite constructor_sset_sget_not_prefix by solve_sp_loan_not_prefix.
+      rewrite constructor_sset_sget_not_prefix by reduce_comp.
+      rewrite constructor_sset_sget_not_prefix by reduce_comp.
       assumption.
   Qed.
 
