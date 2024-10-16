@@ -4,6 +4,8 @@ Require Import lang.
 Require Import List.
 Import ListNotations.
 
+Create HintDb spath.
+
 Inductive HLPL_plus_val :=
 | HLPL_plus_bot
 | HLPL_plus_int (n : nat) (* TODO: use Aeneas integer types? *)
@@ -101,7 +103,7 @@ Delimit Scope hlpl_plus_scope with hlpl_plus.
 
 (* TODO: move in lang.v *)
 (* TODO: set every priority to 0? *)
-Reserved Notation "'bot'" (at level 0).
+(* Reserved Notation "'bot'" (at level 0). *)
 Reserved Notation "'loan^m' ( l )" (at level 0).
 Reserved Notation "'borrow^m' ( l , v )" (at level 0, l at next level, v at next level).
 Reserved Notation "'loc' ( l , v )" (at level 0, l at next level, v at next level).
@@ -113,7 +115,7 @@ Reserved Notation "'borrow^m' ( l )" (at level 0, l at next level).
 Reserved Notation "'locC' ( l , )" (at level 0, l at next level).
 Reserved Notation "'ptrC' ( l )" (at level 0).
 
-Notation "'bot'" := HLPL_plus_bot: hlpl_plus_scope.
+(* Notation "'bot'" := HLPL_plus_bot: hlpl_plus_scope. *)
 Notation "'loan^m' ( l )" := (HLPL_plus_mut_loan l) : hlpl_plus_scope.
 Notation "'borrow^m' ( l  , v )" := (HLPL_plus_mut_borrow l v) : hlpl_plus_scope.
 Notation "'loc' ( l , v )" := (HLPL_plus_loc l v) : hlpl_plus_scope.
@@ -187,11 +189,13 @@ Proof.
   eapply find_binder_valid. eassumption.
 Qed.
 
+
 (* Setting up the definitions for judgements like "loan \notin v" or
    "l is fresh". *)
 Definition not_state_contains (P : HLPL_plus_val -> Prop) (S : HLPL_plus_state) :=
   forall p, valid_spath S p -> ~P (S.[p]).
 
+(* TODO: move *)
 Definition not_value_contains (P : HLPL_plus_val -> Prop) (v : HLPL_plus_val) :=
   forall p, valid_vpath v p -> ~P (v.[[p]]).
 
@@ -199,13 +203,14 @@ Lemma not_value_contains_not_prefix P (S : HLPL_plus_state) p q
   (Hnot_contains : not_value_contains P (S.[p])) (HP : P (S.[q])) (Hvalid : valid_spath S q) :
   ~prefix p q.
 Proof.
-  intros (r & <-). apply valid_spath_app in Hvalid. apply Hnot_contains with (p := r); [easy | ]. 
+  intros (r & <-). apply valid_spath_app in Hvalid. apply Hnot_contains with (p := r); [easy | ].
   rewrite<- sget_app. assumption.
 Qed.
 
 Variant is_loan : HLPL_plus_val -> Prop :=
 | IsLoan_MutLoan l : is_loan (loan^m(l)).
 Definition not_contains_loan := not_value_contains is_loan.
+Hint Constructors is_loan : spath.
 
 Definition is_mut_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
 
@@ -391,37 +396,69 @@ Proof.
     exists vl, S'l. split; try assumption. eapply Cl_trans; eassumption.
 Qed.
 
+(* Setting up automation. Automation works like this:
+   - The database sset_sget is used to perform rewriting of states. It generates validity goals and
+   comparison goals.
+   - The databate spath is used to resolve comparison and validity goals.
+   TODO: when it is mature enough, move it out of this file.
+ *)
+(* TODO: change name. *)
 Create HintDb sset_sget.
 
-(* Try to automatically solve the validity hypothesis by proving that S.[p] <> bot. *)
-(* TODO: also solve validity when S.[p] = bot. *)
-(* TODO: is the call to autorewrite with sset_sget necessary? *)
-Ltac solve_validity :=
-  apply get_not_bot_valid_spath;
-  (* If the hypothesis is of the form S.[p <- v].[q] <> bot, tries to reduce it before
-     applying the hypotheses. *)
-  autorewrite with sset_sget;
+(* Automatically solving a comparison C p q using the hypotheses. *)
+Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
+Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
+Hint Resolve not_disj_strict_prefix : spath.
+Hint Immediate symmetric_disj : spath.
+
+(* Try to automatically solve a validity goal validity S pi. Here is how the procedure should
+ * work:
+ * - If the state S is of the form S'.[q <- v], reduce to valid S' pi provided that
+     ~strict_prefix q pi.
+ * - Otherwise, search the proof that pi is the evaluation of a place.
+ * - Otherwise, search for a proof that S.[p] <> bot in the hypotheses.
+ * - Otherwise, search for a proof that the constructor of S.[p] is not bot in the hypotheses.
+ *)
+Hint Resolve sset_not_prefix_valid : spath.
+
+(* The following hints are immediate because they should close the goal. *)
+Hint Immediate eval_place_valid : spath.
+
+Lemma valid_sget_not_bot (S : HLPL_plus_state) p v : S.[p] = v -> v <> bot -> valid_spath S p.
+Proof. intros eq ?. apply get_not_bot_valid_spath. rewrite eq. assumption. Qed.
+Hint Extern 0 (valid_spath ?S ?p) =>
   match goal with
-  | H : ?S.[?p] = ?v |- ?S.[?p] <> ?q => rewrite H; discriminate
-  | H : get_constructor (?S.[?p]) = ?c |- ?S.[?p] <> ?q =>
-    let EQ := fresh "EQ" in
-    intro EQ;
-    rewrite EQ in H;
-    discriminate
-  | _ => discriminate
-  end.
+  | H : ?S.[?p] = ?v |- _ => apply (valid_sget_not_bot S p v H); discriminate
+  end : spath.
+
+Lemma valid_get_constructor_sget_not_bot (S : HLPL_plus_state) p c :
+  get_constructor (S.[p]) = c -> c <> get_constructor bot -> valid_spath S p.
+Proof. intros H G. apply get_not_bot_valid_spath. intro K. apply G. rewrite <-H, K. reflexivity. Qed.
+Hint Extern 0 (valid_spath ?S ?p) =>
+  match goal with
+  | H : get_constructor (?S.[?p]) = ?c |- _ =>
+      apply (valid_get_constructor_sget_not_bot S p c H); discriminate
+  end : spath.
+
+(* Testing that I can automatically prove validity: *)
+Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
+Proof. intros. trivial with spath. Qed.
+
+Goal forall (S : HLPL_plus_state) p l, get_constructor (S.[p]) = locC(l) -> valid_spath S p.
+Proof. intros. trivial with spath. Qed.
+
+Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
+  -> valid_spath (S.[p <- v].[q <- w]) r.
+Proof. intros. debug eauto with spath. Qed.
 
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
 Hint Rewrite @sset_sget_equal
-  using solve_validity : sset_sget.
+  using eauto with spath : sset_sget.
 (* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), provided that a
  * disjointness hypothesis is already present in the context. *)
+(* TODO: use auto with spath. *)
 Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sset_sget.
-
-(* TODO: if I manage to get rid of the autorewrite call in solve_validity, move in upwards. *)
-Goal forall (S : HLPL_plus_state) p l, get_constructor (S.[p]) = locC(l) -> valid_spath S p.
-Proof. intros. solve_validity. Qed.
 
 (* A _comparison_ `C p q` between is one of those relation:
    - `p = q` or `p <> q`
@@ -478,6 +515,7 @@ Proof.
   eapply strict_prefix_irrefl. eassumption.
 Qed.
 
+(* TODO: replace by eauto with spath? *)
 Ltac prove_not_atom :=
   match goal with
   (* Trying to automatically prove p <> q *)
@@ -501,7 +539,7 @@ Ltac prove_not_atom :=
       (* Trying to automatically prove that p has no subvalues, this branch fails if we can't. *)
       assert (G : subvalues (S.[p]) = []) by (rewrite H; reflexivity);
       apply (get_nil_prefix_right' S p q G);
-      try solve_validity
+      try eauto with spath
   | _ => idtac
   end.
 
@@ -668,9 +706,9 @@ Lemma le_state_app_last S_l S_r v0 (H : le_state S_l S_r) :
   le_state (S_l ++ [(Anon, v0)]) (S_r ++ [(Anon, v0)]).
 Proof.
   induction H as [? ? H | | ].
-  - destruct H. rewrite !sset_app_state by solve_validity.
+  - destruct H. rewrite !sset_app_state by eauto with spath.
     apply Cl_base, Le_MutBorrow_To_Ptr; try assumption.
-    all: rewrite sget_app_state by solve_validity; assumption.
+    all: rewrite sget_app_state by eauto with spath; assumption.
   - apply Cl_refl.
   - eapply Cl_trans; eassumption.
 Qed.
