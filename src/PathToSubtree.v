@@ -191,7 +191,7 @@ Proof.
     rewrite<- (app_nil_r (snd p)). cbn. rewrite longest_common_suffixes_strip.
     reflexivity.
 Qed.
-    
+
 
 Lemma comparable_spaths p q : Comparable p q.
 Proof.
@@ -309,7 +309,7 @@ Class Value (V : Type) := {
   bot : V;
 
   length_subvalues_is_arity v : length (subvalues v) = arity (get_constructor v);
-  constructor_subvalues_inj v w (eq_constructor : get_constructor v = get_constructor w) 
+  constructor_subvalues_inj v w (eq_constructor : get_constructor v = get_constructor w)
                                 (eq_subvalues : subvalues v = subvalues w) : v = w;
   get_constructor_fold_value c vs (H : length vs = arity c) : get_constructor (fold_value c vs) = c;
   subvalues_fold_value c vs (H : length vs = arity c) : subvalues (fold_value c vs) = vs;
@@ -321,7 +321,7 @@ Notation get_subval_or_bot w i :=
     | Some u => u
     | None => bot
   end).
-Definition vget {V} `{Value V} : vpath -> V -> V := 
+Definition vget {V} `{Value V} : vpath -> V -> V :=
   fold_left (fun w i => get_subval_or_bot w i).
 Notation "v .[[ p ]]" := (vget p v) (left associativity, at level 50) : GetSetPath_scope.
 
@@ -338,7 +338,7 @@ Notation get_binder S i := (SOME c <- nth_error S i IN Some (fst c)).
 
 Definition state B V := list (B * V).
 
-Definition sget {V B} `{Value V} (p : spath) (S : state B V) : V := 
+Definition sget {V B} `{Value V} (p : spath) (S : state B V) : V :=
   match get_val S (fst p) with
   | Some v => v.[[snd p]]
   | None => bot
@@ -445,6 +445,13 @@ Section GetSetPath.
   Lemma vget_cons v i p : v.[[i :: p]] = (get_subval_or_bot v i).[[p]].
   Proof. reflexivity. Qed.
 
+  (* All of the lemmas to reduce an expression of the form v.[[q <- w]].[[p]], depending on the
+   * following cases:
+   * - p = q
+   * - p is a prefix of q
+   * - q is a prefix of p
+   * - p and q are disjoint
+   *)
   Lemma vget_vset_prefix v w p q (H : valid_vpath v p) :
     v.[[p ++ q <- w]].[[p]] = v.[[p]].[[q <- w]].
   Proof.
@@ -457,7 +464,7 @@ Section GetSetPath.
   Corollary vget_vset_equal v w p : valid_vpath v p -> v.[[p <- w]].[[p]] = w.
   Proof. intro. rewrite<- (app_nil_r p) at 2. rewrite vget_vset_prefix; auto. Qed.
 
-  Lemma set_valid v w p (H : valid_vpath v p) : valid_vpath (v.[[p <- w]]) p.
+  Lemma vset_same_valid v w p (H : valid_vpath v p) : valid_vpath (v.[[p <- w]]) p.
   Proof.
     induction H as [ | ? ? ? ? H].
     - constructor.
@@ -468,7 +475,7 @@ Section GetSetPath.
 
   Corollary vget_vset_prefix_right v w p q (H : valid_vpath v p) :
     v.[[p <- w]].[[p ++ q]] = w.[[q]].
-  Proof. rewrite vget_app, vget_vset_equal; try apply set_valid; auto. Qed.
+  Proof. rewrite vget_app, vget_vset_equal; try apply vset_same_valid; auto. Qed.
 
   Lemma _vset_app_split v p q w (H : valid_vpath v p) :
     v.[[p ++ q <- w]] = v.[[p <- v.[[p]].[[q <- w]]]].
@@ -571,6 +578,7 @@ Section GetSetPath.
     - rewrite nth_error_cons, nth_error_nil in *. simplify_option.
   Qed.
 
+  (* Proving the same with sget and sset: *)
   Lemma sget_app (S : state B V) p q : S.[p +++ q] = S.[p].[[q]].
   Proof.
     unfold sget, app_spath_vpath. cbn. destruct (get_val S (fst p)).
@@ -578,6 +586,7 @@ Section GetSetPath.
     - rewrite vget_bot. reflexivity.
   Qed.
 
+  (* Lemmas about validity of spaths. *)
   Definition valid_spath (S : state B V) (p : spath) :=
     exists v, get_val S (fst p) = Some v /\ valid_vpath v (snd p).
 
@@ -601,7 +610,51 @@ Section GetSetPath.
     - exfalso. apply H. reflexivity.
   Qed.
 
+  Lemma vset_prefix_right_valid v p q w : valid_vpath v p -> valid_vpath (v.[[p ++ q <- w]]) p.
+  Proof.
+    intro. destruct (valid_or_invalid (p ++ q) v) as [G | ].
+    - apply vset_same_valid with (w := w) in G. apply valid_vpath_app in G. destruct G. assumption.
+    - rewrite vset_invalid; assumption.
+  Qed.
 
+  Lemma vset_disj_valid_aux v i j p q w :
+    i <> j -> valid_vpath v (i :: p) -> valid_vpath (v.[[j :: q <- w]]) (i :: p).
+  Proof.
+    intros ? H. inversion H. subst.
+    econstructor; [ | eassumption]. rewrite subvalues_vset_cons, nth_error_map_nth_neq; auto.
+  Qed.
+
+  Lemma vset_disj_valid v p q w :
+    vdisj p q -> valid_vpath v p -> valid_vpath (v.[[q <- w]]) p.
+  Proof.
+    intros (r & p' & q' & i & j & ? & -> & ->) (? & ?)%valid_vpath_app.
+    apply valid_vpath_app. split.
+    - apply vset_prefix_right_valid. assumption.
+    - rewrite vget_vset_prefix by assumption. apply vset_disj_valid_aux; assumption.
+  Qed.
+
+  Lemma sset_prefix_right_valid (S : state B V) p q v :
+    prefix p q -> valid_spath S p -> valid_spath (S.[q <- v]) p.
+  Proof.
+    intros (r & <-) (w & ? & ?). exists (w.[[snd p ++ r <- v]]). split.
+    - unfold sset. rewrite nth_error_map_nth_eq. simplify_option.
+    - apply vset_prefix_right_valid. assumption.
+  Qed.
+
+  Lemma sset_not_prefix_valid (S : state B V) p q v :
+    ~strict_prefix q p -> valid_spath S p -> valid_spath (S.[q <- v]) p.
+  Proof.
+    intros ? H.
+    destruct (comparable_spaths p q) as [<- | (i & r & <-) | | Hdisj ].
+    - apply sset_prefix_right_valid; [reflexivity | assumption].
+    - apply sset_prefix_right_valid; [ | assumption]. eexists. reflexivity.
+    - contradiction.
+    - destruct H as (w & ? & ?). unfold sset. destruct Hdisj as [ | (<- & ?)].
+      + exists w. split; [ | assumption]. rewrite nth_error_map_nth_neq; auto.
+      + exists (w.[[snd q <- v]]). split.
+        * rewrite nth_error_map_nth_eq. simplify_option.
+        * apply vset_disj_valid; assumption.
+  Qed.
 
   Lemma sset_sget_prefix (S : state B V) v p q :
     valid_spath S p -> S.[p +++ q <- v].[p] = S.[p].[[q <- v]].
@@ -614,13 +667,6 @@ Section GetSetPath.
   Proof.
     intro. rewrite <-(app_spath_vpath_nil_r p) at 2.
     rewrite sset_sget_prefix; auto.
-  Qed.
-
-  Lemma sset_valid (S : state B V) p v : valid_spath S p -> valid_spath (S.[p <- v]) p.
-  Proof.
-    intros (w & ? & ?). exists (w.[[snd p <- v]]). split.
-    - unfold sset. rewrite nth_error_map_nth_eq. simplify_option.
-    - apply set_valid. assumption.
   Qed.
 
   Lemma sget_sset_prefix_right S v p q (H : valid_spath S p) :
@@ -730,7 +776,7 @@ Section GetSetPath.
         * destruct (find_binder S' b) as [n | ]; try discriminate.
           injection H. intros <-. destruct (IH n) as (IH0 & IH1). { reflexivity. }
           split; try assumption.
-          intros j ?. rewrite nth_error_cons. destruct j. 
+          intros j ?. rewrite nth_error_cons. destruct j.
           -- simplify_option.
           -- apply IH1, Nat.succ_lt_mono. assumption.
     - revert i. induction S as [ | (b' & v) S' IH]; intros i (get_i & get_j).
