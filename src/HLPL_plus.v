@@ -192,55 +192,78 @@ Qed.
 
 (* Setting up the definitions for judgements like "loan \notin v" or
    "l is fresh". *)
-Definition not_state_contains (P : HLPL_plus_val -> Prop) (S : HLPL_plus_state) :=
-  forall p, valid_spath S p -> ~P (S.[p]).
+Definition not_state_contains (P : HLPL_plus_constructor -> Prop) (S : HLPL_plus_state) :=
+  forall p, valid_spath S p -> ~P (get_constructor (S.[p])).
 
 (* TODO: move *)
-Definition not_value_contains (P : HLPL_plus_val -> Prop) (v : HLPL_plus_val) :=
-  forall p, valid_vpath v p -> ~P (v.[[p]]).
+Definition not_value_contains (P : HLPL_plus_constructor -> Prop) (v : HLPL_plus_val) :=
+  forall p, valid_vpath v p -> ~P (get_constructor (v.[[p]])).
 
 Lemma not_value_contains_not_prefix P (S : HLPL_plus_state) p q
-  (Hnot_contains : not_value_contains P (S.[p])) (HP : P (S.[q])) (Hvalid : valid_spath S q) :
+  (Hnot_contains : not_value_contains P (S.[p])) (HP : P (get_constructor (S.[q]))) (Hvalid : valid_spath S q) :
   ~prefix p q.
 Proof.
   intros (r & <-). apply valid_spath_app in Hvalid. apply Hnot_contains with (p := r); [easy | ].
   rewrite<- sget_app. assumption.
 Qed.
 
-Variant is_loan : HLPL_plus_val -> Prop :=
-| IsLoan_MutLoan l : is_loan (loan^m(l)).
+Corollary not_value_contains_not_prefix' P (S : HLPL_plus_state) p q w :
+  S.[q] = w -> not_value_contains P (S.[p]) -> P (get_constructor w) -> valid_spath S q
+  -> ~ prefix p q.
+Proof. intros <-. apply not_value_contains_not_prefix. Qed.
+Hint Extern 3 (~prefix _ _) =>
+  simple eapply not_value_contains_not_prefix'; [eassumption | | cbn | ] : spath.
+
+Lemma not_value_contains_sset P v w p : not_value_contains P v -> not_value_contains P w ->
+  not_value_contains P (v.[[p <- w]]).
+Proof.
+  intros H G q valid_q. destruct (decidable_vprefix p q) as [(? & <-) | ].
+  - apply valid_vpath_app in valid_q. destruct valid_q as (?%vset_same_valid_rev & validity_w).
+    rewrite vget_vset_equal in validity_w by assumption.
+    rewrite vget_vset_prefix_right by assumption. apply G. assumption.
+  - rewrite constructor_vset_vget_not_prefix by assumption. apply H. admit.
+Admitted.
+
+Variant is_loan : HLPL_plus_constructor -> Prop :=
+| IsLoan_MutLoan l : is_loan (loanC^m(l)).
 Definition not_contains_loan := not_value_contains is_loan.
 Hint Constructors is_loan : spath.
 
-Definition is_mut_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
+(* TODO: delete *)
+Goal is_loan (get_constructor (loan^m(0))).
+Proof. cbn. auto with spath. Qed.
 
-(* ~contains_outer_loan v <->
-   forall l p, v.[[p]] = loan^m(l) -> exists q, vprefix q p /\ is_mut_borrow v.[[q]]
- *)
-Definition contains_outer_loan v :=
-  exists l p, v.[[p]] = loan^m(l) /\ (forall q, vprefix q p -> ~is_mut_borrow (v.[[q]])).
-
-Definition contains_outer_loc (v : HLPL_plus_val) :=
-  exists l w p, v.[[p]] = loc(l, w) /\ (forall q, vprefix q p -> ~is_mut_borrow (v.[[q]])).
-
-Definition is_loc (v : HLPL_plus_val) := exists l w, v = loc(l, w).
+Variant is_loc : HLPL_plus_constructor -> Prop :=
+| IsLoc_Loc l : is_loc (locC(l)).
 Definition not_contains_loc := not_value_contains is_loc.
 
-Variant is_loan_id (l : loan_id) : HLPL_plus_val -> Prop  :=
-| Is_loan_id_loan : is_loan_id l (loan^m(l))
-| Is_loan_id_borrow w : is_loan_id l (borrow^m(l, w))
-| Is_loan_id_ptr : is_loan_id l (ptr(l))
-| Is_loan_id_loc w : is_loan_id l (loc(l, w)).
+(*
+Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
+| IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
+ *)
+(* Hint Constructors is_mut_borrow : spath. *)
 
+Definition not_contains_outer_loan v :=
+  forall l p, v.[[p]] = loan^m(l) -> exists q l w, vprefix q p /\ v.[[q]] = borrow^m(l, w).
+
+Definition not_contains_outer_loc v :=
+  forall p, is_loc (get_constructor (v.[[p]])) -> exists q l w, vprefix q p /\ v.[[q]] = borrow^m(l, w).
+
+Variant is_loan_id (l : loan_id) : HLPL_plus_constructor -> Prop  :=
+| Is_loan_id_loan : is_loan_id l (loanC^m(l))
+| Is_loan_id_borrow : is_loan_id l (borrowC^m(l))
+| Is_loan_id_ptr : is_loan_id l (ptrC(l))
+| Is_loan_id_loc : is_loan_id l (locC(l)).
+(* Hint Constructors is_loan_id : spath. *)
 Definition is_fresh l S := not_state_contains (is_loan_id l) S.
 
 Definition is_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
 
 Definition not_in_borrow (S : HLPL_plus_state) p :=
-  forall q, prefix q p /\ is_borrow (S.[q]) -> q = p.
+  forall q, prefix q p -> is_borrow (S.[q]) -> q = p.
 
 Definition not_contains_bot (v : HLPL_plus_val) :=
-  not_value_contains (fun w => w = bot) v.
+  not_value_contains (fun c => c = botC) v.
 
 Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_plus_int n) (HLPL_plus_int n)
@@ -261,7 +284,7 @@ where "S |-{op} op => v , S'" := (eval_op op S v S').
 (* FIXME *)
 Variant get_loc_id (S : HLPL_plus_state) : spath -> option loan_id -> Prop :=
   | GetLocId_loc pi l : get_constructor (S.[pi]) = locC(l) -> get_loc_id S (pi +++ [0]) (Some l)
-  | GetLocId_not_loc pi i : ~is_loc (S.[pi]) -> get_loc_id S (pi +++ [i]) None
+  | GetLocId_not_loc pi i : ~is_loc (get_constructor (S.[pi])) -> get_loc_id S (pi +++ [i]) None
   | GetLocId_nil i : get_loc_id S (i, []) None.
 
 Variant eval_rvalue (S : HLPL_plus_state) : rvalue -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
@@ -300,7 +323,7 @@ Inductive eval_stmt : HLPL_plus_state -> statement -> statement_result -> HLPL_p
 | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : eval_stmt S0 stmt_l rPanic S1) :
     eval_stmt S0 (stmt_l ;; stmt_r) rPanic S1
 | Eval_assign S S' p rv v sp : (S |-{rv} rv => v, S') -> eval_place S' Mut p sp ->
-    ~contains_outer_loc (S'.[sp]) -> ~contains_outer_loan (S'.[sp]) ->
+    not_contains_outer_loc (S'.[sp]) -> not_contains_outer_loan (S'.[sp]) ->
     eval_stmt S (ASSIGN p <- rv) rUnit (S'.[sp <- v] ++ [(Anon, S'.[sp])])
 | Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> eval_stmt S1 stmt r S2 -> eval_stmt S0 stmt r S2.
 
@@ -453,8 +476,8 @@ Proof. intros. debug eauto with spath. Qed.
 
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
-Hint Rewrite @sset_sget_equal
-  using eauto with spath : sset_sget.
+Hint Rewrite @sset_sget_equal using eauto with spath : sset_sget.
+Hint Rewrite @sset_sget_prefix using eauto with spath : sset_sget.
 (* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), provided that a
  * disjointness hypothesis is already present in the context. *)
 (* TODO: use auto with spath. *)

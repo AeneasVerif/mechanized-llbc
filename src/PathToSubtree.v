@@ -512,8 +512,7 @@ Section GetSetPath.
     - cbn. f_equal. eapply map_nth_equal_Some; simplify_option.
   Qed.
 
-  (* Note: the validity hypothesis could be removed. *)
-  Lemma vset_same v p (H : valid_vpath v p) : v.[[p <- v.[[p]]]] = v.
+  Lemma _vset_same v p (H : valid_vpath v p) : v.[[p <- v.[[p]]]] = v.
   Proof.
     induction H.
     - reflexivity.
@@ -532,7 +531,7 @@ Section GetSetPath.
    *)
   Lemma vset_invalid v p w : invalid_vpath v p -> v.[[p <- w]] = v.
   Proof.
-    intros (q & i & r & -> & valid_q & H). rewrite<- (vset_same v q) at 2 by assumption.
+    intros (q & i & r & -> & valid_q & H). rewrite<- (_vset_same v q) at 2 by assumption.
     rewrite _vset_app_split by assumption. f_equal.
     apply constructor_subvalues_inj.
     - apply constructor_vset_cons.
@@ -560,6 +559,19 @@ Section GetSetPath.
     - apply constructor_subvalues_inj.
       + rewrite !constructor_vset_cons. reflexivity.
       + rewrite !subvalues_vset_cons, map_nth_compose. apply map_nth_equiv. assumption.
+  Qed.
+
+  Lemma vset_same v p : v.[[p <- v.[[p]]]] = v.
+  Proof.
+    destruct (valid_or_invalid p v).
+    - now apply _vset_same.
+    - rewrite vset_invalid; [reflexivity | assumption].
+  Qed.
+
+  Lemma vset_same_valid_rev v p w : valid_vpath (v.[[p <- w]]) p -> valid_vpath v p.
+  Proof.
+    intro. rewrite <-(vset_same v p). rewrite <-(vset_twice_equal p w _ v).
+    apply vset_same_valid. assumption.
   Qed.
 
   (* Now the we proved that v.[[p <- w]] = v when p in invalid, we can remove the validity
