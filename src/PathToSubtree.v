@@ -136,6 +136,9 @@ Definition prefix p q := exists r, p +++ r = q.
 
 Definition strict_prefix p q := exists i r, p +++ (i :: r) = q.
 
+Lemma vstrict_prefix_is_vprefix p q : vstrict_prefix p q -> vprefix p q.
+Proof. intros (? & ? & ?). eexists. eassumption. Qed.
+
 Lemma strict_prefix_is_prefix p q : strict_prefix p q -> prefix p q.
 Proof. intros (? & ? & ?). eexists. eassumption. Qed.
 
@@ -230,6 +233,15 @@ Proof.
   - apply (strict_prefix_irrefl p). assumption.
 Qed.
 
+Lemma not_vprefix_left_vstrict_prefix_right p q : vstrict_prefix q p -> ~vprefix p q.
+Proof.
+  intros (? & ? & H) (q' & G). rewrite <-(app_nil_r p), <-G, <-app_assoc in H.
+  apply app_inv_head in H. destruct q'; discriminate.
+Qed.
+
+Local Instance : Reflexive vprefix.
+Proof. intro p. exists nil. apply app_nil_r. Qed.
+
 Global Instance : Reflexive prefix.
 Proof. intro p. exists nil. apply app_spath_vpath_nil_r. Qed.
 
@@ -256,16 +268,31 @@ Qed.
 (* TODO: check that it doesn't break anything. *)
 (* TODO: move *)
 Local Hint Unfold app_spath_vpath : core.
+
+Lemma not_vprefix_vdisj p q : vdisj p q -> ~vprefix p q.
+Proof.
+  intros (r' & p' & q' & i & j & diff & H & G) (r & <-). rewrite H, <-app_assoc in G.
+  apply app_inv_head_iff in G. injection G. auto.
+Qed.
+
 Lemma not_prefix_disj p q : disj p q -> ~prefix p q.
 Proof.
-  intros [ | (_ & (r' & p' & q' & i & j & diff & H & G))] (r & <-).
+  intros [ | (? & ?)] (? & <-).
   - auto.
-  - cbn in *. rewrite H in G. rewrite<- app_assoc in G. cbn in G.
-    apply app_inv_head_iff in G. inversion G. auto.
+  - eapply (not_vprefix_vdisj (snd p) (snd _)); [eassumption | ]. eexists. reflexivity.
 Qed.
 
 Lemma decidable_spath_eq (p q : spath) : p = q \/ p <> q.
 Admitted.
+
+Lemma decidable_vprefix p q : vprefix p q \/ ~vprefix p q.
+Proof.
+  destruct (comparable_vpaths p q) as [<- | | | ].
+  - left. reflexivity.
+  - left. apply vstrict_prefix_is_vprefix. assumption.
+  - right. apply not_vprefix_left_vstrict_prefix_right. assumption.
+  - right. apply not_vprefix_vdisj. assumption.
+Qed.
 
 Lemma decidable_prefix p q : prefix p q \/ ~prefix p q.
 Proof.
@@ -680,20 +707,35 @@ Section GetSetPath.
     - rewrite nth_error_map_nth_eq. autodestruct. intro. apply vset_vget_disj. assumption.
   Qed.
 
+  Lemma constructor_vset_vget_strict_prefix v p q w :
+    vstrict_prefix p q -> get_constructor (v.[[q <- w]].[[p]]) = get_constructor (v.[[p]]).
+  Proof.
+     intros (i & r & <-). destruct (valid_or_invalid p v).
+     - rewrite vget_vset_prefix by assumption. apply constructor_vset_cons.
+     - assert (invalid_vpath v (p ++ i :: r)) by now apply invalid_prefix.
+       now rewrite vset_invalid.
+  Qed.
+
   (* During the proof of this theorem, we implicitely use the fact that if the spath p is
    * invalid, then the spath q is invalid, and S.[q <- w] = S. *)
   Lemma constructor_sset_sget_strict_prefix (S : state B V) p q w :
     strict_prefix p q -> get_constructor (S.[q <- w].[p]) = get_constructor (S.[p]).
   Proof.
-    intros (i & r & <-).
-    destruct (nth_error S (fst p)) as [bv | ] eqn:EQN.
-    - destruct (valid_or_invalid (snd p) (snd bv)).
-      + rewrite sset_sget_prefix.
-        * apply constructor_vset_cons.
-        * exists (snd bv). simplify_option.
-      + unfold sget, sset. rewrite nth_error_map_nth_eq. simplify_option.
-        rewrite vset_invalid; try auto. apply invalid_prefix. assumption.
-    - unfold sget, sset. rewrite nth_error_map_nth_eq. simplify_option.
+    unfold sset, sget. intro H.
+    assert (fst p = fst q) as ->. { destruct H as (? & ? & <-). reflexivity. }
+    rewrite nth_error_map_nth_eq. simplify_option.
+    intro. apply constructor_vset_vget_strict_prefix.
+    destruct H as (? & ? & <-). eexists _, _. reflexivity.
+  Qed.
+
+  Lemma constructor_vset_vget_not_prefix v p q w (H : ~vprefix q p) :
+    get_constructor (v.[[q <- w]].[[p]]) = get_constructor (v.[[p]]).
+  Proof.
+    destruct (comparable_vpaths p q) as [<- | | (? & ? & ?) | ].
+    - destruct H. exists nil. apply app_nil_r. (* TODO: reflexivity lemma? *)
+    - apply constructor_vset_vget_strict_prefix. assumption.
+    - destruct H. eexists. eassumption. (* TODO: vstrict_prefix -> vprefix ? *)
+    - rewrite vset_vget_disj; [reflexivity | symmetry; assumption].
   Qed.
 
   Lemma constructor_sset_sget_not_prefix (S : state B V) p q w (H : ~prefix q p) :
