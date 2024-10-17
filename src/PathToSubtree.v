@@ -568,12 +568,6 @@ Section GetSetPath.
     - rewrite vset_invalid; [reflexivity | assumption].
   Qed.
 
-  Lemma vset_same_valid_rev v p w : valid_vpath (v.[[p <- w]]) p -> valid_vpath v p.
-  Proof.
-    intro. rewrite <-(vset_same v p). rewrite <-(vset_twice_equal p w _ v).
-    apply vset_same_valid. assumption.
-  Qed.
-
   (* Now the we proved that v.[[p <- w]] = v when p in invalid, we can remove the validity
    * hypothesis from the theorem _vset_app_split. *)
   Lemma vset_app_split v p q w : v.[[p ++ q <- w]] = v.[[p <- v.[[p]].[[q <- w]]]].
@@ -670,6 +664,23 @@ Section GetSetPath.
     apply valid_vpath_app. split.
     - apply vset_prefix_right_valid. assumption.
     - rewrite vget_vset_prefix by assumption. apply vset_disj_valid_aux; assumption.
+  Qed.
+
+  Lemma vset_same_valid_rev v p w : valid_vpath (v.[[p <- w]]) p -> valid_vpath v p.
+  Proof.
+    intro. rewrite <-(vset_same v p). rewrite <-(vset_twice_equal p w _ v).
+    apply vset_same_valid. assumption.
+  Qed.
+
+  Lemma vset_not_prefix_valid_rev v p q w (H : ~vstrict_prefix q p) :
+    valid_vpath (v.[[q <- w]]) p -> valid_vpath v p.
+  Proof.
+    intro G. destruct (comparable_vpaths p q) as [<- |(? & ? & <-) | | ].
+    - eapply vset_same_valid_rev; exact G.
+    - rewrite vset_app_split in G. eapply vset_same_valid_rev; exact G.
+    - contradiction.
+    - rewrite <-(vset_same v q). rewrite <-(vset_twice_equal q w _ v).
+      apply vset_disj_valid; assumption.
   Qed.
 
   Lemma sset_prefix_right_valid (S : state B V) p q v :

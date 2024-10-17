@@ -207,12 +207,18 @@ Proof.
   rewrite<- sget_app. assumption.
 Qed.
 
-Corollary not_value_contains_not_prefix' P (S : HLPL_plus_state) p q w :
-  S.[q] = w -> not_value_contains P (S.[p]) -> P (get_constructor w) -> valid_spath S q
-  -> ~ prefix p q.
-Proof. intros <-. apply not_value_contains_not_prefix. Qed.
-Hint Extern 3 (~prefix _ _) =>
-  simple eapply not_value_contains_not_prefix'; [eassumption | | cbn | ] : spath.
+(* Adding a hint to reslove a relation ~prefix p q using the facts that:
+ * - S.[p] does not contain a constructor c.
+ * - S.[q] starts by the constructor c.
+ * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
+ * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
+ * the expression (get_value v) produced, so that it can be solved automatically.
+ *)
+Hint Extern 3 (~prefix ?p ?q) =>
+  match goal with
+  | H : ?S.[?q] = _ |- _ =>
+    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | ]
+  end : spath.
 
 Lemma not_value_contains_sset P v w p : not_value_contains P v -> not_value_contains P w ->
   not_value_contains P (v.[[p <- w]]).
@@ -221,8 +227,10 @@ Proof.
   - apply valid_vpath_app in valid_q. destruct valid_q as (?%vset_same_valid_rev & validity_w).
     rewrite vget_vset_equal in validity_w by assumption.
     rewrite vget_vset_prefix_right by assumption. apply G. assumption.
-  - rewrite constructor_vset_vget_not_prefix by assumption. apply H. admit.
-Admitted.
+  - rewrite constructor_vset_vget_not_prefix by assumption. apply H.
+    eapply vset_not_prefix_valid_rev; [ | eassumption].
+    intros ?%vstrict_prefix_is_vprefix. auto.
+Qed.
 
 Variant is_loan : HLPL_plus_constructor -> Prop :=
 | IsLoan_MutLoan l : is_loan (loanC^m(l)).
@@ -472,7 +480,7 @@ Proof. intros. trivial with spath. Qed.
 
 Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
   -> valid_spath (S.[p <- v].[q <- w]) r.
-Proof. intros. debug eauto with spath. Qed.
+Proof. intros. eauto with spath. Qed.
 
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
@@ -491,7 +499,7 @@ Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sset_sge
  *)
 (* We are going to define a tactic called "reduce_comp" to assist the proof of comparisons between
  * two paths p and q, using comparisons in the hypotheses as much as possible.
- * 
+ *
  * The key idea is that there are four possible "atomic" comparisons: p = q, strict_prefix p q,
  * strict_prefix q p and disj p q. These comparisons are atomic in the sense that for any p and q,
  * exactly one of those is true.
