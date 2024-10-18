@@ -453,19 +453,47 @@ Proof.
 Qed.
 
 (* Setting up automation. Automation works like this:
-   - The database sset_sget is used to perform rewriting of states. It generates validity goals and
+   - The database sset_sget (FIXME: outdated) is used to perform rewriting of states. It generates validity goals and
    comparison goals.
    - The databate spath is used to resolve comparison and validity goals.
    TODO: when it is mature enough, move it out of this file.
  *)
-(* TODO: change name. *)
-Create HintDb sset_sget.
-
 (* Automatically solving a comparison C p q using the hypotheses. *)
 Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
 Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
 Hint Resolve not_disj_strict_prefix : spath.
 Hint Immediate symmetric_disj : spath.
+
+Lemma spath_neq_by_value_constructor (S : HLPL_plus_state) p q v c :
+  S.[p] = v -> get_constructor (S.[q]) = c -> get_constructor v <> c -> p <> q.
+Proof. intros H G diff_cons EQ. apply diff_cons. rewrite <-H, <-G, EQ. reflexivity. Qed.
+
+Hint Extern 5 (?p <> ?q) =>
+  match goal with
+  | H : ?S.[?p] = ?v, G : get_constructor (?S.[?q]) = ?c |- _ =>
+      simple apply (spath_neq_by_value_constructor S p q v c); [exact H | exact G | discriminate]
+  end : spath.
+
+(* TODO: move *)
+Lemma get_nil_prefix_right'  {V : Type} {IsValue : Value V} {B : Type} (S : state B V)
+  (p q : spath) :
+subvalues (S .[ p]) = [] -> valid_spath S q -> ~strict_prefix p q.
+Proof.
+  intros H G K. assert (q = p) as ->.
+  { eapply get_nil_prefix_right; try eassumption. apply strict_prefix_is_prefix. assumption. }
+  eapply strict_prefix_irrefl. eassumption.
+Qed.
+
+Hint Extern 5 (~strict_prefix ?p ?q) =>
+  match goal with
+  | H : ?S.[?p] = _ |- _ =>
+      simple apply (get_nil_prefix_right' S); [rewrite H | ]
+  end : spath.
+
+Hint Resolve strict_prefix_is_prefix : spath.
+Lemma equal_implies_prefix p q : p = q -> prefix p q.
+Proof. intros <-. reflexivity. Qed.
+Hint Resolve equal_implies_prefix : spath.
 
 (* Try to automatically solve a validity goal validity S pi. Here is how the procedure should
  * work:
@@ -509,12 +537,16 @@ Proof. intros. eauto with spath. Qed.
 
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
-Hint Rewrite @sset_sget_equal using eauto with spath : sset_sget.
-Hint Rewrite @sset_sget_prefix using eauto with spath : sset_sget.
+Hint Rewrite @sset_sget_equal using eauto with spath : spath.
+Hint Rewrite @sset_sget_prefix using eauto with spath : spath.
 (* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), provided that a
  * disjointness hypothesis is already present in the context. *)
 (* TODO: use auto with spath. *)
-Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : sset_sget.
+Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : spath.
+Hint Rewrite @sset_twice_prefix_right : spath.
+Hint Rewrite @sset_app_state using eauto with spath : spath.
+Hint Rewrite @sset_app_last_state : spath.
+Hint Rewrite @sget_app_state using eauto with spath : spath.
 
 (* A _comparison_ `C p q` between is one of those relation:
    - `p = q` or `p <> q`
@@ -561,16 +593,6 @@ Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
 Lemma prove_disj p q : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
 Proof. destruct (comparable_spaths p q); easy. Qed.
 
-(* TODO: move *)
-Lemma get_nil_prefix_right'  {V : Type} {IsValue : Value V} {B : Type} (S : state B V)
-  (p q : spath) :
-subvalues (S .[ p]) = [] -> valid_spath S q -> ~strict_prefix p q.
-Proof.
-  intros H G K. assert (q = p) as ->.
-  { eapply get_nil_prefix_right; try eassumption. apply strict_prefix_is_prefix. assumption. }
-  eapply strict_prefix_irrefl. eassumption.
-Qed.
-
 (* TODO: replace by eauto with spath? *)
 Ltac prove_not_atom :=
   match goal with
@@ -608,7 +630,7 @@ Ltac reduce_comp :=
   | |- prefix ?p ?q -> False => apply prove_not_prefix
   | |- disj ?p ?q => apply prove_disj
   end;
-  prove_not_atom.
+  eauto with spath.
 
 Section MutBorrow_to_Ptr.
   Context (S_r : HLPL_plus_state).
@@ -621,8 +643,8 @@ Section MutBorrow_to_Ptr.
   Notation S_l := (S_r.[sp_loan <- loc(l0, v)].[sp_borrow <- ptr(l0)]).
   Context (perm : permission).
 
-  Hint Rewrite HS_r_borrow : sset_sget.
-  Hint Rewrite HS_r_loan : sset_sget.
+  Hint Rewrite HS_r_borrow : spath.
+  Hint Rewrite HS_r_loan : spath.
 
   (* TODO: name *)
   Inductive rel : spath -> spath -> Prop :=
@@ -635,14 +657,14 @@ Section MutBorrow_to_Ptr.
   Proof.
     destruct (decidable_prefix sp_borrow q) as [([ | i r] & <-) | sp_borrow_not_prefix].
     - rewrite app_spath_vpath_nil_r in H. rewrite HS_r_borrow in H. discriminate.
-    - rewrite sget_app in H. autorewrite with sset_sget in H.
+    - rewrite sget_app in H. autorewrite with spath in H.
       assert (i = 0) as ->.
       { eapply (get_arity_0 (borrow^m(l0, v)) i).
         - reflexivity.
         - intros G. rewrite G in H. discriminate.
       }
       exists (sp_loan +++ 0 :: r). split. { rewrite<- !app_spath_vpath_assoc. constructor. }
-      rewrite sget_app. autorewrite with sset_sget. exact H.
+      rewrite sget_app. autorewrite with spath. exact H.
     - exists q. split.
       (* comparison reasonning: *)
       + apply Rel_other. intros ?%strict_prefix_app_last. auto.
@@ -658,17 +680,17 @@ Section MutBorrow_to_Ptr.
     - exists ((sp_loan +++ 0 :: r) +++ [0]). split.
       + rewrite<- !app_spath_vpath_assoc. constructor.
       + apply Eval_Deref_MutBorrow with (l := l); try assumption.
-        rewrite sget_app in *. autorewrite with sset_sget in *. assumption.
+        rewrite sget_app in *. autorewrite with spath in *. assumption.
     - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
       exists (q_loc +++ [0]). split; try assumption.
       apply Eval_Deref_Ptr_Locs with (l := l); try assumption.
-      rewrite sget_app in *. autorewrite with sset_sget in *. assumption.
+      rewrite sget_app in *. autorewrite with spath in *. assumption.
     - specialize (IHeval_proj (r ++ [0])). destruct IHeval_proj as (q'' & ? & ?).
       + rewrite<- app_spath_vpath_assoc. reflexivity.
       + exists q''. split; try assumption.
         apply Eval_Loc with (l := l).
         * assumption.
-        * rewrite sget_app in *. autorewrite with sset_sget in *. assumption.
+        * rewrite sget_app in *. autorewrite with spath in *. assumption.
         * rewrite<- app_spath_vpath_assoc. assumption.
   Qed.
 
@@ -679,7 +701,7 @@ Section MutBorrow_to_Ptr.
     induction H.
     - destruct (decidable_spath_eq q sp_borrow) as [-> | ].
       + exists (sp_loan +++ [0]). split. { constructor. }
-        apply Eval_Deref_Ptr_Locs with (l := l0); autorewrite with sset_sget; easy.
+        apply Eval_Deref_Ptr_Locs with (l := l0); autorewrite with spath; easy.
       + exists (q +++ [0]). split.
         { apply Rel_other. enough (~prefix sp_borrow q) by (intros K%strict_prefix_app_last; easy). reduce_comp. }
         apply Eval_Deref_MutBorrow with (l := l); try assumption.

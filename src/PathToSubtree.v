@@ -775,16 +775,16 @@ Section GetSetPath.
   Qed.
 
   Lemma sset_twice_prefix_right (S : state B V) p q x y :
-    prefix q p -> S.[p <- x].[q <- y] = S.[q <- y].
+    S.[p +++ q <- x].[p <- y] = S.[p <- y].
   Proof.
-    intros (r & <-). unfold sset. cbn. rewrite map_nth_compose. cbn. apply map_nth_equiv.
+    unfold sset. cbn. rewrite map_nth_compose. cbn. apply map_nth_equiv.
     intro. rewrite vset_twice_prefix_right.
     - reflexivity.
-    - exists r. reflexivity.
+    - exists q. reflexivity.
   Qed.
 
   Corollary sset_twice_equal (S : state B V) p x y : S.[p <- x].[p <- y] = S.[p <- y].
-  Proof. apply sset_twice_prefix_right. exists nil. apply app_spath_vpath_nil_r. Qed.
+  Proof. rewrite<- (app_spath_vpath_nil_r p) at 2. apply sset_twice_prefix_right. Qed.
 
   Lemma sset_twice_preix_left (S : state B V) p q x y :
     S.[p <- x].[p +++ q <- y] = S.[p <- x.[[q <- y]]].
