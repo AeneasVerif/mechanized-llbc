@@ -231,10 +231,32 @@ Proof.
     eapply vset_not_prefix_valid_rev; [ | eassumption].
     intros ?%vstrict_prefix_is_vprefix. auto.
 Qed.
+Hint Resolve not_value_contains_sset : spath.
+
+Lemma not_value_contains_zeroary P v :
+  subvalues v = [] -> ~P (get_constructor v) -> not_value_contains P v.
+Proof.
+  intros H ? p valid_p. destruct valid_p; [assumption | ].
+  rewrite H, nth_error_nil in * |-. discriminate.
+Qed.
+Hint Extern 0 (not_value_contains _ _) =>
+  simple apply not_value_contains_zeroary; [reflexivity | easy] : spath.
+
+Require Import OptionMonad.
+Lemma not_value_contains_unary P v w :
+  subvalues v = [w] -> ~P (get_constructor v) -> not_value_contains P w -> not_value_contains P v.
+Proof.
+  intros H ? ? p valid_p. destruct valid_p; [assumption | ].
+  rewrite H, nth_error_cons in * |-. destruct i; [ | rewrite nth_error_nil in * |-; discriminate].
+  rewrite vget_cons, H. simplify_option.
+Qed.
+Hint Extern 0 (not_value_contains _ _) =>
+  simple eapply not_value_contains_unary; [reflexivity | easy | ] : spath.
 
 Variant is_loan : HLPL_plus_constructor -> Prop :=
 | IsLoan_MutLoan l : is_loan (loanC^m(l)).
 Definition not_contains_loan := not_value_contains is_loan.
+Hint Unfold not_contains_loan : spath.
 Hint Constructors is_loan : spath.
 
 (* TODO: delete *)
@@ -244,6 +266,7 @@ Proof. cbn. auto with spath. Qed.
 Variant is_loc : HLPL_plus_constructor -> Prop :=
 | IsLoc_Loc l : is_loc (locC(l)).
 Definition not_contains_loc := not_value_contains is_loc.
+Hint Unfold not_contains_loc : spath.
 
 (*
 Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
@@ -264,6 +287,7 @@ Variant is_loan_id (l : loan_id) : HLPL_plus_constructor -> Prop  :=
 | Is_loan_id_loc : is_loan_id l (locC(l)).
 (* Hint Constructors is_loan_id : spath. *)
 Definition is_fresh l S := not_state_contains (is_loan_id l) S.
+Hint Unfold is_fresh : spath.
 
 Definition is_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
 
@@ -272,6 +296,7 @@ Definition not_in_borrow (S : HLPL_plus_state) p :=
 
 Definition not_contains_bot (v : HLPL_plus_val) :=
   not_value_contains (fun c => c = botC) v.
+Hint Unfold not_contains_bot : spath.
 
 Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_plus_int n) (HLPL_plus_int n)
