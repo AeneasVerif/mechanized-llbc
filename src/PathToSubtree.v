@@ -3,6 +3,7 @@ Require Import PeanoNat.
 Require Import RelationClasses.
 Require Import OptionMonad.
 Require Import base.
+Import ListNotations.
 
 Local Open Scope option_monad_scope.
 
@@ -362,6 +363,8 @@ Notation "v .[[ p <- w ]]" := (vset p w v) (left associativity, at level 50).
 Notation get_val S i := (SOME c <- nth_error S i IN Some (snd c)).
 
 Notation get_binder S i := (SOME c <- nth_error S i IN Some (fst c)).
+
+Notation "S ,, b |-> v" := (S ++ [(b, v)]) (at level 1, v at level 61).
 
 Definition state B V := list (B * V).
 
@@ -822,6 +825,23 @@ Section GetSetPath.
       apply Nat.lt_neq. unfold lt. transitivity (length S); try assumption.
       apply nth_error_Some. simplify_option.
   Qed.
+
+  Lemma sset_app_last_state (S : state B V) b p v w :
+    S,, b |-> v.[[p <- w]] = (S,, b |-> v).[(length S, p) <- w].
+  Proof.
+    apply nth_error_ext. intro i.
+    destruct (Nat.lt_trichotomy i (length S)) as [ | [-> | ] ]; unfold sset.
+    - rewrite nth_error_map_nth_gt by assumption.
+      rewrite !nth_error_app1 by assumption. reflexivity.
+    - rewrite nth_error_map_nth_eq.
+      rewrite !nth_error_app2, Nat.sub_diag by auto. reflexivity.
+    - rewrite nth_error_map_nth_lt by assumption.
+      etransitivity; [ | symmetry].
+      all: apply nth_error_None; rewrite app_length, Nat.add_1_r; assumption.
+  Qed.
+
+  Lemma sget_app_last_state (S : state B V) b p v : (S,, b |-> v).[(length S, p)] = v.[[p]].
+  Proof. unfold sget. rewrite nth_error_app2 by auto. rewrite Nat.sub_diag. reflexivity. Qed.
 
   Context `{EqDecBinder : EqDec B}.
 
