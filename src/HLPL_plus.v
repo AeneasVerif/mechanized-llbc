@@ -469,6 +469,13 @@ Lemma prove_square_diagram_le_state_val R (Sl Sr S'l S''l : HLPL_plus_state) vr 
   exists vl S'l, R Sl vl S'l /\ le_state (S'l ++ [(Anon, vl)]) (Sr ++ [(Anon, vr)]).
 Proof. exists vl, S'l. subst. split; assumption. Qed.
 
+(* Just a shorthand *)
+Ltac square_diagram :=
+  lazymatch goal with
+  | |- exists v S, _ /\ le_state (S ++ [(Anon, v)]) _ =>
+      eapply prove_square_diagram_le_state_val
+  end.
+
 (* Setting up automation. Automation works like this:
    - The database sset_sget (FIXME: outdated) is used to perform rewriting of states. It generates validity goals and
    comparison goals.
@@ -827,7 +834,7 @@ Proof.
     assert (~prefix pi sp_loan). { eauto with spath. } (* TODO: unnecessary step? *)
     assert (disj pi sp_loan) by reduce_comp.
     destruct (decidable_prefix pi sp_borrow) as [(q & <-) | ].
-    + eapply prove_square_diagram_le_state_val.
+    + square_diagram.
       * constructor. { apply eval_place_mut_borrow_to_ptr_Mov. eassumption. }
         all: autorewrite with spath; auto with spath.
       * constructor.
@@ -841,7 +848,7 @@ Proof.
         rewrite sset_twice_disj_commute with (q := sp_loan) by eauto with spath.
         reflexivity.
     + assert (disj pi sp_borrow) by reduce_comp.
-      eapply prove_square_diagram_le_state_val.
+      square_diagram.
       * constructor. { apply eval_place_mut_borrow_to_ptr_Mov. eassumption. }
         all: autorewrite with spath; auto with spath.
       * constructor.
