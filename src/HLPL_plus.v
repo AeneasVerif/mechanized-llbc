@@ -495,6 +495,10 @@ Lemma equal_implies_prefix p q : p = q -> prefix p q.
 Proof. intros <-. reflexivity. Qed.
 Hint Resolve equal_implies_prefix : spath.
 
+Hint Extern 2 (disj ?p (length ?S, ?q)) =>
+  simple apply (disj_spath_to_last S) : spath.
+Hint Extern 2 (disj (length ?S, ?q) ?p) =>
+  symmetry; simple apply (disj_spath_to_last S) : spath.
 (* Try to automatically solve a validity goal validity S pi. Here is how the procedure should
  * work:
  * - If the state S is of the form S'.[q <- v], reduce to valid S' pi provided that
@@ -539,14 +543,15 @@ Proof. intros. eauto with spath. Qed.
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
 Hint Rewrite @sset_sget_equal using eauto with spath : spath.
 Hint Rewrite @sset_sget_prefix using eauto with spath : spath.
-(* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), provided that a
- * disjointness hypothesis is already present in the context. *)
-(* TODO: use auto with spath. *)
-Hint Rewrite @sset_sget_disj using assumption || symmetry; assumption : spath.
+(* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), only if it can
+ * automatically prove it. *)
+Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
 Hint Rewrite @sset_twice_prefix_right : spath.
 Hint Rewrite @sset_app_state using eauto with spath : spath.
 Hint Rewrite @sset_app_last_state : spath.
-Hint Rewrite @sget_app_state using eauto with spath : spath.
+Hint Rewrite @sget_app_state using eauto with spath; fail : spath.
+Hint Rewrite @sget_app_last_state using reflexivity : spath.
+(* Hint Rewrite <- @sget_app : spath. *)
 
 (* A _comparison_ `C p q` between is one of those relation:
    - `p = q` or `p <> q`
@@ -800,8 +805,32 @@ Proof.
     + apply le_state_app_last. constructor. assumption.
   - admit.
   - destruct Hle.
-    (* The moved value cannot contain a loan, but it can contain a borrow. Two cases:
-       - either pi <= sp_borrow
-       - either pi and sp_borrow are disjoint.
-     *)
+    set (S_l := S.[sp_loan <- loc(l, v)].[sp_borrow <- ptr(l)]).
+    eexists (S_l.[pi]), (S_l.[pi <- bot]).
+    assert (~strict_prefix sp_borrow pi).
+    { eapply eval_place_mut_borrow_to_ptr_Mov_comp. eassumption. }
+    (* TODO: automate *)
+    assert (~prefix pi sp_loan). { debug eauto with spath. }
+    (* TODO: autorewrite should automatically use reduce_comp. *)
+    assert (disj_pi_sp_loan : disj pi sp_loan) by reduce_comp.
+    destruct (decidable_prefix pi sp_borrow) as [(q & <-) | ].
+    + unfold S_l. split.
+      * constructor. apply eval_place_mut_borrow_to_ptr_Mov. assumption.
+        all: autorewrite with spath; auto with spath.
+      * autorewrite with spath.
+        rewrite sset_twice_disj_commute with (q := pi) by auto with spath.
+        rewrite sset_twice_disj_commute with (q := pi) by eauto with spath.
+        rewrite sset_twice_disj_commute with (q := sp_loan) by eauto with spath.
+        constructor. constructor.
+        -- eauto with spath.
+        -- autorewrite with spath. assumption.
+        -- autorewrite with spath. rewrite<- sget_app. assumption.
+    + unfold S_l. assert (disj pi sp_borrow) by reduce_comp.
+      split.
+      * constructor. apply eval_place_mut_borrow_to_ptr_Mov; assumption.
+        all: autorewrite with spath; assumption.
+      * rewrite !sset_twice_disj_commute with (q := pi) by auto with spath.
+        rewrite! sset_app_state by eauto with spath.
+        autorewrite with spath. constructor. constructor; [assumption | | ].
+        all: autorewrite with spath; assumption.
 Admitted.

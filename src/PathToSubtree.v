@@ -840,8 +840,21 @@ Section GetSetPath.
       all: apply nth_error_None; rewrite app_length, Nat.add_1_r; assumption.
   Qed.
 
-  Lemma sget_app_last_state (S : state B V) b p v : (S,, b |-> v).[(length S, p)] = v.[[p]].
-  Proof. unfold sget. rewrite nth_error_app2 by auto. rewrite Nat.sub_diag. reflexivity. Qed.
+  Lemma sget_app_last_state (S : state B V) b p v :
+    fst p = length S -> (S,, b |-> v).[p] = v.[[snd p]].
+  Proof.
+    destruct p. cbn. intros ->.
+    unfold sget. rewrite nth_error_app2 by auto. rewrite Nat.sub_diag. reflexivity.
+  Qed.
+
+  (* This lemma is used to prove that in an environment S ,, Anon |-> v, a spath p
+     relating to a value in S and a spath q relating to a value in (Anon |-> v) are disjoint.
+   *)
+  Lemma disj_spath_to_last S p q : valid_spath S p -> fst q = length S -> disj p q.
+  Proof.
+    destruct q. cbn. intros (? & ? & _) ->. left. apply Nat.lt_neq. apply nth_error_Some.
+    destruct (nth_error S (fst p)); easy.
+  Qed.
 
   Context `{EqDecBinder : EqDec B}.
 
