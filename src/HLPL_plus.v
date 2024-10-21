@@ -452,6 +452,23 @@ Proof.
     exists vl, S'l. split; try assumption. eapply Cl_trans; eassumption.
 Qed.
 
+(* The previous definition is not really handy to prove the square diagram. Indeed, it requires
+ * exhibiting a well-chosen environment S'l (as well as a value vl) that can be reduced from Sl and
+ * that satisfies the relation <=.
+ * Using this lemma, we can avoid exhibiting states as much as possible:
+ * - We prove that Sl reduces to some environement S'l and a value vl.
+ * - We prove that Sr, Anon |-> vr >= S''l for some environment S''l.
+ * - We prove that S'l, Anon |-> vl = S''l
+ * The first two goals should be proven by applying the constructors (for the R relation and for le)
+ * without exhibiting a single state. The equality should be proven automatically.
+ *)
+Lemma prove_square_diagram_le_state_val R (Sl Sr S'l S''l : HLPL_plus_state) vr vl
+  (Hstep : R Sl vl S'l)
+  (Hrel : le_state S''l (Sr ++ [(Anon, vr)]))
+  (Heq : (S'l ++ [(Anon, vl)]) = S''l) :
+  exists vl S'l, R Sl vl S'l /\ le_state (S'l ++ [(Anon, vl)]) (Sr ++ [(Anon, vr)]).
+Proof. exists vl, S'l. subst. split; assumption. Qed.
+
 (* Setting up automation. Automation works like this:
    - The database sset_sget (FIXME: outdated) is used to perform rewriting of states. It generates validity goals and
    comparison goals.
@@ -805,32 +822,32 @@ Proof.
     + apply le_state_app_last. constructor. assumption.
   - admit.
   - destruct Hle.
-    set (S_l := S.[sp_loan <- loc(l, v)].[sp_borrow <- ptr(l)]).
-    eexists (S_l.[pi]), (S_l.[pi <- bot]).
     assert (~strict_prefix sp_borrow pi).
     { eapply eval_place_mut_borrow_to_ptr_Mov_comp. eassumption. }
-    (* TODO: automate *)
-    assert (~prefix pi sp_loan). { debug eauto with spath. }
-    (* TODO: autorewrite should automatically use reduce_comp. *)
-    assert (disj_pi_sp_loan : disj pi sp_loan) by reduce_comp.
+    assert (~prefix pi sp_loan). { eauto with spath. } (* TODO: unnecessary step? *)
+    assert (disj pi sp_loan) by reduce_comp.
     destruct (decidable_prefix pi sp_borrow) as [(q & <-) | ].
-    + unfold S_l. split.
-      * constructor. apply eval_place_mut_borrow_to_ptr_Mov. assumption.
+    + eapply prove_square_diagram_le_state_val.
+      * constructor. { apply eval_place_mut_borrow_to_ptr_Mov. eassumption. }
         all: autorewrite with spath; auto with spath.
+      * constructor.
+        apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := (length S, q)).
+        all: autorewrite with spath; eauto with spath.
+        (* TODO: should be solved automatically. *)
+        rewrite sget_app in * |-. eassumption.
       * autorewrite with spath.
         rewrite sset_twice_disj_commute with (q := pi) by auto with spath.
         rewrite sset_twice_disj_commute with (q := pi) by eauto with spath.
         rewrite sset_twice_disj_commute with (q := sp_loan) by eauto with spath.
-        constructor. constructor.
-        -- eauto with spath.
-        -- autorewrite with spath. assumption.
-        -- autorewrite with spath. rewrite<- sget_app. assumption.
-    + unfold S_l. assert (disj pi sp_borrow) by reduce_comp.
-      split.
-      * constructor. apply eval_place_mut_borrow_to_ptr_Mov; assumption.
-        all: autorewrite with spath; assumption.
-      * rewrite !sset_twice_disj_commute with (q := pi) by auto with spath.
-        rewrite! sset_app_state by eauto with spath.
-        autorewrite with spath. constructor. constructor; [assumption | | ].
-        all: autorewrite with spath; assumption.
+        reflexivity.
+    + assert (disj pi sp_borrow) by reduce_comp.
+      eapply prove_square_diagram_le_state_val.
+      * constructor. { apply eval_place_mut_borrow_to_ptr_Mov. eassumption. }
+        all: autorewrite with spath; auto with spath.
+      * constructor.
+        apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+        all: autorewrite with spath; eauto with spath.
+      * autorewrite with spath.
+        rewrite !sset_twice_disj_commute with (q := pi) by eauto with spath.
+        reflexivity.
 Admitted.
