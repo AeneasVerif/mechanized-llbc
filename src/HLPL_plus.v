@@ -207,19 +207,6 @@ Proof.
   rewrite<- sget_app. assumption.
 Qed.
 
-(* Adding a hint to reslove a relation ~prefix p q using the facts that:
- * - S.[p] does not contain a constructor c.
- * - S.[q] starts by the constructor c.
- * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
- * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
- * the expression (get_value v) produced, so that it can be solved automatically.
- *)
-Hint Extern 3 (~prefix ?p ?q) =>
-  match goal with
-  | H : ?S.[?q] = _ |- _ =>
-    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | ]
-  end : spath.
-
 Lemma not_value_contains_sset P v w p : not_value_contains P v -> not_value_contains P w ->
   not_value_contains P (v.[[p <- w]]).
 Proof.
@@ -508,73 +495,98 @@ Proof.
   eapply strict_prefix_irrefl. eassumption.
 Qed.
 
-Hint Extern 5 (~strict_prefix ?p ?q) =>
-  match goal with
-  | H : ?S.[?p] = _ |- _ =>
-      simple apply (get_nil_prefix_right' S); [rewrite H | ]
-  end : spath.
+Lemma not_prefix_implies_not_strict_prefix p q : ~prefix p q -> ~strict_prefix p q.
+Proof. intros ? ?%strict_prefix_is_prefix. auto. Qed.
+Hint Resolve not_prefix_implies_not_strict_prefix : spath.
+Lemma neq_implies_not_prefix p q : ~prefix p q -> p <> q.
+Proof. intros H <-. apply H. reflexivity. Qed.
+Hint Resolve neq_implies_not_prefix : spath.
 
-Hint Resolve strict_prefix_is_prefix : spath.
-Lemma equal_implies_prefix p q : p = q -> prefix p q.
-Proof. intros <-. reflexivity. Qed.
-Hint Resolve equal_implies_prefix : spath.
+Lemma valid_get_constructor_sget_not_bot (S : HLPL_plus_state) p :
+  get_constructor (S.[p]) <> get_constructor bot -> valid_spath S p.
+Proof. intros G. apply get_not_bot_valid_spath. intro K. apply G. rewrite K. reflexivity. Qed.
 
-Hint Extern 2 (disj ?p (length ?S, ?q)) =>
-  simple apply (disj_spath_to_last S) : spath.
-Hint Extern 2 (disj (length ?S, ?q) ?p) =>
-  symmetry; simple apply (disj_spath_to_last S) : spath.
 (* Try to automatically solve a validity goal validity S pi. Here is how the procedure should
  * work:
  * - If the state S is of the form S'.[q <- v], reduce to valid S' pi provided that
      ~strict_prefix q pi.
- * - Otherwise, search the proof that pi is the evaluation of a place.
- * - Otherwise, search for a proof that S.[p] <> bot in the hypotheses.
- * - Otherwise, search for a proof that the constructor of S.[p] is not bot in the hypotheses.
+ * - If the state S is of the form S,, b |-> v
+ *   - If pi = (length S, q), meaning that pi refers to the last binding, reduce to valid v q
+ *   - Otherwise, reduce to valid S pi
+ * - Search the proof that pi is the evaluation of a place.
+ * - Search for a proof that S.[p] <> bot in the hypotheses.
+ * - Search for a proof that the constructor of S.[p] is not bot in the hypotheses.
  *)
-Hint Resolve sset_not_prefix_valid : spath.
-
-(* The following hints are immediate because they should close the goal. *)
-Hint Immediate eval_place_valid : spath.
-
-Lemma valid_sget_not_bot (S : HLPL_plus_state) p v : S.[p] = v -> v <> bot -> valid_spath S p.
-Proof. intros eq ?. apply get_not_bot_valid_spath. rewrite eq. assumption. Qed.
-Hint Extern 0 (valid_spath ?S ?p) =>
-  match goal with
-  | H : ?S.[?p] = ?v |- _ => apply (valid_sget_not_bot S p v H); discriminate
-  end : spath.
-
-Lemma valid_get_constructor_sget_not_bot (S : HLPL_plus_state) p c :
-  get_constructor (S.[p]) = c -> c <> get_constructor bot -> valid_spath S p.
-Proof. intros H G. apply get_not_bot_valid_spath. intro K. apply G. rewrite <-H, K. reflexivity. Qed.
-Hint Extern 0 (valid_spath ?S ?p) =>
-  match goal with
-  | H : get_constructor (?S.[?p]) = ?c |- _ =>
-      apply (valid_get_constructor_sget_not_bot S p c H); discriminate
-  end : spath.
+Ltac solve_validity :=
+  lazymatch goal with
+  | |- valid_spath (?S.[?p <- ?v]) ?q =>
+      simple apply sset_not_prefix_valid; [eauto with spath | solve_validity]
+  (* | |- valid_spath (?S ++ ?S') (?length S, ?q) => (* TODO *) *)
+  | |- valid_spath (?S ++ ?S') ?p =>
+      simple apply valid_app_spath;
+      solve_validity
+  | H : ?S |-{p} _ =>^{ _ } ?pi |- valid_spath ?S ?pi =>
+      simple eapply eval_place_valid;
+      exact H
+  | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
+      simple apply get_not_bot_valid_spath;
+      rewrite H;
+      discriminate
+  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S ?p =>
+      apply (valid_get_constructor_sget_not_bot S p);
+      rewrite H;
+      discriminate
+  | |- valid_spath ?S ?p => idtac
+  end.
 
 (* Testing that I can automatically prove validity: *)
 Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
-Proof. intros. trivial with spath. Qed.
+Proof. intros. solve_validity. Qed.
 
 Goal forall (S : HLPL_plus_state) p l, get_constructor (S.[p]) = locC(l) -> valid_spath S p.
-Proof. intros. trivial with spath. Qed.
+Proof. intros. solve_validity. Qed.
 
 Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
   -> valid_spath (S.[p <- v].[q <- w]) r.
-Proof. intros. eauto with spath. Qed.
+Proof. intros. solve_validity. Qed.
+
+Hint Extern 5 (~strict_prefix ?p ?q) =>
+  match goal with
+  | H : ?S.[?p] = _ |- _ =>
+      simple apply (get_nil_prefix_right' S); [rewrite H | solve_validity]
+  end : spath.
+
+(* Adding a hint to reslove a relation ~prefix p q using the facts that:
+ * - S.[p] does not contain a constructor c.
+ * - S.[q] starts by the constructor c.
+ * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
+ * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
+ * the expression (get_value v) produced, so that it can be solved automatically.
+ *)
+Hint Extern 3 (~prefix ?p ?q) =>
+  match goal with
+  | H : ?S.[?q] = _ |- _ =>
+    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | solve_validity]
+  end : spath.
+
+Hint Extern 2 (disj ?p (length ?S, ?q)) =>
+  simple apply (disj_spath_to_last S); [solve_validity | ] : spath.
+Hint Extern 2 (disj (length ?S, ?q) ?p) =>
+  symmetry; simple apply (disj_spath_to_last S); [solve_validity | ] : spath.
 
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
-Hint Rewrite @sset_sget_equal using eauto with spath : spath.
-Hint Rewrite @sset_sget_prefix using eauto with spath : spath.
+Hint Rewrite @sset_sget_equal using solve_validity : spath.
+Hint Rewrite @sset_sget_prefix using solve_validity : spath.
 (* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), only if it can
  * automatically prove it. *)
 Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
 Hint Rewrite @sset_twice_prefix_right : spath.
-Hint Rewrite @sset_app_state using eauto with spath : spath.
+Hint Rewrite @sset_app_state using solve_validity : spath.
 Hint Rewrite @sset_app_last_state : spath.
-Hint Rewrite @sget_app_state using eauto with spath; fail : spath.
+Hint Rewrite @sget_app_state using solve_validity; fail : spath.
 Hint Rewrite @sget_app_last_state using reflexivity : spath.
+Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
 (* Hint Rewrite <- @sget_app : spath. *)
 
 (* A _comparison_ `C p q` between is one of those relation:
@@ -646,7 +658,7 @@ Ltac prove_not_atom :=
       (* Trying to automatically prove that p has no subvalues, this branch fails if we can't. *)
       assert (G : subvalues (S.[p]) = []) by (rewrite H; reflexivity);
       apply (get_nil_prefix_right' S p q G);
-      try eauto with spath
+      solve_validity
   | _ => idtac
   end.
 
@@ -813,9 +825,9 @@ Lemma le_state_app_last S_l S_r v0 (H : le_state S_l S_r) :
   le_state (S_l ++ [(Anon, v0)]) (S_r ++ [(Anon, v0)]).
 Proof.
   induction H as [? ? H | | ].
-  - destruct H. rewrite !sset_app_state by eauto with spath.
+  - destruct H. rewrite !sset_app_state by solve_validity.
     apply Cl_base, Le_MutBorrow_To_Ptr; try assumption.
-    all: rewrite sget_app_state by eauto with spath; assumption.
+    all: rewrite sget_app_state by solve_validity; assumption.
   - apply Cl_refl.
   - eapply Cl_trans; eassumption.
 Qed.
@@ -831,7 +843,6 @@ Proof.
   - destruct Hle.
     assert (~strict_prefix sp_borrow pi).
     { eapply eval_place_mut_borrow_to_ptr_Mov_comp. eassumption. }
-    assert (~prefix pi sp_loan). { eauto with spath. } (* TODO: unnecessary step? *)
     assert (disj pi sp_loan) by reduce_comp.
     destruct (decidable_prefix pi sp_borrow) as [(q & <-) | ].
     + square_diagram.

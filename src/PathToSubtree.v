@@ -856,6 +856,17 @@ Section GetSetPath.
     destruct (nth_error S (fst p)); easy.
   Qed.
 
+  Lemma valid_app_spath S S' p : valid_spath S p -> valid_spath (S ++ S') p.
+  Proof.
+    intros (v & ? & ?). exists v. split; [ | assumption].
+    rewrite nth_error_app1 by (apply nth_error_Some; simplify_option). assumption.
+  Qed.
+
+  Lemma valid_spath_last S b v p : valid_vpath v p -> valid_spath (S,, b |-> v) (length S, p).
+  Proof.
+    intro. exists v. split; [ | assumption]. rewrite nth_error_app2, Nat.sub_diag; reflexivity.
+  Qed.
+
   Context `{EqDecBinder : EqDec B}.
 
   Fixpoint find_binder (S : state B V) (b : B) : option nat := match S with
