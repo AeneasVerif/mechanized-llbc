@@ -334,6 +334,8 @@ Class Value (V : Type) := {
   subvalues : V -> list V;
   get_constructor : V -> constructors;
   fold_value : constructors -> list V -> V;
+  (* A quantity decreasing as we traverse the value down. *)
+  height : V -> nat;
   bot : V;
 
   length_subvalues_is_arity v : length (subvalues v) = arity (get_constructor v);
@@ -342,6 +344,7 @@ Class Value (V : Type) := {
   get_constructor_fold_value c vs (H : length vs = arity c) : get_constructor (fold_value c vs) = c;
   subvalues_fold_value c vs (H : length vs = arity c) : subvalues (fold_value c vs) = vs;
   subvalues_bot : subvalues bot = nil;
+  height_subvalue v i w : nth_error (subvalues v) i = Some w -> height w < height v;
 }.
 
 Notation get_subval_or_bot w i :=
@@ -614,6 +617,30 @@ Section GetSetPath.
     - rewrite nth_error_cons, nth_error_nil in *. simplify_option.
   Qed.
 
+  Require Import Arith.
+  (* Two values are equal if they have the same constructors everywhere. *)
+  (* TODO: missing axiom. *)
+  Lemma get_constructor_vget_ext v w :
+    (forall p, get_constructor (v.[[p]]) = get_constructor (w.[[p]])) -> v = w.
+  Proof.
+    About lt_wf_ind.
+    remember (height v) as n. revert v w Heqn.
+    induction n as [n IH] using lt_wf_ind. intros v w -> H.
+    assert (get_constructor v = get_constructor w) by exact (H []).
+    assert (eq_length : length (subvalues v) = length (subvalues w)).
+    { rewrite !length_subvalues_is_arity. f_equal. assumption. }
+    apply constructor_subvalues_inj; [assumption | ].
+    apply nth_error_ext. intro i. destruct (nth_error (subvalues v) i) eqn:EQN.
+    - assert (i < length (subvalues w)).
+      { rewrite <-eq_length. apply nth_error_Some. rewrite EQN. discriminate. }
+      assert (nth_error (subvalues w) i <> None) by now apply nth_error_Some.
+      destruct (nth_error (subvalues w) i) eqn:EQN'; [ | contradiction].
+      f_equal. eapply IH; [ | reflexivity | ].
+      + eapply height_subvalue. eassumption.
+      + intro p. specialize (H (i :: p)). cbn in H. rewrite EQN, EQN' in H. exact H.
+    - symmetry. apply nth_error_None. rewrite <-eq_length. apply nth_error_None. assumption.
+    Qed.
+
   (* Proving the same with sget and sset: *)
   Lemma sget_app (S : state B V) p q : S.[p +++ q] = S.[p].[[q]].
   Proof.
@@ -865,6 +892,21 @@ Section GetSetPath.
   Lemma valid_spath_last S b v p : valid_vpath v p -> valid_spath (S,, b |-> v) (length S, p).
   Proof.
     intro. exists v. split; [ | assumption]. rewrite nth_error_app2, Nat.sub_diag; reflexivity.
+  Qed.
+
+  (* Two states are equal if they have the same constructors everywhere. *)
+  (* TODO: missing axiom. *)
+  Lemma get_constructor_sget_ext (S S' : state B V) :
+    (forall i, get_binder S i = get_binder S' i) -> (forall p, get_constructor (S.[p]) = get_constructor (S'.[p])) -> S = S'.
+  Proof.
+    intros eq_binders eq_constructors.
+    apply nth_error_ext. intro i. specialize (eq_binders i). destruct (nth_error S i) eqn:EQN.
+    - destruct (nth_error S' i) eqn:EQN'; [ | discriminate].
+      f_equal. apply injective_projections; [simplify_option | ].
+      apply get_constructor_vget_ext. intro q.
+      specialize (eq_constructors (i, q)). unfold sget in eq_constructors. cbn in eq_constructors.
+      rewrite EQN, EQN' in eq_constructors. exact eq_constructors.
+    - destruct (nth_error S' i); easy.
   Qed.
 
   Context `{EqDecBinder : EqDec B}.

@@ -73,12 +73,22 @@ Definition HLPL_plus_fold c vs := match c, vs with
 | _, _ => HLPL_plus_bot
 end.
 
+Fixpoint HLPL_plus_height v := match v with
+| HLPL_plus_bot => 0
+| HLPL_plus_int _ => 0
+| HLPL_plus_mut_loan _ => 0
+| HLPL_plus_mut_borrow _ v => 1 + HLPL_plus_height v
+| HLPL_plus_loc _ v =>  1 + HLPL_plus_height v
+| HLPL_plus_ptr _ => 0
+end.
+
 Program Instance ValueHLPL : Value HLPL_plus_val := {
   constructors := HLPL_plus_constructor;
   arity := HLPL_plus_arity;
   get_constructor := HLPL_plus_get_constructor;
   subvalues := HLPL_plus_subvalues;
   fold_value := HLPL_plus_fold;
+  height := HLPL_plus_height;
   bot := HLPL_plus_bot;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
@@ -94,6 +104,10 @@ Next Obligation.
   destruct c; (rewrite length_zero_iff_nil in H; rewrite H) ||
               destruct (length_1_is_singleton H) as [? ->];
               reflexivity.
+Qed.
+Next Obligation.
+  apply nth_error_In in H.
+  destruct v; cbn in *; try destruct H as [-> | ]; try contradiction; constructor.
 Qed.
 
 Definition HLPL_plus_state := state HLPL_plus_binder HLPL_plus_val.
@@ -521,7 +535,9 @@ Ltac solve_validity :=
   lazymatch goal with
   | |- valid_spath (?S.[?p <- ?v]) ?q =>
       simple apply sset_not_prefix_valid; [eauto with spath | solve_validity]
-  (* | |- valid_spath (?S ++ ?S') (?length S, ?q) => (* TODO *) *)
+  | |- valid_spath (?S ++ _) (length ?S, ?q) =>
+      apply valid_spath_last;
+      solve_validity
   | |- valid_spath (?S ++ ?S') ?p =>
       simple apply valid_app_spath;
       solve_validity
@@ -536,7 +552,12 @@ Ltac solve_validity :=
       apply (valid_get_constructor_sget_not_bot S p);
       rewrite H;
       discriminate
+  | H : ?S.[?p +++ ?q] = _ |- valid_vpath (?S.[?p]) ?q =>
+      simple apply get_not_bot_valid_vpath;
+      rewrite <-sget_app, H;
+      discriminate
   | |- valid_spath ?S ?p => idtac
+  | |- valid_vpath ?v ?p => idtac
   end.
 
 (* Testing that I can automatically prove validity: *)
@@ -588,6 +609,37 @@ Hint Rewrite @sget_app_state using solve_validity; fail : spath.
 Hint Rewrite @sget_app_last_state using reflexivity : spath.
 Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
 (* Hint Rewrite <- @sget_app : spath. *)
+
+(* Automatically solve equality between two states that are sets of a state S, ie solves goals of
+ * the form:
+ * S.[p0 <- v0] ... .[pm <- vm] = S.[q0 <- w0] ... .[qn <- vn]
+ *
+ * Strategy: it's easy to compute values that are a get of a sequence of sets, i.e:
+ * S.[p0 <- v0] ... .[pm <- vm] .[q]
+ * This works when we know the relation between the state q we get and the states p0, ..., pk we
+ * set.
+ * Let's denote Sl := S.[p0 <- v0] ... .[pm <- vm] and Sr := S.[q0 <- w0] ... .[qn <- vn]. To prove
+ * that Sl = Sr, we are going to prove that Sl.[q] = Sr.[q] for q = p0, ..., pm. For the spaths q
+ * that are not prefix of p0, ..., pm, we are going to prove that Sl.[q] and Sr.[q] have the same
+ * constructor.
+ * Finally, we also need to prove that Sl and Sr have the binders, which is an easy consequence of
+ * the fact that they are sets of the same state S.
+ *)
+Ltac prove_states_eq :=
+  let q := fresh "q" in
+  autorewrite with spath;
+  lazymatch goal with
+  | |- ?S.[?p0 <- _].[?p1 <- _].[?p2 <- _] = _ =>
+        apply get_constructor_sget_ext; [intro; rewrite !get_binder_sset; reflexivity | ];
+        intro q;
+        destruct (decidable_prefix p0 q) as [(? & <-) | ];
+          [rewrite !sget_app; autorewrite with spath; reflexivity | ];
+        destruct (decidable_prefix p1 q) as [(? & <-) | ];
+          [rewrite !sget_app; autorewrite with spath; reflexivity | ];
+        destruct (decidable_prefix p2 q) as [(? & <-) | ];
+          [rewrite !sget_app; autorewrite with spath; reflexivity | ];
+        autorewrite with spath; reflexivity
+  end.
 
 (* A _comparison_ `C p q` between is one of those relation:
    - `p = q` or `p <> q`
@@ -853,11 +905,7 @@ Proof.
         all: autorewrite with spath; eauto with spath.
         (* TODO: should be solved automatically. *)
         rewrite sget_app in * |-. eassumption.
-      * autorewrite with spath.
-        rewrite sset_twice_disj_commute with (q := pi) by auto with spath.
-        rewrite sset_twice_disj_commute with (q := pi) by eauto with spath.
-        rewrite sset_twice_disj_commute with (q := sp_loan) by eauto with spath.
-        reflexivity.
+      * prove_states_eq.
     + assert (disj pi sp_borrow) by reduce_comp.
       square_diagram.
       * constructor. { apply eval_place_mut_borrow_to_ptr_Mov. eassumption. }
@@ -865,7 +913,5 @@ Proof.
       * constructor.
         apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
         all: autorewrite with spath; eauto with spath.
-      * autorewrite with spath.
-        rewrite !sset_twice_disj_commute with (q := pi) by eauto with spath.
-        reflexivity.
+      * prove_states_eq.
 Admitted.
