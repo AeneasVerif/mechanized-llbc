@@ -315,28 +315,34 @@ Variant eval_op : operand -> HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state
     S |-{op} Move p => S.[pi], S.[pi <- bot]
 where "S |-{op} op => v , S'" := (eval_op op S v S').
 
-(* FIXME *)
-Variant get_loc_id (S : HLPL_plus_state) : spath -> option loan_id -> Prop :=
-  | GetLocId_loc pi l : get_constructor (S.[pi]) = locC(l) -> get_loc_id S (pi +++ [0]) (Some l)
-  | GetLocId_not_loc pi i : ~is_loc (get_constructor (S.[pi])) -> get_loc_id S (pi +++ [i]) None
-  | GetLocId_nil i : get_loc_id S (i, []) None.
+Variant get_loc_or_loan_id (S : HLPL_plus_state) : spath -> loan_id -> Prop :=
+  | Get_loc_or_loan_id pi l : get_constructor (S.[pi]) = locC(l) -> get_loc_or_loan_id S (pi +++ [0]) l.
 
-Variant eval_rvalue (S : HLPL_plus_state) : rvalue -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
-| Eval_just op v S' : (S |-{op} op => v, S') -> eval_rvalue S (Just op) v S'
+Variant no_loc_or_loan_id (S : HLPL_plus_state) : spath -> Prop :=
+  | No_Loc_or_loan_id_cons pi i : ~is_loc (get_constructor (S.[pi])) -> no_loc_or_loan_id S (pi +++ [i])
+  | No_Loc_or_loan_id_nil i : no_loc_or_loan_id S (i, []).
+
+Local Reserved Notation "S |-{rv} rv => v , S'" (at level 50).
+
+Variant eval_rvalue : rvalue -> HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
+  | Eval_just op v S S' : (S |-{op} op => v, S') -> S |-{rv} (Just op) => v, S'
 (* For the moment, the only operation is the natural sum. *)
-| Eval_bin_op S' S'' op_l op_r m n :
+| Eval_bin_op S S' S'' op_l op_r m n :
     (S |-{op} op_l => HLPL_plus_int m, S') ->
     (S' |-{op} op_r => HLPL_plus_int n, S'') ->
-    eval_rvalue S (BinOp op_l op_r) (HLPL_plus_int (m + n)) S''
-| Eval_pointer_loc p pi l : eval_place S Mut p pi -> get_loc_id S pi (Some l) ->
+    S |-{rv} (BinOp op_l op_r) => (HLPL_plus_int (m + n)), S''
+| Eval_pointer_loc S p pi l
+    (Heval_place : eval_place S Mut p pi)
+    (Hget_id : get_loc_or_loan_id S pi l) :
     not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
-    eval_rvalue S (&mut p) (ptr(l)) S
-| Eval_pointer p pi l : eval_place S Mut p pi -> get_loc_id S pi None ->
+    S |-{rv} &mut p => ptr(l), S
+| Eval_pointer S p pi l
+    (Heval_place : eval_place S Mut p pi)
+    (Hno_id : no_loc_or_loan_id S pi) :
     not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
     is_fresh l S ->
-    eval_rvalue S (&mut p) (ptr(l)) (S.[pi <- loc(l, S.[pi])]).
-
-Local Notation "S |-{rv} rv => v , S'" := (eval_rvalue S rv v S') (at level 50).
+    S |-{rv} (&mut p) => ptr(l), (S.[pi <- loc(l, S.[pi])])
+where "S |-{rv} rv => v , S'" := (eval_rvalue rv S v S').
 
 Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Reorg_refl S : reorg S S
@@ -749,7 +755,9 @@ Section MutBorrow_to_Ptr.
     exists q', rel (q' +++ [0]) (q +++ [0]) /\ get_constructor (S_l.[q']) = locC(l).
   Proof.
     destruct (decidable_prefix sp_borrow q) as [([ | i r] & <-) | sp_borrow_not_prefix].
+    (* Case 1: q = sp_borrow. We are eliminating this case. *)
     - rewrite app_spath_vpath_nil_r in H. rewrite HS_r_borrow in H. discriminate.
+    (* Case 2: sp_borrow is a strict_prefix of q. *)
     - rewrite sget_app in H. autorewrite with spath in H.
       assert (i = 0) as ->.
       { eapply (get_arity_0 (borrow^m(l0, v)) i).
@@ -905,7 +913,7 @@ Proof.
         all: autorewrite with spath; eauto with spath.
         (* TODO: should be solved automatically. *)
         rewrite sget_app in * |-. eassumption.
-      * prove_states_eq.
+      * autorewrite with spath. prove_states_eq.
     + assert (disj pi sp_borrow) by reduce_comp.
       square_diagram.
       * constructor. { apply eval_place_mut_borrow_to_ptr_Mov. eassumption. }
