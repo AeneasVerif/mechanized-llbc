@@ -522,9 +522,6 @@ Lemma neq_implies_not_prefix p q : ~prefix p q -> p <> q.
 Proof. intros H <-. apply H. reflexivity. Qed.
 Hint Resolve neq_implies_not_prefix : spath.
 
-Lemma valid_get_constructor_sget_not_bot (S : HLPL_plus_state) p :
-  get_constructor (S.[p]) <> get_constructor bot -> valid_spath S p.
-Proof. intros G. apply get_not_bot_valid_spath. intro K. apply G. rewrite K. reflexivity. Qed.
 
 (* Try to automatically solve a validity goal validity S pi. Here is how the procedure should
  * work:
@@ -537,19 +534,32 @@ Proof. intros G. apply get_not_bot_valid_spath. intro K. apply G. rewrite K. ref
  * - Search for a proof that S.[p] <> bot in the hypotheses.
  * - Search for a proof that the constructor of S.[p] is not bot in the hypotheses.
  *)
-Ltac solve_validity :=
+Lemma valid_get_constructor_sget_not_bot (S : HLPL_plus_state) p :
+  get_constructor (S.[p]) <> get_constructor bot -> valid_spath S p.
+Proof. intros G. apply get_not_bot_valid_spath. intro K. apply G. rewrite K. reflexivity. Qed.
+
+Lemma valid_app_last_get_constructor_not_zeoray (S : HLPL_plus_state) p :
+  arity (get_constructor (S.[p])) > 0 -> valid_spath S (p +++ [0]).
+Proof.
+  intro. apply valid_spath_app. split.
+  - apply get_not_bot_valid_spath. intro G. rewrite G in H. cbn in H. inversion H.
+  - rewrite<- length_subvalues_is_arity in H. apply nth_error_Some' in H.
+    destruct H. econstructor; [eassumption | constructor].
+Qed.
+
+Ltac solve_validity0 :=
   lazymatch goal with
-  | |- valid_spath (?S.[?p <- ?v]) ?q =>
-      simple apply sset_not_prefix_valid; [eauto with spath | solve_validity]
-  | |- valid_spath (?S ++ _) (length ?S, ?q) =>
-      apply valid_spath_last;
-      solve_validity
-  | |- valid_spath (?S ++ ?S') ?p =>
-      simple apply valid_app_spath;
-      solve_validity
   | H : ?S |-{p} _ =>^{ _ } ?pi |- valid_spath ?S ?pi =>
       simple eapply eval_place_valid;
       exact H
+  | |- valid_spath (?S.[?p <- ?v]) ?q =>
+      simple apply sset_not_prefix_valid; [ | solve_validity0]
+  | |- valid_spath (?S ++ _) (length ?S, ?q) =>
+      apply valid_spath_last;
+      solve_validity0
+  | |- valid_spath (?S ++ ?S') ?p =>
+      simple apply valid_app_spath;
+      solve_validity0
   | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
       simple apply get_not_bot_valid_spath;
       rewrite H;
@@ -562,9 +572,15 @@ Ltac solve_validity :=
       simple apply get_not_bot_valid_vpath;
       rewrite <-sget_app, H;
       discriminate
+  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
+      simple apply valid_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
   | |- valid_spath ?S ?p => idtac
   | |- valid_vpath ?v ?p => idtac
   end.
+Hint Extern 5 (valid_spath _ _) => solve_validity0.
+Ltac solve_validity := solve_validity0; eauto with spath.
 
 (* Testing that I can automatically prove validity: *)
 Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
@@ -577,10 +593,11 @@ Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r ->
   -> valid_spath (S.[p <- v].[q <- w]) r.
 Proof. intros. solve_validity. Qed.
 
+(* TODO: rework this hint. *)
 Hint Extern 5 (~strict_prefix ?p ?q) =>
   match goal with
   | H : ?S.[?p] = _ |- _ =>
-      simple apply (get_nil_prefix_right' S); [rewrite H | solve_validity]
+      simple apply (get_nil_prefix_right' S); [rewrite H | ]
   end : spath.
 
 (* Adding a hint to reslove a relation ~prefix p q using the facts that:
@@ -921,5 +938,5 @@ Proof.
       * constructor.
         apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
         all: autorewrite with spath; eauto with spath.
-      * prove_states_eq.
+      * autorewrite with spath. prove_states_eq.
 Admitted.
