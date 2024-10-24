@@ -4,7 +4,35 @@ Require Import lang.
 Require Import List.
 Import ListNotations.
 
+(* TODO: move this in a separate file. *)
 Create HintDb spath.
+(* Automatically solving a comparison C p q using the hypotheses. *)
+Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
+Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
+Hint Resolve not_disj_strict_prefix : spath.
+Hint Immediate symmetric_disj : spath.
+
+Lemma not_prefix_implies_not_strict_prefix p q : ~prefix p q -> ~strict_prefix p q.
+Proof. intros ? ?%strict_prefix_is_prefix. auto. Qed.
+Hint Resolve not_prefix_implies_not_strict_prefix : spath.
+
+Lemma neq_implies_not_prefix p q : ~prefix p q -> p <> q.
+Proof. intros H <-. apply H. reflexivity. Qed.
+Hint Resolve neq_implies_not_prefix : spath.
+
+Lemma disj_if_left_disj_prefix p q r : disj p q -> disj p (q +++ r).
+Proof.
+  intros [ | (? & (x & p' & q' & H))].
+  - left. assumption.
+  - right. split; [assumption | ]. exists x, p', (q' ++ r).
+    decompose [ex and] H. repeat eexists; try eassumption. cbn.
+    rewrite app_comm_cons, app_assoc. apply<- app_inv_tail_iff. assumption.
+Qed.
+Hint Resolve disj_if_left_disj_prefix : spath.
+
+Corollary disj_if_right_disj_prefix p q r : disj p q -> disj (p +++ r) q.
+Proof. intro. symmetry. apply disj_if_left_disj_prefix. symmetry. assumption. Qed.
+Hint Resolve disj_if_right_disj_prefix : spath.
 
 Inductive HLPL_plus_val :=
 | HLPL_plus_bot
@@ -221,7 +249,7 @@ Proof.
   rewrite<- sget_app. assumption.
 Qed.
 
-Lemma not_value_contains_sset P v w p : not_value_contains P v -> not_value_contains P w ->
+Lemma not_value_contains_vset P v w p : not_value_contains P v -> not_value_contains P w ->
   not_value_contains P (v.[[p <- w]]).
 Proof.
   intros H G q valid_q. destruct (decidable_vprefix p q) as [(? & <-) | ].
@@ -232,7 +260,39 @@ Proof.
     eapply vset_not_prefix_valid_rev; [ | eassumption].
     intros ?%vstrict_prefix_is_vprefix. auto.
 Qed.
+Hint Resolve not_value_contains_vset : spath.
+
+Lemma not_value_contains_sset P (S : HLPL_plus_state) v p q
+  (not_in_Sp : not_value_contains P (S.[p]))
+  (not_in_v : not_value_contains P v)
+  (valid_p : valid_spath (S.[q <- v]) p) :
+  not_value_contains P (S.[q <- v].[p]).
+Proof.
+  intros r valid_r. rewrite<- sget_app.
+  assert (valid_pr : valid_spath (S.[q <- v]) (p +++ r)).
+  { apply valid_spath_app. split; assumption. }
+  destruct (decidable_prefix q (p +++ r)) as [(? & eq) | ].
+  - rewrite <-eq in *. rewrite valid_spath_app in valid_pr.
+    destruct valid_pr as (valid_q & valid_v_r).
+    apply sset_not_prefix_valid in valid_q; [ | apply strict_prefix_irrefl].
+    rewrite sset_sget_equal in valid_v_r by assumption.
+    rewrite sset_sget_prefix_right by assumption. apply not_in_v. exact valid_v_r.
+  - rewrite constructor_sset_sget_not_prefix by assumption. rewrite sget_app. apply not_in_Sp.
+    apply sset_not_prefix_valid in valid_pr; [ | auto with spath].
+    apply valid_spath_app in valid_pr as (_ & ?). assumption.
+Qed.
 Hint Resolve not_value_contains_sset : spath.
+
+Lemma not_value_contains_sset_disj P (S : HLPL_plus_state) v p q
+  (not_in_Sp : not_value_contains P (S.[p]))
+  (Hdisj : disj q p) :
+  not_value_contains P (S.[q <- v].[p]).
+Proof.
+  intros r valid_r. rewrite<- sget_app. rewrite sset_sget_disj by auto with spath.
+  rewrite sget_app. apply not_in_Sp.
+  rewrite sset_sget_disj in valid_r; assumption.
+Qed.
+Hint Resolve not_value_contains_sset_disj : spath.
 
 Lemma not_value_contains_zeroary P v :
   subvalues v = [] -> ~P (get_constructor v) -> not_value_contains P v.
@@ -483,29 +543,16 @@ Ltac square_diagram :=
       eapply prove_square_diagram_le_state_val
   end.
 
-(* Setting up automation. Automation works like this:
-   - The database sset_sget (FIXME: outdated) is used to perform rewriting of states. It generates validity goals and
-   comparison goals.
-   - The databate spath is used to resolve comparison and validity goals.
-   TODO: when it is mature enough, move it out of this file.
- *)
-(* Automatically solving a comparison C p q using the hypotheses. *)
-Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
-Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
-Hint Resolve not_disj_strict_prefix : spath.
-Hint Immediate symmetric_disj : spath.
-
+(* Proving a comparison between p and q using information from the environment S. *)
 Lemma spath_neq_by_value_constructor (S : HLPL_plus_state) p q v c :
   S.[p] = v -> get_constructor (S.[q]) = c -> get_constructor v <> c -> p <> q.
 Proof. intros H G diff_cons EQ. apply diff_cons. rewrite <-H, <-G, EQ. reflexivity. Qed.
-
 Hint Extern 5 (?p <> ?q) =>
   match goal with
   | H : ?S.[?p] = ?v, G : get_constructor (?S.[?q]) = ?c |- _ =>
       simple apply (spath_neq_by_value_constructor S p q v c); [exact H | exact G | discriminate]
   end : spath.
 
-(* TODO: move *)
 Lemma get_nil_prefix_right'  {V : Type} {IsValue : Value V} {B : Type} (S : state B V)
   (p q : spath) :
 subvalues (S .[ p]) = [] -> valid_spath S q -> ~strict_prefix p q.
@@ -515,13 +562,27 @@ Proof.
   eapply strict_prefix_irrefl. eassumption.
 Qed.
 
-Lemma not_prefix_implies_not_strict_prefix p q : ~prefix p q -> ~strict_prefix p q.
-Proof. intros ? ?%strict_prefix_is_prefix. auto. Qed.
-Hint Resolve not_prefix_implies_not_strict_prefix : spath.
-Lemma neq_implies_not_prefix p q : ~prefix p q -> p <> q.
-Proof. intros H <-. apply H. reflexivity. Qed.
-Hint Resolve neq_implies_not_prefix : spath.
+(* TODO: move in PathToSubtree.v *)
+(* TODO: counterpart of get_nil_prefix_right' *)
+Lemma strict_prefix_one_subvalue (S : HLPL_plus_state) p q (H : length (subvalues (S.[p])) = 1) :
+  strict_prefix p q -> valid_spath S q -> prefix (p +++ [0]) q.
+Proof.
+  intros (i & r & <-) (_ & G)%valid_spath_app.
+  assert (i = 0) as ->.
+  { apply PeanoNat.Nat.lt_1_r. rewrite<- H. apply nth_error_Some.
+    inversion G. destruct (nth_error (subvalues (S.[p]))); easy. }
+  exists r. rewrite<- app_spath_vpath_assoc. reflexivity.
+Qed.
+Corollary not_prefix_one_subvalue (S : HLPL_plus_state) p q :
+  length (subvalues (S.[p])) = 1 -> valid_spath S q -> ~prefix (p +++ [0]) q -> ~strict_prefix p q.
+Proof. intros ? ? H ?. eapply H, strict_prefix_one_subvalue; eassumption. Qed.
 
+Hint Resolve not_prefix_one_subvalue : spath.
+Hint Extern 5 (length (subvalues ?v) = _) =>
+  match goal with
+  | H : get_constructor (?S.[?p]) = _ |- _ =>
+      rewrite length_subvalues_is_arity, H; reflexivity
+  end : spath.
 
 (* Try to automatically solve a validity goal validity S pi. Here is how the procedure should
  * work:
@@ -553,7 +614,7 @@ Ltac solve_validity0 :=
       simple eapply eval_place_valid;
       exact H
   | |- valid_spath (?S.[?p <- ?v]) ?q =>
-      simple apply sset_not_prefix_valid; [ | solve_validity0]
+      apply sset_not_prefix_valid; [ | solve_validity0]
   | |- valid_spath (?S ++ _) (length ?S, ?q) =>
       apply valid_spath_last;
       solve_validity0

@@ -16,6 +16,14 @@ Proof.
   - exists a. f_equal. apply length_zero_iff_nil. inversion H. auto.
 Qed.
 
+(* A variant of the lemma `nth_error_Some` that is more convenient to use.
+   Indeed, it let us perform an inversion on the result. *)
+Lemma nth_error_Some' [A : Type] (l : list A) n :
+  n < length l -> Is_Some (nth_error l n).
+Proof.
+  intros ?%nth_error_Some. destruct (nth_error l n); [eexists; reflexivity | contradiction].
+Qed.
+
 (* TODO: move in a separate file? *)
 Section Map_nth.
   Context {A : Type}.

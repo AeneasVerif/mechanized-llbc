@@ -312,12 +312,16 @@ Proof.
   rewrite app_assoc in H. rewrite !removelast_last in H. exists r'. exact H.
 Qed.
 
-Corollary strict_prefix_app_last p q i : strict_prefix p (q +++ i :: nil) -> prefix p q.
+Corollary strict_prefix_app_last p q i : strict_prefix p (q +++ [i]) <-> prefix p q.
 Proof.
-  intros (j & r & H). inversion H.
-  destruct (vstrict_prefix_app_last (snd p) (snd q) i) as (r' & ?).
-  - exists j, r. assumption.
-  - exists r'. apply injective_projections; assumption.
+  split.
+  - intros (j & r & H). inversion H.
+    destruct (vstrict_prefix_app_last (snd p) (snd q) i) as (r' & ?).
+    + exists j, r. assumption.
+    + exists r'. apply injective_projections; assumption.
+  - intros (r & <-). rewrite<- app_spath_vpath_assoc. destruct (r ++ [i]) eqn:EQN.
+    + symmetry in EQN. apply app_cons_not_nil in EQN. destruct EQN.
+    + eexists _, _. reflexivity.
 Qed.
 
 Lemma not_strict_prefix_nil (p : spath) i : ~strict_prefix p (i, nil).
@@ -619,7 +623,6 @@ Section GetSetPath.
 
   Require Import Arith.
   (* Two values are equal if they have the same constructors everywhere. *)
-  (* TODO: missing axiom. *)
   Lemma get_constructor_vget_ext v w :
     (forall p, get_constructor (v.[[p]]) = get_constructor (w.[[p]])) -> v = w.
   Proof.
@@ -673,69 +676,6 @@ Section GetSetPath.
     - exfalso. apply H. reflexivity.
   Qed.
 
-  Lemma vset_prefix_right_valid v p q w : valid_vpath v p -> valid_vpath (v.[[p ++ q <- w]]) p.
-  Proof.
-    intro. destruct (valid_or_invalid (p ++ q) v) as [G | ].
-    - apply vset_same_valid with (w := w) in G. apply valid_vpath_app in G. destruct G. assumption.
-    - rewrite vset_invalid; assumption.
-  Qed.
-
-  Lemma vset_disj_valid_aux v i j p q w :
-    i <> j -> valid_vpath v (i :: p) -> valid_vpath (v.[[j :: q <- w]]) (i :: p).
-  Proof.
-    intros ? H. inversion H. subst.
-    econstructor; [ | eassumption]. rewrite subvalues_vset_cons, nth_error_map_nth_neq; auto.
-  Qed.
-
-  Lemma vset_disj_valid v p q w :
-    vdisj p q -> valid_vpath v p -> valid_vpath (v.[[q <- w]]) p.
-  Proof.
-    intros (r & p' & q' & i & j & ? & -> & ->) (? & ?)%valid_vpath_app.
-    apply valid_vpath_app. split.
-    - apply vset_prefix_right_valid. assumption.
-    - rewrite vget_vset_prefix by assumption. apply vset_disj_valid_aux; assumption.
-  Qed.
-
-  Lemma vset_same_valid_rev v p w : valid_vpath (v.[[p <- w]]) p -> valid_vpath v p.
-  Proof.
-    intro. rewrite <-(vset_same v p). rewrite <-(vset_twice_equal p w _ v).
-    apply vset_same_valid. assumption.
-  Qed.
-
-  Lemma vset_not_prefix_valid_rev v p q w (H : ~vstrict_prefix q p) :
-    valid_vpath (v.[[q <- w]]) p -> valid_vpath v p.
-  Proof.
-    intro G. destruct (comparable_vpaths p q) as [<- |(? & ? & <-) | | ].
-    - eapply vset_same_valid_rev; exact G.
-    - rewrite vset_app_split in G. eapply vset_same_valid_rev; exact G.
-    - contradiction.
-    - rewrite <-(vset_same v q). rewrite <-(vset_twice_equal q w _ v).
-      apply vset_disj_valid; assumption.
-  Qed.
-
-  Lemma sset_prefix_right_valid (S : state B V) p q v :
-    prefix p q -> valid_spath S p -> valid_spath (S.[q <- v]) p.
-  Proof.
-    intros (r & <-) (w & ? & ?). exists (w.[[snd p ++ r <- v]]). split.
-    - unfold sset. rewrite nth_error_map_nth_eq. simplify_option.
-    - apply vset_prefix_right_valid. assumption.
-  Qed.
-
-  Lemma sset_not_prefix_valid (S : state B V) p q v :
-    ~strict_prefix q p -> valid_spath S p -> valid_spath (S.[q <- v]) p.
-  Proof.
-    intros ? H.
-    destruct (comparable_spaths p q) as [<- | (i & r & <-) | | Hdisj ].
-    - apply sset_prefix_right_valid; [reflexivity | assumption].
-    - apply sset_prefix_right_valid; [ | assumption]. eexists. reflexivity.
-    - contradiction.
-    - destruct H as (w & ? & ?). unfold sset. destruct Hdisj as [ | (<- & ?)].
-      + exists w. split; [ | assumption]. rewrite nth_error_map_nth_neq; auto.
-      + exists (w.[[snd q <- v]]). split.
-        * rewrite nth_error_map_nth_eq. simplify_option.
-        * apply vset_disj_valid; assumption.
-  Qed.
-
   Lemma sset_sget_prefix (S : state B V) v p q :
     valid_spath S p -> S.[p +++ q <- v].[p] = S.[p].[[q <- v]].
   Proof.
@@ -749,7 +689,7 @@ Section GetSetPath.
     rewrite sset_sget_prefix; auto.
   Qed.
 
-  Lemma sget_sset_prefix_right S v p q (H : valid_spath S p) :
+  Lemma sset_sget_prefix_right S v p q (H : valid_spath S p) :
     S.[p <- v].[p +++ q] = v.[[q]].
   Proof. rewrite sget_app, sset_sget_equal; auto. Qed.
 
@@ -827,6 +767,90 @@ Section GetSetPath.
     - apply map_nth_neq_commute. assumption.
     - rewrite !map_nth_compose. apply map_nth_equiv. intro. cbn. f_equal.
       apply vset_twice_disj_commute. assumption.
+  Qed.
+
+  (* Interaction between validity and sset.
+     Goal: if q is not a prefix of p, then p in valid in S iff p is valid in S.[q <- w].
+     In other words, setting q does not affect the validity of p. *)
+  Lemma vset_prefix_right_valid v p q w : valid_vpath v p -> valid_vpath (v.[[p ++ q <- w]]) p.
+  Proof.
+    intro. destruct (valid_or_invalid (p ++ q) v) as [G | ].
+    - apply vset_same_valid with (w := w) in G. apply valid_vpath_app in G. destruct G. assumption.
+    - rewrite vset_invalid; assumption.
+  Qed.
+
+  Lemma vset_disj_valid_aux v i j p q w :
+    i <> j -> valid_vpath v (i :: p) -> valid_vpath (v.[[j :: q <- w]]) (i :: p).
+  Proof.
+    intros ? H. inversion H. subst.
+    econstructor; [ | eassumption]. rewrite subvalues_vset_cons, nth_error_map_nth_neq; auto.
+  Qed.
+
+  Lemma vset_disj_valid v p q w :
+    vdisj p q -> valid_vpath v p -> valid_vpath (v.[[q <- w]]) p.
+  Proof.
+    intros (r & p' & q' & i & j & ? & -> & ->) (? & ?)%valid_vpath_app.
+    apply valid_vpath_app. split.
+    - apply vset_prefix_right_valid. assumption.
+    - rewrite vget_vset_prefix by assumption. apply vset_disj_valid_aux; assumption.
+  Qed.
+
+  Lemma vset_same_valid_rev v p w : valid_vpath (v.[[p <- w]]) p -> valid_vpath v p.
+  Proof.
+    intro. rewrite <-(vset_same v p). rewrite <-(vset_twice_equal p w _ v).
+    apply vset_same_valid. assumption.
+  Qed.
+
+  Lemma vset_not_prefix_valid_rev v p q w (H : ~vstrict_prefix q p) :
+    valid_vpath (v.[[q <- w]]) p -> valid_vpath v p.
+  Proof.
+    intro G. destruct (comparable_vpaths p q) as [<- |(? & ? & <-) | | ].
+    - eapply vset_same_valid_rev; exact G.
+    - rewrite vset_app_split in G. eapply vset_same_valid_rev; exact G.
+    - contradiction.
+    - rewrite <-(vset_same v q). rewrite <-(vset_twice_equal q w _ v).
+      apply vset_disj_valid; assumption.
+  Qed.
+
+  Lemma sset_prefix_right_valid (S : state B V) p q v :
+    prefix p q -> valid_spath S p -> valid_spath (S.[q <- v]) p.
+  Proof.
+    intros (r & <-) (w & ? & ?). exists (w.[[snd p ++ r <- v]]). split.
+    - unfold sset. rewrite nth_error_map_nth_eq. simplify_option.
+    - apply vset_prefix_right_valid. assumption.
+  Qed.
+
+  Lemma _sset_not_prefix_valid (S : state B V) p q v :
+    ~strict_prefix q p -> valid_spath S p -> valid_spath (S.[q <- v]) p.
+  Proof.
+    intros ? H.
+    destruct (comparable_spaths p q) as [<- | (i & r & <-) | | Hdisj ].
+    - apply sset_prefix_right_valid; [reflexivity | assumption].
+    - apply sset_prefix_right_valid; [ | assumption]. eexists. reflexivity.
+    - contradiction.
+    - destruct H as (w & ? & ?). unfold sset. destruct Hdisj as [ | (<- & ?)].
+      + exists w. split; [ | assumption]. rewrite nth_error_map_nth_neq; auto.
+      + exists (w.[[snd q <- v]]). split.
+        * rewrite nth_error_map_nth_eq. simplify_option.
+        * apply vset_disj_valid; assumption.
+  Qed.
+
+  Lemma sset_same (S : state B V) p : S.[p <- S.[p] ] = S.
+  Proof.
+    unfold sget, sset. apply nth_error_ext. intro i. destruct (Nat.eq_dec (fst p) i) as [<- | ].
+    - rewrite nth_error_map_nth_eq. autodestruct.
+      rewrite vset_same, <-surjective_pairing. reflexivity.
+    - rewrite nth_error_map_nth_neq by assumption. reflexivity.
+  Qed.
+
+  Lemma sset_not_prefix_valid (S : state B V) p q v :
+    ~strict_prefix q p -> valid_spath S p <-> valid_spath (S.[q <- v]) p.
+  Proof.
+    intros ?. split.
+    - apply _sset_not_prefix_valid. assumption.
+    - intro.
+      assert (valid_spath (S.[q <- v].[q <- S.[q] ]) p) by now apply _sset_not_prefix_valid.
+      rewrite sset_twice_equal, sset_same in * |-. assumption.
   Qed.
 
   Lemma sget_app_state (S S' : state B V) p : valid_spath S p -> (S ++ S').[p] = S.[p].
