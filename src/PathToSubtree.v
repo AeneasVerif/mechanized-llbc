@@ -3,6 +3,7 @@ Require Import PeanoNat.
 Require Import RelationClasses.
 Require Import OptionMonad.
 Require Import base.
+Require Import Arith.
 Import ListNotations.
 
 Local Open Scope option_monad_scope.
@@ -621,12 +622,10 @@ Section GetSetPath.
     - rewrite nth_error_cons, nth_error_nil in *. simplify_option.
   Qed.
 
-  Require Import Arith.
   (* Two values are equal if they have the same constructors everywhere. *)
   Lemma get_constructor_vget_ext v w :
     (forall p, get_constructor (v.[[p]]) = get_constructor (w.[[p]])) -> v = w.
   Proof.
-    About lt_wf_ind.
     remember (height v) as n. revert v w Heqn.
     induction n as [n IH] using lt_wf_ind. intros v w -> H.
     assert (get_constructor v = get_constructor w) by exact (H []).
@@ -643,6 +642,9 @@ Section GetSetPath.
       + intro p. specialize (H (i :: p)). cbn in H. rewrite EQN, EQN' in H. exact H.
     - symmetry. apply nth_error_None. rewrite <-eq_length. apply nth_error_None. assumption.
     Qed.
+
+  Lemma length_sset (S : state B V) p v : length (S.[p <- v]) = length S.
+  Proof. apply map_nth_length. Qed.
 
   (* Proving the same with sget and sset: *)
   Lemma sget_app (S : state B V) p q : S.[p +++ q] = S.[p].[[q]].
@@ -859,6 +861,7 @@ Section GetSetPath.
     apply nth_error_Some. simplify_option.
   Qed.
 
+  (* TODO: switch directions? *)
   Lemma sset_app_state (S S' : state B V) p v :
     valid_spath S p -> S.[p <- v] ++ S' = (S ++ S').[p <- v].
   Proof.
@@ -877,10 +880,11 @@ Section GetSetPath.
       apply nth_error_Some. simplify_option.
   Qed.
 
+  (* TODO: switch directions? *)
   Lemma sset_app_last_state (S : state B V) b p v w :
-    S,, b |-> v.[[p <- w]] = (S,, b |-> v).[(length S, p) <- w].
+    fst p = length S -> S,, b |-> v.[[snd p <- w]] = (S,, b |-> v).[p <- w].
   Proof.
-    apply nth_error_ext. intro i.
+    destruct p. cbn. intros ->. apply nth_error_ext. intro i.
     destruct (Nat.lt_trichotomy i (length S)) as [ | [-> | ] ]; unfold sset.
     - rewrite nth_error_map_nth_gt by assumption.
       rewrite !nth_error_app1 by assumption. reflexivity.
@@ -918,8 +922,38 @@ Section GetSetPath.
     intro. exists v. split; [ | assumption]. rewrite nth_error_app2, Nat.sub_diag; reflexivity.
   Qed.
 
+  (* TODO: move up *)
+  Lemma decidable_valid_spath S p : valid_spath S p \/ ~valid_spath S p.
+  Proof.
+    destruct p as (i & q). unfold valid_spath. cbn. destruct (nth_error S i) as [(? & v) | ].
+    - destruct (valid_or_invalid q v).
+      + left. exists v. auto.
+      + right. intros (? & [=->] & ?). eapply not_valid_and_invalid; eassumption.
+    - right. intros (? & [=] & ?).
+  Qed.
+
+  Lemma valid_spath_app_last S b v p :
+    valid_spath (S,, b |-> v) p -> ~valid_spath S p -> fst p = length S.
+  Proof.
+    destruct p as (i & q). intros (? & H & ?) not_valid_S_p.
+    destruct (Nat.lt_trichotomy i (length S)) as [ | [-> | Hgt] ].
+    - exfalso. apply not_valid_S_p. rewrite nth_error_app1 in H by assumption.
+      eexists. eauto.
+    - reflexivity.
+    - rewrite nth_error_app2 in H by now apply Nat.lt_le_incl. cbn in H.
+      apply Nat.sub_gt in Hgt.
+      destruct (i - length S).
+      + easy.
+      + cbn in H. rewrite nth_error_nil in H. easy.
+  Qed.
+
+  (*
+  Lemma valid_spath_app_last S b v p : valid_spath (S,, b |-> v) p ->
+      (valid_spath S p \/ fst p = length S /\ valid_vpath v (snd p)).
+  Proof.
+    intros (w & ? & ?). destruct 
+   *)
   (* Two states are equal if they have the same constructors everywhere. *)
-  (* TODO: missing axiom. *)
   Lemma get_constructor_sget_ext (S S' : state B V) :
     (forall i, get_binder S i = get_binder S' i) -> (forall p, get_constructor (S.[p]) = get_constructor (S'.[p])) -> S = S'.
   Proof.
