@@ -852,6 +852,17 @@ Section MutBorrow_to_Ptr.
   | Rel_sp_borrow_strict_prefix q : rel (sp_loan +++ 0 :: q) (sp_borrow +++ 0 :: q)
   | Rel_other q : ~strict_prefix sp_borrow q -> rel q q.
 
+  (* An equivalent (and more usable I hope) version of rel. *)
+  Definition rel' p q :=
+    (exists r, p = sp_loan +++ 0 :: r /\ q = sp_borrow +++ 0 :: r) \/
+    (p = q /\ ~strict_prefix sp_borrow p).
+  Definition rel_implies_rel' p q : rel p q -> rel' p q.
+  Proof.
+    intros [r | ].
+    - left. exists r. auto.
+    - right. auto.
+  Qed.
+
   (* TODO: name *)
   Lemma get_loc_rel q l (H : get_constructor (S_r.[q]) = locC(l)) :
     exists q', rel (q' +++ [0]) (q +++ [0]) /\ get_constructor (S_l.[q']) = locC(l).
@@ -992,6 +1003,36 @@ Proof.
     all: rewrite sget_app_state by solve_validity; assumption.
   - apply Cl_refl.
   - eapply Cl_trans; eassumption.
+Qed.
+
+(* This lemma is useful for evaluations that do not change the universe and return the same
+   values, i.e:
+   - evaluation of constants
+   - evaluation of copies (when the copied value is not affected by >= )
+   - evaluation binary operations
+   - evaluation of pointers, when the borrowed value is under a loc.
+   This corresponds to the following square diagram:
+     Sr  >=   Sl
+
+     |        |
+     R        R
+     |        |
+     v        v
+
+   Sr, v >= Sl, v
+
+   The stategy to complete the square diagram is to just prove that Sl evaluates to (v, Sl),
+   with v the same value Sr evaluates to, and then use the relation Sr >= Sl in the context.
+ *)
+(* TODO: confusing name, as it does not only apply to constants. *)
+Lemma prove_square_diagram_constant_evaluation R (Sl Sr : HLPL_plus_state) v
+  (Hstep : R Sl v Sl)
+  (Hrel : le_state Sl Sr) :
+  exists vl S'l, R Sl vl S'l /\ le_state (S'l ++ [(Anon, vl)]) (Sr ++ [(Anon, v)]).
+Proof.
+  exists v, Sl. split.
+  - assumption.
+  - apply le_state_app_last. assumption.
 Qed.
 
 Lemma operand_preserves_HLPL_plus_rel op : preserves_le_state_val (eval_op op).
