@@ -700,10 +700,10 @@ Hint Rewrite @sset_sget_prefix using solve_validity : spath.
  * automatically prove it. *)
 Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
 Hint Rewrite @sset_twice_prefix_right : spath.
-Hint Rewrite @sset_app_state using solve_validity : spath.
-Hint Rewrite @sset_app_last_state : spath.
+Hint Rewrite<- @sset_app_state using solve_validity; fail : spath.
+Hint Rewrite<- @sset_app_last_state using rewrite !length_sset; reflexivity : spath.
 Hint Rewrite @sget_app_state using solve_validity; fail : spath.
-Hint Rewrite @sget_app_last_state using reflexivity : spath.
+Hint Rewrite @sget_app_last_state using rewrite !length_sset; reflexivity : spath.
 Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
 (* Hint Rewrite <- @sget_app : spath. *)
 
@@ -724,8 +724,11 @@ Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : sp
  *)
 Ltac prove_states_eq :=
   let q := fresh "q" in
-  autorewrite with spath;
+  (* autorewrite with spath; *)
+  cbn;
   lazymatch goal with
+  | |- _ ++ [ _ ] = _ ++ [ _ ] =>
+      f_equal; prove_states_eq
   | |- ?S.[?p0 <- _].[?p1 <- _].[?p2 <- _] = _ =>
         apply get_constructor_sget_ext; [intro; rewrite !get_binder_sset; reflexivity | ];
         intro q;
@@ -734,6 +737,14 @@ Ltac prove_states_eq :=
         destruct (decidable_prefix p1 q) as [(? & <-) | ];
           [rewrite !sget_app; autorewrite with spath; reflexivity | ];
         destruct (decidable_prefix p2 q) as [(? & <-) | ];
+          [rewrite !sget_app; autorewrite with spath; reflexivity | ];
+        autorewrite with spath; reflexivity
+  | |- ?S.[?p0 <- _].[?p1 <- _] = _ =>
+        apply get_constructor_sget_ext; [intro; rewrite !get_binder_sset; reflexivity | ];
+        intro q;
+        destruct (decidable_prefix p0 q) as [(? & <-) | ];
+          [rewrite !sget_app; autorewrite with spath; reflexivity | ];
+        destruct (decidable_prefix p1 q) as [(? & <-) | ];
           [rewrite !sget_app; autorewrite with spath; reflexivity | ];
         autorewrite with spath; reflexivity
   end.
