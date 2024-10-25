@@ -34,6 +34,8 @@ Corollary disj_if_right_disj_prefix p q r : disj p q -> disj (p +++ r) q.
 Proof. intro. symmetry. apply disj_if_left_disj_prefix. symmetry. assumption. Qed.
 Hint Resolve disj_if_right_disj_prefix : spath.
 
+Hint Resolve<- strict_prefix_app_last.
+
 Inductive HLPL_plus_val :=
 | HLPL_plus_bot
 | HLPL_plus_int (n : nat) (* TODO: use Aeneas integer types? *)
@@ -202,7 +204,7 @@ Notation eval_place S perm p r :=
   (exists i, find_binder S (Var (fst p)) = Some i /\ eval_path S perm (snd p) (i, []) r).
 
 (* TODO: replace the notation by a definition, with Hint Unfold. *)
-Local Notation "S |-{p} p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
+Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
 Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
 Proof.
@@ -365,13 +367,15 @@ Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_loc l v w : copy_val v w -> copy_val (loc(l, v)) w.
 
 (* TODO: rename `eval_operand` *)
-Local Reserved Notation "S |-{op} op => v , S'" (at level 60).
+Local Reserved Notation "S  |-{op}  op  =>  v , S'" (at level 60).
 
 Variant eval_op : operand -> HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
 | Eval_IntConst S n : S |-{op} IntConst n => HLPL_plus_int n, S
-| Eval_copy S (p : place) pi v : eval_place S Imm p pi -> copy_val (S.[pi]) v ->
+| Eval_copy S (p : place) pi v
+    (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy p => v, S
-| Eval_move S (p : place) pi : eval_place S Mov p pi -> not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
+| Eval_move S (p : place) pi : eval_place S Mov p pi ->
+    not_contains_loan (S.[pi]) -> not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
     S |-{op} Move p => S.[pi], S.[pi <- bot]
 where "S |-{op} op => v , S'" := (eval_op op S v S').
 
@@ -382,7 +386,7 @@ Variant no_loc_or_loan_id (S : HLPL_plus_state) : spath -> Prop :=
   | No_Loc_or_loan_id_cons pi i : ~is_loc (get_constructor (S.[pi])) -> no_loc_or_loan_id S (pi +++ [i])
   | No_Loc_or_loan_id_nil i : no_loc_or_loan_id S (i, []).
 
-Local Reserved Notation "S |-{rv} rv => v , S'" (at level 50).
+Local Reserved Notation "S  |-{rv}  rv  =>  v , S'" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
   | Eval_just op v S S' : (S |-{op} op => v, S') -> S |-{rv} (Just op) => v, S'
@@ -416,18 +420,18 @@ Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
    is going to be:
    HLPL_plus_state -> statement -> nat -> Option (statement_result * HLPL_plus_state) -> Prop
 *)
-Inductive eval_stmt : HLPL_plus_state -> statement -> statement_result -> HLPL_plus_state -> Prop :=
-| Eval_nop S : eval_stmt S Nop rUnit S
-| Eval_seq_unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : eval_stmt S0 stmt_l rUnit S1)
-    (eval_stmt_r : eval_stmt S1 stmt_r r S2) : eval_stmt S0 (stmt_l ;; stmt_r) r S2
-| Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : eval_stmt S0 stmt_l rPanic S1) :
-    eval_stmt S0 (stmt_l ;; stmt_r) rPanic S1
-| Eval_assign S S' p rv v sp : (S |-{rv} rv => v, S') -> eval_place S' Mut p sp ->
-    not_contains_outer_loc (S'.[sp]) -> not_contains_outer_loan (S'.[sp]) ->
-    eval_stmt S (ASSIGN p <- rv) rUnit (S'.[sp <- v] ++ [(Anon, S'.[sp])])
-| Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> eval_stmt S1 stmt r S2 -> eval_stmt S0 stmt r S2.
-
-Local Notation "S |-{rv} stmt => r , S'" := (eval_stmt S stmt r S') (at level 50).
+Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
+Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_plus_state -> Prop :=
+  | Eval_nop S : S |-{stmt} Nop => rUnit, S
+  | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
+      (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
+  | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
+      S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
+  | Eval_assign S S' p rv v sp : (S |-{rv} rv => v, S') -> eval_place S' Mut p sp ->
+      not_contains_outer_loc (S'.[sp]) -> not_contains_outer_loan (S'.[sp]) ->
+      S |-{stmt} ASSIGN p <- rv => rUnit, (S' .[ sp <- v]),, Anon |-> S' .[ sp]
+  | Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> S1 |-{stmt} stmt => r, S2 -> S0 |-{stmt} stmt => r, S2
+where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 (* TODO: introduce well-formedness judgement. *)
 
@@ -536,11 +540,20 @@ Lemma prove_square_diagram_le_state_val R (Sl Sr S'l S''l : HLPL_plus_state) vr 
   exists vl S'l, R Sl vl S'l /\ le_state (S'l ++ [(Anon, vl)]) (Sr ++ [(Anon, vr)]).
 Proof. exists vl, S'l. subst. split; assumption. Qed.
 
+Lemma prove_square_diagram_le_state R (Sl Sr S'l S''l : HLPL_plus_state)
+  (Hstep : R Sl S'l)
+  (Hrel : le_state S''l Sr)
+  (Heq : S'l = S''l) :
+  exists S'l, R Sl S'l /\ le_state S'l Sr.
+Proof. exists S'l. subst. split; assumption. Qed.
+
 (* Just a shorthand *)
 Ltac square_diagram :=
   lazymatch goal with
   | |- exists v S, _ /\ le_state (S ++ [(Anon, v)]) _ =>
       eapply prove_square_diagram_le_state_val
+  | |- exists S, _ /\ le_state S _ =>
+      eapply prove_square_diagram_le_state
   end.
 
 (* Proving a comparison between p and q using information from the environment S. *)
@@ -1000,4 +1013,28 @@ Proof.
         apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
         all: autorewrite with spath; eauto with spath.
       * autorewrite with spath. prove_states_eq.
+Admitted.
+
+Lemma rvalue_preserves_HLPL_plus_rel rv : preserves_le_state_val (eval_rvalue rv).
+Admitted.
+
+Lemma eval_rvalue_no_loc S rv v S' : S |-{rv} rv => v, S' -> not_contains_loc v.
+Proof.
+  intro H. destruct H; [destruct Heval_op | ..]; auto with spath.
+  induction Hcopy_val; auto with spath.
+Qed.
+
+Lemma eval_rvalue_no_loan S rv v S' : S |-{rv} rv => v, S' -> not_contains_loan v.
+Proof.
+  intro H. destruct H; [destruct Heval_op | ..]; auto with spath.
+  induction Hcopy_val; auto with spath.
+Qed.
+
+Lemma eval_path_app_last S p k pi S' : S |-{p} p =>^{k} pi -> (S ++ S') |-{p} p =>^{k} pi.
+Proof.
+Admitted.
+
+Lemma eval_path_app_last' S v p k pi :
+  not_contains_loc v -> (S,, Anon |-> v) |-{p} p =>^{k} pi -> S |-{p} p =>^{k} pi.
+Proof.
 Admitted.
