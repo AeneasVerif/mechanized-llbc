@@ -379,33 +379,76 @@ Variant eval_op : operand -> HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state
     S |-{op} Move p => S.[pi], S.[pi <- bot]
 where "S |-{op} op => v , S'" := (eval_op op S v S').
 
-Variant get_loc_or_loan_id (S : HLPL_plus_state) : spath -> loan_id -> Prop :=
-  | Get_loc_or_loan_id pi l : get_constructor (S.[pi]) = locC(l) -> get_loc_or_loan_id S (pi +++ [0]) l.
+Definition spath_pred (p : spath) : option spath :=
+  match snd p with
+  | [] => None
+  | _ => Some (fst p, removelast (snd p))
+  end.
 
-Variant no_loc_or_loan_id (S : HLPL_plus_state) : spath -> Prop :=
-  | No_Loc_or_loan_id_cons pi i : ~is_loc (get_constructor (S.[pi])) -> no_loc_or_loan_id S (pi +++ [i])
-  | No_Loc_or_loan_id_nil i : no_loc_or_loan_id S (i, []).
+Lemma spath_pred_app_last p i : spath_pred (p +++ [i]) = Some p.
+Proof.
+  unfold spath_pred, app_spath_vpath. 
+  cbn. autodestruct.
+  - intro H. exfalso. eapply app_cons_not_nil. eauto.
+  - intros <-. rewrite removelast_last, <-surjective_pairing. reflexivity.
+Qed.
+
+Lemma spath_pred_is_Some p q : spath_pred p = Some q -> exists i, p = q +++ [i].
+Proof.
+  unfold spath_pred. intro.
+  assert (snd p <> []) by now destruct (snd p).
+  assert ((fst p, removelast (snd p)) = q) as <-.
+  { destruct (snd p); [discriminate | injection H; easy]. }
+  exists (last (snd p) 0). unfold app_spath_vpath. cbn.
+  rewrite<- app_removelast_last by assumption.
+  apply surjective_pairing.
+Qed.
+
+Local Open Scope option_monad_scope.
+Definition ancestor (S : HLPL_plus_state) p : HLPL_plus_constructor :=
+  match spath_pred p with
+  | None => botC
+  | Some q => get_constructor (S.[q])
+  end.
+
+Lemma ancestor_app_last S p i : ancestor S (p +++ [i]) = get_constructor (S.[p]).
+Proof. unfold ancestor. rewrite spath_pred_app_last. reflexivity. Qed.
+
+Lemma ancestor_not_strict_prefix S p q v :
+  ~strict_prefix q p -> ancestor (S.[q <- v]) p = ancestor S p.
+Proof.
+  unfold ancestor. intro. autodestruct.
+  intros (? & ?)%spath_pred_is_Some. subst.
+  rewrite constructor_sset_sget_not_prefix by auto with spath. reflexivity.
+Qed.
+
+Lemma ancestor_is_not_bot S p c :
+  ancestor S p = c -> c <> botC -> exists q i, p = q +++ [i] /\ get_constructor (S.[q]) = c.
+Proof.
+  unfold ancestor. autodestruct. intros (i & ->)%spath_pred_is_Some.
+  intros. eexists _, _. eauto.
+Qed.
 
 Local Reserved Notation "S  |-{rv}  rv  =>  v , S'" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_plus_state -> HLPL_plus_val -> HLPL_plus_state -> Prop :=
-  | Eval_just op v S S' : (S |-{op} op => v, S') -> S |-{rv} (Just op) => v, S'
-(* For the moment, the only operation is the natural sum. *)
-| Eval_bin_op S S' S'' op_l op_r m n :
-    (S |-{op} op_l => HLPL_plus_int m, S') ->
-    (S' |-{op} op_r => HLPL_plus_int n, S'') ->
-    S |-{rv} (BinOp op_l op_r) => (HLPL_plus_int (m + n)), S''
-| Eval_pointer_loc S p pi l
-    (Heval_place : eval_place S Mut p pi)
-    (Hget_id : get_loc_or_loan_id S pi l) :
-    not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
-    S |-{rv} &mut p => ptr(l), S
-| Eval_pointer S p pi l
-    (Heval_place : eval_place S Mut p pi)
-    (Hno_id : no_loc_or_loan_id S pi) :
-    not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
-    is_fresh l S ->
-    S |-{rv} (&mut p) => ptr(l), (S.[pi <- loc(l, S.[pi])])
+  | Eval_just op v S S' (Heval_op : S |-{op} op => v, S') : S |-{rv} (Just op) => v, S'
+  (* For the moment, the only operation is the natural sum. *)
+  | Eval_bin_op S S' S'' op_l op_r m n :
+      (S |-{op} op_l => HLPL_plus_int m, S') ->
+      (S' |-{op} op_r => HLPL_plus_int n, S'') ->
+      S |-{rv} (BinOp op_l op_r) => (HLPL_plus_int (m + n)), S''
+  | Eval_pointer_loc S p pi l
+      (Heval_place : eval_place S Mut p pi)
+      (Hancestor_loc : ancestor S pi = locC(l)) :
+      not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
+      S |-{rv} &mut p => ptr(l), S
+  | Eval_pointer S p pi l
+      (Heval_place : eval_place S Mut p pi)
+      (Hancestor_no_loc : ~is_loc (ancestor S pi)) :
+      not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
+      is_fresh l S ->
+      S |-{rv} (&mut p) => ptr(l), (S.[pi <- loc(l, S.[pi])])
 where "S |-{rv} rv => v , S'" := (eval_rvalue rv S v S').
 
 Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
