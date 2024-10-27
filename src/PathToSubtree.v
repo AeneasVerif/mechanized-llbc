@@ -855,6 +855,14 @@ Section GetSetPath.
       rewrite sset_twice_equal, sset_same in * |-. assumption.
   Qed.
 
+  Corollary sset_prefix_valid S p q v :
+    valid_spath S p -> valid_vpath v q -> valid_spath (S.[p <- v]) (p +++ q).
+  Proof.
+    intros. apply valid_spath_app. split.
+    - apply sset_not_prefix_valid; [ apply strict_prefix_irrefl | assumption].
+    - rewrite sset_sget_equal; assumption.
+  Qed.
+
   Lemma sget_app_state (S S' : state B V) p : valid_spath S p -> (S ++ S').[p] = S.[p].
   Proof.
     intros (w & (? & _)). unfold sget. rewrite nth_error_app1. { reflexivity. }

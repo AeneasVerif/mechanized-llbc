@@ -34,7 +34,15 @@ Corollary disj_if_right_disj_prefix p q r : disj p q -> disj (p +++ r) q.
 Proof. intro. symmetry. apply disj_if_left_disj_prefix. symmetry. assumption. Qed.
 Hint Resolve disj_if_right_disj_prefix : spath.
 
-Hint Resolve<- strict_prefix_app_last.
+Hint Resolve<- strict_prefix_app_last : spath.
+
+Hint Resolve not_strict_prefix_nil : spath.
+
+Lemma not_prefix_left_strict_prefix_right' p q : prefix p q -> ~strict_prefix q p.
+Proof. intros ? ?. eapply not_prefix_left_strict_prefix_right; eassumption. Qed.
+Hint Resolve not_prefix_left_strict_prefix_right' : spath.
+
+Hint Extern 0 (prefix ?p (?p +++ ?q)) => exists q; reflexivity : spath.
 
 Inductive HLPL_plus_val :=
 | HLPL_plus_bot
@@ -669,6 +677,21 @@ Ltac solve_validity0 :=
   | H : ?S |-{p} _ =>^{ _ } ?pi |- valid_spath ?S ?pi =>
       simple eapply eval_place_valid;
       exact H
+  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S ?p =>
+      apply (valid_get_constructor_sget_not_bot S p);
+      rewrite H;
+      discriminate
+  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
+      simple apply valid_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
+  | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
+      simple apply get_not_bot_valid_spath;
+      rewrite H;
+      discriminate
+  | |- valid_spath (?S.[?p <- ?v]) (?p +++ ?q) =>
+      simple apply sset_prefix_valid;
+      solve_validity0
   | |- valid_spath (?S.[?p <- ?v]) ?q =>
       apply sset_not_prefix_valid; [ | solve_validity0]
   | |- valid_spath (?S ++ _) (length ?S, ?q) =>
@@ -677,22 +700,13 @@ Ltac solve_validity0 :=
   | |- valid_spath (?S ++ ?S') ?p =>
       simple apply valid_app_spath;
       solve_validity0
-  | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
-      simple apply get_not_bot_valid_spath;
-      rewrite H;
-      discriminate
-  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S ?p =>
-      apply (valid_get_constructor_sget_not_bot S p);
-      rewrite H;
-      discriminate
+  (* Solving valid_vpath: *)
   | H : ?S.[?p +++ ?q] = _ |- valid_vpath (?S.[?p]) ?q =>
       simple apply get_not_bot_valid_vpath;
       rewrite <-sget_app, H;
       discriminate
-  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
-      simple apply valid_app_last_get_constructor_not_zeoray;
-      rewrite H;
-      constructor
+  | |- valid_vpath _ (_ :: _) =>
+      econstructor; [reflexivity | solve_validity0]
   | |- valid_spath ?S ?p => idtac
   | |- valid_vpath ?v ?p => idtac
   end.
@@ -742,6 +756,7 @@ Hint Rewrite @sset_sget_prefix using solve_validity : spath.
 (* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), only if it can
  * automatically prove it. *)
 Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
+Hint Rewrite @sset_sget_prefix_right using solve_validity : spath.
 Hint Rewrite @sset_twice_prefix_right : spath.
 Hint Rewrite<- @sset_app_state using solve_validity; fail : spath.
 Hint Rewrite<- @sset_app_last_state using rewrite !length_sset; reflexivity : spath.
@@ -765,6 +780,24 @@ Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : sp
  * Finally, we also need to prove that Sl and Sr have the binders, which is an easy consequence of
  * the fact that they are sets of the same state S.
  *)
+Lemma prove_states_eq_3 (S S' : HLPL_plus_state) p0 p1 p2 :
+  (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
+  S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) -> (S.[p2] = S'.[p2]) ->
+  (forall q, ~prefix p0 q -> ~prefix p1 q -> ~prefix p2 q ->
+    get_constructor (S.[q]) = get_constructor (S'.[q])) ->
+  S = S'.
+Proof.
+  intros. apply get_constructor_sget_ext; [assumption | ].
+  intro q.
+  destruct (decidable_prefix p0 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+  destruct (decidable_prefix p1 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+  destruct (decidable_prefix p2 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+   auto.
+Qed.
+
 Ltac prove_states_eq :=
   let q := fresh "q" in
   (* autorewrite with spath; *)
@@ -773,15 +806,9 @@ Ltac prove_states_eq :=
   | |- _ ++ [ _ ] = _ ++ [ _ ] =>
       f_equal; prove_states_eq
   | |- ?S.[?p0 <- _].[?p1 <- _].[?p2 <- _] = _ =>
-        apply get_constructor_sget_ext; [intro; rewrite !get_binder_sset; reflexivity | ];
-        intro q;
-        destruct (decidable_prefix p0 q) as [(? & <-) | ];
-          [rewrite !sget_app; autorewrite with spath; reflexivity | ];
-        destruct (decidable_prefix p1 q) as [(? & <-) | ];
-          [rewrite !sget_app; autorewrite with spath; reflexivity | ];
-        destruct (decidable_prefix p2 q) as [(? & <-) | ];
-          [rewrite !sget_app; autorewrite with spath; reflexivity | ];
-        autorewrite with spath; reflexivity
+    simple apply (prove_states_eq_3 _ _ p0 p1 p2);
+    intros;
+    [rewrite !get_binder_sset; reflexivity | autorewrite with spath; try reflexivity..]
   | |- ?S.[?p0 <- _].[?p1 <- _] = _ =>
         apply get_constructor_sget_ext; [intro; rewrite !get_binder_sset; reflexivity | ];
         intro q;
