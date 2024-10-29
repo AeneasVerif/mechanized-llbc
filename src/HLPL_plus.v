@@ -43,6 +43,24 @@ Proof. intros ? ?. eapply not_prefix_left_strict_prefix_right; eassumption. Qed.
 Hint Resolve not_prefix_left_strict_prefix_right' : spath.
 
 Hint Extern 0 (prefix ?p (?p +++ ?q)) => exists q; reflexivity : spath.
+Hint Extern 0 (prefix (?p +++ ?q) (?p +++ ?q ++ ?r)) =>
+    exists r; symmetry; apply app_spath_vpath_assoc : spath.
+
+Lemma prefix_trans p q r : prefix (p +++ q) r -> prefix p r.
+Proof. intros (z & <-). rewrite<- app_spath_vpath_assoc. auto with spath. Qed.
+Hint Resolve prefix_trans : spath.
+
+Lemma prefix_and_neq_implies_strict_prefix p q : prefix p q -> p <> q -> strict_prefix p q.
+Proof.
+  intros ([ | ] & <-) H.
+  - rewrite app_spath_vpath_nil_r in H. easy.
+  - eexists _, _. reflexivity.
+Qed.
+Hint Resolve prefix_and_neq_implies_strict_prefix : spath.
+
+Lemma not_strict_prefix_app_last p q i : ~strict_prefix p (q +++ [i]) <-> ~prefix p q.
+Proof. split; intros H ?; eapply H, strict_prefix_app_last; eassumption. Qed.
+Hint Resolve<- not_strict_prefix_app_last : spath.
 
 Inductive HLPL_plus_val :=
 | HLPL_plus_bot
@@ -395,7 +413,7 @@ Definition spath_pred (p : spath) : option spath :=
 
 Lemma spath_pred_app_last p i : spath_pred (p +++ [i]) = Some p.
 Proof.
-  unfold spath_pred, app_spath_vpath. 
+  unfold spath_pred, app_spath_vpath.
   cbn. autodestruct.
   - intro H. exfalso. eapply app_cons_not_nil. eauto.
   - intros <-. rewrite removelast_last, <-surjective_pairing. reflexivity.
@@ -610,12 +628,11 @@ Ltac square_diagram :=
 (* Proving a comparison between p and q using information from the environment S. *)
 Lemma spath_neq_by_value_constructor (S : HLPL_plus_state) p q v c :
   S.[p] = v -> get_constructor (S.[q]) = c -> get_constructor v <> c -> p <> q.
-Proof. intros H G diff_cons EQ. apply diff_cons. rewrite <-H, <-G, EQ. reflexivity. Qed.
-Hint Extern 5 (?p <> ?q) =>
-  match goal with
-  | H : ?S.[?p] = ?v, G : get_constructor (?S.[?q]) = ?c |- _ =>
-      simple apply (spath_neq_by_value_constructor S p q v c); [exact H | exact G | discriminate]
-  end : spath.
+Proof. congruence. Qed.
+Hint Extern 3 (~ (@eq spath _ _)) =>
+  simple eapply spath_neq_by_value_constructor; [eassumption | eassumption | discriminate] : spath.
+
+Hint Extern 0 (~ (@eq spath _ _)) => congruence : spath.
 
 Lemma get_nil_prefix_right'  {V : Type} {IsValue : Value V} {B : Type} (S : state B V)
   (p q : spath) :
@@ -641,7 +658,8 @@ Corollary not_prefix_one_subvalue (S : HLPL_plus_state) p q :
   length (subvalues (S.[p])) = 1 -> valid_spath S q -> ~prefix (p +++ [0]) q -> ~strict_prefix p q.
 Proof. intros ? ? H ?. eapply H, strict_prefix_one_subvalue; eassumption. Qed.
 
-Hint Resolve not_prefix_one_subvalue : spath.
+Hint Resolve strict_prefix_one_subvalue : spath.
+Hint Resolve not_prefix_one_subvalue : spath. (* TODO: delete? *)
 Hint Extern 5 (length (subvalues ?v) = _) =>
   match goal with
   | H : get_constructor (?S.[?p]) = _ |- _ =>
