@@ -720,11 +720,13 @@ Ltac solve_validity0 :=
       simple apply valid_app_spath;
       solve_validity0
   (* Solving valid_vpath: *)
-  | H : ?S.[?p +++ ?q] = _ |- valid_vpath (?S.[?p]) ?q =>
-      simple apply get_not_bot_valid_vpath;
-      rewrite <-sget_app, H;
-      discriminate
-  | |- valid_vpath _ (_ :: _) =>
+  | |- valid_vpath (?S.[?p]) ?q =>
+      apply (valid_spath_app S p q);
+      (* In case p is of the form p0 +++ p1, we rewrite (p0 +++ p1) +++ q into
+         p0 +++ (p1 ++ q) *)
+      repeat rewrite<-app_spath_vpath_assoc;
+      solve_validity0
+  | |- valid_vpath _ ([_] ++ _) =>
       econstructor; [reflexivity | solve_validity0]
   | |- valid_spath ?S ?p => idtac
   | |- valid_vpath ?v ?p => idtac
@@ -768,6 +770,12 @@ Hint Extern 2 (disj ?p (length ?S, ?q)) =>
 Hint Extern 2 (disj (length ?S, ?q) ?p) =>
   symmetry; simple apply (disj_spath_to_last S); [solve_validity | ] : spath.
 
+(* TODO: document automatic rewriting. *)
+(* TODO: move in PathToSubtree.v *)
+Lemma sset_sget_remove_prefix (S : HLPL_plus_state) p q r v :
+  valid_spath S p -> S.[p +++ q <- v].[p +++ r] = S.[p].[[q <- v]].[[r]].
+intro. rewrite sget_app. rewrite sset_sget_prefix by assumption. reflexivity. Qed.
+Hint Rewrite sset_sget_remove_prefix using solve_validity : spath.
 (* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
  * solve the validity hypothesis by proving that S.[p] <> bot. *)
 Hint Rewrite @sset_sget_equal using solve_validity : spath.
@@ -782,7 +790,21 @@ Hint Rewrite<- @sset_app_last_state using rewrite !length_sset; reflexivity : sp
 Hint Rewrite @sget_app_state using solve_validity; fail : spath.
 Hint Rewrite @sget_app_last_state using rewrite !length_sset; reflexivity : spath.
 Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
-(* Hint Rewrite <- @sget_app : spath. *)
+Hint Rewrite <- @sget_app : spath.
+Hint Rewrite <- @vget_app : spath.
+Hint Rewrite <- app_spath_vpath_assoc : spath.
+Hint Rewrite vget_vset_prefix using solve_validity : spath.
+Hint Rewrite vget_vset_equal using solve_validity : spath.
+
+Lemma constructor_vset_not_nil (v w : HLPL_plus_val) p :
+  p <> [] -> get_constructor (v.[[p <- w]]) = get_constructor v.
+Proof. intro. destruct p; [easy | apply constructor_vset_cons]. Qed.
+(* Using discriminate to prove that p is not []. *)
+Hint Rewrite constructor_vset_not_nil using discriminate : spath.
+
+Lemma sget_loc l v p : (loc(l, v)).[[ [0] ++  p]] = v.[[p]].
+Proof. reflexivity. Qed.
+Hint Rewrite sget_loc : spath.
 
 (* Automatically solve equality between two states that are sets of a state S, ie solves goals of
  * the form:
@@ -820,7 +842,6 @@ Qed.
 Ltac prove_states_eq :=
   let q := fresh "q" in
   (* autorewrite with spath; *)
-  cbn;
   lazymatch goal with
   | |- _ ++ [ _ ] = _ ++ [ _ ] =>
       f_equal; prove_states_eq
@@ -879,6 +900,7 @@ Qed.
 
 Corollary prove_not_prefix p q : p <> q -> ~strict_prefix p q -> ~prefix p q.
 Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
+Hint Resolve prove_not_prefix : spath.
 
 Lemma prove_disj p q : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
 Proof. destruct (comparable_spaths p q); easy. Qed.
