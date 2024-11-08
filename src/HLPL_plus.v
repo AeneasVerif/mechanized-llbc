@@ -649,6 +649,14 @@ Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
     not_contains_loan v -> not_in_borrow S q ->
     reorg S (S.[p <- v].[q <- bot]).
 
+(* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
+ * evaluated to a pair (v, S). *)
+Variant store (p : place) : HLPL_plus_val * HLPL_plus_state -> HLPL_plus_state -> Prop :=
+| Store v S sp (eval_p : S |-{p} p =>^{Mut} sp) (no_outer_loc : not_contains_outer_loc (S.[sp]))
+  (no_outer_loan : not_contains_outer_loan (S.[sp])) :
+  store p (v, S) (S.[sp <- v],, Anon |-> S.[sp])
+.
+
 (* When introducing non-terminating features (loops or recursivity), the signature of the relation
    is going to be:
    HLPL_plus_state -> statement -> nat -> Option (statement_result * HLPL_plus_state) -> Prop
@@ -660,9 +668,8 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
       (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
   | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
-  | Eval_assign S S' p rv v sp : (S |-{rv} rv => (v, S')) -> eval_place S' Mut p sp ->
-      not_contains_outer_loc (S'.[sp]) -> not_contains_outer_loan (S'.[sp]) ->
-      S |-{stmt} ASSIGN p <- rv => rUnit, (S' .[ sp <- v]),, Anon |-> S' .[ sp]
+  | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
+      S |-{stmt} ASSIGN p <- rv => rUnit, S''
   | Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> S1 |-{stmt} stmt => r, S2 -> S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
@@ -1047,18 +1054,14 @@ Proof.
         -- autorewrite with spath. f_equal. prove_states_eq.
 Admitted.
 
-Lemma rvalue_preserves_HLPL_plus_rel rv : preserves_le_state_val (eval_rvalue rv).
+Lemma rvalue_preserves_HLPL_plus_rel rv : preservation (eval_rvalue rv).
 Admitted.
 
-Lemma eval_rvalue_no_loc S rv v S' : S |-{rv} rv => v, S' -> not_contains_loc v.
+Lemma eval_rvalue_no_loan_loc S rv v S' : S |-{rv} rv => (v, S') ->
+  not_contains_loan v /\ not_contains_loc v.
 Proof.
-  intro H. destruct H; [destruct Heval_op | ..]; auto with spath.
-  induction Hcopy_val; auto with spath.
-Qed.
-
-Lemma eval_rvalue_no_loan S rv v S' : S |-{rv} rv => v, S' -> not_contains_loan v.
-Proof.
-  intro H. destruct H; [destruct Heval_op | ..]; auto with spath.
+  remember (v, S') as vS' eqn:EQN. intro H. destruct H; [destruct Heval_op | ..].
+  all: inversion EQN; subst; auto with spath.
   induction Hcopy_val; auto with spath.
 Qed.
 
@@ -1069,4 +1072,77 @@ Admitted.
 Lemma eval_path_app_last' S v p k pi :
   not_contains_loc v -> (S,, Anon |-> v) |-{p} p =>^{k} pi -> S |-{p} p =>^{k} pi.
 Proof.
+Admitted.
+
+Lemma state_app_last_eq (Sl Sr : HLPL_plus_state) bl br vl vr :
+  (Sl,, bl |-> vl) = (Sr,, br |-> vr) -> Sl = Sr /\ vl = vr.
+Proof. intros (? & ?)%app_inj_tail. split; congruence. Qed.
+
+(* Suppose that (v0, S0) <= (vn, Sn), and that vr does not contain any loan.
+   Let us take (v1, S1), ..., (v_{n-1}, S_{n-1}) the intermediate pairs such that
+   (v0, S0) <= (v1, S1) <= ... <= (vn, Sn).
+   Then, we are going to prove that for each (vi, Si), the value vi does not contain any loan. *)
+Definition le_val_state_base' (vSl vSr : HLPL_plus_val * HLPL_plus_state) : Prop :=
+  let (vl, Sl) := vSl in
+  let (vr, Sr) := vSr in
+  le_base (Sl,, Anon |-> vl) (Sr,, Anon |-> vr) /\ not_contains_loan vr /\ not_contains_loc vr.
+Notation le_val_state' := (refl_trans_closure le_val_state_base').
+
+Lemma le_base_does_not_insert_loan_loc vl Sl vr Sr :
+  le_base (Sl,, Anon |-> vl) (Sr,, Anon |-> vr) -> not_contains_loan vr -> not_contains_loc vr
+  -> not_contains_loan vl /\ not_contains_loc vl.
+Proof.
+  remember (Sl,, Anon |-> vl) as vSl. remember (Sr,, Anon |-> vr) as vSr.
+  intros Hle Hno_loan Hno_loc. destruct Hle; subst.
+  - assert (valid_spath Sr sp_loan). { admit. }
+    destruct (Nat.eq_dec (fst sp_borrow) (length Sr)).
+    + autorewrite with spath in HeqvSl.
+      apply state_app_last_eq in HeqvSl. destruct HeqvSl as (_ & <-).
+      auto with spath.
+    + assert (valid_spath Sr sp_borrow). { admit. }
+      autorewrite with spath in HeqvSl.
+      apply state_app_last_eq in HeqvSl. destruct HeqvSl as (_ & <-). auto.
+Admitted.
+
+Lemma le_val_state_no_loan_right vSl vSr :
+  le vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
+  -> le_val_state' vSl vSr.
+Proof.
+  intros Hle Hno_loan Hno_loc.
+  apply proj1 with (B := (not_contains_loan (fst vSl)) /\ (not_contains_loc (fst vSl))).
+  induction Hle as [vSl vSr | | x y z].
+  - split.
+    + constructor. destruct vSl, vSr. cbn. auto.
+    + destruct vSl. destruct vSr. eapply le_base_does_not_insert_loan_loc; eauto.
+  - split; [reflexivity | auto].
+  - split; [transitivity y | ]; tauto.
+Qed.
+
+Lemma store_preserves_HLPL_plus_rel p :
+  forward_simulation le_val_state' le (store p) (store p).
+Proof.
+  apply preservation_by_base_case.
+  intros vSr vSl Hle Sl' Hstore.
+  destruct vSl as (vl, Sl) eqn:?. destruct vSr as (vr, Sr) eqn:?.
+  destruct Hle as (Hle & no_loan & no_loc). inversion Hstore. subst. clear Hstore.
+  remember (Sl,, Anon |-> vl) eqn:HeqvSl. remember (Sr,, Anon |-> vr).
+  destruct Hle; subst.
+  - assert (valid_spath Sr sp) by solve_validity.
+    apply eval_path_app_last with (S' := [(Anon, vr)]) in eval_p.
+    eapply eval_place_mut_borrow_to_ptr in eval_p; [ | eassumption..].
+    assert (valid_spath Sr sp_loan) by admit. autorewrite with spath in HS_loan |-.
+    destruct eval_p as (pi_l & rel_pi_l_pi_r%rel_implies_rel' & eval_p).
+    destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
+    (* Case 1: the place sp where we write is inside the borrow. *)
+    + assert (valid_spath Sr sp_borrow) by (eapply valid_spath_app; eassumption).
+      autorewrite with spath in HS_borrow, HeqvSl. apply state_app_last_eq in HeqvSl.
+      destruct HeqvSl as (<- & ->). autorewrite with spath in eval_p.
+      apply eval_path_app_last' in eval_p; [ | assumption].
+      eapply complete_square_diagram.
+      * constructor.
+        eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+        assumption. all: autorewrite with spath; eassumption.
+      * constructor. eassumption.
+        all: autorewrite with spath; assumption.
+      * autorewrite with spath. f_equal. prove_states_eq.
 Admitted.
