@@ -21,7 +21,7 @@ Require Import PathToSubtree.
 Definition forward_simulation {A B C D : Type}
   (LeBA : B -> A -> Prop) (LeDC : D -> C -> Prop)
   (RedAC : A -> C -> Prop) (RedBD : B -> D -> Prop) :=
-  forall a b, LeBA b a -> forall c, RedAC a c -> exists d, LeDC d c /\ RedBD b d.
+  forall a c, RedAC a c -> forall b, LeBA b a -> exists d, LeDC d c /\ RedBD b d.
 
 (* The reflexive-transitive R* closure of a relation R. *)
 Inductive refl_trans_closure {A : Type} (R : A -> A -> Prop) : A -> A -> Prop :=
@@ -45,8 +45,9 @@ Lemma preservation_by_base_case {A B : Type}
   forward_simulation LeA (refl_trans_closure LeB) RedAB RedAB ->
   forward_simulation (refl_trans_closure LeA) (refl_trans_closure LeB) RedAB RedAB.
 Proof.
-  intros H a a' Le_a_a'. induction Le_a_a' as [ | | a2 a1 a0 _ IH0 _ IH1].
-  - apply H. assumption.
+  intros H a b red_ab a' Le_a_a'. revert b red_ab.
+  induction Le_a_a' as [ | | a2 a1 a0 _ IH0 _ IH1].
+  - intros. eapply H; eassumption.
   - intros. eexists. split; [reflexivity | eassumption].
   - intros b0 Red_a0_b0.
     destruct (IH1 _ Red_a0_b0) as (b1 & ? & Red_a1_b1).
@@ -123,3 +124,21 @@ Proof.
   intros. exists (v, S1). split; [ | assumption].
   apply Cl_base, le_base_app_last. assumption.
 Qed.
+
+(* The issue by directly applying the lemma `preservation_by_base_case` is that it
+   obfuscates the relation le, by unfolding it and replacing it with a reflexive transitive
+   closure.
+   We're going to give similar statements, but these types, the hypothesis uses the relation le.
+ *)
+Lemma preservation_by_base_case_le_state_le_state_val B V `(LB : LeBase B V)
+  (red : state B V -> (V * state B V) -> Prop) :
+  forward_simulation (@le_base _ _ LB) (@le _ _ (LeStateVal _ _ LB)) red red
+  -> @preservation _ _ (@LeState _ _ LB) (LeStateVal _ _ LB) red.
+Proof. apply preservation_by_base_case. Qed.
+
+(* Choose the right `preservation_by_case_XXX` lemma to apply depending on the type: *)
+Ltac preservation_by_base_case :=
+  match goal with
+  | |- @preservation _ _ (@LeState ?B ?V ?LB) (LeStateVal ?B ?V ?LB) ?red =>
+      refine (preservation_by_base_case_le_state_le_state_val B V LB red _)
+  end.

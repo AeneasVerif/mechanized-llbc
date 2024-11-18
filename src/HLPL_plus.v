@@ -570,18 +570,28 @@ Variant eval_operand : operand -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
-Definition spath_pred (p : spath) : option spath :=
-  match snd p with
+Definition vpath_pred (p : vpath) : option vpath :=
+  match p with
   | [] => None
-  | _ => Some (fst p, removelast (snd p))
+  | _ => Some (removelast p)
   end.
+
+Definition spath_pred (p : spath) : option spath :=
+  SOME q <- vpath_pred (snd p) IN Some (fst p, q).
+
+Lemma vpath_pred_app_last p i : vpath_pred (p ++ [i]) = Some p.
+Proof.
+  transitivity (Some (removelast (p ++ [i]))).
+  - destruct (p ++ [i]) eqn:?.
+    + exfalso. eapply app_cons_not_nil. eauto.
+    + reflexivity.
+  - f_equal. apply removelast_last.
+Qed.
 
 Lemma spath_pred_app_last p i : spath_pred (p +++ [i]) = Some p.
 Proof.
-  unfold spath_pred, app_spath_vpath.
-  cbn. autodestruct.
-  - intro H. exfalso. eapply app_cons_not_nil. eauto.
-  - intros <-. rewrite removelast_last, <-surjective_pairing. reflexivity.
+  unfold spath_pred, app_spath_vpath. cbn. rewrite vpath_pred_app_last.
+  rewrite<- surjective_pairing. reflexivity.
 Qed.
 
 Lemma spath_pred_is_Some p q : spath_pred p = Some q -> exists i, p = q +++ [i].
@@ -594,6 +604,12 @@ Proof.
   rewrite<- app_removelast_last by assumption.
   apply surjective_pairing.
 Qed.
+
+Definition vancestor (v : HLPL_plus_val) p : HLPL_plus_constructor :=
+  match vpath_pred p with
+  | None => botC
+  | Some q => get_constructor (v.[[q]])
+  end.
 
 Definition ancestor (S : HLPL_plus_state) p : HLPL_plus_constructor :=
   match spath_pred p with
@@ -619,24 +635,53 @@ Proof.
   intros. eexists _, _. eauto.
 Qed.
 
+Lemma vancestor_app v p q : q <> [] -> vancestor v (p ++ q) = vancestor (v.[[p]]) q.
+Proof.
+  intro H. destruct q using rev_ind; [easy | ].
+  unfold vancestor. rewrite app_assoc, !vpath_pred_app_last, vget_app.
+  reflexivity.
+Qed.
+
+Lemma ancestor_app S p q : q <> [] -> ancestor S (p +++ q) = vancestor (S.[p]) q.
+Proof.
+  intro H. destruct q using rev_ind; [easy | ].
+  unfold ancestor, vancestor.
+  rewrite app_spath_vpath_assoc, spath_pred_app_last, vpath_pred_app_last, sget_app.
+  reflexivity.
+Qed.
+
+Lemma spath_nil_or_app_last p : p = (fst p, []) \/ exists p' i, p = p' +++ [i].
+Proof.
+  destruct p as (i, q). destruct q as [ | j q'] using rev_ind.
+  - left. reflexivity.
+  - right. exists (i, q'), j. unfold app_spath_vpath. reflexivity.
+Qed.
+
+(* TODO: doublon *)
+Lemma ancestor_sset_not_strict_prefix S p q v :
+  ~strict_prefix q p -> ancestor (S.[q <- v]) p = ancestor S p.
+Proof.
+  intro. destruct (spath_nil_or_app_last p) as [-> | (p' & i & ->)].
+  - reflexivity.
+  - rewrite !ancestor_app_last. rewrite constructor_sset_sget_not_prefix.
+    reflexivity. auto with spath.
+Qed.
+
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
-  | Eval_just op v S S' (Heval_op : S |-{op} op => (v, S')) : S |-{rv} (Just op) => (v, S')
+  | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
   (* For the moment, the only operation is the natural sum. *)
   | Eval_bin_op S S' S'' op_l op_r m n :
       (S |-{op} op_l => (HLPL_plus_int m, S')) ->
       (S' |-{op} op_r => (HLPL_plus_int n, S'')) ->
       S |-{rv} (BinOp op_l op_r) => ((HLPL_plus_int (m + n)), S'')
   | Eval_pointer_loc S p pi l
-      (Heval_place : eval_place S Mut p pi)
-      (Hancestor_loc : ancestor S pi = locC(l)) :
-      not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
-      S |-{rv} &mut p => (ptr(l), S)
+      (Heval_place : eval_place S Mut p pi) :
+      ancestor S pi = locC(l) -> S |-{rv} &mut p => (ptr(l), S)
   | Eval_pointer S p pi l
       (Heval_place : eval_place S Mut p pi)
       (Hancestor_no_loc : ~is_loc (ancestor S pi)) :
-      not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
       is_fresh l S ->
       S |-{rv} (&mut p) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
@@ -819,6 +864,8 @@ Hint Rewrite constructor_vset_not_nil using discriminate : spath.
 Lemma sget_loc l v p : (loc(l, v)).[[ [0] ++  p]] = v.[[p]].
 Proof. reflexivity. Qed.
 Hint Rewrite sget_loc : spath.
+Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
+Proof. reflexivity. Qed.
 
 Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
@@ -1005,25 +1052,38 @@ Ltac eval_place_preservation :=
   | eval_p_in_Sr : ?Sr |-{p} ?p =>^{Mov} ?pi,
     _ : ?Sr.[?sp_loan] = loan^m (?l),
     _ : get_constructor (?Sr.[?sp_borrow]) = borrowC^m(?l) |- _ =>
-    let eval_p_in_Sl := fresh "eval_p_in_Sl" in
-    let sp_borrow_not_prefix := fresh "sp_borrow_not_prefix" in
-    let valid_p := fresh "valid_p" in
-    pose proof eval_p_in_Sr as eval_p_in_Sl;
-    pose proof eval_p_in_Sr as sp_borrow_not_prefix;
-    pose proof eval_p_in_Sr as valid_p;
-    apply eval_place_mut_borrow_to_ptr_Mov
-      with (sp_loan := sp_loan) (sp_borrow := sp_borrow) (l0 := l)
-      in eval_p_in_Sl;
-    apply eval_place_mut_borrow_to_ptr_Mov_comp with (sp_borrow := sp_borrow)
-      in sp_borrow_not_prefix;
-    apply eval_place_valid in valid_p;
-    clear eval_p_in_Sr
+      let eval_p_in_Sl := fresh "eval_p_in_Sl" in
+      let sp_borrow_not_prefix := fresh "sp_borrow_not_prefix" in
+      let valid_p := fresh "valid_p" in
+      pose proof eval_p_in_Sr as eval_p_in_Sl;
+      pose proof eval_p_in_Sr as sp_borrow_not_prefix;
+      pose proof eval_p_in_Sr as valid_p;
+      apply eval_place_mut_borrow_to_ptr_Mov
+        with (sp_loan := sp_loan) (sp_borrow := sp_borrow) (l0 := l)
+        in eval_p_in_Sl;
+      apply eval_place_mut_borrow_to_ptr_Mov_comp with (sp_borrow := sp_borrow)
+        in sp_borrow_not_prefix;
+      apply eval_place_valid in valid_p;
+      clear eval_p_in_Sr
+  | eval_p_in_Sr : ?Sr |-{p} ?p =>^{ _ } ?pi_r,
+    Hdisj : disj ?sp_loan ?sp_borrow,
+    HSr_loan : ?Sr.[?sp_loan] = loan^m (?l),
+    HSr_borrow : get_constructor (?Sr.[?sp_borrow]) = borrowC^m(?l) |- _ =>
+      let pi_l := fresh "pi_l" in
+      let eval_p_in_Sl := fresh "eval_p_in_Sl" in
+      let rel_pi_l_pi_r := fresh "rel_pi_l_pi_r" in
+      let valid_p := fresh "valid_p" in
+      pose proof eval_p_in_Sr as valid_p;
+      apply eval_place_valid in valid_p;
+      apply (eval_place_mut_borrow_to_ptr Sr l sp_loan sp_borrow Hdisj HSr_loan HSr_borrow)
+        in eval_p_in_Sr;
+      destruct eval_p_in_Sr as (pi_l & rel_pi_l_pi_r%rel_implies_rel' & eval_p_in_Sl)
   end.
 
 Lemma operand_preserves_HLPL_plus_rel op : preservation (eval_operand op).
 Proof.
-  apply preservation_by_base_case.
-  intros Sl Sr Hle (vr & S'r) Heval. destruct Heval.
+  preservation_by_base_case.
+  intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
   (* op = const n *)
   - apply complete_square_diagram_by_invariance; [assumption | constructor].
   (* op = copy p *)
@@ -1055,6 +1115,31 @@ Proof.
 Admitted.
 
 Lemma rvalue_preserves_HLPL_plus_rel rv : preservation (eval_rvalue rv).
+Proof.
+  preservation_by_base_case.
+  intros ? ? Heval. destruct Heval.
+  - apply operand_preserves_HLPL_plus_rel in Heval_op.
+    firstorder using Eval_just, Cl_base.
+    (* should solve it. *)
+    admit.
+  - apply operand_preserves_HLPL_plus_rel in H, H0.
+    intros. admit.
+  - intros Sl Hle. destruct (Hle).
+    + apply complete_square_diagram_by_invariance; [exact Hle | ]. clear Hle.
+      eval_place_preservation.
+      destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
+      * eapply Eval_pointer_loc. eassumption.
+        rewrite ancestor_sset_not_strict_prefix by auto with spath.
+        rewrite ancestor_app by discriminate.
+        destruct r.
+        -- cbn in H. rewrite ancestor_app_last in H. congruence.
+        -- rewrite ancestor_app in H by easy.
+           rewrite vancestor_app by easy.
+           autorewrite with spath.
+           rewrite sget_loc'. rewrite vancestor_app, <-sget_app in H by easy.
+           exact H.
+      * eapply Eval_pointer_loc. eassumption.
+        rewrite !ancestor_sset_not_strict_prefix by auto with spath. assumption.
 Admitted.
 
 Lemma eval_rvalue_no_loan_loc S rv v S' : S |-{rv} rv => (v, S') ->
@@ -1122,7 +1207,7 @@ Lemma store_preserves_HLPL_plus_rel p :
   forward_simulation le_val_state' le (store p) (store p).
 Proof.
   apply preservation_by_base_case.
-  intros vSr vSl Hle Sl' Hstore.
+  intros vSr Sr' Hstore vSl Hle.
   destruct vSl as (vl, Sl) eqn:?. destruct vSr as (vr, Sr) eqn:?.
   destruct Hle as (Hle & no_loan & no_loc). inversion Hstore. subst. clear Hstore.
   remember (Sl,, Anon |-> vl) eqn:HeqvSl. remember (Sr,, Anon |-> vr).
