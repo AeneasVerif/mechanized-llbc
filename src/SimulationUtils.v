@@ -97,11 +97,12 @@ Global Instance LeStateVal B V `(LeBase B V) : Le (V * state B V) (V * state B V
     (fun vS0 vS1 => le_base ((snd vS0),, anon |-> (fst vS0)) ((snd vS1),, anon |-> (fst vS1)))
 }.
 
-Lemma prove_le_state_val B V `(LB : LeBase B V) Slvl Sl vl vr Sr :
-  @le_base _ _ LB Slvl (Sr,, (@anon _ _ LB) |-> vr)
-  -> Slvl = (Sl,, (@anon _ _ LB) |-> vl)
+Lemma prove_le_state_val B V `(LB : LeBase B V) vl Sl vSm vm Sm vr Sr :
+  @le_base _ _ LB vSm (Sr,, (@anon _ _ LB) |-> vr)
+  -> vSm = (Sm,, (@anon _ _ LB) |-> vm)
+  -> @le _ _ (LeStateVal _ _ LB) (vl, Sl) (vm, Sm)
   -> @le _ _ (LeStateVal _ _ LB) (vl, Sl) (vr, Sr).
-Proof. intros. subst. constructor. assumption. Qed.
+Proof. intros. subst. transitivity (vm, Sm); [ | constructor]; assumption. Qed.
 
 (* A useful lemma to prove preservation when both the states S0 and S1 evaluates to the same value
    v and are unaffected by the evaluation. This corresponds to the following square diagram:

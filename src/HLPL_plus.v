@@ -10,6 +10,8 @@ Require Import SimulationUtils.
 
 (* TODO: move this in a separate file. *)
 Create HintDb spath.
+
+Hint Resolve strict_prefix_irrefl : spath.
 (* Automatically solving a comparison C p q using the hypotheses. *)
 Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
 Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
@@ -22,7 +24,10 @@ Hint Resolve not_prefix_implies_not_strict_prefix : spath.
 
 Lemma neq_implies_not_prefix p q : ~prefix p q -> p <> q.
 Proof. intros H <-. apply H. reflexivity. Qed.
+Lemma neq_implies_not_prefix' p q : ~prefix p q -> q <> p.
+Proof. intro. symmetry. apply neq_implies_not_prefix. assumption. Qed.
 Hint Resolve neq_implies_not_prefix : spath.
+Hint Resolve neq_implies_not_prefix' : spath.
 
 Lemma disj_if_left_disj_prefix p q r : disj p q -> disj p (q +++ r).
 Proof.
@@ -456,6 +461,22 @@ Proof.
 Qed.
 Hint Resolve not_value_contains_vset : spath.
 
+Lemma not_state_contains_sset P (S : HLPL_plus_state) v p
+  (not_in_S : not_state_contains P S)
+  (not_in_v : not_value_contains P v) :
+  not_state_contains P (S.[p <- v]).
+Proof.
+  intros q valid_q.
+  destruct (decidable_prefix p q) as [(r & <-) | ].
+  - apply valid_spath_app in valid_q.
+    destruct valid_q as (?%sset_not_prefix_valid & H); [ |  apply strict_prefix_irrefl].
+    rewrite sset_sget_equal in H by assumption.
+    rewrite sset_sget_prefix_right by assumption. apply not_in_v. assumption.
+  - rewrite constructor_sset_sget_not_prefix by assumption.
+    apply not_in_S. eapply sset_not_prefix_valid; [ | exact valid_q]. auto with spath.
+Qed.
+Hint Resolve not_state_contains_sset : spath.
+
 Lemma not_value_contains_sset P (S : HLPL_plus_state) v p q
   (not_in_Sp : not_value_contains P (S.[p]))
   (not_in_v : not_value_contains P v)
@@ -475,18 +496,16 @@ Proof.
     apply sset_not_prefix_valid in valid_pr; [ | auto with spath].
     apply valid_spath_app in valid_pr as (_ & ?). assumption.
 Qed.
-Hint Resolve not_value_contains_sset : spath.
 
 Lemma not_value_contains_sset_disj P (S : HLPL_plus_state) v p q
-  (not_in_Sp : not_value_contains P (S.[p]))
-  (Hdisj : disj q p) :
+  (Hdisj : disj q p)
+  (not_in_Sp : not_value_contains P (S.[p])) :
   not_value_contains P (S.[q <- v].[p]).
 Proof.
   intros r valid_r. rewrite<- sget_app. rewrite sset_sget_disj by auto with spath.
   rewrite sget_app. apply not_in_Sp.
   rewrite sset_sget_disj in valid_r; assumption.
 Qed.
-Hint Resolve not_value_contains_sset_disj : spath.
 
 Lemma not_value_contains_zeroary P v :
   subvalues v = [] -> ~P (get_constructor v) -> not_value_contains P v.
@@ -494,8 +513,6 @@ Proof.
   intros H ? p valid_p. destruct valid_p; [assumption | ].
   rewrite H, nth_error_nil in * |-. discriminate.
 Qed.
-Hint Extern 0 (not_value_contains _ _) =>
-  simple apply not_value_contains_zeroary; [reflexivity | easy] : spath.
 
 Lemma not_value_contains_unary P v w :
   subvalues v = [w] -> ~P (get_constructor v) -> not_value_contains P w -> not_value_contains P v.
@@ -504,14 +521,12 @@ Proof.
   rewrite H, nth_error_cons in * |-. destruct i; [ | rewrite nth_error_nil in * |-; discriminate].
   rewrite vget_cons, H. simplify_option.
 Qed.
-Hint Extern 0 (not_value_contains _ _) =>
-  simple eapply not_value_contains_unary; [reflexivity | easy | ] : spath.
 
 Variant is_loan : HLPL_plus_constructor -> Prop :=
 | IsLoan_MutLoan l : is_loan (loanC^m(l)).
-Definition not_contains_loan := not_value_contains is_loan.
-Hint Unfold not_contains_loan : spath.
 Hint Constructors is_loan : spath.
+Notation not_contains_loan := (not_value_contains is_loan).
+Hint Extern 0 (~is_loan _) => intro; easy.
 
 (* TODO: delete *)
 Goal is_loan (get_constructor (loan^m(0))).
@@ -519,8 +534,8 @@ Proof. cbn. auto with spath. Qed.
 
 Variant is_loc : HLPL_plus_constructor -> Prop :=
 | IsLoc_Loc l : is_loc (locC(l)).
-Definition not_contains_loc := not_value_contains is_loc.
-Hint Unfold not_contains_loc : spath.
+Notation not_contains_loc := (not_value_contains is_loc).
+Hint Extern 0 (~is_loc _) => intro; easy.
 
 (*
 Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
@@ -534,23 +549,63 @@ Definition not_contains_outer_loan v :=
 Definition not_contains_outer_loc v :=
   forall p, is_loc (get_constructor (v.[[p]])) -> exists q l w, vprefix q p /\ v.[[q]] = borrow^m(l, w).
 
-Variant is_loan_id (l : loan_id) : HLPL_plus_constructor -> Prop  :=
-| Is_loan_id_loan : is_loan_id l (loanC^m(l))
-| Is_loan_id_borrow : is_loan_id l (borrowC^m(l))
-| Is_loan_id_ptr : is_loan_id l (ptrC(l))
-| Is_loan_id_loc : is_loan_id l (locC(l)).
+Definition get_loan_id c :=
+  match c with
+  | loanC^m(l) => Some l
+  | borrowC^m(l) => Some l
+  | locC(l) => Some l
+  | ptrC(l) => Some l
+  | _ => None
+  end.
+
 (* Hint Constructors is_loan_id : spath. *)
-Definition is_fresh l S := not_state_contains (is_loan_id l) S.
-Hint Unfold is_fresh : spath.
+Notation is_fresh l S := (not_state_contains (fun c => get_loan_id c = Some l) S).
+
+Lemma is_fresh_loan_id_neq S l0 l1 p :
+  get_loan_id (get_constructor (S.[p])) = Some l0 -> is_fresh l1 S -> l0 <> l1.
+Proof.
+  intros get_p Hfresh <-. eapply Hfresh; [ | exact get_p].
+  apply get_not_bot_valid_spath. intro H. rewrite H in get_p. inversion get_p.
+Qed.
+
+Hint Extern 0 (get_loan_id _ <> Some ?l) =>
+  lazymatch goal with
+  | Hfresh : is_fresh ?l ?S, get_p : get_constructor (?S.[?p]) = ?v |- _ =>
+      injection;
+      refine (is_fresh_loan_id_neq S _ l p _ Hfresh);
+      rewrite get_p;
+      reflexivity
+   end.
+
+Lemma not_value_contains_by_decomposition P v (H : ~P (get_constructor v))
+  (G : match subvalues v with
+       | [] => True
+       | [w] => not_value_contains P w
+       | _ => False
+       end) :
+  not_value_contains P v.
+Proof.
+  destruct (subvalues v) as [ | ? [ | ] ] eqn:?.
+  - apply not_value_contains_zeroary; assumption.
+  - eapply not_value_contains_unary; eassumption.
+  - contradiction.
+Qed.
+
+Lemma not_state_contains_implies_not_value_contains_sget P S p :
+  not_state_contains P S -> valid_spath S p -> not_value_contains P (S.[p]).
+Proof.
+  intros H valid_p q valid_q G. rewrite<- sget_app in G. eapply H; [ | exact G].
+  apply valid_spath_app. split; assumption.
+Qed.
 
 Definition is_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
 
 Definition not_in_borrow (S : HLPL_plus_state) p :=
   forall q, prefix q p -> is_borrow (S.[q]) -> q = p.
 
-Definition not_contains_bot (v : HLPL_plus_val) :=
-  not_value_contains (fun c => c = botC) v.
-Hint Unfold not_contains_bot : spath.
+Notation not_contains_bot v :=
+  (not_value_contains (fun c => c = botC) v).
+Hint Extern 0 (_ <> botC) => discriminate : spath.
 
 Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_plus_int n) (HLPL_plus_int n)
@@ -617,16 +672,22 @@ Definition ancestor (S : HLPL_plus_state) p : HLPL_plus_constructor :=
   | Some q => get_constructor (S.[q])
   end.
 
+Lemma vancestor_singleton v i : vancestor v [i] = get_constructor v.
+Proof. reflexivity. Qed.
+Hint Rewrite vancestor_singleton : spath.
+
+(* TODO: unused. delete? *)
 Lemma ancestor_app_last S p i : ancestor S (p +++ [i]) = get_constructor (S.[p]).
 Proof. unfold ancestor. rewrite spath_pred_app_last. reflexivity. Qed.
 
-Lemma ancestor_not_strict_prefix S p q v :
+Lemma ancestor_sset_not_strict_prefix S p q v :
   ~strict_prefix q p -> ancestor (S.[q <- v]) p = ancestor S p.
 Proof.
   unfold ancestor. intro. autodestruct.
-  intros (? & ?)%spath_pred_is_Some. subst.
+  intros (? & ->)%spath_pred_is_Some.
   rewrite constructor_sset_sget_not_prefix by auto with spath. reflexivity.
 Qed.
+Hint Rewrite ancestor_sset_not_strict_prefix using auto with spath; fail : spath.
 
 Lemma ancestor_is_not_bot S p c :
   ancestor S p = c -> c <> botC -> exists q i, p = q +++ [i] /\ get_constructor (S.[q]) = c.
@@ -650,22 +711,8 @@ Proof.
   reflexivity.
 Qed.
 
-Lemma spath_nil_or_app_last p : p = (fst p, []) \/ exists p' i, p = p' +++ [i].
-Proof.
-  destruct p as (i, q). destruct q as [ | j q'] using rev_ind.
-  - left. reflexivity.
-  - right. exists (i, q'), j. unfold app_spath_vpath. reflexivity.
-Qed.
-
-(* TODO: doublon *)
-Lemma ancestor_sset_not_strict_prefix S p q v :
-  ~strict_prefix q p -> ancestor (S.[q <- v]) p = ancestor S p.
-Proof.
-  intro. destruct (spath_nil_or_app_last p) as [-> | (p' & i & ->)].
-  - reflexivity.
-  - rewrite !ancestor_app_last. rewrite constructor_sset_sget_not_prefix.
-    reflexivity. auto with spath.
-Qed.
+Hint Rewrite vancestor_app using easy : spath.
+Hint Rewrite ancestor_app using easy : spath.
 
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
@@ -677,11 +724,14 @@ Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_st
       (S' |-{op} op_r => (HLPL_plus_int n, S'')) ->
       S |-{rv} (BinOp op_l op_r) => ((HLPL_plus_int (m + n)), S'')
   | Eval_pointer_loc S p pi l
-      (Heval_place : eval_place S Mut p pi) :
-      ancestor S pi = locC(l) -> S |-{rv} &mut p => (ptr(l), S)
-  | Eval_pointer S p pi l
       (Heval_place : eval_place S Mut p pi)
-      (Hancestor_no_loc : ~is_loc (ancestor S pi)) :
+      (Hancestor_loc : ancestor S pi = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
+  | Eval_pointer_no_loc S p pi l
+      (Heval_place : eval_place S Mut p pi)
+      (Hancestor_no_loc : ~is_loc (ancestor S pi)) 
+      (* This hypothesis is not necessary for the proof of preservation of HLPL+, but it is
+         useful in that it can help us eliminate cases. *)
+      (Hno_loan : not_contains_loan (S.[pi])) :
       is_fresh l S ->
       S |-{rv} (&mut p) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
@@ -762,6 +812,31 @@ Ltac solve_validity0 :=
   end.
 Hint Extern 5 (valid_spath _ _) => solve_validity0.
 Ltac solve_validity := solve_validity0; eauto with spath.
+
+Ltac prove_not_contains0 :=
+  try assumption;
+  lazymatch goal with
+  | |- True => auto
+  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
+      simple apply not_state_contains_sset;
+      prove_not_contains0
+  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
+      let H := fresh "H" in
+      tryif assert (H : disj q p) by auto with spath
+      then (simple apply (not_value_contains_sset_disj P S v p q H);
+        prove_not_contains0)
+      else (simple apply (not_value_contains_sset P S v p q);
+       [ prove_not_contains0 | prove_not_contains0 | solve_validity0])
+  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_state_contains_implies_not_value_contains_sget P S p H);
+      solve_validity0
+  | |- not_value_contains ?P (?S.[?p]) => idtac
+  | |- not_value_contains ?P ?v =>
+      simple apply not_value_contains_by_decomposition;
+      [ | cbn; prove_not_contains0]
+  | |- _ => idtac
+  end.
+Ltac prove_not_contains := prove_not_contains0; auto with spath.
 
 (* Testing that I can automatically prove validity: *)
 Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
@@ -851,6 +926,7 @@ Hint Rewrite @sget_app_last_state
 Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
 Hint Rewrite <- @sget_app : spath.
 Hint Rewrite <- @vget_app : spath.
+Hint Rewrite <- app_assoc : spath.
 Hint Rewrite <- app_spath_vpath_assoc : spath.
 Hint Rewrite vget_vset_prefix using solve_validity : spath.
 Hint Rewrite vget_vset_equal using solve_validity : spath.
@@ -866,6 +942,9 @@ Proof. reflexivity. Qed.
 Hint Rewrite sget_loc : spath.
 Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
 Proof. reflexivity. Qed.
+Hint Rewrite sget_loc' : spath.
+
+Hint Rewrite app_nil_r : spath.
 
 Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
@@ -1097,19 +1176,21 @@ Proof.
       (* Case 1: the mutable borrow we're transforming to a pointer is in the moved value. *)
       * eapply complete_square_diagram.
         -- eapply prove_le_state_val.
-           ++ apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := (length S, q)).
-              info_auto with spath. all: autorewrite with spath; eassumption.
-           ++ autorewrite with spath. reflexivity.
-        -- constructor. eassumption. all: auto with spath.
+           { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := (length S, q)).
+             auto with spath. all: autorewrite with spath; eassumption. }
+           { autorewrite with spath. reflexivity. }
+           reflexivity.
+        -- constructor. eassumption. all: prove_not_contains.
         -- autorewrite with spath. f_equal. prove_states_eq.
       (* Case 2: the mutable borrow we're transforming to a pointer is disjoint to the moved value.
        *)
       * assert (disj pi sp_borrow) by reduce_comp.
         eapply complete_square_diagram.
         -- eapply prove_le_state_val.
-           ++ apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
-              assumption. all: autorewrite with spath; eassumption.
-           ++ autorewrite with spath. reflexivity.
+           { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+             assumption. all: autorewrite with spath; eassumption. }
+           { autorewrite with spath. reflexivity. }
+           reflexivity.
         -- constructor. eassumption. all: autorewrite with spath; assumption.
         -- autorewrite with spath. f_equal. prove_states_eq.
 Admitted.
@@ -1118,28 +1199,81 @@ Lemma rvalue_preserves_HLPL_plus_rel rv : preservation (eval_rvalue rv).
 Proof.
   preservation_by_base_case.
   intros ? ? Heval. destruct Heval.
+  (* rv = just op *)
   - apply operand_preserves_HLPL_plus_rel in Heval_op.
     firstorder using Eval_just, Cl_base.
     (* should solve it. *)
     admit.
+  (* rv = op + op *)
   - apply operand_preserves_HLPL_plus_rel in H, H0.
     intros. admit.
+  (* rv = &mut p *)
+  (* The place p evaluates to a spath under a loc. *)
   - intros Sl Hle. destruct (Hle).
     + apply complete_square_diagram_by_invariance; [exact Hle | ]. clear Hle.
       eval_place_preservation.
       destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
+      (* Case 1: the place p is under the borrow. *)
       * eapply Eval_pointer_loc. eassumption.
-        rewrite ancestor_sset_not_strict_prefix by auto with spath.
-        rewrite ancestor_app by discriminate.
-        destruct r.
-        -- cbn in H. rewrite ancestor_app_last in H. congruence.
-        -- rewrite ancestor_app in H by easy.
-           rewrite vancestor_app by easy.
-           autorewrite with spath.
-           rewrite sget_loc'. rewrite vancestor_app, <-sget_app in H by easy.
-           exact H.
-      * eapply Eval_pointer_loc. eassumption.
-        rewrite !ancestor_sset_not_strict_prefix by auto with spath. assumption.
+        destruct r; autorewrite with spath in Hancestor_loc.
+        (* The place p cannot be just under the borrow, because its ancestor is a loc, it cannot be
+         * the mutable borrow. *)
+        -- congruence.
+        -- autorewrite with spath. exact Hancestor_loc.
+      (* Case 2: the place p is not under the borrow. *)
+      * eapply Eval_pointer_loc. eassumption. autorewrite with spath. exact Hancestor_loc.
+
+  (* rv = &mut p *)
+  (* The place p evaluates to a spath that is not under a loc. *)
+  - intros Sl Hle. destruct Hle.
+    + eval_place_preservation.
+      destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
+      * destruct r.
+        (* Case 1: the place p is just under sp_borrow. *)
+        -- rewrite app_nil_r in *. eapply complete_square_diagram.
+           ++ eapply prove_le_state_val.
+              { apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
+              { autorewrite with spath. reflexivity. }
+              (* This requires to apply the rule Le-Merge-Locs, that we have not defined yet. *)
+              admit.
+           ++ apply Eval_pointer_loc with (pi := sp_loan +++ [0]).
+              assumption. autorewrite with spath. reflexivity.
+           ++ admit.
+        (* Case 2: the place p is just under sp_borrow, but not just under. *)
+        -- eapply complete_square_diagram.
+           ++ eapply prove_le_state_val.
+              { apply le_base_app_last.
+                apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
+              { autorewrite with spath. reflexivity. }
+              reflexivity.
+           ++ apply Eval_pointer_no_loc with (l := l). eassumption.
+              all: autorewrite with spath. autorewrite with spath in Hancestor_no_loc.
+              exact Hancestor_no_loc. assumption. prove_not_contains.
+           ++ f_equal. prove_states_eq.
+      (* Case 3: *)
+      * assert (disj sp_loan pi) by reduce_comp.
+        destruct (decidable_prefix pi sp_borrow) as [(r & <-) | ].
+        -- eapply complete_square_diagram.
+           ++ eapply prove_le_state_val.
+              { apply le_base_app_last.
+                apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := pi +++ [0] ++ r).
+                auto with spath. all: autorewrite with spath; eassumption. }
+              { autorewrite with spath. reflexivity. }
+              reflexivity.
+           ++ apply Eval_pointer_no_loc with (l := l). eassumption.
+              autorewrite with spath. assumption. prove_not_contains. prove_not_contains.
+           ++ f_equal. autorewrite with spath. prove_states_eq.
+        -- assert (disj sp_borrow pi) by reduce_comp.
+           eapply complete_square_diagram.
+           ++ eapply prove_le_state_val.
+              { apply le_base_app_last.
+                apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+                assumption. all: autorewrite with spath; eassumption. }
+              { reflexivity. }
+              reflexivity.
+           ++ apply Eval_pointer_no_loc with (l := l). eassumption.
+              autorewrite with spath. assumption. prove_not_contains. prove_not_contains.
+           ++ f_equal. autorewrite with spath. prove_states_eq.
 Admitted.
 
 Lemma eval_rvalue_no_loan_loc S rv v S' : S |-{rv} rv => (v, S') ->
