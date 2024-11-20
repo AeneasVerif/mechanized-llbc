@@ -83,7 +83,6 @@ Definition preservation {A B} `{LeA : Le A A} `{LeB : Le B B} (RedAB : A -> B ->
 Class LeBase (B V : Type) := {
   le_base : state B V -> state B V -> Prop;
   anon : B;
-  le_base_app_last S0 S1 v : le_base S0 S1 -> le_base (S0,, anon |-> v) (S1,, anon |-> v);
 }.
 
 Global Instance LeState B V `(LeBase B V) : Le (state B V) (state B V) :=
@@ -103,28 +102,6 @@ Lemma prove_le_state_val B V `(LB : LeBase B V) vl Sl vSm vm Sm vr Sr :
   -> @le _ _ (LeStateVal _ _ LB) (vl, Sl) (vm, Sm)
   -> @le _ _ (LeStateVal _ _ LB) (vl, Sl) (vr, Sr).
 Proof. intros. subst. transitivity (vm, Sm); [ | constructor]; assumption. Qed.
-
-(* A useful lemma to prove preservation when both the states S0 and S1 evaluates to the same value
-   v and are unaffected by the evaluation. This corresponds to the following square diagram:
-    S0   >=  S1
-    |        |
-    v        v
-   v, S0 >= v, S1
-   For example, this can happen in the following contexts:
-   - Evaluation of constants
-   - Evaluation of copies
-   - Evaluation of pointers (&p or &mut p) when the path p is already borrowed.
-
-   In this case, we just have to show that S0 >= S1 (generally, this hypothesis is in the context),
-   and S1 -> (v, S1). *)
-Lemma complete_square_diagram_by_invariance {B V} `(LB : LeBase B V)
-  (Red : state B V -> V * state B  V -> Prop) S0 S1 (v : V) :
-  (@le_base _ _ LB S1 S0) -> Red S1 (v, S1)
-  -> exists vS, (@le _ _ (LeStateVal _ _ LB) vS (v, S0)) /\ Red S1 vS.
-Proof.
-  intros. exists (v, S1). split; [ | assumption].
-  apply Cl_base, le_base_app_last. assumption.
-Qed.
 
 (* The issue by directly applying the lemma `preservation_by_base_case` is that it
    obfuscates the relation le, by unfolding it and replacing it with a reflexive transitive

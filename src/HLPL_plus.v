@@ -526,7 +526,7 @@ Variant is_loan : HLPL_plus_constructor -> Prop :=
 | IsLoan_MutLoan l : is_loan (loanC^m(l)).
 Hint Constructors is_loan : spath.
 Notation not_contains_loan := (not_value_contains is_loan).
-Hint Extern 0 (~is_loan _) => intro; easy.
+Hint Extern 0 (~is_loan _) => intro; easy : spath.
 
 (* TODO: delete *)
 Goal is_loan (get_constructor (loan^m(0))).
@@ -535,7 +535,7 @@ Proof. cbn. auto with spath. Qed.
 Variant is_loc : HLPL_plus_constructor -> Prop :=
 | IsLoc_Loc l : is_loc (locC(l)).
 Notation not_contains_loc := (not_value_contains is_loc).
-Hint Extern 0 (~is_loc _) => intro; easy.
+Hint Extern 0 (~is_loc _) => intro; easy : spath.
 
 (*
 Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
@@ -728,7 +728,7 @@ Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_st
       (Hancestor_loc : ancestor S pi = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
   | Eval_pointer_no_loc S p pi l
       (Heval_place : eval_place S Mut p pi)
-      (Hancestor_no_loc : ~is_loc (ancestor S pi)) 
+      (Hancestor_no_loc : ~is_loc (ancestor S pi))
       (* This hypothesis is not necessary for the proof of preservation of HLPL+, but it is
          useful in that it can help us eliminate cases. *)
       (Hno_loan : not_contains_loan (S.[pi])) :
@@ -783,6 +783,11 @@ Ltac solve_validity0 :=
       simple apply valid_app_last_get_constructor_not_zeoray;
       rewrite H;
       constructor
+  | H : get_constructor (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [0]) =>
+      rewrite (app_spath_vpath_assoc p q [0]);
+      simple apply valid_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
   | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
       simple apply get_not_bot_valid_spath;
       rewrite H;
@@ -810,7 +815,8 @@ Ltac solve_validity0 :=
   | |- valid_spath ?S ?p => idtac
   | |- valid_vpath ?v ?p => idtac
   end.
-Hint Extern 5 (valid_spath _ _) => solve_validity0.
+Hint Extern 0 (valid_spath _ _) => solve_validity0 : spath.
+Print HintDb spath.
 Ltac solve_validity := solve_validity0; eauto with spath.
 
 Ltac prove_not_contains0 :=
@@ -956,15 +962,6 @@ Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_p
 { le_base := le_state_base;
   anon := Anon;
 }.
-Next Obligation.
-  assert (exists S0', le_state_base S0' (S1,, Anon |-> v) /\ S0' = (S0,, Anon |-> v))
-      as (? & ? & ->); [ | assumption].
-  destruct H; eexists.
-  - split.
-    + eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
-      assumption. all: autorewrite with spath; eassumption.
-    + autorewrite with spath. reflexivity.
-Qed.
 
 (* TODO: move *)
 (* Proving a comparison between p and q using information from the environment S. *)
@@ -1164,7 +1161,15 @@ Proof.
   preservation_by_base_case.
   intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
   (* op = const n *)
-  - apply complete_square_diagram_by_invariance; [assumption | constructor].
+  - destruct Hle.
+    + eapply complete_square_diagram.
+      * eapply prove_le_state_val.
+        { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+          assumption. all: autorewrite with spath; eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * constructor.
+      * reflexivity.
   (* op = copy p *)
   - admit.
   (* op = move p *)
@@ -1195,34 +1200,48 @@ Proof.
         -- autorewrite with spath. f_equal. prove_states_eq.
 Admitted.
 
+Lemma le_base_implies_le S0 S1 : le_base S0 S1 -> le S0 S1.
+Proof. now constructor. Qed.
+
 Lemma rvalue_preserves_HLPL_plus_rel rv : preservation (eval_rvalue rv).
 Proof.
   preservation_by_base_case.
   intros ? ? Heval. destruct Heval.
   (* rv = just op *)
   - apply operand_preserves_HLPL_plus_rel in Heval_op.
-    firstorder using Eval_just, Cl_base.
-    (* should solve it. *)
-    admit.
+    intros ? ?%le_base_implies_le.
+    firstorder using Eval_just.
   (* rv = op + op *)
   - apply operand_preserves_HLPL_plus_rel in H, H0.
-    intros. admit.
+    intros S0 Hle%le_base_implies_le.
+    admit.
   (* rv = &mut p *)
   (* The place p evaluates to a spath under a loc. *)
-  - intros Sl Hle. destruct (Hle).
-    + apply complete_square_diagram_by_invariance; [exact Hle | ]. clear Hle.
-      eval_place_preservation.
+  - intros Sl Hle. destruct Hle.
+    + eval_place_preservation.
       destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
       (* Case 1: the place p is under the borrow. *)
-      * eapply Eval_pointer_loc. eassumption.
-        destruct r; autorewrite with spath in Hancestor_loc.
+      * destruct r; autorewrite with spath in Hancestor_loc.
         (* The place p cannot be just under the borrow, because its ancestor is a loc, it cannot be
          * the mutable borrow. *)
-        -- congruence.
-        -- autorewrite with spath. exact Hancestor_loc.
+        { congruence. }
+        eapply complete_square_diagram.
+        -- eapply prove_le_state_val.
+           { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+             assumption. all: autorewrite with spath; eassumption. }
+           { autorewrite with spath. reflexivity. }
+           reflexivity.
+        -- eapply Eval_pointer_loc. eassumption. autorewrite with spath. exact Hancestor_loc.
+        -- reflexivity.
       (* Case 2: the place p is not under the borrow. *)
-      * eapply Eval_pointer_loc. eassumption. autorewrite with spath. exact Hancestor_loc.
-
+      * eapply complete_square_diagram.
+        -- eapply prove_le_state_val.
+           { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+             assumption. all: autorewrite with spath; eassumption. }
+           { autorewrite with spath. reflexivity. }
+           reflexivity.
+        -- eapply Eval_pointer_loc. eassumption. autorewrite with spath. exact Hancestor_loc.
+        -- reflexivity.
   (* rv = &mut p *)
   (* The place p evaluates to a spath that is not under a loc. *)
   - intros Sl Hle. destruct Hle.
@@ -1242,8 +1261,7 @@ Proof.
         (* Case 2: the place p is just under sp_borrow, but not just under. *)
         -- eapply complete_square_diagram.
            ++ eapply prove_le_state_val.
-              { apply le_base_app_last.
-                apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
+              { apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
               { autorewrite with spath. reflexivity. }
               reflexivity.
            ++ apply Eval_pointer_no_loc with (l := l). eassumption.
@@ -1255,8 +1273,7 @@ Proof.
         destruct (decidable_prefix pi sp_borrow) as [(r & <-) | ].
         -- eapply complete_square_diagram.
            ++ eapply prove_le_state_val.
-              { apply le_base_app_last.
-                apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := pi +++ [0] ++ r).
+              { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := pi +++ [0] ++ r).
                 auto with spath. all: autorewrite with spath; eassumption. }
               { autorewrite with spath. reflexivity. }
               reflexivity.
@@ -1266,16 +1283,16 @@ Proof.
         -- assert (disj sp_borrow pi) by reduce_comp.
            eapply complete_square_diagram.
            ++ eapply prove_le_state_val.
-              { apply le_base_app_last.
-                apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+              { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                 assumption. all: autorewrite with spath; eassumption. }
-              { reflexivity. }
+              { autorewrite with spath. reflexivity. }
               reflexivity.
            ++ apply Eval_pointer_no_loc with (l := l). eassumption.
               autorewrite with spath. assumption. prove_not_contains. prove_not_contains.
            ++ f_equal. autorewrite with spath. prove_states_eq.
 Admitted.
 
+Hint Extern 0 (not_value_contains _ _) => prove_not_contains0 : spath.
 Lemma eval_rvalue_no_loan_loc S rv v S' : S |-{rv} rv => (v, S') ->
   not_contains_loan v /\ not_contains_loc v.
 Proof.
