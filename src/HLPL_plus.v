@@ -109,6 +109,10 @@ Lemma valid_get_constructor_sget_not_bot {B V} `{IsValue : Value V} (S : state B
   get_constructor (S.[p]) <> get_constructor bot -> valid_spath S p.
 Proof. intros G. apply get_not_bot_valid_spath. intro K. apply G. rewrite K. reflexivity. Qed.
 
+Lemma valid_get_constructor_vget_not_bot {V} `{IsValue : Value V} v p :
+  get_constructor (v.[[p]]) <> get_constructor bot -> valid_vpath v p.
+Proof. intros G. apply get_not_bot_valid_vpath. intro K. apply G. rewrite K. reflexivity. Qed.
+
 Lemma valid_app_last_get_constructor_not_zeoray {B V} `{IsValue : Value V} (S : state B V) p :
   arity (get_constructor (S.[p])) > 0 -> valid_spath S (p +++ [0]).
 Proof.
@@ -747,7 +751,8 @@ Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
 Variant store (p : place) : HLPL_plus_val * HLPL_plus_state -> HLPL_plus_state -> Prop :=
-| Store v S sp (eval_p : S |-{p} p =>^{Mut} sp) (no_outer_loc : not_contains_outer_loc (S.[sp]))
+| Store v S sp (eval_p : (S,, Anon |-> v) |-{p} p =>^{Mut} sp)
+  (no_outer_loc : not_contains_outer_loc (S.[sp]))
   (no_outer_loan : not_contains_outer_loan (S.[sp])) :
   store p (v, S) (S.[sp <- v],, Anon |-> S.[sp])
 .
@@ -812,6 +817,14 @@ Ltac solve_validity0 :=
       solve_validity0
   | |- valid_vpath _ ([_] ++ _) =>
       econstructor; [reflexivity | solve_validity0]
+  | H : ?v.[[?p]] = _ |- valid_vpath ?v ?p =>
+      apply (valid_get_constructor_vget_not_bot v p);
+      rewrite H;
+      discriminate
+  | H : get_constructor (?v.[[?p]]) = _ |- valid_vpath ?v ?p =>
+      apply (valid_get_constructor_vget_not_bot v p);
+      rewrite H;
+      discriminate
   | |- valid_spath ?S ?p => idtac
   | |- valid_vpath ?v ?p => idtac
   end.
@@ -1301,14 +1314,49 @@ Proof.
   induction Hcopy_val; auto with spath.
 Qed.
 
+(*
 Lemma eval_path_app_last S p k pi S' : S |-{p} p =>^{k} pi -> (S ++ S') |-{p} p =>^{k} pi.
 Proof.
 Admitted.
+ *)
 
-Lemma eval_path_app_last' S v p k pi :
+Lemma eval_path_app_last S v p k pi :
   not_contains_loc v -> (S,, Anon |-> v) |-{p} p =>^{k} pi -> S |-{p} p =>^{k} pi.
 Proof.
-Admitted.
+  destruct p as (x & q). intros no_loc (i & H & G). exists i. cbn.
+  assert (find_binder S (Var x) = Some i).
+  { apply find_binder_Some in H. destruct H as (Hi & Hi_min).
+    destruct (Nat.lt_ge_cases i (length S)) as [ |  ].
+    + apply find_binder_Some.
+      rewrite nth_error_app1 in Hi by assumption. split; [exact Hi | ].
+      intros j j_lt_i. specialize (Hi_min j j_lt_i).
+      rewrite nth_error_app1 in Hi_min by (etransitivity; eassumption).
+      assumption.
+    + rewrite nth_error_app2 in Hi by auto using Nat.lt_le_incl.
+      destruct (i - length S).
+      * discriminate.
+      * cbn in Hi. rewrite nth_error_nil in Hi. discriminate.
+  }
+  split; [assumption | ].
+  cbn in *. assert (valid_pi0 : valid_spath S (i, [])) by eauto using find_binder_valid.
+  apply proj1 with (B := valid_spath S (i, [])). induction G.
+  + split. constructor. exact valid_pi0.
+  + assert (eval_proj S k proj p q).
+    { clear IHG. induction Heval_proj; autorewrite with spath in get_q.
+      - eapply Eval_Deref_MutBorrow; eassumption.
+      - eapply Eval_Deref_Ptr_Locs; [eassumption.. | ].
+        assert (valid_q' : valid_spath (S,, Anon |-> v) q') by solve_validity.
+        apply valid_spath_app_last_cases in valid_q'.
+        destruct valid_q'; autorewrite with spath in get_q'.
+        + exact get_q'.
+        + exfalso. apply no_loc with (p := snd q'); [solve_validity | ].
+          rewrite get_q'. constructor.
+      - eapply Eval_Loc; eauto with spath.
+    }
+    destruct IHG.
+    { eapply eval_proj_valid. eassumption. }
+    split; [ econstructor | ]; eassumption.
+Qed.
 
 Lemma state_app_last_eq (Sl Sr : HLPL_plus_state) bl br vl vr :
   (Sl,, bl |-> vl) = (Sr,, br |-> vr) -> Sl = Sr /\ vl = vr.
@@ -1361,19 +1409,22 @@ Proof.
   intros vSr Sr' Hstore vSl Hle.
   destruct vSl as (vl, Sl) eqn:?. destruct vSr as (vr, Sr) eqn:?.
   destruct Hle as (Hle & no_loan & no_loc). inversion Hstore. subst. clear Hstore.
+  assert (valid_spath Sr sp).
+  { eapply eval_path_app_last in eval_p; auto with spath. }
   remember (Sl,, Anon |-> vl) eqn:HeqvSl. remember (Sr,, Anon |-> vr).
   destruct Hle; subst.
-  - assert (valid_spath Sr sp) by solve_validity.
-    apply eval_path_app_last with (S' := [(Anon, vr)]) in eval_p.
-    eapply eval_place_mut_borrow_to_ptr in eval_p; [ | eassumption..].
-    assert (valid_spath Sr sp_loan) by admit. autorewrite with spath in HS_loan |-.
-    destruct eval_p as (pi_l & rel_pi_l_pi_r%rel_implies_rel' & eval_p).
+  - eval_place_preservation. clear valid_p.
+    assert (valid_sp_loan : valid_spath (Sr,, Anon |-> vr) sp_loan) by solve_validity.
+    apply valid_spath_app_last_cases in valid_sp_loan.
+    destruct valid_sp_loan.
+    2: { autorewrite with spath in HS_loan. exfalso.
+      eapply no_loan; [ | rewrite HS_loan ]. solve_validity. constructor. }
+    autorewrite with spath in HS_loan |-.
     destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
     (* Case 1: the place sp where we write is inside the borrow. *)
     + assert (valid_spath Sr sp_borrow) by (eapply valid_spath_app; eassumption).
       autorewrite with spath in HS_borrow, HeqvSl. apply state_app_last_eq in HeqvSl.
-      destruct HeqvSl as (<- & ->). autorewrite with spath in eval_p.
-      apply eval_path_app_last' in eval_p; [ | assumption].
+      destruct HeqvSl as (<- & ->). autorewrite with spath in eval_p_in_Sl.
       eapply complete_square_diagram.
       * constructor.
         eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
@@ -1381,4 +1432,10 @@ Proof.
       * constructor. eassumption.
         all: autorewrite with spath; assumption.
       * autorewrite with spath. f_equal. prove_states_eq.
+    + assert (valid_sp_borrow : valid_spath (Sr,, Anon |-> vr) sp_borrow) by solve_validity.
+      apply valid_spath_app_last_cases in valid_sp_borrow.
+      destruct valid_sp_borrow as [valid_sp_borrw | ]; autorewrite with spath in HS_borrow.
+      * admit.
+      (* Case 4: the borrow is inside the evaluated value. *)
+      * 
 Admitted.

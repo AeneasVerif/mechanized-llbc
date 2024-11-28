@@ -4,6 +4,7 @@ Require Import RelationClasses.
 Require Import OptionMonad.
 Require Import base.
 Require Import Arith.
+Require Import Lia.
 Import ListNotations.
 
 Local Open Scope option_monad_scope.
@@ -928,6 +929,18 @@ Section GetSetPath.
   Lemma valid_spath_last S b v p : valid_vpath v p -> valid_spath (S,, b |-> v) (length S, p).
   Proof.
     intro. exists v. split; [ | assumption]. rewrite nth_error_app2, Nat.sub_diag; reflexivity.
+  Qed.
+
+  Lemma valid_spath_app_last_cases S b v p :
+    valid_spath (S,, b |-> v) p -> valid_spath S p \/ fst p = length S.
+  Proof.
+    intros (w & H & ?). destruct (Nat.lt_ge_cases (fst p) (length S)).
+    - left. exists w. split; [ | assumption].
+      rewrite nth_error_app1 in H by assumption. exact H.
+    - right. apply Nat.le_antisymm; try assumption.
+      assert (G : fst p < length (S,, b |-> v)).
+      { apply nth_error_Some. simplify_option. }
+      rewrite app_length in G. cbn in G. lia.
   Qed.
 
   (* TODO: move up *)
