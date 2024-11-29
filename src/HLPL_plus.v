@@ -11,6 +11,8 @@ Require Import SimulationUtils.
 (* TODO: move this in a separate file. *)
 Create HintDb spath.
 
+Hint Immediate vstrict_prefix_is_vprefix : spath.
+Hint Immediate not_vprefix_left_vstrict_prefix_right : spath.
 Hint Resolve strict_prefix_irrefl : spath.
 (* Automatically solving a comparison C p q using the hypotheses. *)
 Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
@@ -21,6 +23,10 @@ Hint Immediate symmetric_disj : spath.
 Lemma not_prefix_implies_not_strict_prefix p q : ~prefix p q -> ~strict_prefix p q.
 Proof. intros ? ?%strict_prefix_is_prefix. auto. Qed.
 Hint Resolve not_prefix_implies_not_strict_prefix : spath.
+
+Lemma not_vprefix_implies_not_vstrict_prefix p q : ~vprefix p q -> ~vstrict_prefix p q.
+Proof. intros ? ?%vstrict_prefix_is_vprefix. auto. Qed.
+Hint Immediate not_vprefix_implies_not_vstrict_prefix : spath.
 
 Lemma neq_implies_not_prefix p q : ~prefix p q -> p <> q.
 Proof. intros H <-. apply H. reflexivity. Qed.
@@ -73,6 +79,17 @@ Hint Resolve<- not_strict_prefix_app_last : spath.
 
 (* TODO: move in PathToSubtree.v *)
 (* TODO: counterpart of get_nil_prefix_right' *)
+Lemma vstrict_prefix_one_subvalue {V} `{IsValue : Value V} v p q
+  (H : length (subvalues (v.[[p]])) = 1) :
+  vstrict_prefix p q -> valid_vpath v q -> vprefix (p ++ [0]) q.
+Proof.
+  intros (i & r & <-) (_ & G)%valid_vpath_app.
+  assert (i = 0) as ->.
+  { apply PeanoNat.Nat.lt_1_r. rewrite<- H. apply nth_error_Some.
+    inversion G. destruct (nth_error (subvalues (v.[[p]]))); easy. }
+  exists r. rewrite<- app_assoc. reflexivity.
+Qed.
+
 Lemma strict_prefix_one_subvalue {B V} `{IsValue : Value V} (S : state B V) p q (H : length (subvalues (S.[p])) = 1) :
   strict_prefix p q -> valid_spath S q -> prefix (p +++ [0]) q.
 Proof.
@@ -82,11 +99,17 @@ Proof.
     inversion G. destruct (nth_error (subvalues (S.[p]))); easy. }
   exists r. rewrite<- app_spath_vpath_assoc. reflexivity.
 Qed.
+
+Corollary not_vprefix_one_subvalue {V} `{IsValue : Value V} v p q :
+  length (subvalues (v.[[p]])) = 1 -> valid_vpath v q -> ~vprefix (p ++ [0]) q -> ~vstrict_prefix p q.
+Proof. intros ? ? H ?. eapply H, vstrict_prefix_one_subvalue; eassumption. Qed.
+
 Corollary not_prefix_one_subvalue {B V} `{IsValue : Value V} (S : state B V) p q :
   length (subvalues (S.[p])) = 1 -> valid_spath S q -> ~prefix (p +++ [0]) q -> ~strict_prefix p q.
 Proof. intros ? ? H ?. eapply H, strict_prefix_one_subvalue; eassumption. Qed.
 
 Hint Resolve strict_prefix_one_subvalue : spath.
+Hint Resolve not_vprefix_one_subvalue : spath.
 Hint Resolve not_prefix_one_subvalue : spath. (* TODO: delete? *)
 Hint Extern 5 (length (subvalues ?v) = _) =>
   match goal with
@@ -113,7 +136,17 @@ Lemma valid_get_constructor_vget_not_bot {V} `{IsValue : Value V} v p :
   get_constructor (v.[[p]]) <> get_constructor bot -> valid_vpath v p.
 Proof. intros G. apply get_not_bot_valid_vpath. intro K. apply G. rewrite K. reflexivity. Qed.
 
-Lemma valid_app_last_get_constructor_not_zeoray {B V} `{IsValue : Value V} (S : state B V) p :
+Lemma valid_vpath_app_last_get_constructor_not_zeoray {V} `{IsValue : Value V} v p :
+  arity (get_constructor (v.[[p]])) > 0 -> valid_vpath v (p ++ [0]).
+Proof.
+  intro. apply valid_vpath_app. split.
+  - apply get_not_bot_valid_vpath. intro G. rewrite G in H.
+    rewrite <-length_subvalues_is_arity, subvalues_bot in H. inversion H.
+  - rewrite<- length_subvalues_is_arity in H. apply nth_error_Some' in H.
+    destruct H. econstructor; [eassumption | constructor].
+Qed.
+
+Lemma valid_spath_app_last_get_constructor_not_zeoray {B V} `{IsValue : Value V} (S : state B V) p :
   arity (get_constructor (S.[p])) > 0 -> valid_spath S (p +++ [0]).
 Proof.
   intro. apply valid_spath_app. split.
@@ -435,6 +468,168 @@ Proof.
 Qed.
 
 
+Ltac solve_validity0 :=
+  lazymatch goal with
+  | H : ?S |-{p} _ =>^{ _ } ?pi |- valid_spath ?S ?pi =>
+      simple eapply eval_place_valid;
+      exact H
+  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S ?p =>
+      apply (valid_get_constructor_sget_not_bot S p);
+      rewrite H;
+      discriminate
+  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
+      simple apply valid_spath_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
+  | H : get_constructor (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [0]) =>
+      rewrite (app_spath_vpath_assoc p q [0]);
+      simple apply valid_spath_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
+  | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
+      simple apply get_not_bot_valid_spath;
+      rewrite H;
+      discriminate
+  | |- valid_spath (?S.[?p <- ?v]) (?p +++ ?q) =>
+      simple apply sset_prefix_valid;
+      solve_validity0
+  | |- valid_spath (?S.[?p <- ?v]) ?q =>
+      apply sset_not_prefix_valid; [ | solve_validity0]
+  | |- valid_spath (?S ++ _) (length ?S, ?q) =>
+      apply valid_spath_last;
+      solve_validity0
+  | |- valid_spath (?S ++ ?S') ?p =>
+      simple apply valid_app_spath;
+      solve_validity0
+  (* Solving valid_vpath: *)
+  | |- valid_vpath (?S.[?p]) ?q =>
+      apply (valid_spath_app S p q);
+      (* In case p is of the form p0 +++ p1, we rewrite (p0 +++ p1) +++ q into
+         p0 +++ (p1 ++ q) *)
+      repeat rewrite<-app_spath_vpath_assoc;
+      solve_validity0
+  | |- valid_vpath _ ([_] ++ _) =>
+      econstructor; [reflexivity | solve_validity0]
+  | H : get_constructor (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [0]) =>
+      simple apply valid_vpath_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
+  | H : ?v.[[?p]] = _ |- valid_vpath ?v ?p =>
+      apply (valid_get_constructor_vget_not_bot v p);
+      rewrite H;
+      discriminate
+  | H : get_constructor (?v.[[?p]]) = _ |- valid_vpath ?v ?p =>
+      apply (valid_get_constructor_vget_not_bot v p);
+      rewrite H;
+      discriminate
+  | |- valid_spath ?S ?p => idtac
+  | |- valid_vpath ?v ?p => idtac
+  end.
+Hint Extern 0 (valid_spath _ _) => solve_validity0 : spath.
+Print HintDb spath.
+Ltac solve_validity := solve_validity0; eauto with spath.
+
+(* Testing that I can automatically prove validity: *)
+Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
+Proof. intros. solve_validity. Qed.
+
+Goal forall (S : HLPL_plus_state) p l, get_constructor (S.[p]) = locC(l) -> valid_spath S p.
+Proof. intros. solve_validity. Qed.
+
+Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
+  -> valid_spath (S.[p <- v].[q <- w]) r.
+Proof. intros. solve_validity. Qed.
+
+(* TODO: rework this hint. *)
+Hint Extern 5 (~strict_prefix ?p ?q) =>
+  match goal with
+  | H : ?S.[?p] = _ |- _ =>
+      simple apply (get_nil_prefix_right' S); [rewrite H | ]
+  end : spath.
+(* TODO: replace by eauto with spath? *)
+Ltac prove_not_atom :=
+  match goal with
+  (* Trying to automatically prove p <> q *)
+  | H : ?p <> ?q |- ?p <> ?q => exact H
+  | H : ?q <> ?p |- ?p <> ?q => symmetry; exact H
+  | H : ~prefix ?p ?q |- ?p <> ?q => intros ->; apply H; reflexivity
+  | H : ?S.[?p] = ?v, G : get_constructor (?S.[?q]) = ?c |- ?p <> ?q =>
+      let EQ := fresh "EQ" in
+      intro EQ;
+      rewrite EQ in H;
+      rewrite H in G;
+      discriminate
+
+  (* Trying to automatically prove ~strict_prefix p q *)
+  | H : ~strict_prefix ?p ?q |- ~strict_prefix ?p ?q => exact H
+  | H : ~prefix ?p ?q |- ~strict_prefix ?p ?q => intro; apply H, strict_prefix_is_prefix; assumption
+  (* When we have a hypotheses H : S.[p] = v with v a 0-ary value (for example, v = loan^m(l)),
+     we try to prove that p cannot be a strict prefix of q by using the validity of q: *)
+  | H : ?S.[?p] = ?v |- ~strict_prefix ?p ?q =>
+      let G := fresh "G" in
+      (* Trying to automatically prove that p has no subvalues, this branch fails if we can't. *)
+      assert (G : subvalues (S.[p]) = []) by (rewrite H; reflexivity);
+      apply (get_nil_prefix_right' S p q G);
+      solve_validity
+  | _ => idtac
+  end.
+
+
+Hint Extern 2 (disj ?p (length ?S, ?q)) =>
+  simple apply (disj_spath_to_last S); [solve_validity | ] : spath.
+Hint Extern 2 (disj (length ?S, ?q) ?p) =>
+  symmetry; simple apply (disj_spath_to_last S); [solve_validity | ] : spath.
+
+(* TODO: document automatic rewriting. *)
+(* TODO: move in PathToSubtree.v *)
+Lemma sset_sget_remove_prefix (S : HLPL_plus_state) p q r v :
+  valid_spath S p -> S.[p +++ q <- v].[p +++ r] = S.[p].[[q <- v]].[[r]].
+intro. rewrite sget_app. rewrite sset_sget_prefix by assumption. reflexivity. Qed.
+Hint Rewrite sset_sget_remove_prefix using solve_validity : spath.
+(* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
+ * solve the validity hypothesis by proving that S.[p] <> bot. *)
+Hint Rewrite @sset_sget_equal using solve_validity : spath.
+Hint Rewrite @sset_sget_prefix using solve_validity : spath.
+(* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), only if it can
+ * automatically prove it. *)
+Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
+Hint Rewrite @sset_sget_prefix_right using solve_validity : spath.
+Hint Rewrite @sset_twice_prefix_right : spath.
+Hint Rewrite<- @sset_app_state using solve_validity; fail : spath.
+Hint Rewrite<- @sset_app_last_state
+  using repeat rewrite length_sset; try assumption; reflexivity : spath.
+Hint Rewrite @sget_app_state using solve_validity; fail : spath.
+Hint Rewrite @sget_app_last_state
+  using repeat rewrite length_sset; try assumption; reflexivity : spath.
+Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
+Hint Rewrite <- @sget_app : spath.
+Hint Rewrite <- @vget_app : spath.
+Hint Rewrite <- app_assoc : spath.
+Hint Rewrite <- app_spath_vpath_assoc : spath.
+Hint Rewrite vget_vset_prefix using solve_validity : spath.
+Hint Rewrite vget_vset_prefix_right using solve_validity : spath.
+Hint Rewrite vget_vset_equal using solve_validity : spath.
+
+Lemma constructor_vset_not_nil (v w : HLPL_plus_val) p :
+  p <> [] -> get_constructor (v.[[p <- w]]) = get_constructor v.
+Proof. intro. destruct p; [easy | apply constructor_vset_cons]. Qed.
+(* Using discriminate to prove that p is not []. *)
+Hint Rewrite constructor_vset_not_nil using discriminate : spath.
+
+Lemma sget_loc l v p : (loc(l, v)).[[ [0] ++  p]] = v.[[p]].
+Proof. reflexivity. Qed.
+Hint Rewrite sget_loc : spath.
+Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
+Proof. reflexivity. Qed.
+Hint Rewrite sget_loc' : spath.
+
+Hint Rewrite app_nil_r : spath.
+
+Lemma snd_pair [A B] (a : A) (b : B) : snd (a, b) = b. Proof. reflexivity. Qed.
+Hint Rewrite snd_pair : spath.
+Lemma snd_app v w : snd (v +++ w) = (snd v) ++ w. Proof. reflexivity. Qed.
+Hint Rewrite snd_app : spath.
+
 (* Setting up the definitions for judgements like "loan \notin v" or
    "l is fresh". *)
 Definition not_state_contains (P : HLPL_plus_constructor -> Prop) (S : HLPL_plus_state) :=
@@ -547,11 +742,47 @@ Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
  *)
 (* Hint Constructors is_mut_borrow : spath. *)
 
-Definition not_contains_outer_loan v :=
-  forall l p, v.[[p]] = loan^m(l) -> exists q l w, vprefix q p /\ v.[[q]] = borrow^m(l, w).
+Definition not_contains_outer (P : HLPL_plus_constructor -> Prop) v :=
+  forall p, P (get_constructor (v.[[p]]))
+  -> exists q l, vstrict_prefix q p /\ get_constructor (v.[[q]]) = borrowC^m(l).
+Notation not_contains_outer_loan := (not_contains_outer is_loan).
+Notation not_contains_outer_loc := (not_contains_outer is_loc).
 
-Definition not_contains_outer_loc v :=
-  forall p, is_loc (get_constructor (v.[[p]])) -> exists q l w, vprefix q p /\ v.[[q]] = borrow^m(l, w).
+(*
+Lemma not_contains_outer_sset P v p w :
+  not_contains_outer P v -> not_value_contains P w -> not_contains_outer P (v.[[p <- w]]).
+Proof.
+  intros Hv Hw. destruct (valid_or_invalid p v).
+  - intros q valid_q Hq. destruct (decidable_vprefix p q) as [(r & <-) | not_prefix].
+    + exfalso.
+      apply valid_vpath_app in valid_q. destruct valid_q as (_ & valid_r).
+      autorewrite with spath in * |-. eapply Hw; eassumption.
+    + destruct (Hv q) as (r & l & ? & ?).
+      * eapply vset_not_prefix_valid_rev; [ | eassumption]. auto with spath.
+      * rewrite constructor_vset_vget_not_prefix in Hq; assumption.
+      * exists r, l. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
+        assumption. intro. apply not_prefix. transitivity r; auto with spath.
+  - rewrite vset_invalid by assumption. assumption.
+Qed.
+ *)
+
+Lemma not_contains_outer_sset P (v : HLPL_plus_val) p w :
+  not_contains_outer P v
+  -> (exists q l, vstrict_prefix q p /\ get_constructor (v.[[q]]) = borrowC^m(l))
+  -> not_contains_outer P (v.[[p <- w]]).
+Proof.
+  intros Hv (q & l & H & ?). destruct (valid_or_invalid p v).
+  - intros r Hr. destruct (decidable_vprefix p r) as [(r' & <-) | not_prefix].
+    + exists q, l.
+      split.
+      * destruct H as (i & ? & <-). eexists i, _. rewrite<- app_assoc. reflexivity.
+      * rewrite constructor_vset_vget_not_prefix by auto with spath. assumption.
+    + destruct (Hv r) as (q' & l' & ? & ?).
+      * rewrite constructor_vset_vget_not_prefix in Hr; assumption.
+      * exists q', l'. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
+        assumption. intro. apply not_prefix. transitivity q'; auto with spath.
+  - rewrite vset_invalid by assumption. assumption.
+Qed.
 
 Definition get_loan_id c :=
   match c with
@@ -610,6 +841,44 @@ Definition not_in_borrow (S : HLPL_plus_state) p :=
 Notation not_contains_bot v :=
   (not_value_contains (fun c => c = botC) v).
 Hint Extern 0 (_ <> botC) => discriminate : spath.
+
+(* Adding a hint to reslove a relation ~prefix p q using the facts that:
+ * - S.[p] does not contain a constructor c.
+ * - S.[q] starts by the constructor c.
+ * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
+ * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
+ * the expression (get_value v) produced, so that it can be solved automatically.
+ *)
+Hint Extern 3 (~prefix ?p ?q) =>
+  match goal with
+  | H : ?S.[?q] = _ |- _ =>
+    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | solve_validity]
+  end : spath.
+
+Ltac prove_not_contains0 :=
+  try assumption;
+  lazymatch goal with
+  | |- True => auto
+  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
+      simple apply not_state_contains_sset;
+      prove_not_contains0
+  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
+      let H := fresh "H" in
+      tryif assert (H : disj q p) by auto with spath
+      then (simple apply (not_value_contains_sset_disj P S v p q H);
+        prove_not_contains0)
+      else (simple apply (not_value_contains_sset P S v p q);
+       [ prove_not_contains0 | prove_not_contains0 | solve_validity0])
+  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_state_contains_implies_not_value_contains_sget P S p H);
+      solve_validity0
+  | |- not_value_contains ?P (?S.[?p]) => idtac
+  | |- not_value_contains ?P ?v =>
+      simple apply not_value_contains_by_decomposition;
+      [ | cbn; prove_not_contains0]
+  | |- _ => idtac
+  end.
+Ltac prove_not_contains := prove_not_contains0; auto with spath.
 
 Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_plus_int n) (HLPL_plus_int n)
@@ -774,196 +1043,6 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 (* TODO: introduce well-formedness judgement. *)
-
-Ltac solve_validity0 :=
-  lazymatch goal with
-  | H : ?S |-{p} _ =>^{ _ } ?pi |- valid_spath ?S ?pi =>
-      simple eapply eval_place_valid;
-      exact H
-  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S ?p =>
-      apply (valid_get_constructor_sget_not_bot S p);
-      rewrite H;
-      discriminate
-  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
-      simple apply valid_app_last_get_constructor_not_zeoray;
-      rewrite H;
-      constructor
-  | H : get_constructor (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [0]) =>
-      rewrite (app_spath_vpath_assoc p q [0]);
-      simple apply valid_app_last_get_constructor_not_zeoray;
-      rewrite H;
-      constructor
-  | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
-      simple apply get_not_bot_valid_spath;
-      rewrite H;
-      discriminate
-  | |- valid_spath (?S.[?p <- ?v]) (?p +++ ?q) =>
-      simple apply sset_prefix_valid;
-      solve_validity0
-  | |- valid_spath (?S.[?p <- ?v]) ?q =>
-      apply sset_not_prefix_valid; [ | solve_validity0]
-  | |- valid_spath (?S ++ _) (length ?S, ?q) =>
-      apply valid_spath_last;
-      solve_validity0
-  | |- valid_spath (?S ++ ?S') ?p =>
-      simple apply valid_app_spath;
-      solve_validity0
-  (* Solving valid_vpath: *)
-  | |- valid_vpath (?S.[?p]) ?q =>
-      apply (valid_spath_app S p q);
-      (* In case p is of the form p0 +++ p1, we rewrite (p0 +++ p1) +++ q into
-         p0 +++ (p1 ++ q) *)
-      repeat rewrite<-app_spath_vpath_assoc;
-      solve_validity0
-  | |- valid_vpath _ ([_] ++ _) =>
-      econstructor; [reflexivity | solve_validity0]
-  | H : ?v.[[?p]] = _ |- valid_vpath ?v ?p =>
-      apply (valid_get_constructor_vget_not_bot v p);
-      rewrite H;
-      discriminate
-  | H : get_constructor (?v.[[?p]]) = _ |- valid_vpath ?v ?p =>
-      apply (valid_get_constructor_vget_not_bot v p);
-      rewrite H;
-      discriminate
-  | |- valid_spath ?S ?p => idtac
-  | |- valid_vpath ?v ?p => idtac
-  end.
-Hint Extern 0 (valid_spath _ _) => solve_validity0 : spath.
-Print HintDb spath.
-Ltac solve_validity := solve_validity0; eauto with spath.
-
-Ltac prove_not_contains0 :=
-  try assumption;
-  lazymatch goal with
-  | |- True => auto
-  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
-      simple apply not_state_contains_sset;
-      prove_not_contains0
-  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
-      let H := fresh "H" in
-      tryif assert (H : disj q p) by auto with spath
-      then (simple apply (not_value_contains_sset_disj P S v p q H);
-        prove_not_contains0)
-      else (simple apply (not_value_contains_sset P S v p q);
-       [ prove_not_contains0 | prove_not_contains0 | solve_validity0])
-  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
-      simple apply (not_state_contains_implies_not_value_contains_sget P S p H);
-      solve_validity0
-  | |- not_value_contains ?P (?S.[?p]) => idtac
-  | |- not_value_contains ?P ?v =>
-      simple apply not_value_contains_by_decomposition;
-      [ | cbn; prove_not_contains0]
-  | |- _ => idtac
-  end.
-Ltac prove_not_contains := prove_not_contains0; auto with spath.
-
-(* Testing that I can automatically prove validity: *)
-Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
-Proof. intros. solve_validity. Qed.
-
-Goal forall (S : HLPL_plus_state) p l, get_constructor (S.[p]) = locC(l) -> valid_spath S p.
-Proof. intros. solve_validity. Qed.
-
-Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
-  -> valid_spath (S.[p <- v].[q <- w]) r.
-Proof. intros. solve_validity. Qed.
-
-(* TODO: rework this hint. *)
-Hint Extern 5 (~strict_prefix ?p ?q) =>
-  match goal with
-  | H : ?S.[?p] = _ |- _ =>
-      simple apply (get_nil_prefix_right' S); [rewrite H | ]
-  end : spath.
-(* TODO: replace by eauto with spath? *)
-Ltac prove_not_atom :=
-  match goal with
-  (* Trying to automatically prove p <> q *)
-  | H : ?p <> ?q |- ?p <> ?q => exact H
-  | H : ?q <> ?p |- ?p <> ?q => symmetry; exact H
-  | H : ~prefix ?p ?q |- ?p <> ?q => intros ->; apply H; reflexivity
-  | H : ?S.[?p] = ?v, G : get_constructor (?S.[?q]) = ?c |- ?p <> ?q =>
-      let EQ := fresh "EQ" in
-      intro EQ;
-      rewrite EQ in H;
-      rewrite H in G;
-      discriminate
-
-  (* Trying to automatically prove ~strict_prefix p q *)
-  | H : ~strict_prefix ?p ?q |- ~strict_prefix ?p ?q => exact H
-  | H : ~prefix ?p ?q |- ~strict_prefix ?p ?q => intro; apply H, strict_prefix_is_prefix; assumption
-  (* When we have a hypotheses H : S.[p] = v with v a 0-ary value (for example, v = loan^m(l)),
-     we try to prove that p cannot be a strict prefix of q by using the validity of q: *)
-  | H : ?S.[?p] = ?v |- ~strict_prefix ?p ?q =>
-      let G := fresh "G" in
-      (* Trying to automatically prove that p has no subvalues, this branch fails if we can't. *)
-      assert (G : subvalues (S.[p]) = []) by (rewrite H; reflexivity);
-      apply (get_nil_prefix_right' S p q G);
-      solve_validity
-  | _ => idtac
-  end.
-
-
-(* Adding a hint to reslove a relation ~prefix p q using the facts that:
- * - S.[p] does not contain a constructor c.
- * - S.[q] starts by the constructor c.
- * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
- * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
- * the expression (get_value v) produced, so that it can be solved automatically.
- *)
-Hint Extern 3 (~prefix ?p ?q) =>
-  match goal with
-  | H : ?S.[?q] = _ |- _ =>
-    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | solve_validity]
-  end : spath.
-
-Hint Extern 2 (disj ?p (length ?S, ?q)) =>
-  simple apply (disj_spath_to_last S); [solve_validity | ] : spath.
-Hint Extern 2 (disj (length ?S, ?q) ?p) =>
-  symmetry; simple apply (disj_spath_to_last S); [solve_validity | ] : spath.
-
-(* TODO: document automatic rewriting. *)
-(* TODO: move in PathToSubtree.v *)
-Lemma sset_sget_remove_prefix (S : HLPL_plus_state) p q r v :
-  valid_spath S p -> S.[p +++ q <- v].[p +++ r] = S.[p].[[q <- v]].[[r]].
-intro. rewrite sget_app. rewrite sset_sget_prefix by assumption. reflexivity. Qed.
-Hint Rewrite sset_sget_remove_prefix using solve_validity : spath.
-(* Try to rewrite sset_sget_equal (S.[p <- v].[p] = v if p is valid), and try to automatically
- * solve the validity hypothesis by proving that S.[p] <> bot. *)
-Hint Rewrite @sset_sget_equal using solve_validity : spath.
-Hint Rewrite @sset_sget_prefix using solve_validity : spath.
-(* Try to rewrite sset_sget_disj (S.[p <- v].[q] = S.[q] if p and q are disjoint), only if it can
- * automatically prove it. *)
-Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
-Hint Rewrite @sset_sget_prefix_right using solve_validity : spath.
-Hint Rewrite @sset_twice_prefix_right : spath.
-Hint Rewrite<- @sset_app_state using solve_validity; fail : spath.
-Hint Rewrite<- @sset_app_last_state
-  using repeat rewrite length_sset; try assumption; reflexivity : spath.
-Hint Rewrite @sget_app_state using solve_validity; fail : spath.
-Hint Rewrite @sget_app_last_state
-  using repeat rewrite length_sset; try assumption; reflexivity : spath.
-Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
-Hint Rewrite <- @sget_app : spath.
-Hint Rewrite <- @vget_app : spath.
-Hint Rewrite <- app_assoc : spath.
-Hint Rewrite <- app_spath_vpath_assoc : spath.
-Hint Rewrite vget_vset_prefix using solve_validity : spath.
-Hint Rewrite vget_vset_equal using solve_validity : spath.
-
-Lemma constructor_vset_not_nil (v w : HLPL_plus_val) p :
-  p <> [] -> get_constructor (v.[[p <- w]]) = get_constructor v.
-Proof. intro. destruct p; [easy | apply constructor_vset_cons]. Qed.
-(* Using discriminate to prove that p is not []. *)
-Hint Rewrite constructor_vset_not_nil using discriminate : spath.
-
-Lemma sget_loc l v p : (loc(l, v)).[[ [0] ++  p]] = v.[[p]].
-Proof. reflexivity. Qed.
-Hint Rewrite sget_loc : spath.
-Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
-Proof. reflexivity. Qed.
-Hint Rewrite sget_loc' : spath.
-
-Hint Rewrite app_nil_r : spath.
 
 Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
@@ -1437,5 +1516,29 @@ Proof.
       destruct valid_sp_borrow as [valid_sp_borrw | ]; autorewrite with spath in HS_borrow.
       * admit.
       (* Case 4: the borrow is inside the evaluated value. *)
-      * 
+      * destruct sp_borrow as (i & q). cbn in H2. subst i.
+        autorewrite with spath in HS_borrow.
+        autorewrite with spath in eval_p_in_Sl.
+        autorewrite with spath in HeqvSl. apply state_app_last_eq in HeqvSl.
+        destruct HeqvSl. subst.
+        destruct (decidable_prefix sp sp_loan) as [(r & <-) | ].
+        (* Case 4a: the loan is in the value we write in. *)
+        -- eapply complete_square_diagram.
+           ++ constructor.
+              eapply Le_MutBorrow_To_Ptr with (sp_loan := (length Sr, r)) (sp_borrow := sp +++ q).
+              auto with spath. all: autorewrite with spath; eassumption.
+           ++ constructor. eassumption. all: autorewrite with spath.
+              apply not_contains_outer_sset. assumption.
+              apply no_outer_loan. autorewrite with spath. rewrite HS_loan. constructor.
+              apply not_contains_outer_sset. assumption.
+              apply no_outer_loan. autorewrite with spath. rewrite HS_loan. constructor.
+           ++ autorewrite with spath. f_equal. prove_states_eq.
+        (* Case 4b: the loan is disjoint to the value we write in. *)
+        -- assert (disj sp sp_loan) by reduce_comp.
+           eapply complete_square_diagram.
+           ++ constructor.
+              eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp +++ q).
+              auto with spath. all: autorewrite with spath; eassumption.
+           ++ constructor. eassumption. all: autorewrite with spath; assumption.
+           ++ autorewrite with spath. f_equal. prove_states_eq.
 Admitted.

@@ -222,10 +222,19 @@ Proof.
   rewrite app_spath_vpath_nil_r. reflexivity.
 Qed.
 
+Lemma vstrict_prefix_irrefl p : ~vstrict_prefix p p.
+Proof. intros (? & ? & ?).  apply app_same_nil in H. discriminate. Qed.
+
+Lemma vdisj_irrefl p : ~vdisj p p.
+Proof.
+  intros (? & ? & ? & ? & ? & ? & H & G). rewrite G in H. apply app_inv_head in H.
+  congruence.
+Qed.
+
 Lemma strict_prefix_irrefl p : ~strict_prefix p p.
 Proof.
   intros (? & ? & ?). apply (f_equal snd) in H. unfold app_spath_vpath in H.
-  apply app_same_nil in H. inversion H.
+  apply app_same_nil in H. discriminate.
 Qed.
 
 Corollary not_prefix_left_strict_prefix_right p q : strict_prefix q p -> ~ prefix p q.
@@ -244,6 +253,9 @@ Qed.
 
 Local Instance : Reflexive vprefix.
 Proof. intro p. exists nil. apply app_nil_r. Qed.
+
+Global Instance vprefix_trans : Transitive vprefix.
+Proof. intros x ? ? (? & <-) (? & <-). rewrite<- app_assoc. eexists. reflexivity. Qed.
 
 Global Instance : Reflexive prefix.
 Proof. intro p. exists nil. apply app_spath_vpath_nil_r. Qed.
@@ -285,8 +297,20 @@ Proof.
   - eapply (not_vprefix_vdisj (snd p) (snd _)); [eassumption | ]. eexists. reflexivity.
 Qed.
 
+Lemma decidable_vpath_eq (p q : vpath) : p = q \/ p <> q.
+Proof.
+  destruct (comparable_vpaths p q) as [ | | | ].
+  - left. assumption.
+  - right. intros <-. eapply vstrict_prefix_irrefl. eassumption.
+  - right. intros <-. eapply vstrict_prefix_irrefl. eassumption.
+  - right. intros <-. eapply vdisj_irrefl. eassumption.
+Qed.
+
 Lemma decidable_spath_eq (p q : spath) : p = q \/ p <> q.
-Admitted.
+Proof.
+  destruct p as (i & p'). destruct q as (j & q').
+  destruct (Nat.eq_dec i j); destruct (decidable_vpath_eq p' q'); intuition congruence.
+Qed.
 
 Lemma decidable_vprefix p q : vprefix p q \/ ~vprefix p q.
 Proof.
