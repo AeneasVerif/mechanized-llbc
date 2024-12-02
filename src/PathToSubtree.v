@@ -297,6 +297,33 @@ Proof.
   - eapply (not_vprefix_vdisj (snd p) (snd _)); [eassumption | ]. eexists. reflexivity.
 Qed.
 
+Lemma vdisj_common_prefix p q r : vdisj (p ++ q) (p ++ r) <-> vdisj q r.
+Proof.
+  split.
+  - intro H. induction p as [ | x p IH].
+    + assumption.
+    + apply IH. cbn in H.
+      destruct H as (p' & q' & r' & i & j & diff & Hqq' & Hrr').
+      destruct p' as [ | y p'].
+      * apply (f_equal (@hd_error _)) in Hqq', Hrr'. inversion Hqq'. inversion Hrr'.
+        congruence.
+      * inversion Hqq'. subst y. inversion Hrr'.
+        exists p', q', r', i, j. auto.
+  - intros (p' & q' & r' & i & j & ? & -> & ->).
+    exists (p ++ p'), q', r', i, j. rewrite<- !app_assoc. auto.
+Qed.
+
+Corollary disj_common_prefix p q r : disj (p +++ q) (p +++ r) <-> vdisj q r.
+Proof.
+  split.
+  - intros [H | (_ & H) ].
+    + cbn in H. congruence.
+    + eapply vdisj_common_prefix. exact H.
+  - intro. right. split.
+    + reflexivity.
+    + apply vdisj_common_prefix. assumption.
+Qed.
+
 Lemma decidable_vpath_eq (p q : vpath) : p = q \/ p <> q.
 Proof.
   destruct (comparable_vpaths p q) as [ | | | ].

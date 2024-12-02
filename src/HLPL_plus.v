@@ -11,10 +11,23 @@ Require Import SimulationUtils.
 (* TODO: move this in a separate file. *)
 Create HintDb spath.
 
+(* Automatically solving a comparison C p q using the hypotheses. *)
+Hint Resolve-> disj_common_prefix : spath.
+
+(* TODO: move in PathToSubtree.v *)
+Lemma disj_common_index i p q : disj (i, p) (i, q) <-> vdisj p q.
+Proof.
+  split.
+  - intros [H | (_ & ?)].
+    + cbn in H. congruence.
+    + assumption.
+  - intro. right. auto.
+Qed.
+Hint Resolve<- disj_common_index : spath.
+
 Hint Immediate vstrict_prefix_is_vprefix : spath.
 Hint Immediate not_vprefix_left_vstrict_prefix_right : spath.
 Hint Resolve strict_prefix_irrefl : spath.
-(* Automatically solving a comparison C p q using the hypotheses. *)
 Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
 Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
 Hint Resolve not_disj_strict_prefix : spath.
@@ -748,25 +761,24 @@ Definition not_contains_outer (P : HLPL_plus_constructor -> Prop) v :=
 Notation not_contains_outer_loan := (not_contains_outer is_loan).
 Notation not_contains_outer_loc := (not_contains_outer is_loc).
 
-(*
-Lemma not_contains_outer_sset P v p w :
-  not_contains_outer P v -> not_value_contains P w -> not_contains_outer P (v.[[p <- w]]).
+Lemma not_contains_outer_sset_no_contains P v p w :
+  not_contains_outer P v -> not_value_contains P w
+  -> (forall v, P v -> v <> botC)
+  -> not_contains_outer P (v.[[p <- w]]).
 Proof.
-  intros Hv Hw. destruct (valid_or_invalid p v).
-  - intros q valid_q Hq. destruct (decidable_vprefix p q) as [(r & <-) | not_prefix].
+  intros Hv Hw ?. destruct (valid_or_invalid p v).
+  - intros q Hq. destruct (decidable_vprefix p q) as [(r & <-) | not_prefix].
     + exfalso.
-      apply valid_vpath_app in valid_q. destruct valid_q as (_ & valid_r).
-      autorewrite with spath in * |-. eapply Hw; eassumption.
+      autorewrite with spath in * |-. eapply Hw; [ | eassumption].
+      apply get_not_bot_valid_vpath. intro wr. apply (H _ Hq). rewrite wr. reflexivity.
     + destruct (Hv q) as (r & l & ? & ?).
-      * eapply vset_not_prefix_valid_rev; [ | eassumption]. auto with spath.
       * rewrite constructor_vset_vget_not_prefix in Hq; assumption.
       * exists r, l. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
         assumption. intro. apply not_prefix. transitivity r; auto with spath.
   - rewrite vset_invalid by assumption. assumption.
 Qed.
- *)
 
-Lemma not_contains_outer_sset P (v : HLPL_plus_val) p w :
+Lemma not_contains_outer_sset_in_borrow P (v : HLPL_plus_val) p w :
   not_contains_outer P v
   -> (exists q l, vstrict_prefix q p /\ get_constructor (v.[[q]]) = borrowC^m(l))
   -> not_contains_outer P (v.[[p <- w]]).
@@ -783,6 +795,32 @@ Proof.
         assumption. intro. apply not_prefix. transitivity q'; auto with spath.
   - rewrite vset_invalid by assumption. assumption.
 Qed.
+
+Lemma loc_is_not_bot x : is_loc x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
+Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
+Ltac prove_not_contains_outer :=
+  (* The values we use this tactic on are of the form
+     (S,, Anon |-> v) (.[ sp <- v])* .[sp]
+     where the path sp we read is a path of S. We first do some rewritings to commute
+     the read with the writes and the addition of the anonymous value. *)
+  autorewrite with spath;
+  try assumption;
+  match goal with
+  | |- not_contains_outer ?P (?v.[[?p <- ?w]]) =>
+      let H := fresh "H" in
+      assert (H : not_value_contains P w) by auto with spath;
+      apply not_contains_outer_sset_no_contains;
+        [prove_not_contains_outer | exact H | exact loc_is_not_bot || exact loan_is_not_bot]
+  | no_outer_loan : not_contains_outer_loan (?S.[?q]),
+    loan_at_q : ?S.[?q +++ ?p] = loan^m(?l)
+    |- not_contains_outer ?P (?S.[?q].[[?p <- ?w]]) =>
+    apply not_contains_outer_sset_in_borrow;
+     [ prove_not_contains_outer |
+       apply no_outer_loan; rewrite<- (sget_app S q p), loan_at_q; constructor ]
+  | |- not_contains_outer _ _ =>
+      idtac
+  end.
+
 
 Definition get_loan_id c :=
   match c with
@@ -1514,7 +1552,49 @@ Proof.
     + assert (valid_sp_borrow : valid_spath (Sr,, Anon |-> vr) sp_borrow) by solve_validity.
       apply valid_spath_app_last_cases in valid_sp_borrow.
       destruct valid_sp_borrow as [valid_sp_borrw | ]; autorewrite with spath in HS_borrow.
-      * admit.
+      * autorewrite with spath in HeqvSl. apply state_app_last_eq in HeqvSl.
+        destruct HeqvSl. subst.
+        autorewrite with spath in eval_p_in_Sl.
+        destruct (decidable_prefix sp sp_borrow) as [(r_borrow & <-) | ].
+        (* Case 2: the borrow is inside the place we write in. *)
+        -- destruct (decidable_prefix sp sp_loan) as [(r_loan & <-) | ].
+           (* Case 3a: the loan is in the place we write in. *)
+           ++ eapply complete_square_diagram.
+              ** constructor.
+                 eapply Le_MutBorrow_To_Ptr with (sp_loan := (length Sr, r_loan))
+                                                 (sp_borrow := (length Sr, r_borrow)).
+                  eauto with spath. all: autorewrite with spath; eassumption.
+              ** constructor. eassumption. all: prove_not_contains_outer.
+              ** autorewrite with spath. reflexivity.
+          (* Case 3b: the loan is disjoint to the place we write in. *)
+           ++ assert (disj sp sp_loan) by reduce_comp.
+              eapply complete_square_diagram.
+              ** constructor.
+                 eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan)
+                                                 (sp_borrow := (length Sr, r_borrow)).
+                 auto with spath. all: autorewrite with spath; eassumption.
+              ** constructor. eassumption. all: prove_not_contains_outer.
+              ** autorewrite with spath. f_equal. prove_states_eq.
+        (* Case 3: the borrow is disjoint from the place we write in. *)
+        -- assert (disj sp sp_borrow) by reduce_comp.
+           destruct (decidable_prefix sp sp_loan) as [(r_loan & <-) | ].
+           (* Case 3a: the loan is in the place we write in. *)
+           ++ eapply complete_square_diagram.
+              ** constructor.
+                 eapply Le_MutBorrow_To_Ptr with (sp_loan := (length Sr, r_loan))
+                                                 (sp_borrow := sp_borrow).
+                 auto with spath. all: autorewrite with spath; eassumption.
+              ** constructor. eassumption. all: prove_not_contains_outer.
+              ** autorewrite with spath. f_equal. prove_states_eq.
+          (* Case 3b: the loan is disjoint to the place we write in. *)
+           ++ assert (disj sp sp_loan) by reduce_comp.
+              eapply complete_square_diagram.
+              ** constructor.
+                 eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan)
+                                                 (sp_borrow := sp_borrow).
+                 auto with spath. all: autorewrite with spath; eassumption.
+              ** constructor. eassumption. all: prove_not_contains_outer.
+              ** autorewrite with spath. f_equal. prove_states_eq.
       (* Case 4: the borrow is inside the evaluated value. *)
       * destruct sp_borrow as (i & q). cbn in H2. subst i.
         autorewrite with spath in HS_borrow.
@@ -1522,23 +1602,20 @@ Proof.
         autorewrite with spath in HeqvSl. apply state_app_last_eq in HeqvSl.
         destruct HeqvSl. subst.
         destruct (decidable_prefix sp sp_loan) as [(r & <-) | ].
-        (* Case 4a: the loan is in the value we write in. *)
+        (* Case 4a: the loan is in the place we write in. *)
         -- eapply complete_square_diagram.
            ++ constructor.
-              eapply Le_MutBorrow_To_Ptr with (sp_loan := (length Sr, r)) (sp_borrow := sp +++ q).
+              eapply Le_MutBorrow_To_Ptr with (sp_loan := (length Sr, r))
+                                              (sp_borrow := sp +++ q).
               auto with spath. all: autorewrite with spath; eassumption.
-           ++ constructor. eassumption. all: autorewrite with spath.
-              apply not_contains_outer_sset. assumption.
-              apply no_outer_loan. autorewrite with spath. rewrite HS_loan. constructor.
-              apply not_contains_outer_sset. assumption.
-              apply no_outer_loan. autorewrite with spath. rewrite HS_loan. constructor.
+           ++ constructor. eassumption. all: prove_not_contains_outer.
            ++ autorewrite with spath. f_equal. prove_states_eq.
-        (* Case 4b: the loan is disjoint to the value we write in. *)
+        (* Case 4b: the loan is disjoint to the place we write in. *)
         -- assert (disj sp sp_loan) by reduce_comp.
            eapply complete_square_diagram.
            ++ constructor.
               eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp +++ q).
               auto with spath. all: autorewrite with spath; eassumption.
-           ++ constructor. eassumption. all: autorewrite with spath; assumption.
+           ++ constructor. eassumption. all: prove_not_contains_outer.
            ++ autorewrite with spath. f_equal. prove_states_eq.
-Admitted.
+Qed.

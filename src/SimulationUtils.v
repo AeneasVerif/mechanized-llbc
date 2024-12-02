@@ -64,7 +64,7 @@ Qed.
    Finally, the last goal d0 = d1 is intended to be solved automatically, using the tactic
    prove_states_eq.
  *)
-Lemma complete_square_diagram {A B C D : Type}
+Lemma complete_square_diagram {B C D : Type}
   (LeDC : D -> C -> Prop) (RedBD : B -> D -> Prop) b c (d0 d1 : D) :
   LeDC d0 c -> RedBD b d1 -> d0 = d1
   -> exists d, LeDC d c /\ RedBD b d.
