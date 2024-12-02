@@ -1495,15 +1495,22 @@ Lemma le_base_does_not_insert_loan_loc vl Sl vr Sr :
 Proof.
   remember (Sl,, Anon |-> vl) as vSl. remember (Sr,, Anon |-> vr) as vSr.
   intros Hle Hno_loan Hno_loc. destruct Hle; subst.
-  - assert (valid_spath Sr sp_loan). { admit. }
-    destruct (Nat.eq_dec (fst sp_borrow) (length Sr)).
+  - assert (valid_spath Sr sp_loan).
+    (* TODO: this piec of reasonning is used several times. Automate it. *)
+    { assert (valid_sp_loan : valid_spath (Sr,, Anon |-> vr) sp_loan) by solve_validity.
+      apply valid_spath_app_last_cases in valid_sp_loan. destruct valid_sp_loan.
+      - assumption.
+      - autorewrite with spath in HS_loan. exfalso.
+        eapply Hno_loan; [ | rewrite HS_loan; constructor]. solve_validity.
+    }
+    assert (valid_sp_borrow : valid_spath (Sr,, Anon |-> vr) sp_borrow) by solve_validity.
+    apply valid_spath_app_last_cases in valid_sp_borrow. destruct valid_sp_borrow.
+    + autorewrite with spath in HeqvSl.
+      apply state_app_last_eq in HeqvSl. destruct HeqvSl as (_ & <-). auto.
     + autorewrite with spath in HeqvSl.
       apply state_app_last_eq in HeqvSl. destruct HeqvSl as (_ & <-).
       auto with spath.
-    + assert (valid_spath Sr sp_borrow). { admit. }
-      autorewrite with spath in HeqvSl.
-      apply state_app_last_eq in HeqvSl. destruct HeqvSl as (_ & <-). auto.
-Admitted.
+Qed.
 
 Lemma le_val_state_no_loan_right vSl vSr :
   le vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
