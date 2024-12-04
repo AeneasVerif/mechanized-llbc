@@ -9,6 +9,8 @@ Import ListNotations.
 
 Local Open Scope option_monad_scope.
 
+Create HintDb spath.
+
 (* Paths, prefixes and disjointness *)
 
 (* A vpath ("value path") is the data structure used to uniquely represent nodes in a tree. The
@@ -251,6 +253,9 @@ Proof.
   apply app_inv_head in H. destruct q'; discriminate.
 Qed.
 
+Lemma not_prefix_implies_not_strict_prefix p q : ~prefix p q -> ~strict_prefix p q.
+Proof. intros ? ?%strict_prefix_is_prefix. auto. Qed.
+
 Local Instance : Reflexive vprefix.
 Proof. intro p. exists nil. apply app_nil_r. Qed.
 
@@ -297,6 +302,9 @@ Proof.
   - eapply (not_vprefix_vdisj (snd p) (snd _)); [eassumption | ]. eexists. reflexivity.
 Qed.
 
+Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
+Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
+
 Lemma vdisj_common_prefix p q r : vdisj (p ++ q) (p ++ r) <-> vdisj q r.
 Proof.
   split.
@@ -323,6 +331,50 @@ Proof.
     + reflexivity.
     + apply vdisj_common_prefix. assumption.
 Qed.
+
+Lemma disj_common_index i p q : disj (i, p) (i, q) <-> vdisj p q.
+Proof.
+  split.
+  - intros [H | (_ & ?)].
+    + cbn in H. congruence.
+    + assumption.
+  - intro. right. auto.
+Qed.
+
+Lemma not_vprefix_implies_not_vstrict_prefix p q : ~vprefix p q -> ~vstrict_prefix p q.
+Proof. intros ? ?%vstrict_prefix_is_vprefix. auto. Qed.
+
+Lemma neq_implies_not_prefix p q : ~prefix p q -> p <> q.
+Proof. intros H <-. apply H. reflexivity. Qed.
+
+Lemma neq_implies_not_prefix' p q : ~prefix p q -> q <> p.
+Proof. intro. symmetry. apply neq_implies_not_prefix. assumption. Qed.
+
+Lemma disj_if_left_disj_prefix p q r : disj p q -> disj p (q +++ r).
+Proof.
+  intros [ | (? & (x & p' & q' & H))].
+  - left. assumption.
+  - right. split; [assumption | ]. exists x, p', (q' ++ r).
+    decompose [ex and] H. repeat eexists; try eassumption. cbn.
+    rewrite app_comm_cons, app_assoc. apply<- app_inv_tail_iff. assumption.
+Qed.
+
+Lemma prefix_trans p q r : prefix (p +++ q) r -> prefix p r.
+Proof. intros (z & <-). rewrite<- app_spath_vpath_assoc. eexists. reflexivity. Qed.
+
+Lemma prefix_and_neq_implies_strict_prefix p q : prefix p q -> p <> q -> strict_prefix p q.
+Proof.
+  intros ([ | ] & <-) H.
+  - rewrite app_spath_vpath_nil_r in H. easy.
+  - eexists _, _. reflexivity.
+Qed.
+
+Lemma not_prefix_left_strict_prefix_right' p q : prefix p q -> ~strict_prefix q p.
+Proof. intros ? ?. eapply not_prefix_left_strict_prefix_right; eassumption. Qed.
+Hint Resolve not_prefix_left_strict_prefix_right' : spath.
+
+Corollary disj_if_right_disj_prefix p q r : disj p q -> disj (p +++ r) q.
+Proof. intro. symmetry. apply disj_if_left_disj_prefix. symmetry. assumption. Qed.
 
 Lemma decidable_vpath_eq (p q : vpath) : p = q \/ p <> q.
 Proof.
@@ -377,10 +429,36 @@ Proof.
     + eexists _, _. reflexivity.
 Qed.
 
-Lemma not_strict_prefix_nil (p : spath) i : ~strict_prefix p (i, nil).
+Corollary not_strict_prefix_app_last p q i : ~strict_prefix p (q +++ [i]) <-> ~prefix p q.
+Proof. split; intros H ?; eapply H, strict_prefix_app_last; eassumption. Qed.
+
+Lemma not_strict_prefix_nil (p : spath) i : ~strict_prefix p (i, []).
 Proof.
   intros (? & ? & H). apply (f_equal snd) in H. eapply app_cons_not_nil. symmetry. exact H.
 Qed.
+
+(* Automatically solving a comparison C p q using the hypotheses. *)
+Hint Resolve-> disj_common_prefix : spath.
+Hint Resolve<- disj_common_index : spath.
+Hint Immediate vstrict_prefix_is_vprefix : spath.
+Hint Immediate not_vprefix_left_vstrict_prefix_right : spath.
+Hint Resolve strict_prefix_irrefl : spath.
+Hint Resolve not_disj_strict_prefix : spath.
+Hint Immediate symmetric_disj : spath.
+Hint Resolve not_prefix_implies_not_strict_prefix : spath.
+Hint Immediate not_vprefix_implies_not_vstrict_prefix : spath.
+Hint Resolve neq_implies_not_prefix : spath.
+Hint Resolve neq_implies_not_prefix' : spath.
+Hint Resolve disj_if_left_disj_prefix : spath.
+Hint Resolve disj_if_right_disj_prefix : spath.
+Hint Resolve<- strict_prefix_app_last : spath.
+Hint Resolve not_strict_prefix_nil : spath.
+Hint Extern 0 (prefix ?p (?p +++ ?q)) => exists q; reflexivity : spath.
+Hint Extern 0 (prefix (?p +++ ?q) (?p +++ ?q ++ ?r)) =>
+    exists r; symmetry; apply app_spath_vpath_assoc : spath.
+Hint Resolve prefix_trans : spath.
+Hint Resolve prefix_and_neq_implies_strict_prefix : spath.
+Hint Resolve<- not_strict_prefix_app_last : spath.
 
 Declare Scope GetSetPath_scope.
 Open Scope GetSetPath_scope.
@@ -524,9 +602,12 @@ Section GetSetPath.
     - assumption.
   Qed.
 
-  Lemma constructor_vset_cons v i p w :
-    get_constructor (v.[[i :: p <- w]]) = get_constructor v.
-  Proof. apply get_constructor_fold_value. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
+  Lemma constructor_vset_cons v p w :
+    p <> [] -> get_constructor (v.[[p <- w]]) = get_constructor v.
+  Proof. 
+    intro. destruct p; [congruence | ].
+    apply get_constructor_fold_value. rewrite map_nth_length. apply length_subvalues_is_arity.
+  Qed.
 
   Lemma subvalues_vset_cons v i p w :
     subvalues (v.[[i :: p <- w]]) = map_nth (subvalues v) i (vset p w).
@@ -535,6 +616,21 @@ Section GetSetPath.
   Lemma vget_cons v i p : v.[[i :: p]] = (get_subval_or_bot v i).[[p]].
   Proof. reflexivity. Qed.
 
+  Lemma vstrict_prefix_one_subvalue v p q (H : length (subvalues (v.[[p]])) = 1) :
+    vstrict_prefix p q -> valid_vpath v q -> vprefix (p ++ [0]) q.
+  Proof.
+    intros (i & r & <-) (_ & G)%valid_vpath_app.
+    assert (i = 0) as ->.
+    { apply PeanoNat.Nat.lt_1_r. rewrite<- H. apply nth_error_Some.
+      inversion G. destruct (nth_error (subvalues (v.[[p]]))); easy. }
+    exists r. rewrite<- app_assoc. reflexivity.
+  Qed.
+
+  Corollary not_vprefix_one_subvalue v p q :
+    length (subvalues (v.[[p]])) = 1 -> valid_vpath v q -> ~vprefix (p ++ [0]) q
+    -> ~vstrict_prefix p q.
+  Proof. intros ? ? H ?. eapply H, vstrict_prefix_one_subvalue; eassumption. Qed.
+
   (* All of the lemmas to reduce an expression of the form v.[[q <- w]].[[p]], depending on the
    * following cases:
    * - p = q
@@ -542,7 +638,7 @@ Section GetSetPath.
    * - q is a prefix of p
    * - p and q are disjoint
    *)
-  Lemma vget_vset_prefix v w p q (H : valid_vpath v p) :
+  Lemma vset_vget_prefix v w p q (H : valid_vpath v p) :
     v.[[p ++ q <- w]].[[p]] = v.[[p]].[[q <- w]].
   Proof.
     induction H as [ | v i p u subval_v_i valid_u_p IH].
@@ -551,8 +647,8 @@ Section GetSetPath.
       simplify_option.
   Qed.
 
-  Corollary vget_vset_equal v w p : valid_vpath v p -> v.[[p <- w]].[[p]] = w.
-  Proof. intro. rewrite<- (app_nil_r p) at 2. rewrite vget_vset_prefix; auto. Qed.
+  Corollary vset_vget_equal v w p : valid_vpath v p -> v.[[p <- w]].[[p]] = w.
+  Proof. intro. rewrite<- (app_nil_r p) at 2. rewrite vset_vget_prefix; auto. Qed.
 
   Lemma vset_same_valid v w p (H : valid_vpath v p) : valid_vpath (v.[[p <- w]]) p.
   Proof.
@@ -563,9 +659,9 @@ Section GetSetPath.
       + assumption.
   Qed.
 
-  Corollary vget_vset_prefix_right v w p q (H : valid_vpath v p) :
+  Corollary vset_vget_prefix_right v w p q (H : valid_vpath v p) :
     v.[[p <- w]].[[p ++ q]] = w.[[q]].
-  Proof. rewrite vget_app, vget_vset_equal; try apply vset_same_valid; auto. Qed.
+  Proof. rewrite vget_app, vset_vget_equal; try apply vset_same_valid; auto. Qed.
 
   Lemma _vset_app_split v p q w (H : valid_vpath v p) :
     v.[[p ++ q <- w]] = v.[[p <- v.[[p]].[[q <- w]]]].
@@ -580,7 +676,7 @@ Section GetSetPath.
     induction H.
     - reflexivity.
     - apply constructor_subvalues_inj.
-      + apply constructor_vset_cons.
+      + apply constructor_vset_cons. discriminate.
       + rewrite subvalues_vset_cons. eapply map_nth_invariant; simplify_option.
   Qed.
 
@@ -597,7 +693,7 @@ Section GetSetPath.
     intros (q & i & r & -> & valid_q & H). rewrite<- (_vset_same v q) at 2 by assumption.
     rewrite _vset_app_split by assumption. f_equal.
     apply constructor_subvalues_inj.
-    - apply constructor_vset_cons.
+    - apply constructor_vset_cons. discriminate.
     - rewrite subvalues_vset_cons. apply map_nth_equal_None. assumption.
   Qed.
 
@@ -611,7 +707,7 @@ Section GetSetPath.
     destruct (valid_or_invalid p v) as [H | ].
     - destruct Hvdisj as (r & p' & q' & i & j & diff & -> & ->).
       apply valid_vpath_app in H. destruct H as [H _].
-      rewrite !vget_app, vget_vset_prefix by assumption. apply vset_vget_disj_aux. assumption.
+      rewrite !vget_app, vset_vget_prefix by assumption. apply vset_vget_disj_aux. assumption.
     - rewrite vset_invalid; auto.
   Qed.
 
@@ -620,7 +716,7 @@ Section GetSetPath.
     induction p; intro v.
     - reflexivity.
     - apply constructor_subvalues_inj.
-      + rewrite !constructor_vset_cons. reflexivity.
+      + rewrite !constructor_vset_cons by discriminate. reflexivity.
       + rewrite !subvalues_vset_cons, map_nth_compose. apply map_nth_equiv. assumption.
   Qed.
 
@@ -646,7 +742,7 @@ Section GetSetPath.
   Lemma vset_twice_prefix_left v p q x y : v.[[p <- x]].[[p ++ q <- y]] = v.[[p <- x.[[q <- y]]]].
   Proof.
     rewrite vset_app_split, vset_twice_equal. destruct (valid_or_invalid p v).
-    - rewrite vget_vset_equal; auto.
+    - rewrite vset_vget_equal; auto.
     - rewrite !vset_invalid; auto.
   Qed.
 
@@ -654,7 +750,7 @@ Section GetSetPath.
     i <> j -> v.[[i :: p <- x]].[[j :: q <- y]] = v.[[j :: q <- y]].[[i :: p <- x]].
   Proof.
     intro. apply constructor_subvalues_inj.
-    - rewrite !constructor_vset_cons. reflexivity.
+    - rewrite !constructor_vset_cons by discriminate. reflexivity.
     - rewrite !subvalues_vset_cons. apply map_nth_neq_commute. assumption.
   Qed.
 
@@ -730,11 +826,25 @@ Section GetSetPath.
     - exfalso. apply H. reflexivity.
   Qed.
 
+  Lemma strict_prefix_one_subvalue S p q (H : length (subvalues (S.[p])) = 1) :
+    strict_prefix p q -> valid_spath S q -> prefix (p +++ [0]) q.
+  Proof.
+    intros (i & r & <-) (_ & G)%valid_spath_app.
+    assert (i = 0) as ->.
+    { apply PeanoNat.Nat.lt_1_r. rewrite<- H. apply nth_error_Some.
+      inversion G. destruct (nth_error (subvalues (S.[p]))); easy. }
+    exists r. rewrite<- app_spath_vpath_assoc. reflexivity.
+  Qed.
+
+  Corollary not_prefix_one_subvalue S p q :
+    length (subvalues (S.[p])) = 1 -> valid_spath S q -> ~prefix (p +++ [0]) q -> ~strict_prefix p q.
+  Proof. intros ? ? H ?. eapply H, strict_prefix_one_subvalue; eassumption. Qed.
+
   Lemma sset_sget_prefix (S : state B V) v p q :
     valid_spath S p -> S.[p +++ q <- v].[p] = S.[p].[[q <- v]].
   Proof.
     intros (w & Hget & Hvalid). unfold sget, sset.
-    rewrite nth_error_map_nth_eq. simplify_option. rewrite vget_vset_prefix; auto.
+    rewrite nth_error_map_nth_eq. simplify_option. rewrite vset_vget_prefix; auto.
   Qed.
 
   Lemma sset_sget_equal S p v : valid_spath S p -> S.[p <- v].[p] = v.
@@ -747,6 +857,10 @@ Section GetSetPath.
     S.[p <- v].[p +++ q] = v.[[q]].
   Proof. rewrite sget_app, sset_sget_equal; auto. Qed.
 
+  Lemma sset_sget_common_prefix S p q r v :
+    valid_spath S p -> S.[p +++ q <- v].[p +++ r] = S.[p].[[q <- v]].[[r]].
+  Proof. intro. rewrite sget_app. rewrite sset_sget_prefix by assumption. reflexivity. Qed.
+
   Lemma sset_sget_disj (S : state B V) p v q : disj p q -> S.[p <- v].[q] = S.[q].
   Proof.
     unfold sset, sget. intros [ | (<- & Hdisj)].
@@ -758,7 +872,7 @@ Section GetSetPath.
     vstrict_prefix p q -> get_constructor (v.[[q <- w]].[[p]]) = get_constructor (v.[[p]]).
   Proof.
      intros (i & r & <-). destruct (valid_or_invalid p v).
-     - rewrite vget_vset_prefix by assumption. apply constructor_vset_cons.
+     - rewrite vset_vget_prefix by assumption. apply constructor_vset_cons. discriminate.
      - assert (invalid_vpath v (p ++ i :: r)) by now apply invalid_prefix.
        now rewrite vset_invalid.
   Qed.
@@ -846,7 +960,7 @@ Section GetSetPath.
     intros (r & p' & q' & i & j & ? & -> & ->) (? & ?)%valid_vpath_app.
     apply valid_vpath_app. split.
     - apply vset_prefix_right_valid. assumption.
-    - rewrite vget_vset_prefix by assumption. apply vset_disj_valid_aux; assumption.
+    - rewrite vset_vget_prefix by assumption. apply vset_disj_valid_aux; assumption.
   Qed.
 
   Lemma vset_same_valid_rev v p w : valid_vpath (v.[[p <- w]]) p -> valid_vpath v p.
@@ -923,17 +1037,17 @@ Section GetSetPath.
 
   (* TODO: switch directions? *)
   Lemma sset_app_state (S S' : state B V) p v :
-    valid_spath S p -> S.[p <- v] ++ S' = (S ++ S').[p <- v].
+    valid_spath S p -> (S ++ S').[p <- v] = S.[p <- v] ++ S'.
   Proof.
     intros (w & (? & ?)). unfold sset. apply nth_error_ext. intro i.
     destruct (Nat.lt_ge_cases i (length S)) as [ | ].
     - destruct (Nat.eq_dec (fst p) i) as [-> | ].
       + rewrite nth_error_map_nth_eq.
         rewrite !nth_error_app1 by (try rewrite map_nth_length; assumption).
-        apply nth_error_map_nth_eq.
+        symmetry. apply nth_error_map_nth_eq.
       + rewrite nth_error_map_nth_neq by assumption.
         rewrite !nth_error_app1 by (try rewrite map_nth_length; assumption).
-        apply nth_error_map_nth_neq. assumption.
+        symmetry. apply nth_error_map_nth_neq. assumption.
     - rewrite nth_error_map_nth_neq.
       { rewrite !nth_error_app2; try rewrite map_nth_length; auto. }
       apply Nat.lt_neq. unfold lt. transitivity (length S); try assumption.
@@ -942,7 +1056,7 @@ Section GetSetPath.
 
   (* TODO: switch directions? *)
   Lemma sset_app_last_state (S : state B V) b p v w :
-    fst p = length S -> S,, b |-> v.[[snd p <- w]] = (S,, b |-> v).[p <- w].
+    fst p = length S -> (S,, b |-> v).[p <- w] = S,, b |-> v.[[snd p <- w]].
   Proof.
     destruct p. cbn. intros ->. apply nth_error_ext. intro i.
     destruct (Nat.lt_trichotomy i (length S)) as [ | [-> | ] ]; unfold sset.
@@ -965,11 +1079,14 @@ Section GetSetPath.
   (* This lemma is used to prove that in an environment S ,, Anon |-> v, a spath p
      relating to a value in S and a spath q relating to a value in (Anon |-> v) are disjoint.
    *)
-  Lemma disj_spath_to_last S p q : valid_spath S p -> fst q = length S -> disj p q.
+  Lemma disj_spath_to_last S p q : valid_spath S p -> disj p (length S, q).
   Proof.
-    destruct q. cbn. intros (? & ? & _) ->. left. apply Nat.lt_neq. apply nth_error_Some.
+    intros (? & ? & _). left. apply Nat.lt_neq. apply nth_error_Some.
     destruct (nth_error S (fst p)); easy.
   Qed.
+
+  Lemma disj_spath_to_last' S p q : valid_spath S p -> disj (length S, q) p.
+  Proof. symmetry. apply disj_spath_to_last. assumption. Qed.
 
   Lemma valid_app_spath S S' p : valid_spath S p -> valid_spath (S ++ S') p.
   Proof.
@@ -1112,12 +1229,305 @@ Section GetSetPath.
     - apply valid_nil.
   Qed.
 
-  Lemma get_nil_prefix_right S p q (H : subvalues (S.[p]) = nil) (valid_w : valid_spath S q) :
-    prefix p q -> q = p.
+  Lemma get_nil_prefix_right S p q :
+  subvalues (S .[ p]) = [] -> valid_spath S q -> ~strict_prefix p q.
   Proof.
-    intros (r & <-). destruct r.
-    - apply app_spath_vpath_nil_r.
-    - exfalso. rewrite valid_spath_app in valid_w. destruct valid_w as [_ valid_queue].
-      inversion valid_queue. rewrite H, nth_error_nil in *. simplify_option.
+    intros H valid_q (i & r & <-). apply valid_spath_app in valid_q. 
+    destruct valid_q as (_ & valid_i_r). inversion valid_i_r.
+    rewrite H, nth_error_nil in * |-. discriminate.
   Qed.
 End GetSetPath.
+
+(* Automatically solving comparisons using environment information. *)
+Hint Resolve strict_prefix_one_subvalue : spath.
+Hint Resolve not_vprefix_one_subvalue : spath.
+Hint Resolve not_prefix_one_subvalue : spath. (* TODO: delete? *)
+Hint Extern 5 (length (subvalues ?v) = _) =>
+  match goal with
+  | H : get_constructor (?S.[?p]) = _ |- _ =>
+      rewrite length_subvalues_is_arity, H; reflexivity
+  end : spath.
+Hint Extern 5 (~strict_prefix ?p ?q) =>
+  match goal with
+  | H : ?S.[?p] = _ |- _ =>
+      simple apply (get_nil_prefix_right S); [rewrite H | ]
+  end : spath.
+Hint Resolve disj_spath_to_last : spath.
+Hint Resolve disj_spath_to_last' : spath.
+
+(* Try to automatically solve a validity goal validity S pi. Here is how the procedure should
+ * work:
+ * - If the state S is of the form S'.[q <- v], reduce to valid S' pi provided that
+     ~strict_prefix q pi.
+ * - If the state S is of the form S,, b |-> v
+ *   - If pi = (length S, q), meaning that pi refers to the last binding, reduce to valid v q
+ *   - Otherwise, reduce to valid S pi
+ * - Search the proof that pi is the evaluation of a place.
+ * - Search for a proof that S.[p] <> bot in the hypotheses.
+ * - Search for a proof that the constructor of S.[p] is not bot in the hypotheses.
+ *)
+Lemma valid_get_constructor_sget_not_bot {B V} `{IsValue : Value V} (S : state B V) p :
+  get_constructor (S.[p]) <> get_constructor bot -> valid_spath S p.
+Proof. intros G. apply get_not_bot_valid_spath. intro K. apply G. rewrite K. reflexivity. Qed.
+
+Lemma valid_get_constructor_vget_not_bot {V} `{IsValue : Value V} v p :
+  get_constructor (v.[[p]]) <> get_constructor bot -> valid_vpath v p.
+Proof. intros G. apply get_not_bot_valid_vpath. intro K. apply G. rewrite K. reflexivity. Qed.
+
+Lemma valid_vpath_app_last_get_constructor_not_zeoray {V} `{IsValue : Value V} v p :
+  arity (get_constructor (v.[[p]])) > 0 -> valid_vpath v (p ++ [0]).
+Proof.
+  intro. apply valid_vpath_app. split.
+  - apply get_not_bot_valid_vpath. intro G. rewrite G in H.
+    rewrite <-length_subvalues_is_arity, subvalues_bot in H. inversion H.
+  - rewrite<- length_subvalues_is_arity in H. apply nth_error_Some' in H.
+    destruct H. econstructor; [eassumption | constructor].
+Qed.
+
+Lemma valid_spath_app_last_get_constructor_not_zeoray {B V} `{IsValue : Value V} (S : state B V) p :
+  arity (get_constructor (S.[p])) > 0 -> valid_spath S (p +++ [0]).
+Proof.
+  intro. apply valid_spath_app. split.
+  - apply get_not_bot_valid_spath. intro G. rewrite G in H.
+    rewrite <-length_subvalues_is_arity, subvalues_bot in H. inversion H.
+  - rewrite<- length_subvalues_is_arity in H. apply nth_error_Some' in H.
+    destruct H. econstructor; [eassumption | constructor].
+Qed.
+
+Ltac solve_validity0 :=
+  lazymatch goal with
+  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S ?p =>
+      apply (valid_get_constructor_sget_not_bot S p);
+      rewrite H;
+      discriminate
+  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
+      simple apply valid_spath_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
+  | H : get_constructor (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [0]) =>
+      rewrite (app_spath_vpath_assoc p q [0]);
+      simple apply valid_spath_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
+  | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
+      simple apply get_not_bot_valid_spath;
+      rewrite H;
+      discriminate
+  | |- valid_spath (?S.[?p <- ?v]) (?p +++ ?q) =>
+      simple apply sset_prefix_valid;
+      solve_validity0
+  | |- valid_spath (?S.[?p <- ?v]) ?q =>
+      apply sset_not_prefix_valid; [ | solve_validity0]
+  | |- valid_spath (?S ++ _) (length ?S, ?q) =>
+      apply valid_spath_last;
+      solve_validity0
+  | |- valid_spath (?S ++ ?S') ?p =>
+      simple apply valid_app_spath;
+      solve_validity0
+  | |- valid_spath ?S ?p => idtac
+
+  (* Solving valid_vpath: *)
+  | |- valid_vpath (?S.[?p]) ?q =>
+      apply (valid_spath_app S p q);
+      (* In case p is of the form p0 +++ p1, we rewrite (p0 +++ p1) +++ q into
+         p0 +++ (p1 ++ q) *)
+      repeat rewrite<-app_spath_vpath_assoc;
+      solve_validity0
+  | |- valid_vpath _ ([_] ++ _) =>
+      econstructor; [reflexivity | solve_validity0]
+  | H : get_constructor (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [0]) =>
+      simple apply valid_vpath_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
+  | H : ?v.[[?p]] = _ |- valid_vpath ?v ?p =>
+      apply (valid_get_constructor_vget_not_bot v p);
+      rewrite H;
+      discriminate
+  | H : get_constructor (?v.[[?p]]) = _ |- valid_vpath ?v ?p =>
+      apply (valid_get_constructor_vget_not_bot v p);
+      rewrite H;
+      discriminate
+  | |- valid_vpath ?v ?p => idtac
+  end.
+Hint Extern 0 (valid_spath _ _) => solve_validity0 : spath.
+Ltac solve_validity := solve_validity0; eauto with spath.
+
+(* Testing that I can automatically prove validity: *)
+(* TODO: rewrite or delete. *)
+(*
+Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
+Proof. intros. solve_validity. Qed.
+
+Goal forall (S : HLPL_plus_state) p l, get_constructor (S.[p]) = locC(l) -> valid_spath S p.
+Proof. intros. solve_validity. Qed.
+
+Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
+  -> valid_spath (S.[p <- v].[q <- w]) r.
+Proof. intros. solve_validity. Qed.
+ *)
+
+(* Automatically solve equality between two states that are sets of a state S, ie solves goals of
+ * the form:
+ * S.[p0 <- v0] ... .[pm <- vm] = S.[q0 <- w0] ... .[qn <- vn]
+ *
+ * Strategy: it's easy to compute values that are a get of a sequence of sets, i.e:
+ * S.[p0 <- v0] ... .[pm <- vm] .[q]
+ * This works when we know the relation between the state q we get and the states p0, ..., pk we
+ * set.
+ * Let's denote Sl := S.[p0 <- v0] ... .[pm <- vm] and Sr := S.[q0 <- w0] ... .[qn <- vn]. To prove
+ * that Sl = Sr, we are going to prove that Sl.[q] = Sr.[q] for q = p0, ..., pm. For the spaths q
+ * that are not prefix of p0, ..., pm, we are going to prove that Sl.[q] and Sr.[q] have the same
+ * constructor.
+ * Finally, we also need to prove that Sl and Sr have the binders, which is an easy consequence of
+ * the fact that they are sets of the same state S.
+ *)
+Lemma prove_states_eq_3 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 p2 :
+  (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
+  S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) -> (S.[p2] = S'.[p2]) ->
+  (forall q, ~prefix p0 q -> ~prefix p1 q -> ~prefix p2 q ->
+    get_constructor (S.[q]) = get_constructor (S'.[q])) ->
+  S = S'.
+Proof.
+  intros. apply get_constructor_sget_ext; [assumption | ].
+  intro q.
+  destruct (decidable_prefix p0 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+  destruct (decidable_prefix p1 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+  destruct (decidable_prefix p2 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+   auto.
+Qed.
+
+Lemma prove_states_eq_2 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 :
+  (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
+  S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) ->
+  (forall q, ~prefix p0 q -> ~prefix p1 q ->
+    get_constructor (S.[q]) = get_constructor (S'.[q])) ->
+  S = S'.
+Proof.
+  intros. apply get_constructor_sget_ext; [assumption | ].
+  intro q.
+  destruct (decidable_prefix p0 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+  destruct (decidable_prefix p1 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+   auto.
+Qed.
+
+Ltac prove_states_eq :=
+  let q := fresh "q" in
+  (* autorewrite with spath; *)
+  lazymatch goal with
+  | |- ?S.[?p0 <- _].[?p1 <- _].[?p2 <- _] = ?S' =>
+    simple apply (prove_states_eq_3 _ S' p0 p1 p2);
+    intros;
+    [rewrite !get_binder_sset; reflexivity | autorewrite with spath; try reflexivity..]
+  | |- ?S.[?p0 <- _].[?p1 <- _] = ?S' =>
+    simple apply (prove_states_eq_2 _ S' p0 p1);
+    intros;
+    [rewrite !get_binder_sset; reflexivity | autorewrite with spath; try reflexivity..]
+  end.
+
+(* Note: not really maintained. *)
+(* A _comparison_ `C p q` between is one of those relation:
+   - `p = q` or `p <> q`
+   - `prefix p q` or `~prefix p q`
+   - `strict_prefix p q` or `~strict_prefix p q`
+   - `disj p q` or `~disj p q`
+ *)
+(* We are going to define a tactic called "reduce_comp" to assist the proof of comparisons between
+ * two paths p and q, using comparisons in the hypotheses as much as possible.
+ *
+ * The key idea is that there are four possible "atomic" comparisons: p = q, strict_prefix p q,
+ * strict_prefix q p and disj p q. These comparisons are atomic in the sense that for any p and q,
+ * exactly one of those is true.
+ *
+ * Every comparison C p q is equivalent to a disjunction of atomic comparisons. By contraposition,
+ * this means that every comparison C p q is equivalent to the conjuction of the negation of
+ * atomas. For example:
+ * - prefix p q <-> (p = q \/ strict_prefix p q) <-> (~strict_prefix q p /\ ~disj p q)
+ * - ~prefix p q <-> (strict_prefix q p \/ ~disj p q) <-> (p <> q /\ ~strict_prefix p q)
+ * - disj p q <-> disj p q <-> (p <> q /\ ~strict_prefix p q /\ ~strict_prefix q p)
+ *
+ * Thus, to prove a comparison C p q in the goal, reduce_comp works the following way:
+ * - It generates the negative atomic relations necessary to prove C p q
+ * - For each negative atomic relation, it tries to prove it automatically using the hypotheses.
+ * The negative atomic relations that could not be automatically proven are left as subgoals. This
+ * tactic never fails (as long as the goal is a comparison).
+ *
+ * Note: this tactic is not complete yet, more comparisons have to be added. It's also subject to
+ * change.
+ *)
+
+Lemma prefix_if_equal_or_strict_prefix p q : prefix p q -> p = q \/ strict_prefix p q.
+Proof.
+  intros ([ | i r] & <-).
+  - left. symmetry. apply app_spath_vpath_nil_r.
+  - right. exists i, r. reflexivity.
+Qed.
+
+Lemma prove_not_prefix p q : p <> q -> ~strict_prefix p q -> ~prefix p q.
+Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
+Hint Resolve prove_not_prefix : spath.
+
+Lemma prove_disj p q : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
+Proof. destruct (comparable_spaths p q); easy. Qed.
+
+Ltac reduce_comp :=
+  unfold not; (* Used to prove both negations of the form ~C p q and C p q -> False *)
+  match goal with
+  | |- prefix ?p ?q -> False => apply prove_not_prefix
+  | |- disj ?p ?q => apply prove_disj
+  end;
+  eauto with spath.
+
+(* Automatic rewriting. *)
+(* Informally, here are the normal forms for the main objects: *)
+(* Normal form for vpaths : p ++ (p ++ ...) *)
+(* Normal form for spaths : p +++ (p ++ ...) *)
+(* Normal form for values : v.[[p]].[[p <- v]].[[p <- v]] ... or S.[p].[[p <- v]].[[p <- v]] *)
+(* Normal form for states : (S.[p <- v].[p <- v] ...), Anon |-> v *)
+
+(* Simple simplifications: *)
+Hint Rewrite app_nil_r : spath.
+Lemma snd_pair [A B] (a : A) (b : B) : snd (a, b) = b. Proof. reflexivity. Qed.
+Hint Rewrite snd_pair : spath.
+Lemma snd_app v w : snd (v +++ w) = (snd v) ++ w. Proof. reflexivity. Qed.
+Hint Rewrite snd_app : spath.
+
+(* Re-parenthizing spaths and vpaths. *)
+Hint Rewrite <- app_assoc : spath.
+Hint Rewrite <- app_spath_vpath_assoc : spath.
+
+(* When the term to rewrite contains a subterm of the form S.[q <- v].[v], it is not in normal
+   form. We apply one of the following rewrite rules to commute the get and the set, or to
+   remove the set operation entirely. *)
+Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
+Hint Rewrite @sset_sget_equal using solve_validity : spath.
+Hint Rewrite @sset_sget_prefix using solve_validity : spath.
+Hint Rewrite @sset_sget_prefix_right using solve_validity : spath.
+Hint Rewrite @sset_sget_common_prefix using solve_validity : spath.
+Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
+
+(* Idem for vpaths: *)
+Hint Rewrite @vset_vget_equal using solve_validity : spath.
+Hint Rewrite @vset_vget_prefix using solve_validity : spath.
+Hint Rewrite @vset_vget_prefix_right using solve_validity : spath.
+
+Hint Rewrite @constructor_vset_cons using discriminate : spath.
+
+Hint Rewrite @sset_twice_prefix_right : spath.
+
+(* When the term to rewrite contains a subterm of the form (S,, Anon |-> v).[p] or
+   (S,, Anon |-> v).[p <- w], it is not in normal form.
+   Depending on whether p is a path in S, or a path in the last binding Anon |-> v, we use
+   one of the following rewrite rules. *)
+Hint Rewrite @sset_app_state using solve_validity; fail : spath.
+Hint Rewrite @sset_app_last_state
+  using repeat rewrite length_sset; try assumption; reflexivity : spath.
+Hint Rewrite @sget_app_state using solve_validity; fail : spath.
+Hint Rewrite @sget_app_last_state
+  using repeat rewrite length_sset; try assumption; reflexivity : spath.
+Hint Rewrite<- @sget_app : spath.
+Hint Rewrite<- @vget_app : spath.
