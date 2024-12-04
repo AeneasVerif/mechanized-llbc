@@ -1088,10 +1088,20 @@ Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
     (HS_borrow : get_constructor (S.[sp_borrow]) = borrowC^m(l)) :
     le_state_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
 
+Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
+  unique_borrow_mut l p q : get_constructor (S.[p]) = borrowC^m(l) ->
+                            get_constructor (S.[q]) = borrowC^m(l) -> p = q;
+  unique_loan_mut l p q : get_constructor (S.[p]) = loanC^m(l) ->
+                          get_constructor (S.[q]) = loanC^m(l) -> p = q;
+}.
+
 Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_plus_val :=
 { le_base := le_state_base;
   anon := Anon;
+  well_formed := HLPL_plus_well_formed;
 }.
+Next Obligation.
+Admitted.
 
 (* TODO: move *)
 (* Proving a comparison between p and q using information from the environment S. *)
@@ -1626,3 +1636,8 @@ Proof.
            ++ constructor. eassumption. all: prove_not_contains_outer.
            ++ autorewrite with spath. f_equal. prove_states_eq.
 Qed.
+
+Lemma reorg_preserves_HLPL_plus_rel : preservation (restrict reorg).
+Proof.
+  apply preservation_by_base_case_le_state_le_restriction.
+Abort.

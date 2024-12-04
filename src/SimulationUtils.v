@@ -79,11 +79,21 @@ Definition preservation {A B} `{LeA : Le A A} `{LeB : Le B B} (RedAB : A -> B ->
 
 (* Relations are generally defined for types of states, for any semantics between LLBC# and
    HLPL. In the following section, we will define the relation S <= S' for states,
-   and (v, S) <= (v', S') for pairs of value and state. *)
+   and (v, S) <= (v', S') for pairs of value and state.
+   We also specify a well-formedness predicate for states. Indeed, some preservation properties
+   require the well-formedness to be proven.
+*)
 Class LeBase (B V : Type) := {
   le_base : state B V -> state B V -> Prop;
+  well_formed : state B V ->  Prop;
   anon : B;
+  le_base_preserves_well_formedness Sl Sr : well_formed Sr -> le_base Sl Sr -> well_formed Sl
 }.
+
+(* A restriction of a relation to the set of well-formed states *)
+Variant restrict {B V} `{LB : LeBase B V} (red : state B V -> state B V -> Prop) :
+  sig (@well_formed _ _ LB) -> sig (@well_formed _ _ LB) -> Prop :=
+  | Lift S0 S1 : red (proj1_sig S0) (proj1_sig S1) -> restrict red S0 S1.
 
 Global Instance LeState B V `(LeBase B V) : Le (state B V) (state B V) :=
 { le := refl_trans_closure le_base }.
@@ -95,6 +105,11 @@ Global Instance LeStateVal B V `(LeBase B V) : Le (V * state B V) (V * state B V
 { le := refl_trans_closure
     (fun vS0 vS1 => le_base ((snd vS0),, anon |-> (fst vS0)) ((snd vS1),, anon |-> (fst vS1)))
 }.
+
+Global Instance LeStateWF B V `(LB : LeBase B V) :
+  Le (@sig (state B V) well_formed) (@sig (state B V) well_formed) :=
+{ le := refl_trans_closure
+    (fun S0 S1 => le_base (proj1_sig S0) (proj1_sig S1)) }.
 
 Lemma prove_le_state_val B V `(LB : LeBase B V) vl Sl vSm vm Sm vr Sr :
   @le_base _ _ LB vSm (Sr,, (@anon _ _ LB) |-> vr)
@@ -113,6 +128,38 @@ Lemma preservation_by_base_case_le_state_le_state_val B V `(LB : LeBase B V)
   forward_simulation (@le_base _ _ LB) (@le _ _ (LeStateVal _ _ LB)) red red
   -> @preservation _ _ (@LeState _ _ LB) (LeStateVal _ _ LB) red.
 Proof. apply preservation_by_base_case. Qed.
+
+Lemma preservation_state_implies_preservation_restriction B V `(LB : LeBase B V) Sl Sr :
+  le Sl (proj1_sig Sr) -> exists WF_Sl, le (exist well_formed Sl WF_Sl) Sr.
+Proof.
+  destruct Sr as (Sr & WF_Sr). cbn. intros Hle.
+  induction Hle as [Sl | | Sl Sm ? _ IH0 _ IH1].
+  - assert (WF_Sl : well_formed Sl).
+     (eapply le_base_preserves_well_formedness; eassumption).
+    exists WF_Sl. constructor. eassumption.
+  - eexists. reflexivity.
+  - specialize (IH1 WF_Sr). destruct IH1 as (WF_Sm & ?).
+    specialize (IH0 WF_Sm). destruct IH0.
+    eexists. etransitivity; eassumption.
+Qed.
+
+(* When proving preservation on well-formed states, we can use an additional hypothesis on
+   the base case: that the state Sr (such that Sl <= Sr) is well-formed. *)
+Lemma preservation_by_base_case_le_state_le_restriction B V `(LB : LeBase B V)
+  (red : state B V -> state B V -> Prop) :
+  (forall Sr Sr', red Sr Sr' -> @well_formed _ _ LB Sr -> forall Sl, @le_base _ _ LB Sl Sr
+   -> exists Sl', @le _ _ (@LeState _ _ LB) Sl' Sr' /\ red Sl Sl')
+  -> @preservation _ _ (@LeStateWF _ _ LB) (@LeStateWF _ _ LB) (restrict red).
+Proof.
+  intros simulation.
+  apply preservation_by_base_case.
+  intros Sr Sr' red_Sr_Sr' (Sl & WF_Sl) Hle.
+  destruct red_Sr_Sr' as [(Sr & WF_Sr) Sr' red_Sr_Sr']. cbn in red_Sr_Sr'.
+  edestruct (simulation _ _ red_Sr_Sr') as (Sl' & le_Sl'_Sr' & red_Sl_Sl'); [eassumption.. | ].
+  apply preservation_state_implies_preservation_restriction in le_Sl'_Sr'.
+  destruct le_Sl'_Sr' as (WF_Sl' & le_Sl'_Sr').
+  exists (exist _ Sl' WF_Sl'). split; [ | constructor]; assumption.
+Qed.
 
 (* Choose the right `preservation_by_case_XXX` lemma to apply depending on the type: *)
 Ltac preservation_by_base_case :=
