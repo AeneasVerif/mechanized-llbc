@@ -213,117 +213,23 @@ Proof.
 Qed.
 Hint Resolve eval_place_valid : spath.
 
-(* Setting up the definitions for judgements like "loan \notin v" or
-   "l is fresh". *)
-Definition not_state_contains (P : HLPL_plus_constructor -> Prop) (S : HLPL_plus_state) :=
-  forall p, valid_spath S p -> ~P (get_constructor (S.[p])).
-
-(* TODO: move *)
-Definition not_value_contains (P : HLPL_plus_constructor -> Prop) (v : HLPL_plus_val) :=
-  forall p, valid_vpath v p -> ~P (get_constructor (v.[[p]])).
-
-Lemma not_value_contains_not_prefix P (S : HLPL_plus_state) p q
-  (Hnot_contains : not_value_contains P (S.[p])) (HP : P (get_constructor (S.[q]))) (Hvalid : valid_spath S q) :
-  ~prefix p q.
-Proof.
-  intros (r & <-). apply valid_spath_app in Hvalid. apply Hnot_contains with (p := r); [easy | ].
-  rewrite<- sget_app. assumption.
-Qed.
-
-Lemma not_value_contains_vset P v w p : not_value_contains P v -> not_value_contains P w ->
-  not_value_contains P (v.[[p <- w]]).
-Proof.
-  intros H G q valid_q. destruct (decidable_vprefix p q) as [(? & <-) | ].
-  - apply valid_vpath_app in valid_q. destruct valid_q as (?%vset_same_valid_rev & validity_w).
-    rewrite vset_vget_equal in validity_w by assumption.
-    rewrite vset_vget_prefix_right by assumption. apply G. assumption.
-  - rewrite constructor_vset_vget_not_prefix by assumption. apply H.
-    eapply vset_not_prefix_valid_rev; [ | eassumption].
-    intros ?%vstrict_prefix_is_vprefix. auto.
-Qed.
-Hint Resolve not_value_contains_vset : spath.
-
-Lemma not_state_contains_sset P (S : HLPL_plus_state) v p
-  (not_in_S : not_state_contains P S)
-  (not_in_v : not_value_contains P v) :
-  not_state_contains P (S.[p <- v]).
-Proof.
-  intros q valid_q.
-  destruct (decidable_prefix p q) as [(r & <-) | ].
-  - apply valid_spath_app in valid_q.
-    destruct valid_q as (?%sset_not_prefix_valid & H); [ |  apply strict_prefix_irrefl].
-    rewrite sset_sget_equal in H by assumption.
-    rewrite sset_sget_prefix_right by assumption. apply not_in_v. assumption.
-  - rewrite constructor_sset_sget_not_prefix by assumption.
-    apply not_in_S. eapply sset_not_prefix_valid; [ | exact valid_q]. auto with spath.
-Qed.
-Hint Resolve not_state_contains_sset : spath.
-
-Lemma not_value_contains_sset P (S : HLPL_plus_state) v p q
-  (not_in_Sp : not_value_contains P (S.[p]))
-  (not_in_v : not_value_contains P v)
-  (valid_p : valid_spath (S.[q <- v]) p) :
-  not_value_contains P (S.[q <- v].[p]).
-Proof.
-  intros r valid_r. rewrite<- sget_app.
-  assert (valid_pr : valid_spath (S.[q <- v]) (p +++ r)).
-  { apply valid_spath_app. split; assumption. }
-  destruct (decidable_prefix q (p +++ r)) as [(? & eq) | ].
-  - rewrite <-eq in *. rewrite valid_spath_app in valid_pr.
-    destruct valid_pr as (valid_q & valid_v_r).
-    apply sset_not_prefix_valid in valid_q; [ | apply strict_prefix_irrefl].
-    rewrite sset_sget_equal in valid_v_r by assumption.
-    rewrite sset_sget_prefix_right by assumption. apply not_in_v. exact valid_v_r.
-  - rewrite constructor_sset_sget_not_prefix by assumption. rewrite sget_app. apply not_in_Sp.
-    apply sset_not_prefix_valid in valid_pr; [ | auto with spath].
-    apply valid_spath_app in valid_pr as (_ & ?). assumption.
-Qed.
-
-Lemma not_value_contains_sset_disj P (S : HLPL_plus_state) v p q
-  (Hdisj : disj q p)
-  (not_in_Sp : not_value_contains P (S.[p])) :
-  not_value_contains P (S.[q <- v].[p]).
-Proof.
-  intros r valid_r. rewrite<- sget_app. rewrite sset_sget_disj by auto with spath.
-  rewrite sget_app. apply not_in_Sp.
-  rewrite sset_sget_disj in valid_r; assumption.
-Qed.
-
-Lemma not_value_contains_zeroary P v :
-  subvalues v = [] -> ~P (get_constructor v) -> not_value_contains P v.
-Proof.
-  intros H ? p valid_p. destruct valid_p; [assumption | ].
-  rewrite H, nth_error_nil in * |-. discriminate.
-Qed.
-
-Lemma not_value_contains_unary P v w :
-  subvalues v = [w] -> ~P (get_constructor v) -> not_value_contains P w -> not_value_contains P v.
-Proof.
-  intros H ? ? p valid_p. destruct valid_p; [assumption | ].
-  rewrite H, nth_error_cons in * |-. destruct i; [ | rewrite nth_error_nil in * |-; discriminate].
-  rewrite vget_cons, H. simplify_option.
-Qed.
-
 Variant is_loan : HLPL_plus_constructor -> Prop :=
 | IsLoan_MutLoan l : is_loan (loanC^m(l)).
 Hint Constructors is_loan : spath.
-Notation not_contains_loan := (not_value_contains is_loan).
+Definition not_contains_loan := not_value_contains is_loan.
+Hint Unfold not_contains_loan : spath.
 Hint Extern 0 (~is_loan _) => intro; easy : spath.
-
-(* TODO: delete *)
-Goal is_loan (get_constructor (loan^m(0))).
-Proof. cbn. auto with spath. Qed.
 
 Variant is_loc : HLPL_plus_constructor -> Prop :=
 | IsLoc_Loc l : is_loc (locC(l)).
-Notation not_contains_loc := (not_value_contains is_loc).
+Definition not_contains_loc := not_value_contains is_loc.
+Hint Unfold not_contains_loc : spath.
 Hint Extern 0 (~is_loc _) => intro; easy : spath.
 
-(*
-Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
-| IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
- *)
-(* Hint Constructors is_mut_borrow : spath. *)
+Definition not_contains_bot v :=
+  (not_value_contains (fun c => c = botC) v).
+Hint Unfold not_contains_bot : spath.
+Hint Extern 0 (_ <> botC) => discriminate : spath.
 
 Definition not_contains_outer (P : HLPL_plus_constructor -> Prop) v :=
   forall p, P (get_constructor (v.[[p]]))
@@ -404,7 +310,7 @@ Definition get_loan_id c :=
 (* Hint Constructors is_loan_id : spath. *)
 Notation is_fresh l S := (not_state_contains (fun c => get_loan_id c = Some l) S).
 
-Lemma is_fresh_loan_id_neq S l0 l1 p :
+Lemma is_fresh_loan_id_neq (S : HLPL_plus_state) l0 l1 p :
   get_loan_id (get_constructor (S.[p])) = Some l0 -> is_fresh l1 S -> l0 <> l1.
 Proof.
   intros get_p Hfresh <-. eapply Hfresh; [ | exact get_p].
@@ -420,73 +326,10 @@ Hint Extern 0 (get_loan_id _ <> Some ?l) =>
       reflexivity
    end : spath.
 
-Lemma not_value_contains_by_decomposition P v (H : ~P (get_constructor v))
-  (G : match subvalues v with
-       | [] => True
-       | [w] => not_value_contains P w
-       | _ => False
-       end) :
-  not_value_contains P v.
-Proof.
-  destruct (subvalues v) as [ | ? [ | ] ] eqn:?.
-  - apply not_value_contains_zeroary; assumption.
-  - eapply not_value_contains_unary; eassumption.
-  - contradiction.
-Qed.
-
-Lemma not_state_contains_implies_not_value_contains_sget P S p :
-  not_state_contains P S -> valid_spath S p -> not_value_contains P (S.[p]).
-Proof.
-  intros H valid_p q valid_q G. rewrite<- sget_app in G. eapply H; [ | exact G].
-  apply valid_spath_app. split; assumption.
-Qed.
-
 Definition is_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
 
 Definition not_in_borrow (S : HLPL_plus_state) p :=
   forall q, prefix q p -> is_borrow (S.[q]) -> q = p.
-
-Notation not_contains_bot v :=
-  (not_value_contains (fun c => c = botC) v).
-Hint Extern 0 (_ <> botC) => discriminate : spath.
-
-(* Adding a hint to reslove a relation ~prefix p q using the facts that:
- * - S.[p] does not contain a constructor c.
- * - S.[q] starts by the constructor c.
- * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
- * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
- * the expression (get_value v) produced, so that it can be solved automatically.
- *)
-Hint Extern 3 (~prefix ?p ?q) =>
-  match goal with
-  | H : ?S.[?q] = _ |- _ =>
-    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | solve_validity]
-  end : spath.
-
-Ltac prove_not_contains0 :=
-  try assumption;
-  lazymatch goal with
-  | |- True => auto
-  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
-      simple apply not_state_contains_sset;
-      prove_not_contains0
-  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
-      let H := fresh "H" in
-      tryif assert (H : disj q p) by auto with spath
-      then (simple apply (not_value_contains_sset_disj P S v p q H);
-        prove_not_contains0)
-      else (simple apply (not_value_contains_sset P S v p q);
-       [ prove_not_contains0 | prove_not_contains0 | solve_validity0])
-  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
-      simple apply (not_state_contains_implies_not_value_contains_sget P S p H);
-      solve_validity0
-  | |- not_value_contains ?P (?S.[?p]) => idtac
-  | |- not_value_contains ?P ?v =>
-      simple apply not_value_contains_by_decomposition;
-      [ | cbn; prove_not_contains0]
-  | |- _ => idtac
-  end.
-Ltac prove_not_contains := prove_not_contains0; auto with spath.
 
 Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_plus_int n) (HLPL_plus_int n)
@@ -895,7 +738,7 @@ Proof.
              (*auto with spath.*) admit. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
-        -- constructor. eassumption. all: prove_not_contains.
+        -- constructor. eassumption. all: autounfold with spath; prove_not_contains.
         -- autorewrite with spath. f_equal. prove_states_eq.
       (* Case 2: the mutable borrow we're transforming to a pointer is disjoint to the moved value.
        *)
@@ -988,7 +831,7 @@ Proof.
               { autorewrite with spath. reflexivity. }
               reflexivity.
            ++ apply Eval_pointer_no_loc with (l := l). eassumption.
-              autorewrite with spath. assumption. prove_not_contains. prove_not_contains.
+              autorewrite with spath. assumption. all: autounfold with spath; prove_not_contains.
            ++ f_equal. autorewrite with spath. prove_states_eq.
         -- assert (disj sp_borrow pi) by reduce_comp.
            eapply complete_square_diagram.
@@ -998,7 +841,7 @@ Proof.
               { autorewrite with spath. reflexivity. }
               reflexivity.
            ++ apply Eval_pointer_no_loc with (l := l). eassumption.
-              autorewrite with spath. assumption. prove_not_contains. prove_not_contains.
+              autorewrite with spath. assumption. all: autounfold with spath; prove_not_contains.
            ++ f_equal. autorewrite with spath. prove_states_eq.
 Admitted.
 
@@ -1092,7 +935,7 @@ Proof.
       auto with spath.
 Qed.
 
-Lemma le_val_state_no_loan_right vSl vSr :
+Lemma le_val_state_no_loan_right (vSl vSr : HLPL_plus_val * HLPL_plus_state) :
   le vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
   -> le_val_state' vSl vSr.
 Proof.

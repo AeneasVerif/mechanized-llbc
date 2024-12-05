@@ -1236,6 +1236,115 @@ Section GetSetPath.
     destruct valid_q as (_ & valid_i_r). inversion valid_i_r.
     rewrite H, nth_error_nil in * |-. discriminate.
   Qed.
+
+  (* Setting up the definitions for judgements like "loan \notin v" or
+     "l is fresh". *)
+  Definition not_value_contains (P : constructors -> Prop) (v : V) :=
+    forall p, valid_vpath v p -> ~P (get_constructor (v.[[p]])).
+
+  Definition not_state_contains (P : constructors -> Prop) (S : state B V) :=
+    forall p, valid_spath S p -> ~P (get_constructor (S.[p])).
+
+  Lemma not_value_contains_not_prefix P (S : state B V) p q
+    (Hnot_contains : not_value_contains P (S.[p])) (HP : P (get_constructor (S.[q]))) (Hvalid : valid_spath S q) :
+    ~prefix p q.
+  Proof.
+    intros (r & <-). apply valid_spath_app in Hvalid. apply Hnot_contains with (p := r); [easy | ].
+    rewrite<- sget_app. assumption.
+  Qed.
+
+  Lemma not_value_contains_vset P v w p : not_value_contains P v -> not_value_contains P w ->
+    not_value_contains P (v.[[p <- w]]).
+  Proof.
+    intros H G q valid_q. destruct (decidable_vprefix p q) as [(? & <-) | ].
+    - apply valid_vpath_app in valid_q. destruct valid_q as (?%vset_same_valid_rev & validity_w).
+      rewrite vset_vget_equal in validity_w by assumption.
+      rewrite vset_vget_prefix_right by assumption. apply G. assumption.
+    - rewrite constructor_vset_vget_not_prefix by assumption. apply H.
+      eapply vset_not_prefix_valid_rev; [ | eassumption].
+      intros ?%vstrict_prefix_is_vprefix. auto.
+  Qed.
+
+  Lemma not_state_contains_sset P S v p
+    (not_in_S : not_state_contains P S)
+    (not_in_v : not_value_contains P v) :
+    not_state_contains P (S.[p <- v]).
+  Proof.
+    intros q valid_q.
+    destruct (decidable_prefix p q) as [(r & <-) | ].
+    - apply valid_spath_app in valid_q.
+      destruct valid_q as (?%sset_not_prefix_valid & H); [ |  apply strict_prefix_irrefl].
+      rewrite sset_sget_equal in H by assumption.
+      rewrite sset_sget_prefix_right by assumption. apply not_in_v. assumption.
+    - rewrite constructor_sset_sget_not_prefix by assumption.
+      apply not_in_S. eapply sset_not_prefix_valid; [ | exact valid_q]. auto with spath.
+  Qed.
+
+  Lemma not_value_contains_sset P S v p q
+    (not_in_Sp : not_value_contains P (S.[p]))
+    (not_in_v : not_value_contains P v)
+    (valid_p : valid_spath (S.[q <- v]) p) :
+    not_value_contains P (S.[q <- v].[p]).
+  Proof.
+    intros r valid_r. rewrite<- sget_app.
+    assert (valid_pr : valid_spath (S.[q <- v]) (p +++ r)).
+    { apply valid_spath_app. split; assumption. }
+    destruct (decidable_prefix q (p +++ r)) as [(? & eq) | ].
+    - rewrite <-eq in *. rewrite valid_spath_app in valid_pr.
+      destruct valid_pr as (valid_q & valid_v_r).
+      apply sset_not_prefix_valid in valid_q; [ | apply strict_prefix_irrefl].
+      rewrite sset_sget_equal in valid_v_r by assumption.
+      rewrite sset_sget_prefix_right by assumption. apply not_in_v. exact valid_v_r.
+    - rewrite constructor_sset_sget_not_prefix by assumption. rewrite sget_app. apply not_in_Sp.
+      apply sset_not_prefix_valid in valid_pr; [ | auto with spath].
+      apply valid_spath_app in valid_pr as (_ & ?). assumption.
+  Qed.
+
+  Lemma not_value_contains_sset_disj P (S : state B V) v p q
+    (Hdisj : disj q p)
+    (not_in_Sp : not_value_contains P (S.[p])) :
+    not_value_contains P (S.[q <- v].[p]).
+  Proof.
+    intros r valid_r. rewrite<- sget_app. rewrite sset_sget_disj by auto with spath.
+    rewrite sget_app. apply not_in_Sp.
+    rewrite sset_sget_disj in valid_r; assumption.
+  Qed.
+
+  Lemma not_value_contains_zeroary P v :
+    subvalues v = [] -> ~P (get_constructor v) -> not_value_contains P v.
+  Proof.
+    intros H ? p valid_p. destruct valid_p; [assumption | ].
+    rewrite H, nth_error_nil in * |-. discriminate.
+  Qed.
+
+  Lemma not_value_contains_unary P v w :
+    subvalues v = [w] -> ~P (get_constructor v) -> not_value_contains P w -> not_value_contains P v.
+  Proof.
+    intros H ? ? p valid_p. destruct valid_p; [assumption | ].
+    rewrite H, nth_error_cons in * |-. destruct i; [ | rewrite nth_error_nil in * |-; discriminate].
+    rewrite vget_cons, H. simplify_option.
+  Qed.
+
+  Lemma not_state_contains_implies_not_value_contains_sget P S p :
+    not_state_contains P S -> valid_spath S p -> not_value_contains P (S.[p]).
+  Proof.
+    intros H valid_p q valid_q G. rewrite<- sget_app in G. eapply H; [ | exact G].
+    apply valid_spath_app. split; assumption.
+  Qed.
+
+  Lemma not_value_contains_by_decomposition P v (H : ~P (get_constructor v))
+    (G : match subvalues v with
+         | [] => True
+         | [w] => not_value_contains P w
+         | _ => False
+         end) :
+    not_value_contains P v.
+  Proof.
+    destruct (subvalues v) as [ | ? [ | ] ] eqn:?.
+    - apply not_value_contains_zeroary; assumption.
+    - eapply not_value_contains_unary; eassumption.
+    - contradiction.
+  Qed.
 End GetSetPath.
 
 (* Automatically solving comparisons using environment information. *)
@@ -1531,3 +1640,44 @@ Hint Rewrite @sget_app_last_state
   using repeat rewrite length_sset; try assumption; reflexivity : spath.
 Hint Rewrite<- @sget_app : spath.
 Hint Rewrite<- @vget_app : spath.
+
+(* Adding a hint to reslove a relation ~prefix p q using the facts that:
+ * - S.[p] does not contain a constructor c.
+ * - S.[q] starts by the constructor c.
+ * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
+ * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
+ * the expression (get_value v) produced, so that it can be solved automatically.
+ *)
+Hint Extern 3 (~prefix ?p ?q) =>
+  match goal with
+  | H : ?S.[?q] = _ |- _ =>
+    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | solve_validity]
+  end : spath.
+
+(* Trying to prove that a value doesn't contain a constructor (ex: loan, loc, bot).
+   This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
+Ltac prove_not_contains0 :=
+  try assumption;
+  match goal with
+  | |- True => auto
+  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
+      simple apply not_state_contains_sset;
+      prove_not_contains0
+  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
+      simple apply not_value_contains_sset_disj;
+        [auto with spath; fail | prove_not_contains0]
+  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
+      simple apply not_value_contains_sset;
+       [ prove_not_contains0 | prove_not_contains0 | solve_validity0]
+  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_state_contains_implies_not_value_contains_sget P S p H);
+      solve_validity0
+  | |- not_value_contains ?P (?v.[[?p <- ?w]]) =>
+      simple apply not_value_contains_vset; prove_not_contains0
+  | |- not_value_contains ?P (?S.[?p]) => idtac
+  | |- not_value_contains ?P ?v =>
+      simple apply not_value_contains_by_decomposition;
+      [ | cbn; prove_not_contains0]
+  | |- _ => idtac
+  end.
+Ltac prove_not_contains := prove_not_contains0; auto with spath.
