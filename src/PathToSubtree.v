@@ -1245,6 +1245,10 @@ Section GetSetPath.
   Definition not_state_contains (P : constructors -> Prop) (S : state B V) :=
     forall p, valid_spath S p -> ~P (get_constructor (S.[p])).
 
+  Definition not_contains_outer (is_mut_borrow P : constructors -> Prop) v :=
+    forall p, P (get_constructor (v.[[p]]))
+    -> exists q, vstrict_prefix q p /\ is_mut_borrow (get_constructor (v.[[q]])).
+
   Lemma not_value_contains_not_prefix P (S : state B V) p q
     (Hnot_contains : not_value_contains P (S.[p])) (HP : P (get_constructor (S.[q]))) (Hvalid : valid_spath S q) :
     ~prefix p q.
@@ -1344,6 +1348,41 @@ Section GetSetPath.
     - apply not_value_contains_zeroary; assumption.
     - eapply not_value_contains_unary; eassumption.
     - contradiction.
+  Qed.
+
+  Lemma not_contains_outer_sset_no_contains is_mut_borrow P v p w :
+    not_contains_outer is_mut_borrow P v -> not_value_contains P w
+    -> (forall v, P v -> v <> get_constructor bot)
+    -> not_contains_outer is_mut_borrow P (v.[[p <- w]]).
+  Proof.
+    intros Hv Hw ?. destruct (valid_or_invalid p v).
+    - intros q Hq. destruct (decidable_vprefix p q) as [(r & <-) | not_prefix].
+      + exfalso.
+        rewrite vset_vget_prefix_right in Hq by assumption. eapply Hw; [ | eassumption].
+        apply get_not_bot_valid_vpath. intro wr. apply (H _ Hq). rewrite wr. reflexivity.
+      + destruct (Hv q) as (r & ? & ?).
+        * rewrite constructor_vset_vget_not_prefix in Hq; assumption.
+        * exists r. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
+          assumption. intro. apply not_prefix. transitivity r; auto with spath.
+    - rewrite vset_invalid by assumption. assumption.
+  Qed.
+
+  Lemma not_contains_outer_sset_in_borrow is_mut_borrow P v p w :
+    not_contains_outer is_mut_borrow P v
+    -> (exists q, vstrict_prefix q p /\ is_mut_borrow (get_constructor (v.[[q]])))
+    -> not_contains_outer is_mut_borrow P (v.[[p <- w]]).
+  Proof.
+    intros Hv (q & H & ?). destruct (valid_or_invalid p v).
+    - intros r Hr. destruct (decidable_vprefix p r) as [(r' & <-) | not_prefix].
+      + exists q.
+        split.
+        * destruct H as (i & ? & <-). eexists i, _. rewrite<- app_assoc. reflexivity.
+        * rewrite constructor_vset_vget_not_prefix by auto with spath. assumption.
+      + destruct (Hv r) as (q' & ? & ?).
+        * rewrite constructor_vset_vget_not_prefix in Hr; assumption.
+        * exists q'. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
+          assumption. intro. apply not_prefix. transitivity q'; auto with spath.
+    - rewrite vset_invalid by assumption. assumption.
   Qed.
 End GetSetPath.
 

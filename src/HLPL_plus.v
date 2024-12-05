@@ -231,46 +231,10 @@ Definition not_contains_bot v :=
 Hint Unfold not_contains_bot : spath.
 Hint Extern 0 (_ <> botC) => discriminate : spath.
 
-Definition not_contains_outer (P : HLPL_plus_constructor -> Prop) v :=
-  forall p, P (get_constructor (v.[[p]]))
-  -> exists q l, vstrict_prefix q p /\ get_constructor (v.[[q]]) = borrowC^m(l).
-Notation not_contains_outer_loan := (not_contains_outer is_loan).
-Notation not_contains_outer_loc := (not_contains_outer is_loc).
-
-Lemma not_contains_outer_sset_no_contains P v p w :
-  not_contains_outer P v -> not_value_contains P w
-  -> (forall v, P v -> v <> botC)
-  -> not_contains_outer P (v.[[p <- w]]).
-Proof.
-  intros Hv Hw ?. destruct (valid_or_invalid p v).
-  - intros q Hq. destruct (decidable_vprefix p q) as [(r & <-) | not_prefix].
-    + exfalso.
-      autorewrite with spath in * |-. eapply Hw; [ | eassumption].
-      apply get_not_bot_valid_vpath. intro wr. apply (H _ Hq). rewrite wr. reflexivity.
-    + destruct (Hv q) as (r & l & ? & ?).
-      * rewrite constructor_vset_vget_not_prefix in Hq; assumption.
-      * exists r, l. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
-        assumption. intro. apply not_prefix. transitivity r; auto with spath.
-  - rewrite vset_invalid by assumption. assumption.
-Qed.
-
-Lemma not_contains_outer_sset_in_borrow P (v : HLPL_plus_val) p w :
-  not_contains_outer P v
-  -> (exists q l, vstrict_prefix q p /\ get_constructor (v.[[q]]) = borrowC^m(l))
-  -> not_contains_outer P (v.[[p <- w]]).
-Proof.
-  intros Hv (q & l & H & ?). destruct (valid_or_invalid p v).
-  - intros r Hr. destruct (decidable_vprefix p r) as [(r' & <-) | not_prefix].
-    + exists q, l.
-      split.
-      * destruct H as (i & ? & <-). eexists i, _. rewrite<- app_assoc. reflexivity.
-      * rewrite constructor_vset_vget_not_prefix by auto with spath. assumption.
-    + destruct (Hv r) as (q' & l' & ? & ?).
-      * rewrite constructor_vset_vget_not_prefix in Hr; assumption.
-      * exists q', l'. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
-        assumption. intro. apply not_prefix. transitivity q'; auto with spath.
-  - rewrite vset_invalid by assumption. assumption.
-Qed.
+Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
+| IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
+Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
+Notation not_contains_outer_loc := (not_contains_outer is_mut_borrow is_loc).
 
 Lemma loc_is_not_bot x : is_loc x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
 Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
@@ -282,21 +246,20 @@ Ltac prove_not_contains_outer :=
   autorewrite with spath;
   try assumption;
   match goal with
-  | |- not_contains_outer ?P (?v.[[?p <- ?w]]) =>
+  | |- not_contains_outer _ ?P (?v.[[?p <- ?w]]) =>
       let H := fresh "H" in
       assert (H : not_value_contains P w) by auto with spath;
       apply not_contains_outer_sset_no_contains;
         [prove_not_contains_outer | exact H | exact loc_is_not_bot || exact loan_is_not_bot]
   | no_outer_loan : not_contains_outer_loan (?S.[?q]),
     loan_at_q : ?S.[?q +++ ?p] = loan^m(?l)
-    |- not_contains_outer ?P (?S.[?q].[[?p <- ?w]]) =>
+    |- not_contains_outer _ ?P (?S.[?q].[[?p <- ?w]]) =>
     apply not_contains_outer_sset_in_borrow;
      [ prove_not_contains_outer |
        apply no_outer_loan; rewrite<- (sget_app S q p), loan_at_q; constructor ]
-  | |- not_contains_outer _ _ =>
+  | |- not_contains_outer _ _ _ =>
       idtac
   end.
-
 
 Definition get_loan_id c :=
   match c with
@@ -994,7 +957,8 @@ Proof.
                  eapply Le_MutBorrow_To_Ptr with (sp_loan := (length Sr, r_loan))
                                                  (sp_borrow := (length Sr, r_borrow)).
                   eauto with spath. all: autorewrite with spath; eassumption.
-              ** constructor. eassumption. all: prove_not_contains_outer.
+              ** constructor. eassumption.
+                 all: prove_not_contains_outer.
               ** autorewrite with spath. reflexivity.
           (* Case 3b: the loan is disjoint to the place we write in. *)
            ++ assert (disj sp sp_loan) by reduce_comp.
