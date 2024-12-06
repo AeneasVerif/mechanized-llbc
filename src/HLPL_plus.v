@@ -117,9 +117,7 @@ Definition HLPL_plus_state := state HLPL_plus_binder HLPL_plus_val.
 Declare Scope hlpl_plus_scope.
 Delimit Scope hlpl_plus_scope with hlpl_plus.
 
-(* TODO: move in lang.v *)
 (* TODO: set every priority to 0? *)
-(* Reserved Notation "'bot'" (at level 0). *)
 Reserved Notation "'loan^m' ( l )" (at level 0).
 Reserved Notation "'borrow^m' ( l , v )" (at level 0, l at next level, v at next level).
 Reserved Notation "'loc' ( l , v )" (at level 0, l at next level, v at next level).
@@ -179,10 +177,9 @@ Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop 
     (Heval_proj : eval_proj S perm proj p q) (Heval_path : eval_path S perm P q r) :
     eval_path S perm (proj :: P) p r.
 
-Notation eval_place S perm p r :=
+Definition eval_place S perm p r :=
   (exists i, find_binder S (Var (fst p)) = Some i /\ eval_path S perm (snd p) (i, []) r).
 
-(* TODO: replace the notation by a definition, with Hint Unfold. *)
 Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
 Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
@@ -236,6 +233,9 @@ Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
 Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 Notation not_contains_outer_loc := (not_contains_outer is_mut_borrow is_loc).
 
+Definition not_in_borrow (S : HLPL_plus_state) p :=
+  forall q, prefix q p -> is_mut_borrow (get_constructor (S.[q])) -> q = p.
+
 Lemma loc_is_not_bot x : is_loc x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
 Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
 Ltac prove_not_contains_outer :=
@@ -270,7 +270,6 @@ Definition get_loan_id c :=
   | _ => None
   end.
 
-(* Hint Constructors is_loan_id : spath. *)
 Notation is_fresh l S := (not_state_contains (fun c => get_loan_id c = Some l) S).
 
 Lemma is_fresh_loan_id_neq (S : HLPL_plus_state) l0 l1 p :
@@ -289,17 +288,11 @@ Hint Extern 0 (get_loan_id _ <> Some ?l) =>
       reflexivity
    end : spath.
 
-Definition is_borrow (v : HLPL_plus_val) := exists l w, v = borrow^m(l, w).
-
-Definition not_in_borrow (S : HLPL_plus_state) p :=
-  forall q, prefix q p -> is_borrow (S.[q]) -> q = p.
-
 Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_plus_int n) (HLPL_plus_int n)
 | Copy_ptr l : copy_val (ptr(l)) (ptr(l))
 | Copy_loc l v w : copy_val v w -> copy_val (loc(l, v)) w.
 
-(* TODO: rename `eval_operand` *)
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
@@ -312,6 +305,7 @@ Variant eval_operand : operand -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
+(* TODO: move in PathToSubtree.v *)
 Definition vpath_pred (p : vpath) : option vpath :=
   match p with
   | [] => None
@@ -411,10 +405,10 @@ Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_st
       (S' |-{op} op_r => (HLPL_plus_int n, S'')) ->
       S |-{rv} (BinOp op_l op_r) => ((HLPL_plus_int (m + n)), S'')
   | Eval_pointer_loc S p pi l
-      (Heval_place : eval_place S Mut p pi)
+      (Heval_place : S |-{p} p =>^{Mut} pi)
       (Hancestor_loc : ancestor S pi = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
   | Eval_pointer_no_loc S p pi l
-      (Heval_place : eval_place S Mut p pi)
+      (Heval_place : S |-{p} p =>^{Mut} pi)
       (Hancestor_no_loc : ~is_loc (ancestor S pi))
       (* This hypothesis is not necessary for the proof of preservation of HLPL+, but it is
          useful in that it can help us eliminate cases. *)
@@ -455,8 +449,6 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
   | Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> S1 |-{stmt} stmt => r, S2 -> S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
-
-(* TODO: introduce well-formedness judgement. *)
 
 Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
