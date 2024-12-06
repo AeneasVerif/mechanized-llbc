@@ -995,7 +995,7 @@ Proof.
                                               (sp_borrow := sp +++ q).
               eauto with spath. all: autorewrite with spath; eassumption.
            ++ constructor. eassumption. all: prove_not_contains_outer.
-           ++ autorewrite with spath. f_equal. prove_states_eq.
+           ++ autorewrite with spath. reflexivity.
         (* Case 4b: the loan is disjoint to the place we write in. *)
         -- assert (disj sp sp_loan) by reduce_comp.
            eapply complete_square_diagram.

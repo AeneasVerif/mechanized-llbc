@@ -921,7 +921,7 @@ Section GetSetPath.
   Corollary sset_twice_equal (S : state B V) p x y : S.[p <- x].[p <- y] = S.[p <- y].
   Proof. rewrite<- (app_spath_vpath_nil_r p) at 2. apply sset_twice_prefix_right. Qed.
 
-  Lemma sset_twice_preix_left (S : state B V) p q x y :
+  Lemma sset_twice_prefix_left (S : state B V) p q x y :
     S.[p <- x].[p +++ q <- y] = S.[p <- x.[[q <- y]]].
   Proof.
     unfold sset. cbn. rewrite map_nth_compose. cbn. apply map_nth_equiv.
@@ -1665,6 +1665,7 @@ Hint Rewrite @vset_vget_prefix_right using solve_validity : spath.
 
 Hint Rewrite @constructor_vset_cons using discriminate : spath.
 
+Hint Rewrite @sset_twice_prefix_left : spath.
 Hint Rewrite @sset_twice_prefix_right : spath.
 
 (* When the term to rewrite contains a subterm of the form (S,, Anon |-> v).[p] or
