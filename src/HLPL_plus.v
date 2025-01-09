@@ -1006,7 +1006,7 @@ Proof.
            ++ autorewrite with spath. f_equal. prove_states_eq.
 Qed.
 
-Lemma reorg_preserves_HLPL_plus_rel : preservation (restrict reorg).
+Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation (refl_trans_closure reorg).
 Proof.
-  apply preservation_by_base_case_le_state_le_restriction.
+  eapply preservation_reorg.
 Abort.
