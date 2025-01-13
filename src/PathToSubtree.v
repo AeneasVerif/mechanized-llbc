@@ -1090,7 +1090,7 @@ Section GetSetPath.
       rewrite !nth_error_app2, Nat.sub_diag by auto. reflexivity.
     - rewrite nth_error_map_nth_lt by assumption.
       etransitivity; [ | symmetry].
-      all: apply nth_error_None; rewrite app_length, Nat.add_1_r; assumption.
+      all: apply nth_error_None; rewrite length_app, Nat.add_1_r; assumption.
   Qed.
 
   Lemma sget_app_last_state (S : state B V) b p v :
@@ -1132,7 +1132,7 @@ Section GetSetPath.
     - right. apply Nat.le_antisymm; try assumption.
       assert (G : fst p < length (S,, b |-> v)).
       { apply nth_error_Some. simplify_option. }
-      rewrite app_length in G. cbn in G. lia.
+      rewrite length_app in G. cbn in G. lia.
   Qed.
 
   (* TODO: move up *)
