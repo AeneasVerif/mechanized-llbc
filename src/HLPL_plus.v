@@ -234,7 +234,16 @@ Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 Notation not_contains_outer_loc := (not_contains_outer is_mut_borrow is_loc).
 
 Definition not_in_borrow (S : HLPL_plus_state) p :=
-  forall q, prefix q p -> is_mut_borrow (get_constructor (S.[q])) -> q = p.
+  forall q, is_mut_borrow (get_constructor (S.[q])) -> ~strict_prefix q p.
+
+Lemma not_in_borrow_sset S p q v : not_in_borrow S p -> ~strict_prefix q p ->
+  not_in_borrow (S.[q <- v]) p.
+Proof.
+  intros H ? r G ?.
+  assert (~prefix q r) by eauto with spath.
+  autorewrite with spath in G. eapply H; eassumption.
+Qed.
+Hint Resolve not_in_borrow_sset : spath.
 
 Lemma loc_is_not_bot x : is_loc x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
 Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
@@ -418,12 +427,20 @@ Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_st
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
 Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
-| Reorg_refl S : reorg S S
-| Reorg_trans S0 S1 S2 : reorg S0 S1 -> reorg S1 S2 -> reorg S0 S2
-| Reorg_end_borrow_m S (p q : spath) l v :
-    disj p q -> S.[p] = loan^m(l) -> S.[q] = borrow^m(l, v) ->
-    not_contains_loan v -> not_in_borrow S q ->
-    reorg S (S.[p <- v].[q <- bot]).
+| Reorg_end_borrow_m S (p q : spath) l :
+    disj p q -> S.[p] = loan^m(l) -> get_constructor (S.[q]) = borrowC^m(l) ->
+    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
+    reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
+| Reorg_end_ptr S (p : spath) l :
+    S.[p] = ptr(l) -> (*not_in_borrow S p ->*) reorg S (S.[p <- bot])
+| Reorg_end_loc S (p : spath) l v :
+    S.[p] = loc(l, v) -> not_state_contains (eq ptrC(l)) S ->
+    reorg S (S.[p <- v])
+.
+
+(* Automatically resolving the goals of the form `ptrC(l) <> _`, used to prove the condition
+   `not_state_contains (eq ptrC(l)) S` of the rule Reorg_end_loc. *)
+Hint Extern 0 (ptrC( _ ) <> _) => discriminate : spath.
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
@@ -461,6 +478,8 @@ Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
                             get_constructor (S.[q]) = borrowC^m(l) -> p = q;
   unique_loan_mut l p q : get_constructor (S.[p]) = loanC^m(l) ->
                           get_constructor (S.[q]) = loanC^m(l) -> p = q;
+  no_mut_loan_ptr l p : get_constructor (S.[p]) = loanC^m(l) ->
+                        not_state_contains (eq ptrC(l)) S;
 }.
 
 Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_plus_val :=
@@ -1009,4 +1028,73 @@ Qed.
 Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation (refl_trans_closure reorg).
 Proof.
   eapply preservation_reorg.
+  { admit. }
+  { admit. }
+  { admit. }
+  intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
+  (* Case Reorg_end_borrow_m: *)
+  - intros ? Hle. destruct Hle.
+    + destruct (Nat.eq_dec l l0) as [<- | ].
+      (* Case 1: l = l0. By well-formedness, that means that the loan that we end at p is the loan
+         that we turn into a loc at sp_loan, and that the borrow that we end at q is the
+         borrow we turn into a pointer at sp_borrow. *)
+      * assert (p = sp_loan) as ->.
+        { eapply unique_loan_mut. eassumption.
+          rewrite H0. reflexivity. rewrite HS_loan. reflexivity. }
+        assert (q = sp_borrow) as ->.
+        { eapply unique_borrow_mut. eassumption.
+          rewrite H1. reflexivity. assumption. }
+        eapply complete_square_diagram.
+        -- reflexivity.
+        -- etransitivity.
+           { constructor. eapply Reorg_end_ptr with (p := sp_borrow).
+             autorewrite with spath. reflexivity. }
+           { constructor. eapply Reorg_end_loc with (p := sp_loan).
+             autorewrite with spath. reflexivity.
+             assert (not_state_contains (eq ptrC(l)) S).
+             { eapply no_mut_loan_ptr. eassumption. rewrite HS_loan. reflexivity. }        rewrite sset_twice_equal. (* TODO: automatic rewriting. *)
+             prove_not_contains. }
+        -- prove_states_eq.
+      * assert (q <> sp_borrow) by congruence.
+        assert (~strict_prefix sp_borrow q). { apply H3. rewrite HS_borrow. constructor. }
+        assert (disj p sp_loan) by reduce_comp.
+        assert (disj q sp_loan) by reduce_comp.
+        destruct (decidable_prefix q sp_borrow).
+        (* Case 2: the borrow we turn into a pointer is inside the borrow we end. *)
+        -- assert (strict_prefix q sp_borrow) by auto with spath.
+           assert (prefix (q +++ [0]) sp_borrow) as (r & <-) by eauto with spath.
+           rewrite<- (app_spath_vpath_assoc q [0] r) in *.
+           eapply complete_square_diagram.
+           ++ constructor.
+              apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ r).
+              auto with spath. all: autorewrite with spath; eassumption.
+           ++ constructor. eapply Reorg_end_borrow_m with (p := p) (q := q).
+              assumption. all: autorewrite with spath. eassumption. assumption.
+              prove_not_contains. auto with spath.
+           ++ autorewrite with spath. prove_states_eq.
+        -- assert (disj q sp_borrow) by reduce_comp.
+           destruct (decidable_prefix sp_borrow p).
+           (* Case 3: the loan that we end is is the borrow that we turn into a pointer. *)
+           ++ assert (strict_prefix sp_borrow p)  by auto with spath.
+              assert (prefix (sp_borrow +++ [0]) p) as (r & <-) by eauto with spath.
+              rewrite<- (app_spath_vpath_assoc sp_borrow [0] r) in * |-.
+              eapply complete_square_diagram.
+              ** constructor.
+                 apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+                 assumption. all: autorewrite with spath; eassumption.
+              ** constructor. eapply Reorg_end_borrow_m with (p := sp_loan +++ [0] ++ r) (q := q).
+                 auto with spath. all: autorewrite with spath. eassumption.
+                 assumption. assumption. auto with spath.
+              ** autorewrite with spath. prove_states_eq.
+           (* Case 4: the loan that we end is disjoint from the borrow that we turn into a pointer. 
+           *)
+           ++ assert (disj sp_borrow p) by reduce_comp.
+              eapply complete_square_diagram.
+              ** constructor.
+                 apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+                 assumption. all: autorewrite with spath; eassumption.
+              ** constructor. eapply Reorg_end_borrow_m with (p := p) (q := q).
+                 assumption. all: autorewrite with spath. eassumption.
+                 assumption. assumption. auto with spath.
+              ** autorewrite with spath. prove_states_eq.
 Abort.

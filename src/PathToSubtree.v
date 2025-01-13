@@ -146,6 +146,7 @@ Proof. intros (? & ? & ?). eexists. eassumption. Qed.
 
 Lemma strict_prefix_is_prefix p q : strict_prefix p q -> prefix p q.
 Proof. intros (? & ? & ?). eexists. eassumption. Qed.
+Hint Resolve strict_prefix_is_prefix : spath.
 
 Definition disj (p q : spath) :=
 (fst p <> fst q) \/ (fst p = fst q /\ vdisj (snd p) (snd q)).
@@ -246,6 +247,7 @@ Proof.
   - apply strict_prefix_is_prefix. assumption.
   - apply (strict_prefix_irrefl p). assumption.
 Qed.
+Hint Resolve not_prefix_left_strict_prefix_right : spath.
 
 Lemma not_vprefix_left_vstrict_prefix_right p q : vstrict_prefix q p -> ~vprefix p q.
 Proof.
@@ -260,7 +262,12 @@ Local Instance : Reflexive vprefix.
 Proof. intro p. exists nil. apply app_nil_r. Qed.
 
 Global Instance vprefix_trans : Transitive vprefix.
-Proof. intros x ? ? (? & <-) (? & <-). rewrite<- app_assoc. eexists. reflexivity. Qed.
+Proof. intros ? ? ? (? & <-) (? & <-). rewrite<- app_assoc. eexists. reflexivity. Qed.
+
+Global Instance prefix_trans : Transitive prefix.
+Proof.
+  intros ? ? ? (? & <-) (? & <-). rewrite<- app_spath_vpath_assoc. eexists. reflexivity.
+Qed.
 
 Global Instance : Reflexive prefix.
 Proof. intro p. exists nil. apply app_spath_vpath_nil_r. Qed.
@@ -359,8 +366,18 @@ Proof.
     rewrite app_comm_cons, app_assoc. apply<- app_inv_tail_iff. assumption.
 Qed.
 
-Lemma prefix_trans p q r : prefix (p +++ q) r -> prefix p r.
-Proof. intros (z & <-). rewrite<- app_spath_vpath_assoc. eexists. reflexivity. Qed.
+Lemma prefix_and_strict_prefix_implies_strict_prefix p q r :
+  prefix p q -> strict_prefix q r -> strict_prefix p r.
+Proof.
+  intros (x & <-) (i & y & <-). rewrite<- app_spath_vpath_assoc.
+  destruct (x ++ i :: y) eqn:?.
+  - exfalso. eapply app_cons_not_nil. symmetry. eassumption.
+  - eexists _, _. reflexivity.
+Qed.
+Hint Resolve prefix_and_strict_prefix_implies_strict_prefix : spath.
+
+Lemma prefix_trans' p q r : prefix (p +++ q) r -> prefix p r.
+Proof. transitivity (p +++ q); [ | assumption]. exists q. reflexivity. Qed.
 
 Lemma prefix_and_neq_implies_strict_prefix p q : prefix p q -> p <> q -> strict_prefix p q.
 Proof.
@@ -437,6 +454,13 @@ Proof.
   intros (? & ? & H). apply (f_equal snd) in H. eapply app_cons_not_nil. symmetry. exact H.
 Qed.
 
+Lemma prefix_of_disj_implies_not_prefix p q r : prefix p q -> disj q r -> ~prefix r p.
+Proof.
+  intros ? ? ?. assert (prefix r q) by (transitivity p; assumption).
+  eapply not_prefix_disj; [symmetry | ]; eassumption.
+Qed.
+Hint Resolve prefix_of_disj_implies_not_prefix : spath.
+
 (* Automatically solving a comparison C p q using the hypotheses. *)
 Hint Resolve-> disj_common_prefix : spath.
 Hint Resolve<- disj_common_index : spath.
@@ -456,7 +480,7 @@ Hint Resolve not_strict_prefix_nil : spath.
 Hint Extern 0 (prefix ?p (?p +++ ?q)) => exists q; reflexivity : spath.
 Hint Extern 0 (prefix (?p +++ ?q) (?p +++ ?q ++ ?r)) =>
     exists r; symmetry; apply app_spath_vpath_assoc : spath.
-Hint Resolve prefix_trans : spath.
+Hint Resolve prefix_trans' : spath.
 Hint Resolve prefix_and_neq_implies_strict_prefix : spath.
 Hint Resolve<- not_strict_prefix_app_last : spath.
 
@@ -1529,6 +1553,26 @@ Proof. intros. solve_validity. Qed.
  * Finally, we also need to prove that Sl and Sr have the binders, which is an easy consequence of
  * the fact that they are sets of the same state S.
  *)
+Lemma prove_states_eq_4 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 p2 p3 :
+  (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
+  S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) -> (S.[p2] = S'.[p2]) -> (S.[p3] = S'.[p3]) ->
+  (forall q, ~prefix p0 q -> ~prefix p1 q -> ~prefix p2 q -> ~prefix p3 q ->
+    get_constructor (S.[q]) = get_constructor (S'.[q])) ->
+  S = S'.
+Proof.
+  intros. apply get_constructor_sget_ext; [assumption | ].
+  intro q.
+  destruct (decidable_prefix p0 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+  destruct (decidable_prefix p1 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+  destruct (decidable_prefix p2 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+  destruct (decidable_prefix p3 q) as [(? & <-) | ];
+   [rewrite !sget_app; congruence | ].
+   auto.
+Qed.
+
 Lemma prove_states_eq_3 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 p2 :
   (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
   S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) -> (S.[p2] = S'.[p2]) ->
@@ -1567,6 +1611,10 @@ Ltac prove_states_eq :=
   let q := fresh "q" in
   (* autorewrite with spath; *)
   lazymatch goal with
+  | |- ?S.[?p0 <- _].[?p1 <- _].[?p2 <- _].[?p3 <- _] = ?S' =>
+    simple apply (prove_states_eq_4 _ S' p0 p1 p2 p3);
+    intros;
+    [rewrite !get_binder_sset; reflexivity | autorewrite with spath; try reflexivity..]
   | |- ?S.[?p0 <- _].[?p1 <- _].[?p2 <- _] = ?S' =>
     simple apply (prove_states_eq_3 _ S' p0 p1 p2);
     intros;
@@ -1710,7 +1758,7 @@ Ltac prove_not_contains0 :=
       simple apply not_value_contains_sset;
        [ prove_not_contains0 | prove_not_contains0 | solve_validity0]
   | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
-      simple apply (not_state_contains_implies_not_value_contains_sget P S p H);
+      simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
       solve_validity0
   | |- not_value_contains ?P (?v.[[?p <- ?w]]) =>
       simple apply not_value_contains_vset; prove_not_contains0
