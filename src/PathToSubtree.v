@@ -54,6 +54,7 @@ Definition vdisj (p q : vpath) :=
 
 Global Instance vdisj_symmetric : Symmetric vdisj.
 Proof. intros ? ? (v & p & q & i & j & ? & ? & ?). exists v, q, p, j, i. auto. Qed.
+Hint Immediate vdisj_symmetric : spath.
 
 (* Showing that every two paths are comparable.
  * TODO: an alternative is to define a function comp p q that returns a result (Eq, StrictLeft,
@@ -463,6 +464,7 @@ Hint Resolve prefix_of_disj_implies_not_prefix : spath.
 
 (* Automatically solving a comparison C p q using the hypotheses. *)
 Hint Resolve-> disj_common_prefix : spath.
+Hint Resolve<- disj_common_prefix : spath.
 Hint Resolve<- disj_common_index : spath.
 Hint Immediate vstrict_prefix_is_vprefix : spath.
 Hint Immediate not_vprefix_left_vstrict_prefix_right : spath.
@@ -1254,10 +1256,11 @@ Section GetSetPath.
   Qed.
 
   Lemma get_nil_prefix_right S p q :
-  subvalues (S .[ p]) = [] -> valid_spath S q -> ~strict_prefix p q.
+  arity (get_constructor (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
   Proof.
     intros H valid_q (i & r & <-). apply valid_spath_app in valid_q. 
     destruct valid_q as (_ & valid_i_r). inversion valid_i_r.
+    rewrite<- length_subvalues_is_arity in H. apply length_zero_iff_nil in H.
     rewrite H, nth_error_nil in * |-. discriminate.
   Qed.
 
@@ -1421,7 +1424,7 @@ Hint Extern 5 (length (subvalues ?v) = _) =>
   end : spath.
 Hint Extern 5 (~strict_prefix ?p ?q) =>
   match goal with
-  | H : ?S.[?p] = _ |- _ =>
+  | H : get_constructor (?S.[?p]) = _ |- _ =>
       simple apply (get_nil_prefix_right S); [rewrite H | ]
   end : spath.
 Hint Resolve disj_spath_to_last : spath.
@@ -1738,7 +1741,7 @@ Hint Rewrite<- @vget_app : spath.
  *)
 Hint Extern 3 (~prefix ?p ?q) =>
   match goal with
-  | H : ?S.[?q] = _ |- _ =>
+  | H : get_constructor (?S.[?q]) = _ |- _ =>
     simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | solve_validity]
   end : spath.
 

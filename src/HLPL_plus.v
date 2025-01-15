@@ -261,7 +261,7 @@ Ltac prove_not_contains_outer :=
       apply not_contains_outer_sset_no_contains;
         [prove_not_contains_outer | exact H | exact loc_is_not_bot || exact loan_is_not_bot]
   | no_outer_loan : not_contains_outer_loan (?S.[?q]),
-    loan_at_q : ?S.[?q +++ ?p] = loan^m(?l)
+    loan_at_q : get_constructor (?S.[?q +++ ?p]) = loanC^m(?l)
     |- not_contains_outer _ ?P (?S.[?q].[[?p <- ?w]]) =>
     apply not_contains_outer_sset_in_borrow;
      [ prove_not_contains_outer |
@@ -428,14 +428,14 @@ where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
 Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Reorg_end_borrow_m S (p q : spath) l :
-    disj p q -> S.[p] = loan^m(l) -> get_constructor (S.[q]) = borrowC^m(l) ->
+    disj p q -> get_constructor (S.[p]) = loanC^m(l) -> get_constructor (S.[q]) = borrowC^m(l) ->
     not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
 | Reorg_end_ptr S (p : spath) l :
-    S.[p] = ptr(l) -> (*not_in_borrow S p ->*) reorg S (S.[p <- bot])
-| Reorg_end_loc S (p : spath) l v :
-    S.[p] = loc(l, v) -> not_state_contains (eq ptrC(l)) S ->
-    reorg S (S.[p <- v])
+    get_constructor (S.[p]) = ptrC(l) -> (*not_in_borrow S p ->*) reorg S (S.[p <- bot])
+| Reorg_end_loc S (p : spath) l :
+    get_constructor (S.[p]) = locC(l) -> not_state_contains (eq ptrC(l)) S ->
+    reorg S (S.[p <- S.[p +++ [0] ] ])
 .
 
 (* Automatically resolving the goals of the form `ptrC(l) <> _`, used to prove the condition
@@ -469,7 +469,7 @@ where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
-    (HS_loan : S.[sp_loan] = loan^m(l))
+    (HS_loan : get_constructor (S.[sp_loan]) = loanC^m(l))
     (HS_borrow : get_constructor (S.[sp_borrow]) = borrowC^m(l)) :
     le_state_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
 
@@ -480,6 +480,8 @@ Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
                           get_constructor (S.[q]) = loanC^m(l) -> p = q;
   no_mut_loan_ptr l p : get_constructor (S.[p]) = loanC^m(l) ->
                         not_state_contains (eq ptrC(l)) S;
+  no_mut_loan_loc l p : get_constructor (S.[p]) = loanC^m(l) ->
+                        not_state_contains (eq locC(l)) S;
 }.
 
 Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_plus_val :=
@@ -505,7 +507,7 @@ Section MutBorrow_to_Ptr.
   Context (l0 : loan_id).
   Context (sp_loan sp_borrow : spath).
   Context (Hdisj : disj sp_loan sp_borrow).
-  Hypothesis (HS_r_loan : S_r.[sp_loan] = loan^m(l0)).
+  Hypothesis (HS_r_loan : get_constructor (S_r.[sp_loan]) = loanC^m(l0)).
   Hypothesis (HS_r_borrow : get_constructor (S_r.[sp_borrow]) = borrowC^m(l0)).
   Notation v := (S_r.[sp_borrow +++ [0] ]).
   Notation S_l := (S_r.[sp_loan <- loc(l0, v)].[sp_borrow <- ptr(l0)]).
@@ -540,7 +542,9 @@ Section MutBorrow_to_Ptr.
     - exists q. split.
       (* comparison reasonning: *)
       + apply Rel_other. auto with spath.
-      + autorewrite with spath. assumption.
+      + autorewrite with spath.
+        assert (~strict_prefix sp_loan q). eauto with spath.
+        assumption.
   Qed.
 
   Lemma eval_proj_mut_sp_borrow_strict_prefix proj r q
@@ -653,7 +657,7 @@ End MutBorrow_to_Ptr.
 Ltac eval_place_preservation :=
   lazymatch goal with
   | eval_p_in_Sr : ?Sr |-{p} ?p =>^{Mov} ?pi,
-    _ : ?Sr.[?sp_loan] = loan^m (?l),
+    _ : get_constructor (?Sr.[?sp_loan]) = loanC^m (?l),
     _ : get_constructor (?Sr.[?sp_borrow]) = borrowC^m(?l) |- _ =>
       let eval_p_in_Sl := fresh "eval_p_in_Sl" in
       let sp_borrow_not_prefix := fresh "sp_borrow_not_prefix" in
@@ -670,7 +674,7 @@ Ltac eval_place_preservation :=
       clear eval_p_in_Sr
   | eval_p_in_Sr : ?Sr |-{p} ?p =>^{ _ } ?pi_r,
     Hdisj : disj ?sp_loan ?sp_borrow,
-    HSr_loan : ?Sr.[?sp_loan] = loan^m (?l),
+    HSr_loan : get_constructor (?Sr.[?sp_loan]) = loanC^m (?l),
     HSr_borrow : get_constructor (?Sr.[?sp_borrow]) = borrowC^m(?l) |- _ =>
       let pi_l := fresh "pi_l" in
       let eval_p_in_Sl := fresh "eval_p_in_Sl" in
@@ -1097,4 +1101,59 @@ Proof.
                  assumption. all: autorewrite with spath. eassumption.
                  assumption. assumption. auto with spath.
               ** autorewrite with spath. prove_states_eq.
-Abort.
+  - intros ? Hle. destruct Hle.
+    + destruct (decidable_prefix sp_borrow p).
+      * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by eauto with spath.
+        rewrite<- (app_spath_vpath_assoc sp_borrow [0] q) in *.
+        eapply complete_square_diagram.
+        -- constructor.
+           eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           assumption. all: autorewrite with spath; eassumption.
+        -- constructor. eapply Reorg_end_ptr with (p := sp_loan +++ [0] ++ q).
+           autorewrite with spath. eassumption.
+        -- autorewrite with spath. prove_states_eq.
+      * assert (disj sp_borrow p) by reduce_comp.
+        assert (disj sp_loan p) by reduce_comp.
+        eapply complete_square_diagram.
+        -- constructor.
+           eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           assumption. all: autorewrite with spath; eassumption.
+        -- constructor. eapply Reorg_end_ptr with (p := p). autorewrite with spath. eassumption.
+        -- autorewrite with spath. prove_states_eq.
+  - intros ? Hle. destruct Hle.
+    + assert (l <> l0).
+      { intros <-. eapply no_mut_loan_loc; [ eassumption.. | | symmetry; eassumption].
+        solve_validity. }
+      destruct (decidable_prefix sp_borrow p).
+      (* Case 1: the loc we end is is the borrow we turn into a pointer. *)
+      * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by eauto with spath.
+        autorewrite with spath in *.
+        eapply complete_square_diagram.
+        -- constructor.
+           eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           assumption. all: autorewrite with spath; eassumption.
+        -- constructor. eapply Reorg_end_loc with (p := sp_loan +++ [0] ++ q).
+           autorewrite with spath. eassumption. prove_not_contains. cbn. congruence.
+        -- autorewrite with spath. prove_states_eq.
+      * destruct (decidable_prefix p sp_borrow).
+        -- assert (prefix (p +++ [0]) sp_borrow) as (q & <-) by eauto with spath.
+           destruct (decidable_prefix p sp_loan).
+           (* Case 2: the loan and the borrow we turn into pointers are in the loc we end. *)
+           ++ assert (prefix (p +++ [0]) sp_loan) as (r & <-) by eauto with spath.
+              assert (vdisj q r) by eauto with spath.
+              autorewrite with spath in *.
+              eapply complete_square_diagram.
+              ** constructor.
+                 eapply Le_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := p +++ q).
+                 eauto with spath. all: autorewrite with spath; eassumption.
+              ** constructor. eapply Reorg_end_loc with (p := p).
+                 autorewrite with spath; eassumption.
+                 repeat apply not_state_contains_sset.
+                 assumption.
+                 apply not_value_contains_by_decomposition.
+                 discriminate. cbn.
+
+
+                 prove_not_contains.
+
+
