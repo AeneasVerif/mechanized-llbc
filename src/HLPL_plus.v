@@ -1067,7 +1067,7 @@ Proof.
         (* Case 2: the borrow we turn into a pointer is inside the borrow we end. *)
         -- assert (strict_prefix q sp_borrow) by auto with spath.
            assert (prefix (q +++ [0]) sp_borrow) as (r & <-) by eauto with spath.
-           rewrite<- (app_spath_vpath_assoc q [0] r) in *.
+           autorewrite with spath in *.
            eapply complete_square_diagram.
            ++ constructor.
               apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ r).
@@ -1138,7 +1138,8 @@ Proof.
       * destruct (decidable_prefix p sp_borrow).
         -- assert (prefix (p +++ [0]) sp_borrow) as (q & <-) by eauto with spath.
            destruct (decidable_prefix p sp_loan).
-           (* Case 2: the loan and the borrow we turn into pointers are in the loc we end. *)
+           (* Case 2: the loan and the borrow we turn into a location and a pointer are in the loc
+            * we end. *)
            ++ assert (prefix (p +++ [0]) sp_loan) as (r & <-) by eauto with spath.
               assert (vdisj q r) by eauto with spath.
               autorewrite with spath in *.
@@ -1149,11 +1150,46 @@ Proof.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
                  repeat apply not_state_contains_sset.
-                 assumption.
-                 apply not_value_contains_by_decomposition.
-                 discriminate. cbn.
-
-
-                 prove_not_contains.
-
-
+                 assumption. all: prove_not_contains. cbn. congruence.
+              ** autorewrite with spath. reflexivity.
+           (* Case 3: the borrow we turn into a pointer is in the location we end, but the loan we
+            * turn into a location is disjoint. *)
+           ++ assert (disj p sp_loan) by reduce_comp.
+              autorewrite with spath in *.
+              eapply complete_square_diagram.
+              ** constructor.
+                 eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ q).
+                 auto with spath. all: autorewrite with spath; eassumption.
+              ** constructor. eapply Reorg_end_loc with (p := p).
+                 autorewrite with spath; eassumption.
+                 repeat apply not_state_contains_sset.
+                 assumption. all: prove_not_contains. cbn. congruence.
+              ** autorewrite with spath. prove_states_eq.
+        -- assert (disj p sp_borrow) by reduce_comp.
+           destruct (decidable_prefix p sp_loan).
+           (* Case 4: the loan we turn into a location is in the location we end, but the borrow we
+            * turn into a pointer is disjoint. *)
+           ++ assert (prefix (p +++ [0]) sp_loan) as (r & <-) by eauto with spath.
+              rewrite<- app_spath_vpath_assoc in *.
+              eapply complete_square_diagram.
+              ** constructor.
+                 eapply Le_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := sp_borrow).
+                 eauto with spath. all: autorewrite with spath; eassumption.
+              ** constructor. eapply Reorg_end_loc with (p := p).
+                 autorewrite with spath; eassumption.
+                 repeat apply not_state_contains_sset.
+                 assumption. all: prove_not_contains. cbn. congruence.
+              ** autorewrite with spath. prove_states_eq.
+           (* Case 5: the loan and the borrow we turn into a location and a pointer are in the loc
+            * we end. *)
+           ++ assert (disj p sp_loan) by reduce_comp.
+              eapply complete_square_diagram.
+              ** constructor.
+                 eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+                 assumption. all: autorewrite with spath; eassumption.
+              ** constructor. eapply Reorg_end_loc with (p := p).
+                 autorewrite with spath; eassumption.
+                 repeat apply not_state_contains_sset.
+                 assumption. all: prove_not_contains. cbn. congruence.
+              ** autorewrite with spath. prove_states_eq.
+Admitted.

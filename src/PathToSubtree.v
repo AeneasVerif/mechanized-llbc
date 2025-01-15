@@ -1363,20 +1363,6 @@ Section GetSetPath.
     apply valid_spath_app. split; assumption.
   Qed.
 
-  Lemma not_value_contains_by_decomposition P v (H : ~P (get_constructor v))
-    (G : match subvalues v with
-         | [] => True
-         | [w] => not_value_contains P w
-         | _ => False
-         end) :
-    not_value_contains P v.
-  Proof.
-    destruct (subvalues v) as [ | ? [ | ] ] eqn:?.
-    - apply not_value_contains_zeroary; assumption.
-    - eapply not_value_contains_unary; eassumption.
-    - contradiction.
-  Qed.
-
   Lemma not_contains_outer_sset_no_contains is_mut_borrow P v p w :
     not_contains_outer is_mut_borrow P v -> not_value_contains P w
     -> (forall v, P v -> v <> get_constructor bot)
@@ -1484,6 +1470,12 @@ Ltac solve_validity0 :=
       simple apply valid_spath_app_last_get_constructor_not_zeoray;
       rewrite H;
       constructor
+  | H : get_constructor (?S.[?p +++ ?q ++ ?r]) = _ |- valid_spath ?S (?p +++ ?q ++ ?r ++ [0]) =>
+      rewrite (app_assoc q r [0]);
+      rewrite (app_spath_vpath_assoc p (q ++ r) [0]);
+      simple apply valid_spath_app_last_get_constructor_not_zeoray;
+      rewrite H;
+      constructor
   | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
       simple apply get_not_bot_valid_spath;
       rewrite H;
@@ -1506,7 +1498,6 @@ Ltac solve_validity0 :=
       apply (valid_spath_app S p q);
       (* In case p is of the form p0 +++ p1, we rewrite (p0 +++ p1) +++ q into
          p0 +++ (p1 ++ q) *)
-      repeat rewrite<-app_spath_vpath_assoc;
       solve_validity0
   | |- valid_vpath _ ([_] ++ _) =>
       econstructor; [reflexivity | solve_validity0]
@@ -1522,10 +1513,19 @@ Ltac solve_validity0 :=
       apply (valid_get_constructor_vget_not_bot v p);
       rewrite H;
       discriminate
+  (* TODO: maybe use a more general forme ?v.[[?q <- _]] ?p, at the condition that ?q
+     is not a strict prefix of p. This would require an extra lemma. *)
+  | |- valid_vpath (?v.[[?p ++ _ <- _]]) ?p =>
+      simple apply vset_prefix_right_valid; solve_validity0
   | |- valid_vpath ?v ?p => idtac
   end.
-Hint Extern 0 (valid_spath _ _) => solve_validity0 : spath.
-Ltac solve_validity := solve_validity0; eauto with spath.
+Hint Extern 0 (valid_spath _ _) =>
+  repeat rewrite <-app_spath_vpath_assoc;
+  solve_validity0 : spath.
+Ltac solve_validity :=
+  repeat rewrite <-app_spath_vpath_assoc;
+  solve_validity0;
+  eauto with spath.
 
 (* Testing that I can automatically prove validity: *)
 (* TODO: rewrite or delete. *)
@@ -1767,8 +1767,9 @@ Ltac prove_not_contains0 :=
       simple apply not_value_contains_vset; prove_not_contains0
   | |- not_value_contains ?P (?S.[?p]) => idtac
   | |- not_value_contains ?P ?v =>
-      simple apply not_value_contains_by_decomposition;
-      [ | cbn; prove_not_contains0]
+      simple apply not_value_contains_zeroary; [reflexivity | ]
+  | |- not_value_contains ?P ?v =>
+      simple eapply not_value_contains_unary; [reflexivity | | prove_not_contains0]
   | |- _ => idtac
   end.
 Ltac prove_not_contains := prove_not_contains0; auto with spath.
