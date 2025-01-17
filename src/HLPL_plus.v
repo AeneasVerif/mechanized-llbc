@@ -462,9 +462,10 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
       (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
   | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
-  | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
+  | Eval_assign S vS' S'' p rv (eval_rv : S |-{rv} rv => vS') (Hstore : store p vS' S'') :
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
-  | Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> S1 |-{stmt} stmt => r, S2 -> S0 |-{stmt} stmt => r, S2
+  | Eval_reorg S0 S1 S2 stmt r (Hreorg : refl_trans_closure reorg S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
+      S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
@@ -824,19 +825,13 @@ Proof.
 Admitted.
 
 Hint Extern 0 (not_value_contains _ _) => prove_not_contains0 : spath.
-Lemma eval_rvalue_no_loan_loc S rv v S' : S |-{rv} rv => (v, S') ->
-  not_contains_loan v /\ not_contains_loc v.
+Lemma eval_rvalue_no_loan_loc S rv vS' : S |-{rv} rv => vS' ->
+  not_contains_loan (fst vS') /\ not_contains_loc (fst vS').
 Proof.
-  remember (v, S') as vS' eqn:EQN. intro H. destruct H; [destruct Heval_op | ..].
-  all: inversion EQN; subst; auto with spath.
+  intro H. destruct H; [destruct Heval_op | ..].
+  all: auto with spath.
   induction Hcopy_val; auto with spath.
 Qed.
-
-(*
-Lemma eval_path_app_last S p k pi S' : S |-{p} p =>^{k} pi -> (S ++ S') |-{p} p =>^{k} pi.
-Proof.
-Admitted.
- *)
 
 Lemma eval_path_app_last S v p k pi :
   not_contains_loc v -> (S,, Anon |-> v) |-{p} p =>^{k} pi -> S |-{p} p =>^{k} pi.
@@ -1192,4 +1187,32 @@ Proof.
                  repeat apply not_state_contains_sset.
                  assumption. all: prove_not_contains. cbn. congruence.
               ** autorewrite with spath. prove_states_eq.
+Admitted.
+
+Lemma stmt_preserves_HLPL_plus_rel s r : well_formed_preservation (eval_stmt s r).
+Proof.
+  intros Sr Sr' WF_Sr Heval Sl Hle. revert Sl Hle. induction Heval; intros Sl Hle.
+  - eexists. split; [eassumption | constructor].
+  - specialize (IHHeval1 WF_Sr _ Hle).
+    destruct IHHeval1 as (Sl' & ? & ?).
+    edestruct IHHeval2 as (Sl'' & ? & ?); [ | eassumption | ].
+    { admit. }
+    exists Sl''. split; [assumption | ]. eapply Eval_seq_unit; eassumption.
+  - specialize (IHHeval WF_Sr _ Hle).
+    destruct IHHeval as (Sl' & ? & ?).
+    exists Sl'. split; [assumption | ].
+    apply Eval_seq_panic. assumption.
+  - pose proof (_eval_rv := eval_rv). apply rvalue_preserves_HLPL_plus_rel in _eval_rv.
+    destruct (_eval_rv _ Hle) as (vSl' & le_vSl_vS' & eval_Sl).
+    apply store_preserves_HLPL_plus_rel in Hstore.
+    apply le_val_state_no_loan_right in le_vSl_vS';
+      [ | eapply eval_rvalue_no_loan_loc; exact eval_rv..].
+    destruct (Hstore _ le_vSl_vS') as (Sl'' & le_Sl'' & store_vSl').
+    exists Sl''. split; [assumption | ]. econstructor; eassumption.
+  - apply reorg_preserves_HLPL_plus_rel in Hreorg; [ | assumption].
+    destruct (Hreorg _ Hle) as (Sl1 & le_Sl1 & reorg_Sl1).
+    edestruct IHHeval as (Sl2 & le_Sl2 & eval_in_Sl2); [ | eassumption | ].
+    { admit. }
+    exists Sl2. split; [assumption | ].
+    apply Eval_reorg with (S1 := Sl1); assumption.
 Admitted.

@@ -132,6 +132,10 @@ Definition well_formed_forward_simulation {B0 V} `{LeBase B0 V} {B C D : Type}
 Definition well_formed_preservation {B V} `{LB : LeBase B V} (Red : state B V -> state B V -> Prop) :=
   @well_formed_forward_simulation _ _ LB _ _ _ (@le _ _ (LeState _ _ LB)) (@le _ _ (LeState _ _ LB)) Red Red.
 
+Lemma le_preserves_well_formedness B V `(LB : LeBase B V) Sl Sr :
+  (@well_formed _ _ LB Sr) -> (@le _ _ (LeState _ _ LB) Sl Sr) -> (@well_formed _ _ LB Sl).
+Proof. intros ? H. induction H; eauto using le_base_preserves_well_formedness. Qed.
+
 (* Reorganizations and le are defined as reflexive-transitive closure of relations (that we are
  * going to denote < and reorg). When we want to prove the preservation, ie:
 
@@ -162,14 +166,12 @@ Lemma preservation_reorg B V `(LB : LeBase B V) (reorg : state B V -> state B V 
   (measure : state B V -> nat)
   (le_decreasing : forall a b, le_base a b -> measure a < measure b)
   (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
-  (reorg_preserves_wf : forall a b, reorg a b -> well_formed a -> well_formed b)
-  (H : well_formed_forward_simulation le_base le reorg (refl_trans_closure reorg)) :
-  well_formed_preservation (refl_trans_closure reorg).
+  (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ _ LB a -> @well_formed _ _ LB b)
+  (H : @well_formed_forward_simulation _ _ LB _ _ _ (@le_base _ _ LB) (@le _ _ (LeState _ _ LB)) reorg (refl_trans_closure reorg)) :
+  @well_formed_preservation _ _ LB (refl_trans_closure reorg).
 Proof.
   assert (forall S S', refl_trans_closure reorg S S' -> measure S' <= measure S).
   { intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. }
-  assert (forall Sr Sl, well_formed Sr -> le Sl Sr -> well_formed Sl).
-  { intros ? ? ? Hle. induction Hle; eauto using le_base_preserves_well_formedness. }
   intros Sr.
   remember (measure Sr) as n eqn:EQN. revert Sr EQN.
   induction n as [? IH] using lt_wf_ind.
@@ -188,7 +190,8 @@ Proof.
     by eauto.
   assert (exists Sl'', le Sl'' Sm'' /\ refl_trans_closure reorg Sl' Sl'')
     as (? & ? & ?).
-  { eapply IH; [ | reflexivity | | eassumption..]; eauto using Nat.le_lt_trans. }
+  { eapply IH; [ | reflexivity | | eassumption..];
+    eauto using Nat.le_lt_trans, le_preserves_well_formedness. }
   eexists. split; [transitivity Sm'' | transitivity Sl']; eassumption.
 Qed.
 
