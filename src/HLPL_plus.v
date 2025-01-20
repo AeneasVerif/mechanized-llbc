@@ -1019,11 +1019,69 @@ Proof.
            ++ autorewrite with spath. f_equal. prove_states_eq.
 Qed.
 
+Definition measure_node c :=
+  match c with
+  | loanC^m(_) => 2
+  | borrowC^m(_) => 1
+  | locC(_) => 1
+  | ptrC(_) => 1
+  | _ => 0
+  end.
+
+Require Import Lia ZArith.
+
+Lemma truc (v : HLPL_plus_val) weight :
+  arity (get_constructor v) = 0 -> total_weight weight v = weight (get_constructor v).
+Proof.
+  intros H. rewrite total_weight_prop.
+  rewrite<- length_subvalues_is_arity in H. apply length_zero_iff_nil in H. rewrite H.
+  reflexivity.
+Qed.
+
+Lemma chose {V} `{uwu : Value V} (v : V) weight (H : arity (get_constructor v) = 1) :
+  total_weight weight v = weight (get_constructor v) + total_weight weight (v.[[ [0] ]]).
+Proof.
+  rewrite total_weight_prop. cbn.
+  rewrite<- length_subvalues_is_arity in H. apply length_1_is_singleton in H.
+  destruct H as (? & ->). reflexivity.
+Qed.
+
 Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation (refl_trans_closure reorg).
 Proof.
-  eapply preservation_reorg.
-  { admit. }
-  { admit. }
+  eapply preservation_reorg with (measure := @sweight _ ValueHLPL _ measure_node).
+  { intros Sl Sr Hle. destruct Hle.
+    - apply Nat2Z.inj_lt. rewrite sweight_sset by solve_validity.
+      autorewrite with spath.
+      rewrite sweight_sset by solve_validity.
+      pose proof (arity_loan := HS_loan). apply (f_equal arity) in arity_loan.
+      apply truc with (weight := measure_node) in arity_loan.
+      rewrite arity_loan, HS_loan.
+      pose proof (arity_borrow := HS_borrow). apply (f_equal arity) in arity_borrow.
+      apply chose with (weight := measure_node) in arity_borrow.
+      rewrite arity_borrow, <-sget_app, HS_borrow.
+      cbn. lia. }
+  { intros ? ? Hreorg. destruct Hreorg.
+    - apply Nat2Z.inj_lt. rewrite sweight_sset by solve_validity.
+      autorewrite with spath.
+      rewrite sweight_sset by solve_validity.
+      pose proof (arity_loan := H0). apply (f_equal arity) in arity_loan.
+      apply truc with (weight := measure_node) in arity_loan.
+      rewrite arity_loan, H0.
+      pose proof (arity_borrow := H1). apply (f_equal arity) in arity_borrow.
+      apply chose with (weight := measure_node) in arity_borrow.
+      rewrite arity_borrow, <-sget_app, H1.
+      cbn. lia.
+    - apply Nat2Z.inj_lt. rewrite sweight_sset by solve_validity.
+      pose proof (arity_ptr := H). apply (f_equal arity) in arity_ptr.
+      apply truc with (weight := measure_node) in arity_ptr.
+      rewrite arity_ptr, H.
+      cbn. lia.
+    - apply Nat2Z.inj_lt. rewrite sweight_sset by solve_validity.
+      pose proof (arity_loc := H). apply (f_equal arity) in arity_loc.
+      apply chose with (weight := measure_node) in arity_loc.
+      rewrite arity_loc, <-sget_app, H.
+      cbn. lia.
+  }
   { admit. }
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
   (* Case Reorg_end_borrow_m: *)
