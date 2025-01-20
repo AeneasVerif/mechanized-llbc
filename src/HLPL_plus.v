@@ -75,13 +75,11 @@ Definition HLPL_plus_fold c vs := match c, vs with
 | _, _ => HLPL_plus_bot
 end.
 
-Fixpoint HLPL_plus_height v := match v with
-| HLPL_plus_bot => 0
-| HLPL_plus_int _ => 0
-| HLPL_plus_mut_loan _ => 0
-| HLPL_plus_mut_borrow _ v => 1 + HLPL_plus_height v
-| HLPL_plus_loc _ v =>  1 + HLPL_plus_height v
-| HLPL_plus_ptr _ => 0
+Fixpoint HLPL_plus_weight node_weight v :=
+  match v with
+  | HLPL_plus_mut_borrow l v => node_weight (HLPL_plus_mut_borrowC l) + HLPL_plus_weight node_weight v
+  | HLPL_plus_loc l v => node_weight (HLPL_plus_locC l) + HLPL_plus_weight node_weight v
+  | v => node_weight (HLPL_plus_get_constructor v)
 end.
 
 Program Instance ValueHLPL : Value HLPL_plus_val := {
@@ -90,7 +88,7 @@ Program Instance ValueHLPL : Value HLPL_plus_val := {
   get_constructor := HLPL_plus_get_constructor;
   subvalues := HLPL_plus_subvalues;
   fold_value := HLPL_plus_fold;
-  height := HLPL_plus_height;
+  total_weight := HLPL_plus_weight;
   bot := HLPL_plus_bot;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
@@ -107,10 +105,7 @@ Next Obligation.
               destruct (length_1_is_singleton H) as [? ->];
               reflexivity.
 Qed.
-Next Obligation.
-  apply nth_error_In in H.
-  destruct v; cbn in *; try destruct H as [-> | ]; try contradiction; constructor.
-Qed.
+Next Obligation. destruct v; reflexivity. Qed.
 
 Definition HLPL_plus_state := state HLPL_plus_binder HLPL_plus_val.
 

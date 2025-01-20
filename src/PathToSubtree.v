@@ -4,12 +4,15 @@ Require Import RelationClasses.
 Require Import OptionMonad.
 Require Import base.
 Require Import Arith.
+Require Import ZArith.
 Require Import Lia.
 Import ListNotations.
 
 Local Open Scope option_monad_scope.
 
 Create HintDb spath.
+
+Coercion Z.of_nat : nat >-> Z.
 
 (* Paths, prefixes and disjointness *)
 
@@ -495,8 +498,8 @@ Class Value (V : Type) := {
   subvalues : V -> list V;
   get_constructor : V -> constructors;
   fold_value : constructors -> list V -> V;
-  (* A quantity decreasing as we traverse the value down. *)
-  height : V -> nat;
+  (* The sum of some quantity for each node of the tree. *)
+  total_weight : (constructors -> nat) -> V -> nat;
   bot : V;
 
   length_subvalues_is_arity v : length (subvalues v) = arity (get_constructor v);
@@ -505,7 +508,8 @@ Class Value (V : Type) := {
   get_constructor_fold_value c vs (H : length vs = arity c) : get_constructor (fold_value c vs) = c;
   subvalues_fold_value c vs (H : length vs = arity c) : subvalues (fold_value c vs) = vs;
   subvalues_bot : subvalues bot = nil;
-  height_subvalue v i w : nth_error (subvalues v) i = Some w -> height w < height v;
+  total_weight_prop weight v :
+    total_weight weight v = fold_right (fun w n => n + total_weight weight w) (weight (get_constructor v)) (subvalues v)
 }.
 
 Notation get_subval_or_bot w i :=
@@ -630,7 +634,7 @@ Section GetSetPath.
 
   Lemma constructor_vset_cons v p w :
     p <> [] -> get_constructor (v.[[p <- w]]) = get_constructor v.
-  Proof. 
+  Proof.
     intro. destruct p; [congruence | ].
     apply get_constructor_fold_value. rewrite map_nth_length. apply length_subvalues_is_arity.
   Qed.
@@ -796,11 +800,22 @@ Section GetSetPath.
     - rewrite nth_error_cons, nth_error_nil in *. simplify_option.
   Qed.
 
+  Notation size v := (total_weight (fun _ => 1) v).
+  Lemma size_decreasing (v w : V) i : nth_error (subvalues v) i = Some w -> size w < size v.
+  Proof.
+    intro H. rewrite (total_weight_prop _ v). revert i H.
+    induction (subvalues v) as [ | ? l IHl]; intros i H.
+    - rewrite nth_error_nil in H. discriminate.
+    - destruct i.
+      + inversion H. apply Nat.lt_add_pos_l. clear H IHl. induction l; lia.
+      + specialize (IHl _ H). cbn. lia.
+  Qed.
+
   (* Two values are equal if they have the same constructors everywhere. *)
   Lemma get_constructor_vget_ext v w :
     (forall p, get_constructor (v.[[p]]) = get_constructor (w.[[p]])) -> v = w.
   Proof.
-    remember (height v) as n. revert v w Heqn.
+    remember (size v) as n. revert v w Heqn.
     induction n as [n IH] using lt_wf_ind. intros v w -> H.
     assert (get_constructor v = get_constructor w) by exact (H []).
     assert (eq_length : length (subvalues v) = length (subvalues w)).
@@ -812,13 +827,42 @@ Section GetSetPath.
       assert (nth_error (subvalues w) i <> None) by now apply nth_error_Some.
       destruct (nth_error (subvalues w) i) eqn:EQN'; [ | contradiction].
       f_equal. eapply IH; [ | reflexivity | ].
-      + eapply height_subvalue. eassumption.
+      + eapply size_decreasing. exact EQN.
       + intro p. specialize (H (i :: p)). cbn in H. rewrite EQN, EQN' in H. exact H.
     - symmetry. apply nth_error_None. rewrite <-eq_length. apply nth_error_None. assumption.
     Qed.
 
   Lemma length_sset (S : state B V) p v : length (S.[p <- v]) = length S.
   Proof. apply map_nth_length. Qed.
+
+  Context (weight : constructors -> nat).
+
+  (* The theorems of weight of sets are the following:
+     weight v.[[p <- w]] = weight v - weight v.[[p]] + weight.[[w]]
+     weight S.[p <- v] = weight S - weight S.[p] + weight v
+     As you can notice, these involve a substraction. Proving (in)equalities with natural
+     substraction is awkard, because is requires proving at each time that the weight of v (resp. S)
+     is greater than the weight of v.[[p]] (resp. S.[p]).
+     This is why we are going to go on relatives to avoid these complications. *)
+  Notation vweight := (total_weight weight).
+
+  Lemma total_weight_vset v p w
+    (H : valid_vpath v p) :
+    Z.of_nat (vweight (v.[[p <- w]])) = (vweight v - vweight (v.[[p]]) + vweight w)%Z.
+  Proof.
+    induction H as [ | u i p v].
+    - cbn. lia.
+    - rewrite (total_weight_prop _ u).
+      rewrite (total_weight_prop _ (u.[[i :: p <- w]])).
+      rewrite constructor_vset_cons by discriminate.
+      rewrite subvalues_vset_cons.
+      replace (u.[[i :: p]]) with (v.[[p]]) by (cbn; rewrite H; reflexivity).
+      revert i H. induction (subvalues u) as [ | ? ? IHsubval]; intros i H.
+      * rewrite nth_error_nil in H. discriminate.
+      * destruct i.
+        -- inversion H. cbn. lia.
+        -- specialize (IHsubval _ H). cbn. lia.
+  Qed.
 
   (* Proving the same with sget and sset: *)
   Lemma sget_app (S : state B V) p q : S.[p +++ q] = S.[p].[[q]].
@@ -1162,12 +1206,6 @@ Section GetSetPath.
       + cbn in H. rewrite nth_error_nil in H. easy.
   Qed.
 
-  (*
-  Lemma valid_spath_app_last S b v p : valid_spath (S,, b |-> v) p ->
-      (valid_spath S p \/ fst p = length S /\ valid_vpath v (snd p)).
-  Proof.
-    intros (w & ? & ?). destruct 
-   *)
   (* Two states are equal if they have the same constructors everywhere. *)
   Lemma get_constructor_sget_ext (S S' : state B V) :
     (forall i, get_binder S i = get_binder S' i) -> (forall p, get_constructor (S.[p]) = get_constructor (S'.[p])) -> S = S'.
@@ -1258,7 +1296,7 @@ Section GetSetPath.
   Lemma get_nil_prefix_right S p q :
   arity (get_constructor (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
   Proof.
-    intros H valid_q (i & r & <-). apply valid_spath_app in valid_q. 
+    intros H valid_q (i & r & <-). apply valid_spath_app in valid_q.
     destruct valid_q as (_ & valid_i_r). inversion valid_i_r.
     rewrite<- length_subvalues_is_arity in H. apply length_zero_iff_nil in H.
     rewrite H, nth_error_nil in * |-. discriminate.
@@ -1396,6 +1434,20 @@ Section GetSetPath.
         * exists q'. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
           assumption. intro. apply not_prefix. transitivity q'; auto with spath.
     - rewrite vset_invalid by assumption. assumption.
+  Qed.
+
+  Definition sweight (S : state B V) :=
+    fold_right (fun bv n => n + vweight (snd bv)) 0 S.
+
+  Lemma sweight_sset S p v (H : valid_spath S p) :
+    Z.of_nat (sweight (S.[p <- v])) = (sweight S - vweight (S.[p]) + vweight v)%Z.
+  Proof.
+    destruct p as (i & q). destruct H as (w & H & G). cbn in * |-.
+    revert i H. induction S; intros i H.
+    - rewrite nth_error_nil in H. discriminate.
+    - destruct i.
+      + inversion H. subst. cbn. pose proof (total_weight_vset _ _ v G). lia.
+      + specialize (IHS _ H). unfold sweight, sget, sset in *. cbn in *. lia.
   Qed.
 End GetSetPath.
 

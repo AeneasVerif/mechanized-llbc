@@ -60,11 +60,10 @@ Definition LLBC_fold c vs := match c, vs with
 | _, _ => LLBC_bot
 end.
 
-Fixpoint LLBC_height v := match v with
-| LLBC_bot => 0
-| LLBC_int _ => 0
-| LLBC_mut_loan _ => 0
-| LLBC_mut_borrow _ v => 1 + LLBC_height v
+Fixpoint LLBC_weight node_weight v :=
+  match v with
+  | LLBC_mut_borrow l v => node_weight (LLBC_mut_borrowC l) + LLBC_weight node_weight v
+  | v => node_weight (LLBC_get_constructor v)
 end.
 
 Program Instance ValueLLBC : Value LLBC_val := {
@@ -73,7 +72,7 @@ Program Instance ValueLLBC : Value LLBC_val := {
   get_constructor := LLBC_get_constructor;
   subvalues := LLBC_subvalues;
   fold_value := LLBC_fold;
-  height := LLBC_height;
+  total_weight := LLBC_weight;
   bot := LLBC_bot;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
@@ -91,10 +90,7 @@ Next Obligation.
               destruct (length_1_is_singleton H) as [? ->];
               reflexivity.
 Qed.
-Next Obligation.
-  apply nth_error_In in H.
-  destruct v; cbn in *; try destruct H as [-> | ]; try contradiction; constructor.
-Qed.
+Next Obligation. destruct v; reflexivity. Qed.
 
 Definition LLBC_state := state LLBC_binder LLBC_val.
 
