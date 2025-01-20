@@ -10,7 +10,14 @@ Import ListNotations.
 
 Local Open Scope option_monad_scope.
 
+(* As a hint database, "spath" is used to solve common goals, in particular, proving comparisons
+ * between paths.
+ * As a rewriting database, "spath" is used to reduce computations on paths, values and states, and
+ * to put them in normal form. *)
 Create HintDb spath.
+
+(* This is a hint database used to reduce weight computations. *)
+Create HintDb weight.
 
 Coercion Z.of_nat : nat >-> Z.
 
@@ -862,6 +869,22 @@ Section GetSetPath.
       * destruct i.
         -- inversion H. cbn. lia.
         -- specialize (IHsubval _ H). cbn. lia.
+  Qed.
+
+  Lemma weight_arity_0 (v : V) :
+    arity (get_constructor v) = 0 -> total_weight weight v = weight (get_constructor v).
+  Proof.
+    intros H. rewrite total_weight_prop.
+    rewrite<- length_subvalues_is_arity in H. apply length_zero_iff_nil in H. rewrite H.
+    reflexivity.
+  Qed.
+
+  Lemma weight_arity_1 (v : V) (H : arity (get_constructor v) = 1) :
+    total_weight weight v = weight (get_constructor v) + total_weight weight (v.[[ [0] ]]).
+  Proof.
+    rewrite total_weight_prop. cbn.
+    rewrite<- length_subvalues_is_arity in H. apply length_1_is_singleton in H.
+    destruct H as (? & ->). reflexivity.
   Qed.
 
   (* Proving the same with sget and sset: *)
@@ -1825,3 +1848,12 @@ Ltac prove_not_contains0 :=
   | |- _ => idtac
   end.
 Ltac prove_not_contains := prove_not_contains0; auto with spath.
+
+(* Populating the "weight" rewrite database: *)
+(* These hints turn operations on naturals onto operations on relatives, so to rewrite
+ * sweight_sset: *)
+Hint Rewrite Nat2Z.inj_add : weight.
+Hint Rewrite Nat2Z.inj_le : weight.
+Hint Rewrite Nat2Z.inj_lt : weight.
+
+Hint Rewrite @sweight_sset using solve_validity : weight.

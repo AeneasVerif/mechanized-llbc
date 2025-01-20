@@ -9,6 +9,13 @@ Class EqDec (A : Type) := {
   eq_dec (a b : A) : {a = b} + {a <> b};
 }.
 
+Ltac reduce_eq_dec :=
+  lazymatch goal with
+  | |- context [eq_dec ?x ?x] => destruct (eq_dec x x) as [_ | ]; [ | congruence]
+  | |- context [eq_dec ?x ?y] => destruct (eq_dec x y) as [ | _]; [congruence | ]
+  end
+.
+
 Lemma length_1_is_singleton [A : Type] [l : list A] : length l = 1 -> exists a, l = [a].
 Proof.
   intro H. destruct l as [ | a l'].

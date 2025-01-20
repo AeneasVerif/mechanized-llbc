@@ -1,9 +1,11 @@
 Require Import base.
-Require Import PathToSubtree.
 Require Import lang.
 Require Import List.
 Require Import PeanoNat.
 Import ListNotations.
+Require Import Lia ZArith.
+
+Require Import PathToSubtree.
 Require Import OptionMonad.
 Local Open Scope option_monad_scope.
 Require Import SimulationUtils.
@@ -38,6 +40,10 @@ Variant HLPL_plus_constructor :=
 | HLPL_plus_locC (l : loan_id)
 | HLPL_plus_ptrC (l : loan_id)
 .
+
+Program Instance EqDec_HLPL_plus_constructor : EqDec HLPL_plus_constructor.
+Next Obligation. decide equality; decide equality. Qed.
+
 
 Definition HLPL_plus_arity c := match c with
 | HLPL_plus_botC => 0
@@ -480,13 +486,90 @@ Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
                         not_state_contains (eq locC(l)) S;
 }.
 
+(* TODO: move *)
+Definition vcount (c0 : HLPL_plus_constructor) v :=
+  total_weight (fun c => if eq_dec c0 c then 1 else 0) v.
+
+Notation scount c0 S :=
+  (sweight (fun c => if eq_dec c0 c then 1 else 0) S).
+
+Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
+  unique_borrow_mut_alt : scount (borrowC^m(l)) S <= 1;
+  no_mut_loan_loc_alt : scount (loanC^m(l)) S + scount (locC(l)) S <= 1;
+  no_mut_loan_ptr_alt : scount (loanC^m(l)) S <= 0 \/ scount (ptrC(l)) S <= 0;
+}.
+
+Lemma well_formedness_equiv S : HLPL_plus_well_formed S <-> forall l, HLPL_plus_well_formed_alt S l.
+Admitted.
+
+Ltac weight_at_spath_aux H :=
+  let G := fresh in
+  pose proof (G := H);
+  apply (f_equal arity) in G;
+  (eapply weight_arity_0 in G || eapply weight_arity_1 in G);
+  rewrite G, H;
+  clear G
+.
+
+Ltac weight_at_spath :=
+  lazymatch goal with
+  | H : get_constructor (?S.[?p]) = _ |- context [total_weight _ (?S.[?p])] =>
+      weight_at_spath_aux H
+  end.
+
+Lemma total_weight_loc weight l v :
+  total_weight weight (loc(l, v)) = weight (locC(l)) + total_weight weight v.
+Proof. reflexivity. Qed.
+Hint Rewrite total_weight_loc : weight.
+
+Lemma total_weight_ptr weight l : total_weight weight (ptr(l)) = weight (ptrC(l)).
+Proof. reflexivity. Qed.
+Hint Rewrite total_weight_ptr : weight.
+
+(* TODO: give names to hypotheses. *)
 Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_plus_val :=
 { le_base := le_state_base;
   anon := Anon;
   well_formed := HLPL_plus_well_formed;
 }.
 Next Obligation.
-Admitted.
+  rewrite well_formedness_equiv. rewrite well_formedness_equiv in H.
+  intro l0. specialize (H l0). destruct H. destruct H0.
+  - destruct (Nat.eq_dec l0 l) as [<- | ].
+    + split.
+      * autorewrite with weight spath.
+        repeat weight_at_spath.
+        rewrite<- sget_app.
+        repeat (autorewrite with weight; reduce_eq_dec).
+        lia.
+      * autorewrite with weight spath.
+        repeat weight_at_spath.
+        repeat (autorewrite with weight; reduce_eq_dec).
+        rewrite<- sget_app.
+        lia.
+      * autorewrite with weight spath.
+        repeat weight_at_spath.
+        repeat (autorewrite with weight; reduce_eq_dec).
+        rewrite<- sget_app.
+        lia.
+    + split.
+      * autorewrite with weight spath.
+        repeat weight_at_spath.
+        repeat (autorewrite with weight; reduce_eq_dec).
+        rewrite<- sget_app.
+        lia.
+      * autorewrite with weight spath.
+        repeat weight_at_spath.
+        repeat (autorewrite with weight; reduce_eq_dec).
+        rewrite<- sget_app.
+        lia.
+      * autorewrite with weight spath.
+        repeat weight_at_spath.
+        repeat (autorewrite with weight; reduce_eq_dec).
+        rewrite<- sget_app.
+        lia.
+Qed.
+
 
 (* TODO: move *)
 (* Proving a comparison between p and q using information from the environment S. *)
@@ -1028,59 +1111,38 @@ Definition measure_node c :=
   | _ => 0
   end.
 
-Require Import Lia ZArith.
-
-Lemma truc (v : HLPL_plus_val) weight :
-  arity (get_constructor v) = 0 -> total_weight weight v = weight (get_constructor v).
-Proof.
-  intros H. rewrite total_weight_prop.
-  rewrite<- length_subvalues_is_arity in H. apply length_zero_iff_nil in H. rewrite H.
-  reflexivity.
-Qed.
-
-Lemma chose {V} `{uwu : Value V} (v : V) weight (H : arity (get_constructor v) = 1) :
-  total_weight weight v = weight (get_constructor v) + total_weight weight (v.[[ [0] ]]).
-Proof.
-  rewrite total_weight_prop. cbn.
-  rewrite<- length_subvalues_is_arity in H. apply length_1_is_singleton in H.
-  destruct H as (? & ->). reflexivity.
-Qed.
+Lemma measure_mut_loan l : measure_node loanC^m(l) = 2. Proof. reflexivity. Qed.
+Hint Rewrite measure_mut_loan : weight.
+Lemma measure_mut_borrow l : measure_node borrowC^m(l) = 1. Proof. reflexivity. Qed.
+Hint Rewrite measure_mut_borrow : weight.
+Lemma measure_loc l : measure_node locC(l) = 1. Proof. reflexivity. Qed.
+Hint Rewrite measure_loc : weight.
+Lemma measure_ptr l : measure_node ptrC(l) = 1. Proof. reflexivity. Qed.
+Hint Rewrite measure_ptr : weight.
+Lemma measure_bot : total_weight measure_node bot = 0. Proof. reflexivity. Qed.
+Hint Rewrite measure_bot : weight.
 
 Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation (refl_trans_closure reorg).
 Proof.
   eapply preservation_reorg with (measure := @sweight _ ValueHLPL _ measure_node).
   { intros Sl Sr Hle. destruct Hle.
-    - apply Nat2Z.inj_lt. rewrite sweight_sset by solve_validity.
-      autorewrite with spath.
-      rewrite sweight_sset by solve_validity.
-      pose proof (arity_loan := HS_loan). apply (f_equal arity) in arity_loan.
-      apply truc with (weight := measure_node) in arity_loan.
-      rewrite arity_loan, HS_loan.
-      pose proof (arity_borrow := HS_borrow). apply (f_equal arity) in arity_borrow.
-      apply chose with (weight := measure_node) in arity_borrow.
-      rewrite arity_borrow, <-sget_app, HS_borrow.
-      cbn. lia. }
+    - autorewrite with weight spath.
+      repeat weight_at_spath.
+      autorewrite with spath weight.
+      lia. }
   { intros ? ? Hreorg. destruct Hreorg.
-    - apply Nat2Z.inj_lt. rewrite sweight_sset by solve_validity.
-      autorewrite with spath.
-      rewrite sweight_sset by solve_validity.
-      pose proof (arity_loan := H0). apply (f_equal arity) in arity_loan.
-      apply truc with (weight := measure_node) in arity_loan.
-      rewrite arity_loan, H0.
-      pose proof (arity_borrow := H1). apply (f_equal arity) in arity_borrow.
-      apply chose with (weight := measure_node) in arity_borrow.
-      rewrite arity_borrow, <-sget_app, H1.
-      cbn. lia.
-    - apply Nat2Z.inj_lt. rewrite sweight_sset by solve_validity.
-      pose proof (arity_ptr := H). apply (f_equal arity) in arity_ptr.
-      apply truc with (weight := measure_node) in arity_ptr.
-      rewrite arity_ptr, H.
-      cbn. lia.
-    - apply Nat2Z.inj_lt. rewrite sweight_sset by solve_validity.
-      pose proof (arity_loc := H). apply (f_equal arity) in arity_loc.
-      apply chose with (weight := measure_node) in arity_loc.
-      rewrite arity_loc, <-sget_app, H.
-      cbn. lia.
+    - autorewrite with weight spath.
+      repeat weight_at_spath.
+      autorewrite with spath weight.
+      lia.
+    - autorewrite with weight spath.
+      weight_at_spath.
+      autorewrite with weight.
+      lia.
+    - autorewrite with weight spath.
+      weight_at_spath.
+      autorewrite with weight spath.
+      lia.
   }
   { admit. }
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
