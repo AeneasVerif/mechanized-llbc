@@ -9,12 +9,14 @@ Class EqDec (A : Type) := {
   eq_dec (a b : A) : {a = b} + {a <> b};
 }.
 
-Ltac reduce_eq_dec :=
-  lazymatch goal with
-  | |- context [eq_dec ?x ?x] => destruct (eq_dec x x) as [_ | ]; [ | congruence]
-  | |- context [eq_dec ?x ?y] => destruct (eq_dec x y) as [ | _]; [congruence | ]
-  end
-.
+Definition identify {A : Type} `{EqDec A} a b :=
+  if eq_dec a b then 1 else 0.
+
+Lemma identify_same {A} `{EqDec A} (a : A) : identify a a = 1.
+Proof. unfold identify. destruct (eq_dec a a); congruence. Qed.
+
+Lemma identify_diff {A} `{EqDec A} (a b : A) : a <> b -> identify a b = 0.
+Proof. unfold identify. destruct (eq_dec a b); congruence. Qed.
 
 Lemma length_1_is_singleton [A : Type] [l : list A] : length l = 1 -> exists a, l = [a].
 Proof.

@@ -486,12 +486,7 @@ Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
                         not_state_contains (eq locC(l)) S;
 }.
 
-(* TODO: move *)
-Definition vcount (c0 : HLPL_plus_constructor) v :=
-  total_weight (fun c => if eq_dec c0 c then 1 else 0) v.
-
-Notation scount c0 S :=
-  (sweight (fun c => if eq_dec c0 c then 1 else 0) S).
+Notation scount c S := (sweight (identify c) S).
 
 Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
   unique_borrow_mut_alt : scount (borrowC^m(l)) S <= 1;
@@ -502,19 +497,18 @@ Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
 Lemma well_formedness_equiv S : HLPL_plus_well_formed S <-> forall l, HLPL_plus_well_formed_alt S l.
 Admitted.
 
-Ltac weight_at_spath_aux H :=
-  let G := fresh in
-  pose proof (G := H);
-  apply (f_equal arity) in G;
-  (eapply weight_arity_0 in G || eapply weight_arity_1 in G);
-  rewrite G, H;
-  clear G
-.
-
-Ltac weight_at_spath :=
+(* TODO: move *)
+(* Rewriting weight_arity_0 and weight_arity_1 using goals of the form "get_constructor S.[p] = c".
+   I couldn't do it with autorewrite, so I'm using this strang tactic instead. *)
+Ltac weight_given_constructor :=
   lazymatch goal with
   | H : get_constructor (?S.[?p]) = _ |- context [total_weight _ (?S.[?p])] =>
-      weight_at_spath_aux H
+    let G := fresh in
+    pose proof (G := H);
+    apply (f_equal arity) in G;
+    (eapply weight_arity_0 in G || eapply weight_arity_1 in G);
+    rewrite G, H;
+    clear G
   end.
 
 Lemma total_weight_loc weight l v :
@@ -526,6 +520,15 @@ Lemma total_weight_ptr weight l : total_weight weight (ptr(l)) = weight (ptrC(l)
 Proof. reflexivity. Qed.
 Hint Rewrite total_weight_ptr : weight.
 
+Ltac prove_weight_inequality :=
+  (* Translate the inequality into relatives, and repeatedly rewrite sweight_sset. *)
+  autorewrite with weight spath;
+  (* Use the hypotheses "get_constructor S.[p] = c" to further rewrite the formula. *)
+  repeat weight_given_constructor;
+  (* Final rewriting. *)
+  autorewrite with weight spath;
+  lia
+.
 (* TODO: give names to hypotheses. *)
 Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_plus_val :=
 { le_base := le_state_base;
@@ -535,41 +538,8 @@ Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_p
 Next Obligation.
   rewrite well_formedness_equiv. rewrite well_formedness_equiv in H.
   intro l0. specialize (H l0). destruct H. destruct H0.
-  - destruct (Nat.eq_dec l0 l) as [<- | ].
-    + split.
-      * autorewrite with weight spath.
-        repeat weight_at_spath.
-        rewrite<- sget_app.
-        repeat (autorewrite with weight; reduce_eq_dec).
-        lia.
-      * autorewrite with weight spath.
-        repeat weight_at_spath.
-        repeat (autorewrite with weight; reduce_eq_dec).
-        rewrite<- sget_app.
-        lia.
-      * autorewrite with weight spath.
-        repeat weight_at_spath.
-        repeat (autorewrite with weight; reduce_eq_dec).
-        rewrite<- sget_app.
-        lia.
-    + split.
-      * autorewrite with weight spath.
-        repeat weight_at_spath.
-        repeat (autorewrite with weight; reduce_eq_dec).
-        rewrite<- sget_app.
-        lia.
-      * autorewrite with weight spath.
-        repeat weight_at_spath.
-        repeat (autorewrite with weight; reduce_eq_dec).
-        rewrite<- sget_app.
-        lia.
-      * autorewrite with weight spath.
-        repeat weight_at_spath.
-        repeat (autorewrite with weight; reduce_eq_dec).
-        rewrite<- sget_app.
-        lia.
+  - destruct (Nat.eq_dec l0 l) as [<- | ]; split; prove_weight_inequality.
 Qed.
-
 
 (* TODO: move *)
 (* Proving a comparison between p and q using information from the environment S. *)
@@ -1125,25 +1095,8 @@ Hint Rewrite measure_bot : weight.
 Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation (refl_trans_closure reorg).
 Proof.
   eapply preservation_reorg with (measure := @sweight _ ValueHLPL _ measure_node).
-  { intros Sl Sr Hle. destruct Hle.
-    - autorewrite with weight spath.
-      repeat weight_at_spath.
-      autorewrite with spath weight.
-      lia. }
-  { intros ? ? Hreorg. destruct Hreorg.
-    - autorewrite with weight spath.
-      repeat weight_at_spath.
-      autorewrite with spath weight.
-      lia.
-    - autorewrite with weight spath.
-      weight_at_spath.
-      autorewrite with weight.
-      lia.
-    - autorewrite with weight spath.
-      weight_at_spath.
-      autorewrite with weight spath.
-      lia.
-  }
+  { intros Sl Sr Hle. destruct Hle; prove_weight_inequality. }
+  { intros ? ? Hreorg. destruct Hreorg; prove_weight_inequality. }
   { admit. }
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
   (* Case Reorg_end_borrow_m: *)

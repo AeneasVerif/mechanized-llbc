@@ -1857,3 +1857,6 @@ Hint Rewrite Nat2Z.inj_le : weight.
 Hint Rewrite Nat2Z.inj_lt : weight.
 
 Hint Rewrite @sweight_sset using solve_validity : weight.
+
+Hint Rewrite @identify_same : weight.
+Hint Rewrite @identify_diff using congruence : weight.
