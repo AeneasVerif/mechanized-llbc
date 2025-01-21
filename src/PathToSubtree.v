@@ -516,7 +516,7 @@ Class Value (V : Type) := {
   subvalues_fold_value c vs (H : length vs = arity c) : subvalues (fold_value c vs) = vs;
   subvalues_bot : subvalues bot = nil;
   total_weight_prop weight v :
-    total_weight weight v = fold_right (fun w n => n + total_weight weight w) (weight (get_constructor v)) (subvalues v)
+    total_weight weight v = sum (map (total_weight weight) (subvalues v)) + (weight (get_constructor v))
 }.
 
 Notation get_subval_or_bot w i :=
@@ -810,12 +810,10 @@ Section GetSetPath.
   Notation size v := (total_weight (fun _ => 1) v).
   Lemma size_decreasing (v w : V) i : nth_error (subvalues v) i = Some w -> size w < size v.
   Proof.
-    intro H. rewrite (total_weight_prop _ v). revert i H.
-    induction (subvalues v) as [ | ? l IHl]; intros i H.
-    - rewrite nth_error_nil in H. discriminate.
-    - destruct i.
-      + inversion H. apply Nat.lt_add_pos_l. clear H IHl. induction l; lia.
-      + specialize (IHl _ H). cbn. lia.
+    intro H. rewrite (total_weight_prop _ v).
+    apply map_nth_error with (f := total_weight (fun _ => 1)) in H.
+    apply sum_ge_element in H.
+    lia.
   Qed.
 
   (* Two values are equal if they have the same constructors everywhere. *)
@@ -863,12 +861,11 @@ Section GetSetPath.
       rewrite (total_weight_prop _ (u.[[i :: p <- w]])).
       rewrite constructor_vset_cons by discriminate.
       rewrite subvalues_vset_cons.
+      erewrite map_map_nth by eassumption.
+      rewrite Nat2Z.inj_add.
+      erewrite sum_map_nth by (erewrite map_nth_error by eassumption; reflexivity).
       replace (u.[[i :: p]]) with (v.[[p]]) by (cbn; rewrite H; reflexivity).
-      revert i H. induction (subvalues u) as [ | ? ? IHsubval]; intros i H.
-      * rewrite nth_error_nil in H. discriminate.
-      * destruct i.
-        -- inversion H. cbn. lia.
-        -- specialize (IHsubval _ H). cbn. lia.
+      lia.
   Qed.
 
   Lemma weight_arity_0 (v : V) :
@@ -884,7 +881,7 @@ Section GetSetPath.
   Proof.
     rewrite total_weight_prop. cbn.
     rewrite<- length_subvalues_is_arity in H. apply length_1_is_singleton in H.
-    destruct H as (? & ->). reflexivity.
+    destruct H as (? & ->). cbn. lia.
   Qed.
 
   (* Proving the same with sget and sset: *)
@@ -1355,6 +1352,48 @@ Section GetSetPath.
     - rewrite constructor_vset_vget_not_prefix by assumption. apply H.
       eapply vset_not_prefix_valid_rev; [ | eassumption].
       intros ?%vstrict_prefix_is_vprefix. auto.
+  Qed.
+
+  Lemma not_value_contains_weight (P : constructors -> Prop) v
+    (H : forall c, weight c > 0 -> P c) :
+    not_value_contains P v -> vweight v = 0.
+  Proof.
+    remember (size v) as n eqn:Heqn. revert v Heqn.
+    induction n as [n IH] using lt_wf_ind. intros v -> not_contains.
+    rewrite total_weight_prop. rewrite Nat.eq_add_0. split.
+    - rewrite sum_zero. intros i G.
+      rewrite length_map in G.
+      rewrite nth_error_map.
+      apply nth_error_Some' in G. destruct G as (w & G). rewrite G.
+      cbn. f_equal. eapply IH.
+      + eapply size_decreasing. eassumption.
+      + reflexivity.
+      + intros p valid_p. replace (w.[[p]]) with (v.[[i :: p]]) by (cbn; rewrite G; reflexivity).
+        apply not_contains. econstructor; eassumption.
+    - destruct (weight (get_constructor v)) eqn:?; [reflexivity | ].
+      exfalso. eapply not_contains.
+      + apply valid_nil.
+      + apply H. cbn. lia.
+  Qed.
+
+  Lemma weight_0_not_value_contains (P : constructors -> Prop) v
+    (H : forall c, P c -> weight c > 0) :
+    vweight v = 0 -> not_value_contains P v.
+  Proof.
+    remember (size v) as n eqn:Heqn. revert v Heqn.
+    induction n as [n IH] using lt_wf_ind. intros v -> weight_v.
+    rewrite total_weight_prop, Nat.eq_add_0, sum_zero in weight_v.
+    destruct weight_v as (weight_subvalues & weight_constructor).
+    intros [ | i p] valid_v.
+    - intro G. specialize (H _ G). cbn in H. lia.
+    - cbn. inversion valid_v as [ | ? ? ? ? G]. subst. rewrite G.
+      eapply IH.
+      + eapply size_decreasing. eassumption.
+      + reflexivity.
+      + specialize (weight_subvalues i). rewrite nth_error_map, G in weight_subvalues.
+        injection weight_subvalues; [auto | ].
+        rewrite length_map. apply nth_error_Some. rewrite G. discriminate.
+      + assumption.
   Qed.
 
   Lemma not_state_contains_sset P S v p

@@ -1,5 +1,5 @@
 Require Import List.
-Require Import PeanoNat.
+Require Import PeanoNat Lia ZArith.
 Require Import OptionMonad.
 Import ListNotations.
 
@@ -131,3 +131,73 @@ Section Map_nth.
     - rewrite !map_nth_equal_None; auto.
   Qed.
 End Map_nth.
+
+Lemma map_map_nth [A B] l (f : A -> B) g n x : nth_error l n = Some x ->
+  map f (map_nth l n g) = map_nth (map f l) n (fun _ => f (g x)).
+Proof.
+  intro. apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
+  - rewrite nth_error_map.
+    rewrite !nth_error_map_nth_eq.
+    rewrite nth_error_map. simplify_option.
+  - rewrite nth_error_map.
+    rewrite !nth_error_map_nth_neq by assumption.
+    rewrite nth_error_map. reflexivity.
+Qed.
+
+Definition sum (l : list nat) := fold_right Nat.add 0 l.
+
+Lemma sum_zero l : sum l = 0 <-> (forall i, i < length l -> nth_error l i = Some 0).
+Proof.
+  split.
+  - induction l.
+    + intros ? ? H. inversion H.
+    + intro H. cbn in H. rewrite Nat.eq_add_0 in H. destruct H as (-> & H).
+      destruct i.
+      * reflexivity.
+      * cbn. intros ?%PeanoNat.lt_S_n. auto.
+  - induction l.
+    + reflexivity.
+    + intro H. cbn. unfold sum in IHl. rewrite IHl.
+      * injection (H 0); cbn; lia.
+      * intros i ?. specialize (H (S i)). apply H. cbn. lia.
+Qed.
+
+Lemma sum_one l :
+  sum l = 1 <->
+  (exists i, nth_error l i = Some 1 /\ forall j, j < length l -> i <> j -> nth_error l j = Some 0).
+Proof.
+  split.
+  - induction l as [ | x l IHl].
+    + intros [=].
+    + destruct x as [ | [ | x]]; intros [=H].
+      * destruct IHl as (i & ? & G); [exact H | ].
+        exists (S i). split; [assumption | ].
+        intros [ | j] ? ?. cbn.
+        -- reflexivity.
+        -- cbn in *. apply G; lia.
+      * exists 0. split; [reflexivity | ].
+        intros [ | j] ? ?; [congruence | ]. cbn in *. apply sum_zero; lia.
+  - intros (i & H & G). revert l H G. induction i.
+    + intros [ | ? l] [=->] G. cbn. f_equal. apply sum_zero.
+      intros j ?. specialize (G (S j)). apply G; cbn; lia.
+    + intros [ | x l] [= ?] G. cbn.
+      rewrite IHi.
+      * replace x with 0; [reflexivity | ]. injection (G 0); cbn; lia.
+      * assumption.
+      * intros j ? ?. apply (G (S j)); cbn; lia.
+Qed.
+
+Lemma sum_map_nth l n f x : nth_error l n = Some x ->
+  (Z.of_nat (sum (map_nth l n f))) = ((Z.of_nat (sum l)) - (Z.of_nat x) + (Z.of_nat (f x)))%Z.
+Proof.
+  revert l. induction n.
+  - intros [ | ? l] [=->]. cbn. lia.
+  - intros [ | y l] [=H]. specialize (IHn _ H). cbn. unfold sum in IHn. lia.
+Qed.
+
+Lemma sum_ge_element l n x : nth_error l n = Some x -> sum l >= x.
+Proof.
+  revert l. induction n.
+  - intros [ | ? l] [=->]. cbn. lia.
+  - intros [ | y l] [=H]. specialize (IHn _ H). cbn. unfold sum in IHn. lia.
+Qed.

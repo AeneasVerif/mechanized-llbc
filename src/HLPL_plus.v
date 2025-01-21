@@ -111,7 +111,7 @@ Next Obligation.
               destruct (length_1_is_singleton H) as [? ->];
               reflexivity.
 Qed.
-Next Obligation. destruct v; reflexivity. Qed.
+Next Obligation. destruct v; cbn; lia. Qed.
 
 Definition HLPL_plus_state := state HLPL_plus_binder HLPL_plus_val.
 

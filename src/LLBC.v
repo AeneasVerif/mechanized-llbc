@@ -3,7 +3,7 @@ Require Import PathToSubtree.
 Require Import lang.
 Require Import List.
 Import ListNotations.
-Require Import PeanoNat.
+Require Import PeanoNat Lia.
 
 Inductive LLBC_val :=
 | LLBC_bot
@@ -90,7 +90,7 @@ Next Obligation.
               destruct (length_1_is_singleton H) as [? ->];
               reflexivity.
 Qed.
-Next Obligation. destruct v; reflexivity. Qed.
+Next Obligation. destruct v; cbn; lia. Qed.
 
 Definition LLBC_state := state LLBC_binder LLBC_val.
 
