@@ -33,6 +33,10 @@ Proof.
   intros ?%nth_error_Some. destruct (nth_error l n); [eexists; reflexivity | contradiction].
 Qed.
 
+Lemma nth_error_length [A] (l : list A) n x : nth_error l n = Some x -> n < length l.
+Proof. intro H. apply nth_error_Some. rewrite H. discriminate. Qed.
+Local Hint Resolve nth_error_length : core.
+
 (* TODO: move in a separate file? *)
 Section Map_nth.
   Context {A : Type}.
@@ -146,47 +150,6 @@ Qed.
 
 Definition sum (l : list nat) := fold_right Nat.add 0 l.
 
-Lemma sum_zero l : sum l = 0 <-> (forall i, i < length l -> nth_error l i = Some 0).
-Proof.
-  split.
-  - induction l.
-    + intros ? ? H. inversion H.
-    + intro H. cbn in H. rewrite Nat.eq_add_0 in H. destruct H as (-> & H).
-      destruct i.
-      * reflexivity.
-      * cbn. intros ?%PeanoNat.lt_S_n. auto.
-  - induction l.
-    + reflexivity.
-    + intro H. cbn. unfold sum in IHl. rewrite IHl.
-      * injection (H 0); cbn; lia.
-      * intros i ?. specialize (H (S i)). apply H. cbn. lia.
-Qed.
-
-Lemma sum_one l :
-  sum l = 1 <->
-  (exists i, nth_error l i = Some 1 /\ forall j, j < length l -> i <> j -> nth_error l j = Some 0).
-Proof.
-  split.
-  - induction l as [ | x l IHl].
-    + intros [=].
-    + destruct x as [ | [ | x]]; intros [=H].
-      * destruct IHl as (i & ? & G); [exact H | ].
-        exists (S i). split; [assumption | ].
-        intros [ | j] ? ?. cbn.
-        -- reflexivity.
-        -- cbn in *. apply G; lia.
-      * exists 0. split; [reflexivity | ].
-        intros [ | j] ? ?; [congruence | ]. cbn in *. apply sum_zero; lia.
-  - intros (i & H & G). revert l H G. induction i.
-    + intros [ | ? l] [=->] G. cbn. f_equal. apply sum_zero.
-      intros j ?. specialize (G (S j)). apply G; cbn; lia.
-    + intros [ | x l] [= ?] G. cbn.
-      rewrite IHi.
-      * replace x with 0; [reflexivity | ]. injection (G 0); cbn; lia.
-      * assumption.
-      * intros j ? ?. apply (G (S j)); cbn; lia.
-Qed.
-
 Lemma sum_map_nth l n f x : nth_error l n = Some x ->
   (Z.of_nat (sum (map_nth l n f))) = ((Z.of_nat (sum l)) - (Z.of_nat x) + (Z.of_nat (f x)))%Z.
 Proof.
@@ -200,4 +163,60 @@ Proof.
   revert l. induction n.
   - intros [ | ? l] [=->]. cbn. lia.
   - intros [ | y l] [=H]. specialize (IHn _ H). cbn. unfold sum in IHn. lia.
+Qed.
+
+Lemma sum_non_zero l :
+  sum l > 0 -> (exists i x, nth_error l i = Some (S x)).
+Proof.
+  induction l as [ | y l IH].
+  - cbn. lia.
+  - intro H. destruct y as [ | z]; cbn in H.
+    + specialize (IH H). destruct IH as (i & x & ?). exists (S i), x. assumption.
+    + exists 0, z. reflexivity.
+Qed.
+
+Lemma sum_zero l : sum l = 0 <-> (forall i, i < length l -> nth_error l i = Some 0).
+Proof.
+  split.
+  - intros ? i Hi. apply nth_error_Some' in Hi. destruct Hi as (x & Hi). rewrite Hi.
+    apply sum_ge_element in Hi. f_equal. lia.
+  - intros ?. destruct (sum l) eqn:?; [reflexivity | ].
+    assert (sum l > 0) as (? & ? & G)%sum_non_zero by lia. rewrite H in G; [discriminate | eauto].
+Qed.
+
+Lemma sum_le_one l :
+  sum l <= 1 -> (forall i j x y, nth_error l i = Some x -> nth_error l j = Some y -> x > 0 -> y > 0 -> i = j).
+Proof.
+  intros H. induction l as [ | n l IH].
+  - intros i ? x ? G. rewrite nth_error_nil in G. congruence.
+  - cbn in H. destruct n.
+    + intros [ | i] [ | j] ? ?; [rewrite nth_error_cons_0; simplify_option; lia.. | ].
+      rewrite !nth_error_cons_succ.
+      assert (sum l <= 1) as G by (unfold sum; lia). specialize (IH G).
+      intros. f_equal. eauto.
+    + intros i j [ | ] [ | ] Hi Hj Hx Hy; [lia.. | ].
+      assert (sum l = 0) as G by (unfold sum; lia).
+      destruct i. 2: { cbn in Hi. apply sum_ge_element in Hi. lia. }
+      destruct j. 2: { cbn in Hj. apply sum_ge_element in Hj. lia. }
+      reflexivity.
+Qed.
+
+Lemma sum_unique_one l (H : forall i x, nth_error l i = Some x -> x <= 1)
+  (G : forall i j, nth_error l i = Some 1 -> nth_error l j = Some 1 -> i = j) :
+  sum l <= 1.
+Proof.
+  induction l as [ | [ | [ | x]] l IH].
+  - cbn. lia.
+  - apply IH.
+    + intros i. specialize (H (S i)). rewrite nth_error_cons_succ in H. exact H.
+    + intros i j ? ?. specialize (G (S i) (S j)). rewrite !nth_error_cons_succ in G.
+      injection G; auto.
+  - transitivity (1 + sum l); [reflexivity | ].
+    destruct (sum l) eqn:?.
+    + rewrite Nat.add_0_r. reflexivity.
+    + assert (sum l > 0) as (i & x & Hi)%sum_non_zero by lia.
+      specialize (H (S i) _ Hi). replace (S x) with 1 in Hi by lia.
+      specialize (G (S i) 0 Hi). discriminate G. reflexivity.
+  - specialize (H 0 (2 + x)). rewrite nth_error_cons_0 in H.
+    assert (2 + x <= 1) by auto. lia.
 Qed.

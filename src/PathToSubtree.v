@@ -816,6 +816,8 @@ Section GetSetPath.
     lia.
   Qed.
 
+  Hint Resolve nth_error_length : core.
+
   (* Two values are equal if they have the same constructors everywhere. *)
   Lemma get_constructor_vget_ext v w :
     (forall p, get_constructor (v.[[p]]) = get_constructor (w.[[p]])) -> v = w.
@@ -828,7 +830,7 @@ Section GetSetPath.
     apply constructor_subvalues_inj; [assumption | ].
     apply nth_error_ext. intro i. destruct (nth_error (subvalues v) i) eqn:EQN.
     - assert (i < length (subvalues w)).
-      { rewrite <-eq_length. apply nth_error_Some. rewrite EQN. discriminate. }
+      { rewrite <-eq_length. eauto. }
       assert (nth_error (subvalues w) i <> None) by now apply nth_error_Some.
       destruct (nth_error (subvalues w) i) eqn:EQN'; [ | contradiction].
       f_equal. eapply IH; [ | reflexivity | ].
@@ -866,6 +868,14 @@ Section GetSetPath.
       erewrite sum_map_nth by (erewrite map_nth_error by eassumption; reflexivity).
       replace (u.[[i :: p]]) with (v.[[p]]) by (cbn; rewrite H; reflexivity).
       lia.
+  Qed.
+
+  Lemma weight_vset_le v p (H : valid_vpath v p) : vweight (v.[[p]]) <= vweight v.
+  Proof.
+    induction H as [ | ? ? ? ? H].
+    - reflexivity.
+    - rewrite (total_weight_prop _ v). cbn. rewrite H.
+      apply (map_nth_error vweight) in H. apply sum_ge_element in H. lia.
   Qed.
 
   Lemma weight_arity_0 (v : V) :
@@ -921,8 +931,7 @@ Section GetSetPath.
   Proof.
     intros (i & r & <-) (_ & G)%valid_spath_app.
     assert (i = 0) as ->.
-    { apply PeanoNat.Nat.lt_1_r. rewrite<- H. apply nth_error_Some.
-      inversion G. destruct (nth_error (subvalues (S.[p]))); easy. }
+    { apply PeanoNat.Nat.lt_1_r. rewrite<- H. inversion G. eauto.  }
     exists r. rewrite<- app_spath_vpath_assoc. reflexivity.
   Qed.
 
@@ -1354,46 +1363,144 @@ Section GetSetPath.
       intros ?%vstrict_prefix_is_vprefix. auto.
   Qed.
 
+  Lemma weight_non_zero v :
+    vweight v > 0 -> exists p, valid_vpath v p /\ weight (get_constructor (v.[[p]])) > 0.
+  Proof.
+    remember (size v) as n eqn:Heqn. revert v Heqn.
+    induction n as [n IH] using lt_wf_ind. intros v -> weight_non_zero.
+    rewrite total_weight_prop in weight_non_zero.
+    destruct (weight (get_constructor v)) eqn:?.
+    - rewrite Nat.add_0_r in weight_non_zero. apply sum_non_zero in weight_non_zero.
+      destruct weight_non_zero as (i & ? & H). rewrite nth_error_map in H.
+      destruct (nth_error (subvalues v) i) as [w | ] eqn:G; [ | discriminate].
+      injection H as ?.
+      edestruct IH as (p & ? & ?).
+      + eapply size_decreasing. eassumption.
+      + reflexivity.
+      + lia.
+      + exists (i :: p). split.
+        * econstructor; eassumption.
+        * cbn. rewrite G. assumption.
+    - exists []. cbn. split; [constructor | lia].
+  Qed.
+
   Lemma not_value_contains_weight (P : constructors -> Prop) v
     (H : forall c, weight c > 0 -> P c) :
     not_value_contains P v -> vweight v = 0.
   Proof.
-    remember (size v) as n eqn:Heqn. revert v Heqn.
-    induction n as [n IH] using lt_wf_ind. intros v -> not_contains.
-    rewrite total_weight_prop. rewrite Nat.eq_add_0. split.
-    - rewrite sum_zero. intros i G.
-      rewrite length_map in G.
-      rewrite nth_error_map.
-      apply nth_error_Some' in G. destruct G as (w & G). rewrite G.
-      cbn. f_equal. eapply IH.
-      + eapply size_decreasing. eassumption.
-      + reflexivity.
-      + intros p valid_p. replace (w.[[p]]) with (v.[[i :: p]]) by (cbn; rewrite G; reflexivity).
-        apply not_contains. econstructor; eassumption.
-    - destruct (weight (get_constructor v)) eqn:?; [reflexivity | ].
-      exfalso. eapply not_contains.
-      + apply valid_nil.
-      + apply H. cbn. lia.
+    intro not_contains. destruct (vweight v) eqn:?; [reflexivity | ].
+    exfalso. assert (non_zero: vweight v > 0) by lia.
+    apply weight_non_zero in non_zero. destruct non_zero as (p & ? & ?).
+    eapply not_contains; eauto.
   Qed.
 
-  Lemma weight_0_not_value_contains (P : constructors -> Prop) v
+  Lemma weight_zero_not_value_contains (P : constructors -> Prop) v
     (H : forall c, P c -> weight c > 0) :
     vweight v = 0 -> not_value_contains P v.
   Proof.
+    intros ? p valid_p P_p. specialize (H _ P_p). pose proof (weight_vset_le _ _ valid_p) as G.
+    rewrite (total_weight_prop _ (v.[[p]])) in G. lia.
+  Qed.
+
+  (* There is at most one path that satisfies a predicate P. *)
+  Definition value_at_most_one P v :=
+    forall p q, valid_vpath v p -> valid_vpath v q ->
+                P (get_constructor (v.[[p]])) -> P (get_constructor (v.[[q]])) ->
+                p = q.
+
+  Definition vpath_unique  P v p :=
+    valid_vpath v p /\ P (get_constructor (v.[[p]])) /\
+    forall q, valid_vpath v q -> P (get_constructor (v.[[q]])) -> p = q.
+
+  Lemma vpath_unique_implies_at_most_one P v p :
+    vpath_unique P v p -> value_at_most_one P v.
+  Proof.
+    intros (_ & _ & H) q r ? ? ? ?.
+    rewrite<- (H q); [ | assumption..]. rewrite<- (H r); [ | assumption..]. reflexivity.
+  Qed.
+
+  Lemma not_value_contains_implies_at_most_one P v :
+    not_value_contains P v -> value_at_most_one P v.
+  Proof. intros not_contains p ? valid_p _ P_p. exfalso. eapply not_contains; eassumption. Qed.
+
+  Lemma weight_at_most_one v :
+    vweight v = 1 -> exists p, vpath_unique (fun c => weight c > 0) v p.
+  Proof.
+    intro weight_1.
+    assert (vweight v > 0) as (p & valid_p & P_p)%weight_non_zero by lia.
+    exists p. repeat split; [assumption.. | ].
+    induction valid_p as [ | v i p w H valid_p IH].
+      rewrite total_weight_prop in weight_1.
+      intros q valid_q. destruct valid_q as [ | ? ? ? ? H valid_rec]; [reflexivity | ].
+      cbn in *. rewrite H.
+      apply (map_nth_error vweight) in H. apply sum_ge_element in H.
+      pose proof (weight_vset_le _ _ valid_rec) as G.
+      rewrite total_weight_prop in G. lia.
+    - rewrite total_weight_prop in weight_1.
+      cbn in P_p. rewrite H in P_p.
+      pose proof (weight_vset_le _ _ valid_p) as weight_w_p.
+      rewrite total_weight_prop in weight_w_p.
+      pose proof (map_nth_error vweight _ _ H) as weight_subvalues.
+      apply sum_ge_element in weight_subvalues.
+      intros ? valid_q. destruct valid_q as [ | v j q w' G valid_q].
+      + cbn. lia.
+      + intros P_q. cbn in P_q. rewrite G in P_q. replace j with i in *.
+        * replace w' with w in * by congruence.
+          f_equal. apply IH; [ | assumption..]. lia.
+        * pose proof (weight_vset_le _ _ valid_q) as weight_w'_q.
+          rewrite total_weight_prop in weight_w'_q.
+          apply (map_nth_error vweight) in H, G.
+          eapply sum_le_one; [ | exact H | exact G | | ]; lia.
+  Qed.
+
+  Lemma weight_one_at_most_one_vpath v
+    (weight_le_1 : forall c, weight c <= 1) :
+    value_at_most_one (fun c => weight c > 0) v -> vweight v <= 1.
+  Proof.
     remember (size v) as n eqn:Heqn. revert v Heqn.
-    induction n as [n IH] using lt_wf_ind. intros v -> weight_v.
-    rewrite total_weight_prop, Nat.eq_add_0, sum_zero in weight_v.
-    destruct weight_v as (weight_subvalues & weight_constructor).
-    intros [ | i p] valid_v.
-    - intro G. specialize (H _ G). cbn in H. lia.
-    - cbn. inversion valid_v as [ | ? ? ? ? G]. subst. rewrite G.
-      eapply IH.
-      + eapply size_decreasing. eassumption.
-      + reflexivity.
-      + specialize (weight_subvalues i). rewrite nth_error_map, G in weight_subvalues.
-        injection weight_subvalues; [auto | ].
-        rewrite length_map. apply nth_error_Some. rewrite G. discriminate.
+    induction n as [n IH] using lt_wf_ind. intros v -> at_most_one.
+    rewrite total_weight_prop.
+    pose proof (weight_le_1 (get_constructor v)) as [-> | weight_constructor]%Nat.le_1_r.
+    - rewrite Nat.add_0_r. apply sum_unique_one.
+      + intros i x H. rewrite nth_error_map in H.
+        destruct (nth_error (subvalues v) i) as [w | ] eqn:Hw; [ | discriminate].
+        injection H as <-.
+        eapply IH.
+        * eapply size_decreasing. exact Hw.
+        * reflexivity.
+        * intros p q valid_p valid_q Hp Hq.
+          injection (at_most_one (i :: p) (i :: q)).
+          -- auto.
+          -- econstructor; eassumption.
+          -- econstructor; eassumption.
+          -- cbn. rewrite Hw. assumption.
+          -- cbn. rewrite Hw. assumption.
+      + intros i j. rewrite !nth_error_map. intros Hi Hj.
+        destruct (nth_error (subvalues v) i) as [wi | ] eqn:Hwi; [ | discriminate].
+        destruct (nth_error (subvalues v) j) as [wj | ] eqn:Hwj; [ | discriminate].
+        injection Hi as ?. injection Hj as ?.
+        destruct (weight_non_zero wi) as (p & ? & ?); [lia | ].
+        destruct (weight_non_zero wj) as (q & ? & ?); [lia | ].
+        assert (i :: p = j :: q) as eq_path; [ | injection eq_path; auto].
+        apply at_most_one.
+        * econstructor; eassumption.
+        * econstructor; eassumption.
+        * cbn. rewrite Hwi. assumption.
+        * cbn. rewrite Hwj. assumption.
+    - assert (sum (map vweight (subvalues v)) = 0); [ | lia].
+      apply sum_zero. intros i H.
+      rewrite nth_error_map.
+      rewrite length_map in H. apply nth_error_Some' in H.
+      destruct H as (w & H). rewrite H. cbn. f_equal.
+      replace w with (v.[[ [i] ]]) by (cbn; rewrite H; reflexivity).
+      eapply not_value_contains_weight; [intros ? G; exact G | ].
+      intros p q. rewrite<- vget_app.
+      intros ?. specialize (at_most_one ([i] ++ p) []).
+      discriminate at_most_one.
+      + apply valid_vpath_app. split; repeat (econstructor || eassumption).
+      + constructor.
       + assumption.
+      + cbn. lia.
   Qed.
 
   Lemma not_state_contains_sset P S v p
