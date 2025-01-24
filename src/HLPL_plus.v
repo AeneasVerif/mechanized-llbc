@@ -32,7 +32,7 @@ Variant HLPL_plus_binder :=
 Program Global Instance EqDec_binder : EqDec HLPL_plus_binder.
 Next Obligation. repeat decide equality. Qed.
 
-Variant HLPL_plus_constructor :=
+Variant HLPL_plus_nodes :=
 | HLPL_plus_botC
 | HLPL_plus_intC (n : nat)
 | HLPL_plus_mut_loanC (l : loan_id)
@@ -41,7 +41,7 @@ Variant HLPL_plus_constructor :=
 | HLPL_plus_ptrC (l : loan_id)
 .
 
-Program Instance EqDec_HLPL_plus_constructor : EqDec HLPL_plus_constructor.
+Program Instance EqDec_HLPL_plus_nodes : EqDec HLPL_plus_nodes.
 Next Obligation. decide equality; decide equality. Qed.
 
 
@@ -54,7 +54,7 @@ Definition HLPL_plus_arity c := match c with
 | HLPL_plus_ptrC _ => 0
 end.
 
-Definition HLPL_plus_get_constructor v := match v with
+Definition HLPL_plus_get_node v := match v with
 | HLPL_plus_bot => HLPL_plus_botC
 | HLPL_plus_int n => HLPL_plus_intC n
 | HLPL_plus_mut_loan l => HLPL_plus_mut_loanC l
@@ -63,7 +63,7 @@ Definition HLPL_plus_get_constructor v := match v with
 | HLPL_plus_ptr l => HLPL_plus_ptrC l
 end.
 
-Definition HLPL_plus_subvalues v := match v with
+Definition HLPL_plus_children v := match v with
 | HLPL_plus_bot => []
 | HLPL_plus_int _ => []
 | HLPL_plus_mut_loan _ => []
@@ -85,21 +85,21 @@ Fixpoint HLPL_plus_weight node_weight v :=
   match v with
   | HLPL_plus_mut_borrow l v => node_weight (HLPL_plus_mut_borrowC l) + HLPL_plus_weight node_weight v
   | HLPL_plus_loc l v => node_weight (HLPL_plus_locC l) + HLPL_plus_weight node_weight v
-  | v => node_weight (HLPL_plus_get_constructor v)
+  | v => node_weight (HLPL_plus_get_node v)
 end.
 
 Program Instance ValueHLPL : Value HLPL_plus_val := {
-  constructors := HLPL_plus_constructor;
+  nodes := HLPL_plus_nodes;
   arity := HLPL_plus_arity;
-  get_constructor := HLPL_plus_get_constructor;
-  subvalues := HLPL_plus_subvalues;
+  get_node := HLPL_plus_get_node;
+  children := HLPL_plus_children;
   fold_value := HLPL_plus_fold;
   total_weight := HLPL_plus_weight;
   bot := HLPL_plus_bot;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
 Next Obligation.
-destruct v; destruct w; inversion eq_constructor; inversion eq_subvalues; reflexivity.
+destruct v; destruct w; inversion eq_node; inversion eq_children; reflexivity.
 Qed.
 Next Obligation.
   destruct c; (rewrite length_zero_iff_nil in H; rewrite H) ||
@@ -156,17 +156,17 @@ Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop 
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
 | Eval_Deref_MutBorrow q l
     (Hperm : perm <> Mov)
-    (get_q : get_constructor (S.[q]) = borrowC^m(l)) :
+    (get_q : get_node (S.[q]) = borrowC^m(l)) :
     eval_proj S perm Deref q (q +++ [0])
 (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
 | Eval_Deref_Ptr_Locs q q' l
     (Hperm : perm <> Mov)
-    (get_q : get_constructor (S.[q]) = ptrC(l)) (get_q' : get_constructor (S.[q']) = locC(l)) :
+    (get_q : get_node (S.[q]) = ptrC(l)) (get_q' : get_node (S.[q']) = locC(l)) :
     eval_proj S perm Deref q (q' +++ [0])
 (* Coresponds to R-Loc and W-Loc in the article. *)
 | Eval_Loc proj q q' l
     (Hperm : perm = Imm)
-    (get_q : get_constructor (S.[q]) = locC(l))
+    (get_q : get_node (S.[q]) = locC(l))
     (eval_proj_rec : eval_proj S perm proj (q +++ [0]) q') : eval_proj S perm proj q q'
 .
 
@@ -211,14 +211,14 @@ Proof.
 Qed.
 Hint Resolve eval_place_valid : spath.
 
-Variant is_loan : HLPL_plus_constructor -> Prop :=
+Variant is_loan : HLPL_plus_nodes -> Prop :=
 | IsLoan_MutLoan l : is_loan (loanC^m(l)).
 Hint Constructors is_loan : spath.
 Definition not_contains_loan := not_value_contains is_loan.
 Hint Unfold not_contains_loan : spath.
 Hint Extern 0 (~is_loan _) => intro; easy : spath.
 
-Variant is_loc : HLPL_plus_constructor -> Prop :=
+Variant is_loc : HLPL_plus_nodes -> Prop :=
 | IsLoc_Loc l : is_loc (locC(l)).
 Definition not_contains_loc := not_value_contains is_loc.
 Hint Unfold not_contains_loc : spath.
@@ -229,13 +229,13 @@ Definition not_contains_bot v :=
 Hint Unfold not_contains_bot : spath.
 Hint Extern 0 (_ <> botC) => discriminate : spath.
 
-Variant is_mut_borrow : HLPL_plus_constructor -> Prop :=
+Variant is_mut_borrow : HLPL_plus_nodes -> Prop :=
 | IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
 Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 Notation not_contains_outer_loc := (not_contains_outer is_mut_borrow is_loc).
 
 Definition not_in_borrow (S : HLPL_plus_state) p :=
-  forall q, is_mut_borrow (get_constructor (S.[q])) -> ~strict_prefix q p.
+  forall q, is_mut_borrow (get_node (S.[q])) -> ~strict_prefix q p.
 
 Lemma not_in_borrow_sset S p q v : not_in_borrow S p -> ~strict_prefix q p ->
   not_in_borrow (S.[q <- v]) p.
@@ -262,7 +262,7 @@ Ltac prove_not_contains_outer :=
       apply not_contains_outer_sset_no_contains;
         [prove_not_contains_outer | exact H | exact loc_is_not_bot || exact loan_is_not_bot]
   | no_outer_loan : not_contains_outer_loan (?S.[?q]),
-    loan_at_q : get_constructor (?S.[?q +++ ?p]) = loanC^m(?l)
+    loan_at_q : get_node (?S.[?q +++ ?p]) = loanC^m(?l)
     |- not_contains_outer _ ?P (?S.[?q].[[?p <- ?w]]) =>
     apply not_contains_outer_sset_in_borrow;
      [ prove_not_contains_outer |
@@ -283,7 +283,7 @@ Definition get_loan_id c :=
 Notation is_fresh l S := (not_state_contains (fun c => get_loan_id c = Some l) S).
 
 Lemma is_fresh_loan_id_neq (S : HLPL_plus_state) l0 l1 p :
-  get_loan_id (get_constructor (S.[p])) = Some l0 -> is_fresh l1 S -> l0 <> l1.
+  get_loan_id (get_node (S.[p])) = Some l0 -> is_fresh l1 S -> l0 <> l1.
 Proof.
   intros get_p Hfresh <-. eapply Hfresh; [ | exact get_p].
   apply get_not_bot_valid_spath. intro H. rewrite H in get_p. inversion get_p.
@@ -291,7 +291,7 @@ Qed.
 
 Hint Extern 0 (get_loan_id _ <> Some ?l) =>
   lazymatch goal with
-  | Hfresh : is_fresh ?l ?S, get_p : get_constructor (?S.[?p]) = ?v |- _ =>
+  | Hfresh : is_fresh ?l ?S, get_p : get_node (?S.[?p]) = ?v |- _ =>
       injection;
       refine (is_fresh_loan_id_neq S _ l p _ Hfresh);
       rewrite get_p;
@@ -351,24 +351,24 @@ Proof.
   apply surjective_pairing.
 Qed.
 
-Definition vancestor (v : HLPL_plus_val) p : HLPL_plus_constructor :=
+Definition vancestor (v : HLPL_plus_val) p : HLPL_plus_nodes :=
   match vpath_pred p with
   | None => botC
-  | Some q => get_constructor (v.[[q]])
+  | Some q => get_node (v.[[q]])
   end.
 
-Definition ancestor (S : HLPL_plus_state) p : HLPL_plus_constructor :=
+Definition ancestor (S : HLPL_plus_state) p : HLPL_plus_nodes :=
   match spath_pred p with
   | None => botC
-  | Some q => get_constructor (S.[q])
+  | Some q => get_node (S.[q])
   end.
 
-Lemma vancestor_singleton v i : vancestor v [i] = get_constructor v.
+Lemma vancestor_singleton v i : vancestor v [i] = get_node v.
 Proof. reflexivity. Qed.
 Hint Rewrite vancestor_singleton : spath.
 
 (* TODO: unused. delete? *)
-Lemma ancestor_app_last S p i : ancestor S (p +++ [i]) = get_constructor (S.[p]).
+Lemma ancestor_app_last S p i : ancestor S (p +++ [i]) = get_node (S.[p]).
 Proof. unfold ancestor. rewrite spath_pred_app_last. reflexivity. Qed.
 
 Lemma ancestor_sset_not_strict_prefix S p q v :
@@ -376,12 +376,12 @@ Lemma ancestor_sset_not_strict_prefix S p q v :
 Proof.
   unfold ancestor. intro. autodestruct.
   intros (? & ->)%spath_pred_is_Some.
-  rewrite constructor_sset_sget_not_prefix by auto with spath. reflexivity.
+  rewrite get_node_sset_sget_not_prefix by auto with spath. reflexivity.
 Qed.
 Hint Rewrite ancestor_sset_not_strict_prefix using auto with spath; fail : spath.
 
 Lemma ancestor_is_not_bot S p c :
-  ancestor S p = c -> c <> botC -> exists q i, p = q +++ [i] /\ get_constructor (S.[q]) = c.
+  ancestor S p = c -> c <> botC -> exists q i, p = q +++ [i] /\ get_node (S.[q]) = c.
 Proof.
   unfold ancestor. autodestruct. intros (i & ->)%spath_pred_is_Some.
   intros. eexists _, _. eauto.
@@ -429,13 +429,13 @@ where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
 Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Reorg_end_borrow_m S (p q : spath) l :
-    disj p q -> get_constructor (S.[p]) = loanC^m(l) -> get_constructor (S.[q]) = borrowC^m(l) ->
+    disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
     not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
 | Reorg_end_ptr S (p : spath) l :
-    get_constructor (S.[p]) = ptrC(l) -> (*not_in_borrow S p ->*) reorg S (S.[p <- bot])
+    get_node (S.[p]) = ptrC(l) -> (*not_in_borrow S p ->*) reorg S (S.[p <- bot])
 | Reorg_end_loc S (p : spath) l :
-    get_constructor (S.[p]) = locC(l) -> not_state_contains (eq ptrC(l)) S ->
+    get_node (S.[p]) = locC(l) -> not_state_contains (eq ptrC(l)) S ->
     reorg S (S.[p <- S.[p +++ [0] ] ])
 .
 
@@ -471,22 +471,22 @@ where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
-    (HS_loan : get_constructor (S.[sp_loan]) = loanC^m(l))
-    (HS_borrow : get_constructor (S.[sp_borrow]) = borrowC^m(l)) :
+    (HS_loan : get_node (S.[sp_loan]) = loanC^m(l))
+    (HS_borrow : get_node (S.[sp_borrow]) = borrowC^m(l)) :
     le_state_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
 
 Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
-  unique_borrow_mut l p q : get_constructor (S.[p]) = borrowC^m(l) ->
-                            get_constructor (S.[q]) = borrowC^m(l) -> p = q;
-  unique_loan_mut l p q : get_constructor (S.[p]) = loanC^m(l) ->
-                          get_constructor (S.[q]) = loanC^m(l) -> p = q;
-  no_mut_loan_ptr l p : get_constructor (S.[p]) = loanC^m(l) ->
+  unique_borrow_mut l p q : get_node (S.[p]) = borrowC^m(l) ->
+                            get_node (S.[q]) = borrowC^m(l) -> p = q;
+  unique_loan_mut l p q : get_node (S.[p]) = loanC^m(l) ->
+                          get_node (S.[q]) = loanC^m(l) -> p = q;
+  no_mut_loan_ptr l p : get_node (S.[p]) = loanC^m(l) ->
                         not_state_contains (eq ptrC(l)) S;
-  no_mut_loan_loc l p : get_constructor (S.[p]) = loanC^m(l) ->
+  no_mut_loan_loc l p : get_node (S.[p]) = loanC^m(l) ->
                         not_state_contains (eq locC(l)) S;
 }.
 
-Notation scount c S := (sweight (identify c) S).
+Notation scount c S := (sweight (indicator c) S).
 
 Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
   unique_borrow_mut_alt : scount (borrowC^m(l)) S <= 1;
@@ -498,11 +498,11 @@ Lemma well_formedness_equiv S : HLPL_plus_well_formed S <-> forall l, HLPL_plus_
 Admitted.
 
 (* TODO: move *)
-(* Rewriting weight_arity_0 and weight_arity_1 using goals of the form "get_constructor S.[p] = c".
+(* Rewriting weight_arity_0 and weight_arity_1 using goals of the form "get_node S.[p] = c".
    I couldn't do it with autorewrite, so I'm using this strang tactic instead. *)
-Ltac weight_given_constructor :=
+Ltac weight_given_node :=
   lazymatch goal with
-  | H : get_constructor (?S.[?p]) = _ |- context [total_weight _ (?S.[?p])] =>
+  | H : get_node (?S.[?p]) = _ |- context [total_weight _ (?S.[?p])] =>
     let G := fresh in
     pose proof (G := H);
     apply (f_equal arity) in G;
@@ -523,8 +523,8 @@ Hint Rewrite total_weight_ptr : weight.
 Ltac prove_weight_inequality :=
   (* Translate the inequality into relatives, and repeatedly rewrite sweight_sset. *)
   autorewrite with weight spath;
-  (* Use the hypotheses "get_constructor S.[p] = c" to further rewrite the formula. *)
-  repeat weight_given_constructor;
+  (* Use the hypotheses "get_node S.[p] = c" to further rewrite the formula. *)
+  repeat weight_given_node;
   (* Final rewriting. *)
   autorewrite with weight spath;
   lia
@@ -543,11 +543,11 @@ Qed.
 
 (* TODO: move *)
 (* Proving a comparison between p and q using information from the environment S. *)
-Lemma spath_neq_by_value_constructor (S : HLPL_plus_state) p q v c :
-  S.[p] = v -> get_constructor (S.[q]) = c -> get_constructor v <> c -> p <> q.
+Lemma spath_neq_by_value_node (S : HLPL_plus_state) p q v c :
+  S.[p] = v -> get_node (S.[q]) = c -> get_node v <> c -> p <> q.
 Proof. congruence. Qed.
 Hint Extern 3 (~ (@eq spath _ _)) =>
-  simple eapply spath_neq_by_value_constructor; [eassumption | eassumption | discriminate] : spath.
+  simple eapply spath_neq_by_value_node; [eassumption | eassumption | discriminate] : spath.
 
 Hint Extern 0 (~ (@eq spath _ _)) => congruence : spath.
 
@@ -556,8 +556,8 @@ Section MutBorrow_to_Ptr.
   Context (l0 : loan_id).
   Context (sp_loan sp_borrow : spath).
   Context (Hdisj : disj sp_loan sp_borrow).
-  Hypothesis (HS_r_loan : get_constructor (S_r.[sp_loan]) = loanC^m(l0)).
-  Hypothesis (HS_r_borrow : get_constructor (S_r.[sp_borrow]) = borrowC^m(l0)).
+  Hypothesis (HS_r_loan : get_node (S_r.[sp_loan]) = loanC^m(l0)).
+  Hypothesis (HS_r_borrow : get_node (S_r.[sp_borrow]) = borrowC^m(l0)).
   Notation v := (S_r.[sp_borrow +++ [0] ]).
   Notation S_l := (S_r.[sp_loan <- loc(l0, v)].[sp_borrow <- ptr(l0)]).
   Context (perm : permission).
@@ -579,8 +579,8 @@ Section MutBorrow_to_Ptr.
   Qed.
 
   (* TODO: name *)
-  Lemma get_loc_rel q l (H : get_constructor (S_r.[q]) = locC(l)) :
-    exists q', rel (q' +++ [0]) (q +++ [0]) /\ get_constructor (S_l.[q']) = locC(l).
+  Lemma get_loc_rel q l (H : get_node (S_r.[q]) = locC(l)) :
+    exists q', rel (q' +++ [0]) (q +++ [0]) /\ get_node (S_l.[q']) = locC(l).
   Proof.
     destruct (decidable_prefix sp_borrow q) as [ | ].
     - assert (prefix (sp_borrow +++ [0]) q) as (r & <-) by eauto with spath.
@@ -706,8 +706,8 @@ End MutBorrow_to_Ptr.
 Ltac eval_place_preservation :=
   lazymatch goal with
   | eval_p_in_Sr : ?Sr |-{p} ?p =>^{Mov} ?pi,
-    _ : get_constructor (?Sr.[?sp_loan]) = loanC^m (?l),
-    _ : get_constructor (?Sr.[?sp_borrow]) = borrowC^m(?l) |- _ =>
+    _ : get_node (?Sr.[?sp_loan]) = loanC^m (?l),
+    _ : get_node (?Sr.[?sp_borrow]) = borrowC^m(?l) |- _ =>
       let eval_p_in_Sl := fresh "eval_p_in_Sl" in
       let sp_borrow_not_prefix := fresh "sp_borrow_not_prefix" in
       let valid_p := fresh "valid_p" in
@@ -723,8 +723,8 @@ Ltac eval_place_preservation :=
       clear eval_p_in_Sr
   | eval_p_in_Sr : ?Sr |-{p} ?p =>^{ _ } ?pi_r,
     Hdisj : disj ?sp_loan ?sp_borrow,
-    HSr_loan : get_constructor (?Sr.[?sp_loan]) = loanC^m (?l),
-    HSr_borrow : get_constructor (?Sr.[?sp_borrow]) = borrowC^m(?l) |- _ =>
+    HSr_loan : get_node (?Sr.[?sp_loan]) = loanC^m (?l),
+    HSr_borrow : get_node (?Sr.[?sp_borrow]) = borrowC^m(?l) |- _ =>
       let pi_l := fresh "pi_l" in
       let eval_p_in_Sl := fresh "eval_p_in_Sl" in
       let rel_pi_l_pi_r := fresh "rel_pi_l_pi_r" in

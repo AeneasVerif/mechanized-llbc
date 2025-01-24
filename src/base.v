@@ -9,14 +9,14 @@ Class EqDec (A : Type) := {
   eq_dec (a b : A) : {a = b} + {a <> b};
 }.
 
-Definition identify {A : Type} `{EqDec A} a b :=
+Definition indicator {A : Type} `{EqDec A} a b :=
   if eq_dec a b then 1 else 0.
 
-Lemma identify_same {A} `{EqDec A} (a : A) : identify a a = 1.
-Proof. unfold identify. destruct (eq_dec a a); congruence. Qed.
+Lemma indicator_same {A} `{EqDec A} (a : A) : indicator a a = 1.
+Proof. unfold indicator. destruct (eq_dec a a); congruence. Qed.
 
-Lemma identify_diff {A} `{EqDec A} (a b : A) : a <> b -> identify a b = 0.
-Proof. unfold identify. destruct (eq_dec a b); congruence. Qed.
+Lemma indicator_diff {A} `{EqDec A} (a b : A) : a <> b -> indicator a b = 0.
+Proof. unfold indicator. destruct (eq_dec a b); congruence. Qed.
 
 Lemma length_1_is_singleton [A : Type] [l : list A] : length l = 1 -> exists a, l = [a].
 Proof.

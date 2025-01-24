@@ -24,12 +24,12 @@ Coercion Z.of_nat : nat >-> Z.
 (* Paths, prefixes and disjointness *)
 
 (* A vpath ("value path") is the data structure used to uniquely represent nodes in a tree. The
- * integers in the list are the indices of the subvalues we take, going down from the root to the
+ * integers in the list are the indices of the children we take, going down from the root to the
  * node in the tree. It is called "vpath" because it will mostly be used by values in
  * intermediate languages between LLBC# and HLPL.
  * The vpaths are used to:
- * - Get the subvalue at a node.
- * - Set a subvalue at a node.
+ * - Get the child at a node.
+ * - Set a child at a node.
  * TODO: motivate the comparison between vpaths (prefix, equal, disjoint).
  *)
 Definition vpath := list nat.
@@ -500,27 +500,27 @@ Declare Scope GetSetPath_scope.
 Open Scope GetSetPath_scope.
 
 Class Value (V : Type) := {
-  constructors : Type; (* a `constructor` type *)
-  arity : constructors -> nat;
-  subvalues : V -> list V;
-  get_constructor : V -> constructors;
-  fold_value : constructors -> list V -> V;
+  nodes : Type; (* a `node` type *)
+  arity : nodes -> nat;
+  children : V -> list V;
+  get_node : V -> nodes;
+  fold_value : nodes -> list V -> V;
   (* The sum of some quantity for each node of the tree. *)
-  total_weight : (constructors -> nat) -> V -> nat;
+  total_weight : (nodes -> nat) -> V -> nat;
   bot : V;
 
-  length_subvalues_is_arity v : length (subvalues v) = arity (get_constructor v);
-  constructor_subvalues_inj v w (eq_constructor : get_constructor v = get_constructor w)
-                                (eq_subvalues : subvalues v = subvalues w) : v = w;
-  get_constructor_fold_value c vs (H : length vs = arity c) : get_constructor (fold_value c vs) = c;
-  subvalues_fold_value c vs (H : length vs = arity c) : subvalues (fold_value c vs) = vs;
-  subvalues_bot : subvalues bot = nil;
+  length_children_is_arity v : length (children v) = arity (get_node v);
+  get_nodes_children_inj v w (eq_node : get_node v = get_node w)
+                                (eq_children : children v = children w) : v = w;
+  get_node_fold_value c vs (H : length vs = arity c) : get_node (fold_value c vs) = c;
+  children_fold_value c vs (H : length vs = arity c) : children (fold_value c vs) = vs;
+  children_bot : children bot = nil;
   total_weight_prop weight v :
-    total_weight weight v = sum (map (total_weight weight) (subvalues v)) + (weight (get_constructor v))
+    total_weight weight v = sum (map (total_weight weight) (children v)) + (weight (get_node v))
 }.
 
 Notation get_subval_or_bot w i :=
-  (match nth_error (subvalues w) i with
+  (match nth_error (children w) i with
     | Some u => u
     | None => bot
   end).
@@ -531,7 +531,7 @@ Notation "v .[[ p ]]" := (vget p v) (left associativity, at level 50) : GetSetPa
 Fixpoint vset {V} `{Value V} (p : vpath) (w : V) (v : V) :=
   match p with
   | nil => w
-  | i :: q => fold_value (get_constructor v) (map_nth (subvalues v) i (vset q w))
+  | i :: q => fold_value (get_node v) (map_nth (children v) i (vset q w))
   end.
 Notation "v .[[ p <- w ]]" := (vset p w v) (left associativity, at level 50).
 
@@ -567,7 +567,7 @@ Section GetSetPath.
   Inductive valid_vpath : V -> vpath -> Prop :=
     | valid_nil v : valid_vpath v nil
     | valid_cons v i p w :
-        nth_error (subvalues v) i = Some w -> valid_vpath w p -> valid_vpath v (i :: p).
+        nth_error (children v) i = Some w -> valid_vpath w p -> valid_vpath v (i :: p).
 
   Lemma valid_vpath_app v p q :
     valid_vpath v (p ++ q) <-> valid_vpath v p /\ valid_vpath (v.[[p]]) q.
@@ -588,13 +588,13 @@ Section GetSetPath.
   (* We characterize invalid path by their longest prefix q. It means that the next index i is
    * such that [...] *)
   Definition invalid_vpath v p :=
-    exists q i r, p = q ++ i :: r /\ valid_vpath v q /\ nth_error (subvalues (v.[[q]])) i = None.
+    exists q i r, p = q ++ i :: r /\ valid_vpath v q /\ nth_error (children (v.[[q]])) i = None.
 
   Lemma valid_or_invalid p : forall v, valid_vpath v p \/ invalid_vpath v p.
   Proof.
     induction p as [ | i p IHp].
     - left. constructor.
-    - intro v. destruct (nth_error (subvalues v) i) as [w | ] eqn:EQN.
+    - intro v. destruct (nth_error (children v) i) as [w | ] eqn:EQN.
       + destruct (IHp w) as [ | (q & j & r & -> & valid_q & G)].
         * left. econstructor; eassumption.
         * right. exists (i :: q), j, r. repeat split.
@@ -613,12 +613,12 @@ Section GetSetPath.
   Proof.
      induction p.
     - reflexivity.
-    - cbn. rewrite subvalues_bot, nth_error_nil. assumption.
+    - cbn. rewrite children_bot, nth_error_nil. assumption.
   Qed.
   (* The vget function is defined in such a way that for any invalid path p, v.[[p]] = bot.
    * This relies on two design choices:
-   * - For a value v, if the index i is the index of a subvalue, then v.[[i :: r]] = bot.[[r]].
-   * - `bot` has 0 subvalues (`subvalues_bot` axiom), so bot.[[r]] = r.
+   * - For a value v, if the index i is the index of a child, then v.[[i :: r]] = bot.[[r]].
+   * - `bot` has 0 children (`children_bot` axiom), so bot.[[r]] = r.
    *)
   Lemma vget_invalid v p : invalid_vpath v p -> v.[[p]] = bot.
   Proof. intros (q & i & r & -> & _ & H). rewrite vget_app. cbn. rewrite H. apply vget_bot. Qed.
@@ -639,34 +639,34 @@ Section GetSetPath.
     - assumption.
   Qed.
 
-  Lemma constructor_vset_cons v p w :
-    p <> [] -> get_constructor (v.[[p <- w]]) = get_constructor v.
+  Lemma get_node_vset_cons v p w :
+    p <> [] -> get_node (v.[[p <- w]]) = get_node v.
   Proof.
     intro. destruct p; [congruence | ].
-    apply get_constructor_fold_value. rewrite map_nth_length. apply length_subvalues_is_arity.
+    apply get_node_fold_value. rewrite map_nth_length. apply length_children_is_arity.
   Qed.
 
-  Lemma subvalues_vset_cons v i p w :
-    subvalues (v.[[i :: p <- w]]) = map_nth (subvalues v) i (vset p w).
-  Proof. apply subvalues_fold_value. rewrite map_nth_length. apply length_subvalues_is_arity. Qed.
+  Lemma children_vset_cons v i p w :
+    children (v.[[i :: p <- w]]) = map_nth (children v) i (vset p w).
+  Proof. apply children_fold_value. rewrite map_nth_length. apply length_children_is_arity. Qed.
 
   Lemma vget_cons v i p : v.[[i :: p]] = (get_subval_or_bot v i).[[p]].
   Proof. reflexivity. Qed.
 
-  Lemma vstrict_prefix_one_subvalue v p q (H : length (subvalues (v.[[p]])) = 1) :
+  Lemma vstrict_prefix_one_child v p q (H : length (children (v.[[p]])) = 1) :
     vstrict_prefix p q -> valid_vpath v q -> vprefix (p ++ [0]) q.
   Proof.
     intros (i & r & <-) (_ & G)%valid_vpath_app.
     assert (i = 0) as ->.
     { apply PeanoNat.Nat.lt_1_r. rewrite<- H. apply nth_error_Some.
-      inversion G. destruct (nth_error (subvalues (v.[[p]]))); easy. }
+      inversion G. destruct (nth_error (children (v.[[p]]))); easy. }
     exists r. rewrite<- app_assoc. reflexivity.
   Qed.
 
-  Corollary not_vprefix_one_subvalue v p q :
-    length (subvalues (v.[[p]])) = 1 -> valid_vpath v q -> ~vprefix (p ++ [0]) q
+  Corollary not_vprefix_one_child v p q :
+    length (children (v.[[p]])) = 1 -> valid_vpath v q -> ~vprefix (p ++ [0]) q
     -> ~vstrict_prefix p q.
-  Proof. intros ? ? H ?. eapply H, vstrict_prefix_one_subvalue; eassumption. Qed.
+  Proof. intros ? ? H ?. eapply H, vstrict_prefix_one_child; eassumption. Qed.
 
   (* All of the lemmas to reduce an expression of the form v.[[q <- w]].[[p]], depending on the
    * following cases:
@@ -680,7 +680,7 @@ Section GetSetPath.
   Proof.
     induction H as [ | v i p u subval_v_i valid_u_p IH].
     - reflexivity.
-    - rewrite vget_cons, <-app_comm_cons, subvalues_vset_cons, nth_error_map_nth_eq.
+    - rewrite vget_cons, <-app_comm_cons, children_vset_cons, nth_error_map_nth_eq.
       simplify_option.
   Qed.
 
@@ -692,7 +692,7 @@ Section GetSetPath.
     induction H as [ | ? ? ? ? H].
     - constructor.
     - econstructor.
-      + rewrite subvalues_vset_cons, nth_error_map_nth_eq, H. reflexivity.
+      + rewrite children_vset_cons, nth_error_map_nth_eq, H. reflexivity.
       + assumption.
   Qed.
 
@@ -712,31 +712,31 @@ Section GetSetPath.
   Proof.
     induction H.
     - reflexivity.
-    - apply constructor_subvalues_inj.
-      + apply constructor_vset_cons. discriminate.
-      + rewrite subvalues_vset_cons. eapply map_nth_invariant; simplify_option.
+    - apply get_nodes_children_inj.
+      + apply get_node_vset_cons. discriminate.
+      + rewrite children_vset_cons. eapply map_nth_invariant; simplify_option.
   Qed.
 
   (* vset is defined in such a way that v.[[p <- w]] is v when p is invalid.
-   * To understand why, take v.[[i :: r <- w]] when i >= length (subvalues v):
-   * - The constructor of v.[[i :: r <- w]] is the same constructor as v.
-   * - The vset function is recursively applied in the i-th subvalue of v. But because the list
-   *   of subvalues does not contained an i-th subvalue, because of the definiton of map_nth, the
-   *   list of subvalues of v.[[i :: r <- w]] is the same as for v.
+   * To understand why, take v.[[i :: r <- w]] when i >= length (children v):
+   * - The node of v.[[i :: r <- w]] is the same node as v.
+   * - The vset function is recursively applied in the i-th child of v. But because the list
+   *   of children does not contained an i-th child, because of the definiton of map_nth, the
+   *   list of children of v.[[i :: r <- w]] is the same as for v.
    * This trick allows us to omit validity hypotheses in some lemmas.
    *)
   Lemma vset_invalid v p w : invalid_vpath v p -> v.[[p <- w]] = v.
   Proof.
     intros (q & i & r & -> & valid_q & H). rewrite<- (_vset_same v q) at 2 by assumption.
     rewrite _vset_app_split by assumption. f_equal.
-    apply constructor_subvalues_inj.
-    - apply constructor_vset_cons. discriminate.
-    - rewrite subvalues_vset_cons. apply map_nth_equal_None. assumption.
+    apply get_nodes_children_inj.
+    - apply get_node_vset_cons. discriminate.
+    - rewrite children_vset_cons. apply map_nth_equal_None. assumption.
   Qed.
 
   Lemma vset_vget_disj_aux v i j p q w :
     i <> j -> v.[[i :: p <- w]].[[j :: q]] = v.[[j :: q]].
-  Proof. intro. rewrite vget_cons, subvalues_vset_cons, nth_error_map_nth_neq; auto. Qed.
+  Proof. intro. rewrite vget_cons, children_vset_cons, nth_error_map_nth_neq; auto. Qed.
 
   Lemma vset_vget_disj v w p q (Hvdisj : vdisj p q) :
     v.[[p <- w]].[[q]] = v.[[q]].
@@ -752,9 +752,9 @@ Section GetSetPath.
   Proof.
     induction p; intro v.
     - reflexivity.
-    - apply constructor_subvalues_inj.
-      + rewrite !constructor_vset_cons by discriminate. reflexivity.
-      + rewrite !subvalues_vset_cons, map_nth_compose. apply map_nth_equiv. assumption.
+    - apply get_nodes_children_inj.
+      + rewrite !get_node_vset_cons by discriminate. reflexivity.
+      + rewrite !children_vset_cons, map_nth_compose. apply map_nth_equiv. assumption.
   Qed.
 
   Lemma vset_same v p : v.[[p <- v.[[p]]]] = v.
@@ -786,9 +786,9 @@ Section GetSetPath.
   Lemma vset_twice_disj_commute_aux v p q i j x y :
     i <> j -> v.[[i :: p <- x]].[[j :: q <- y]] = v.[[j :: q <- y]].[[i :: p <- x]].
   Proof.
-    intro. apply constructor_subvalues_inj.
-    - rewrite !constructor_vset_cons by discriminate. reflexivity.
-    - rewrite !subvalues_vset_cons. apply map_nth_neq_commute. assumption.
+    intro. apply get_nodes_children_inj.
+    - rewrite !get_node_vset_cons by discriminate. reflexivity.
+    - rewrite !children_vset_cons. apply map_nth_neq_commute. assumption.
   Qed.
 
   Lemma vset_twice_disj_commute v p q x y :
@@ -799,7 +799,7 @@ Section GetSetPath.
     rewrite vset_twice_disj_commute_aux; auto.
   Qed.
 
-  Lemma get_arity_0 v i p : length (subvalues v) = 1 -> v.[[i :: p]] <> bot -> i = 0.
+  Lemma get_arity_0 v i p : length (children v) = 1 -> v.[[i :: p]] <> bot -> i = 0.
   Proof.
     intros H G. apply get_not_bot_valid_vpath in G. inversion G.
     apply length_1_is_singleton in H. destruct H as (? & H). rewrite H in *. destruct i.
@@ -808,7 +808,7 @@ Section GetSetPath.
   Qed.
 
   Notation size v := (total_weight (fun _ => 1) v).
-  Lemma size_decreasing (v w : V) i : nth_error (subvalues v) i = Some w -> size w < size v.
+  Lemma size_decreasing (v w : V) i : nth_error (children v) i = Some w -> size w < size v.
   Proof.
     intro H. rewrite (total_weight_prop _ v).
     apply map_nth_error with (f := total_weight (fun _ => 1)) in H.
@@ -818,21 +818,21 @@ Section GetSetPath.
 
   Hint Resolve nth_error_length : core.
 
-  (* Two values are equal if they have the same constructors everywhere. *)
-  Lemma get_constructor_vget_ext v w :
-    (forall p, get_constructor (v.[[p]]) = get_constructor (w.[[p]])) -> v = w.
+  (* Two values are equal if they have the same nodes everywhere. *)
+  Lemma get_node_vget_ext v w :
+    (forall p, get_node (v.[[p]]) = get_node (w.[[p]])) -> v = w.
   Proof.
     remember (size v) as n. revert v w Heqn.
     induction n as [n IH] using lt_wf_ind. intros v w -> H.
-    assert (get_constructor v = get_constructor w) by exact (H []).
-    assert (eq_length : length (subvalues v) = length (subvalues w)).
-    { rewrite !length_subvalues_is_arity. f_equal. assumption. }
-    apply constructor_subvalues_inj; [assumption | ].
-    apply nth_error_ext. intro i. destruct (nth_error (subvalues v) i) eqn:EQN.
-    - assert (i < length (subvalues w)).
+    assert (get_node v = get_node w) by exact (H []).
+    assert (eq_length : length (children v) = length (children w)).
+    { rewrite !length_children_is_arity. f_equal. assumption. }
+    apply get_nodes_children_inj; [assumption | ].
+    apply nth_error_ext. intro i. destruct (nth_error (children v) i) eqn:EQN.
+    - assert (i < length (children w)).
       { rewrite <-eq_length. eauto. }
-      assert (nth_error (subvalues w) i <> None) by now apply nth_error_Some.
-      destruct (nth_error (subvalues w) i) eqn:EQN'; [ | contradiction].
+      assert (nth_error (children w) i <> None) by now apply nth_error_Some.
+      destruct (nth_error (children w) i) eqn:EQN'; [ | contradiction].
       f_equal. eapply IH; [ | reflexivity | ].
       + eapply size_decreasing. exact EQN.
       + intro p. specialize (H (i :: p)). cbn in H. rewrite EQN, EQN' in H. exact H.
@@ -842,7 +842,7 @@ Section GetSetPath.
   Lemma length_sset (S : state B V) p v : length (S.[p <- v]) = length S.
   Proof. apply map_nth_length. Qed.
 
-  Context (weight : constructors -> nat).
+  Context (weight : nodes -> nat).
 
   (* The theorems of weight of sets are the following:
      weight v.[[p <- w]] = weight v - weight v.[[p]] + weight.[[w]]
@@ -861,8 +861,8 @@ Section GetSetPath.
     - cbn. lia.
     - rewrite (total_weight_prop _ u).
       rewrite (total_weight_prop _ (u.[[i :: p <- w]])).
-      rewrite constructor_vset_cons by discriminate.
-      rewrite subvalues_vset_cons.
+      rewrite get_node_vset_cons by discriminate.
+      rewrite children_vset_cons.
       erewrite map_map_nth by eassumption.
       rewrite Nat2Z.inj_add.
       erewrite sum_map_nth by (erewrite map_nth_error by eassumption; reflexivity).
@@ -879,18 +879,18 @@ Section GetSetPath.
   Qed.
 
   Lemma weight_arity_0 (v : V) :
-    arity (get_constructor v) = 0 -> total_weight weight v = weight (get_constructor v).
+    arity (get_node v) = 0 -> total_weight weight v = weight (get_node v).
   Proof.
     intros H. rewrite total_weight_prop.
-    rewrite<- length_subvalues_is_arity in H. apply length_zero_iff_nil in H. rewrite H.
+    rewrite<- length_children_is_arity in H. apply length_zero_iff_nil in H. rewrite H.
     reflexivity.
   Qed.
 
-  Lemma weight_arity_1 (v : V) (H : arity (get_constructor v) = 1) :
-    total_weight weight v = weight (get_constructor v) + total_weight weight (v.[[ [0] ]]).
+  Lemma weight_arity_1 (v : V) (H : arity (get_node v) = 1) :
+    total_weight weight v = weight (get_node v) + total_weight weight (v.[[ [0] ]]).
   Proof.
     rewrite total_weight_prop. cbn.
-    rewrite<- length_subvalues_is_arity in H. apply length_1_is_singleton in H.
+    rewrite<- length_children_is_arity in H. apply length_1_is_singleton in H.
     destruct H as (? & ->). cbn. lia.
   Qed.
 
@@ -926,7 +926,7 @@ Section GetSetPath.
     - exfalso. apply H. reflexivity.
   Qed.
 
-  Lemma strict_prefix_one_subvalue S p q (H : length (subvalues (S.[p])) = 1) :
+  Lemma strict_prefix_one_child S p q (H : length (children (S.[p])) = 1) :
     strict_prefix p q -> valid_spath S q -> prefix (p +++ [0]) q.
   Proof.
     intros (i & r & <-) (_ & G)%valid_spath_app.
@@ -935,9 +935,9 @@ Section GetSetPath.
     exists r. rewrite<- app_spath_vpath_assoc. reflexivity.
   Qed.
 
-  Corollary not_prefix_one_subvalue S p q :
-    length (subvalues (S.[p])) = 1 -> valid_spath S q -> ~prefix (p +++ [0]) q -> ~strict_prefix p q.
-  Proof. intros ? ? H ?. eapply H, strict_prefix_one_subvalue; eassumption. Qed.
+  Corollary not_prefix_one_child S p q :
+    length (children (S.[p])) = 1 -> valid_spath S q -> ~prefix (p +++ [0]) q -> ~strict_prefix p q.
+  Proof. intros ? ? H ?. eapply H, strict_prefix_one_child; eassumption. Qed.
 
   Lemma sset_sget_prefix (S : state B V) v p q :
     valid_spath S p -> S.[p +++ q <- v].[p] = S.[p].[[q <- v]].
@@ -967,43 +967,43 @@ Section GetSetPath.
     - rewrite nth_error_map_nth_eq. autodestruct. intro. apply vset_vget_disj. assumption.
   Qed.
 
-  Lemma constructor_vset_vget_strict_prefix v p q w :
-    vstrict_prefix p q -> get_constructor (v.[[q <- w]].[[p]]) = get_constructor (v.[[p]]).
+  Lemma get_node_vset_vget_strict_prefix v p q w :
+    vstrict_prefix p q -> get_node (v.[[q <- w]].[[p]]) = get_node (v.[[p]]).
   Proof.
      intros (i & r & <-). destruct (valid_or_invalid p v).
-     - rewrite vset_vget_prefix by assumption. apply constructor_vset_cons. discriminate.
+     - rewrite vset_vget_prefix by assumption. apply get_node_vset_cons. discriminate.
      - assert (invalid_vpath v (p ++ i :: r)) by now apply invalid_prefix.
        now rewrite vset_invalid.
   Qed.
 
   (* During the proof of this theorem, we implicitely use the fact that if the spath p is
    * invalid, then the spath q is invalid, and S.[q <- w] = S. *)
-  Lemma constructor_sset_sget_strict_prefix (S : state B V) p q w :
-    strict_prefix p q -> get_constructor (S.[q <- w].[p]) = get_constructor (S.[p]).
+  Lemma get_node_sset_sget_strict_prefix (S : state B V) p q w :
+    strict_prefix p q -> get_node (S.[q <- w].[p]) = get_node (S.[p]).
   Proof.
     unfold sset, sget. intro H.
     assert (fst p = fst q) as ->. { destruct H as (? & ? & <-). reflexivity. }
     rewrite nth_error_map_nth_eq. simplify_option.
-    intro. apply constructor_vset_vget_strict_prefix.
+    intro. apply get_node_vset_vget_strict_prefix.
     destruct H as (? & ? & <-). eexists _, _. reflexivity.
   Qed.
 
-  Lemma constructor_vset_vget_not_prefix v p q w (H : ~vprefix q p) :
-    get_constructor (v.[[q <- w]].[[p]]) = get_constructor (v.[[p]]).
+  Lemma get_node_vset_vget_not_prefix v p q w (H : ~vprefix q p) :
+    get_node (v.[[q <- w]].[[p]]) = get_node (v.[[p]]).
   Proof.
     destruct (comparable_vpaths p q) as [<- | | (? & ? & ?) | ].
     - destruct H. exists nil. apply app_nil_r. (* TODO: reflexivity lemma? *)
-    - apply constructor_vset_vget_strict_prefix. assumption.
+    - apply get_node_vset_vget_strict_prefix. assumption.
     - destruct H. eexists. eassumption. (* TODO: vstrict_prefix -> vprefix ? *)
     - rewrite vset_vget_disj; [reflexivity | symmetry; assumption].
   Qed.
 
-  Lemma constructor_sset_sget_not_prefix (S : state B V) p q w (H : ~prefix q p) :
-    get_constructor (S.[q <- w].[p]) = get_constructor (S.[p]).
+  Lemma get_node_sset_sget_not_prefix (S : state B V) p q w (H : ~prefix q p) :
+    get_node (S.[q <- w].[p]) = get_node (S.[p]).
   Proof.
     destruct (comparable_spaths p q) as [<- | | | ].
     - destruct H. reflexivity.
-    - apply constructor_sset_sget_strict_prefix. assumption.
+    - apply get_node_sset_sget_strict_prefix. assumption.
     - destruct H. apply strict_prefix_is_prefix. assumption.
     - rewrite sset_sget_disj; reflexivity || symmetry; assumption.
   Qed.
@@ -1050,7 +1050,7 @@ Section GetSetPath.
     i <> j -> valid_vpath v (i :: p) -> valid_vpath (v.[[j :: q <- w]]) (i :: p).
   Proof.
     intros ? H. inversion H. subst.
-    econstructor; [ | eassumption]. rewrite subvalues_vset_cons, nth_error_map_nth_neq; auto.
+    econstructor; [ | eassumption]. rewrite children_vset_cons, nth_error_map_nth_neq; auto.
   Qed.
 
   Lemma vset_disj_valid v p q w :
@@ -1235,17 +1235,17 @@ Section GetSetPath.
       + cbn in H. rewrite nth_error_nil in H. easy.
   Qed.
 
-  (* Two states are equal if they have the same constructors everywhere. *)
-  Lemma get_constructor_sget_ext (S S' : state B V) :
-    (forall i, get_binder S i = get_binder S' i) -> (forall p, get_constructor (S.[p]) = get_constructor (S'.[p])) -> S = S'.
+  (* Two states are equal if they have the same nodes everywhere. *)
+  Lemma get_node_sget_ext (S S' : state B V) :
+    (forall i, get_binder S i = get_binder S' i) -> (forall p, get_node (S.[p]) = get_node (S'.[p])) -> S = S'.
   Proof.
-    intros eq_binders eq_constructors.
+    intros eq_binders eq_nodes.
     apply nth_error_ext. intro i. specialize (eq_binders i). destruct (nth_error S i) eqn:EQN.
     - destruct (nth_error S' i) eqn:EQN'; [ | discriminate].
       f_equal. apply injective_projections; [simplify_option | ].
-      apply get_constructor_vget_ext. intro q.
-      specialize (eq_constructors (i, q)). unfold sget in eq_constructors. cbn in eq_constructors.
-      rewrite EQN, EQN' in eq_constructors. exact eq_constructors.
+      apply get_node_vget_ext. intro q.
+      specialize (eq_nodes (i, q)). unfold sget in eq_nodes. cbn in eq_nodes.
+      rewrite EQN, EQN' in eq_nodes. exact eq_nodes.
     - destruct (nth_error S' i); easy.
   Qed.
 
@@ -1323,28 +1323,28 @@ Section GetSetPath.
   Qed.
 
   Lemma get_nil_prefix_right S p q :
-  arity (get_constructor (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
+  arity (get_node (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
   Proof.
     intros H valid_q (i & r & <-). apply valid_spath_app in valid_q.
     destruct valid_q as (_ & valid_i_r). inversion valid_i_r.
-    rewrite<- length_subvalues_is_arity in H. apply length_zero_iff_nil in H.
+    rewrite<- length_children_is_arity in H. apply length_zero_iff_nil in H.
     rewrite H, nth_error_nil in * |-. discriminate.
   Qed.
 
   (* Setting up the definitions for judgements like "loan \notin v" or
      "l is fresh". *)
-  Definition not_value_contains (P : constructors -> Prop) (v : V) :=
-    forall p, valid_vpath v p -> ~P (get_constructor (v.[[p]])).
+  Definition not_value_contains (P : nodes -> Prop) (v : V) :=
+    forall p, valid_vpath v p -> ~P (get_node (v.[[p]])).
 
-  Definition not_state_contains (P : constructors -> Prop) (S : state B V) :=
-    forall p, valid_spath S p -> ~P (get_constructor (S.[p])).
+  Definition not_state_contains (P : nodes -> Prop) (S : state B V) :=
+    forall p, valid_spath S p -> ~P (get_node (S.[p])).
 
-  Definition not_contains_outer (is_mut_borrow P : constructors -> Prop) v :=
-    forall p, P (get_constructor (v.[[p]]))
-    -> exists q, vstrict_prefix q p /\ is_mut_borrow (get_constructor (v.[[q]])).
+  Definition not_contains_outer (is_mut_borrow P : nodes -> Prop) v :=
+    forall p, P (get_node (v.[[p]]))
+    -> exists q, vstrict_prefix q p /\ is_mut_borrow (get_node (v.[[q]])).
 
   Lemma not_value_contains_not_prefix P (S : state B V) p q
-    (Hnot_contains : not_value_contains P (S.[p])) (HP : P (get_constructor (S.[q]))) (Hvalid : valid_spath S q) :
+    (Hnot_contains : not_value_contains P (S.[p])) (HP : P (get_node (S.[q]))) (Hvalid : valid_spath S q) :
     ~prefix p q.
   Proof.
     intros (r & <-). apply valid_spath_app in Hvalid. apply Hnot_contains with (p := r); [easy | ].
@@ -1358,21 +1358,21 @@ Section GetSetPath.
     - apply valid_vpath_app in valid_q. destruct valid_q as (?%vset_same_valid_rev & validity_w).
       rewrite vset_vget_equal in validity_w by assumption.
       rewrite vset_vget_prefix_right by assumption. apply G. assumption.
-    - rewrite constructor_vset_vget_not_prefix by assumption. apply H.
+    - rewrite get_node_vset_vget_not_prefix by assumption. apply H.
       eapply vset_not_prefix_valid_rev; [ | eassumption].
       intros ?%vstrict_prefix_is_vprefix. auto.
   Qed.
 
   Lemma weight_non_zero v :
-    vweight v > 0 -> exists p, valid_vpath v p /\ weight (get_constructor (v.[[p]])) > 0.
+    vweight v > 0 -> exists p, valid_vpath v p /\ weight (get_node (v.[[p]])) > 0.
   Proof.
     remember (size v) as n eqn:Heqn. revert v Heqn.
     induction n as [n IH] using lt_wf_ind. intros v -> weight_non_zero.
     rewrite total_weight_prop in weight_non_zero.
-    destruct (weight (get_constructor v)) eqn:?.
+    destruct (weight (get_node v)) eqn:?.
     - rewrite Nat.add_0_r in weight_non_zero. apply sum_non_zero in weight_non_zero.
       destruct weight_non_zero as (i & ? & H). rewrite nth_error_map in H.
-      destruct (nth_error (subvalues v) i) as [w | ] eqn:G; [ | discriminate].
+      destruct (nth_error (children v) i) as [w | ] eqn:G; [ | discriminate].
       injection H as ?.
       edestruct IH as (p & ? & ?).
       + eapply size_decreasing. eassumption.
@@ -1384,7 +1384,7 @@ Section GetSetPath.
     - exists []. cbn. split; [constructor | lia].
   Qed.
 
-  Lemma not_value_contains_weight (P : constructors -> Prop) v
+  Lemma not_value_contains_weight (P : nodes -> Prop) v
     (H : forall c, weight c > 0 -> P c) :
     not_value_contains P v -> vweight v = 0.
   Proof.
@@ -1394,7 +1394,7 @@ Section GetSetPath.
     eapply not_contains; eauto.
   Qed.
 
-  Lemma weight_zero_not_value_contains (P : constructors -> Prop) v
+  Lemma weight_zero_not_value_contains (P : nodes -> Prop) v
     (H : forall c, P c -> weight c > 0) :
     vweight v = 0 -> not_value_contains P v.
   Proof.
@@ -1405,12 +1405,12 @@ Section GetSetPath.
   (* There is at most one path that satisfies a predicate P. *)
   Definition value_at_most_one P v :=
     forall p q, valid_vpath v p -> valid_vpath v q ->
-                P (get_constructor (v.[[p]])) -> P (get_constructor (v.[[q]])) ->
+                P (get_node (v.[[p]])) -> P (get_node (v.[[q]])) ->
                 p = q.
 
   Definition vpath_unique  P v p :=
-    valid_vpath v p /\ P (get_constructor (v.[[p]])) /\
-    forall q, valid_vpath v q -> P (get_constructor (v.[[q]])) -> p = q.
+    valid_vpath v p /\ P (get_node (v.[[p]])) /\
+    forall q, valid_vpath v q -> P (get_node (v.[[q]])) -> p = q.
 
   Lemma vpath_unique_implies_at_most_one P v p :
     vpath_unique P v p -> value_at_most_one P v.
@@ -1440,8 +1440,8 @@ Section GetSetPath.
       cbn in P_p. rewrite H in P_p.
       pose proof (weight_vget_le _ _ valid_p) as weight_w_p.
       rewrite total_weight_prop in weight_w_p.
-      pose proof (map_nth_error vweight _ _ H) as weight_subvalues.
-      apply sum_ge_element in weight_subvalues.
+      pose proof (map_nth_error vweight _ _ H) as weight_children.
+      apply sum_ge_element in weight_children.
       intros ? valid_q. destruct valid_q as [ | v j q w' G valid_q].
       + cbn. lia.
       + intros P_q. cbn in P_q. rewrite G in P_q. replace j with i in *.
@@ -1460,10 +1460,10 @@ Section GetSetPath.
     remember (size v) as n eqn:Heqn. revert v Heqn.
     induction n as [n IH] using lt_wf_ind. intros v -> at_most_one.
     rewrite total_weight_prop.
-    pose proof (weight_le_1 (get_constructor v)) as [-> | weight_constructor]%Nat.le_1_r.
+    pose proof (weight_le_1 (get_node v)) as [-> | weight_node]%Nat.le_1_r.
     - rewrite Nat.add_0_r. apply sum_unique_one.
       + intros i x H. rewrite nth_error_map in H.
-        destruct (nth_error (subvalues v) i) as [w | ] eqn:Hw; [ | discriminate].
+        destruct (nth_error (children v) i) as [w | ] eqn:Hw; [ | discriminate].
         injection H as <-.
         eapply IH.
         * eapply size_decreasing. exact Hw.
@@ -1476,8 +1476,8 @@ Section GetSetPath.
           -- cbn. rewrite Hw. assumption.
           -- cbn. rewrite Hw. assumption.
       + intros i j. rewrite !nth_error_map. intros Hi Hj.
-        destruct (nth_error (subvalues v) i) as [wi | ] eqn:Hwi; [ | discriminate].
-        destruct (nth_error (subvalues v) j) as [wj | ] eqn:Hwj; [ | discriminate].
+        destruct (nth_error (children v) i) as [wi | ] eqn:Hwi; [ | discriminate].
+        destruct (nth_error (children v) j) as [wj | ] eqn:Hwj; [ | discriminate].
         injection Hi as ?. injection Hj as ?.
         destruct (weight_non_zero wi) as (p & ? & ?); [lia | ].
         destruct (weight_non_zero wj) as (q & ? & ?); [lia | ].
@@ -1487,7 +1487,7 @@ Section GetSetPath.
         * econstructor; eassumption.
         * cbn. rewrite Hwi. assumption.
         * cbn. rewrite Hwj. assumption.
-    - assert (sum (map vweight (subvalues v)) = 0); [ | lia].
+    - assert (sum (map vweight (children v)) = 0); [ | lia].
       apply sum_zero. intros i H.
       rewrite nth_error_map.
       rewrite length_map in H. apply nth_error_Some' in H.
@@ -1514,7 +1514,7 @@ Section GetSetPath.
       destruct valid_q as (?%sset_not_prefix_valid & H); [ |  apply strict_prefix_irrefl].
       rewrite sset_sget_equal in H by assumption.
       rewrite sset_sget_prefix_right by assumption. apply not_in_v. assumption.
-    - rewrite constructor_sset_sget_not_prefix by assumption.
+    - rewrite get_node_sset_sget_not_prefix by assumption.
       apply not_in_S. eapply sset_not_prefix_valid; [ | exact valid_q]. auto with spath.
   Qed.
 
@@ -1533,7 +1533,7 @@ Section GetSetPath.
       apply sset_not_prefix_valid in valid_q; [ | apply strict_prefix_irrefl].
       rewrite sset_sget_equal in valid_v_r by assumption.
       rewrite sset_sget_prefix_right by assumption. apply not_in_v. exact valid_v_r.
-    - rewrite constructor_sset_sget_not_prefix by assumption. rewrite sget_app. apply not_in_Sp.
+    - rewrite get_node_sset_sget_not_prefix by assumption. rewrite sget_app. apply not_in_Sp.
       apply sset_not_prefix_valid in valid_pr; [ | auto with spath].
       apply valid_spath_app in valid_pr as (_ & ?). assumption.
   Qed.
@@ -1549,14 +1549,14 @@ Section GetSetPath.
   Qed.
 
   Lemma not_value_contains_zeroary P v :
-    subvalues v = [] -> ~P (get_constructor v) -> not_value_contains P v.
+    children v = [] -> ~P (get_node v) -> not_value_contains P v.
   Proof.
     intros H ? p valid_p. destruct valid_p; [assumption | ].
     rewrite H, nth_error_nil in * |-. discriminate.
   Qed.
 
   Lemma not_value_contains_unary P v w :
-    subvalues v = [w] -> ~P (get_constructor v) -> not_value_contains P w -> not_value_contains P v.
+    children v = [w] -> ~P (get_node v) -> not_value_contains P w -> not_value_contains P v.
   Proof.
     intros H ? ? p valid_p. destruct valid_p; [assumption | ].
     rewrite H, nth_error_cons in * |-. destruct i; [ | rewrite nth_error_nil in * |-; discriminate].
@@ -1572,7 +1572,7 @@ Section GetSetPath.
 
   Lemma not_contains_outer_sset_no_contains is_mut_borrow P v p w :
     not_contains_outer is_mut_borrow P v -> not_value_contains P w
-    -> (forall v, P v -> v <> get_constructor bot)
+    -> (forall v, P v -> v <> get_node bot)
     -> not_contains_outer is_mut_borrow P (v.[[p <- w]]).
   Proof.
     intros Hv Hw ?. destruct (valid_or_invalid p v).
@@ -1581,15 +1581,15 @@ Section GetSetPath.
         rewrite vset_vget_prefix_right in Hq by assumption. eapply Hw; [ | eassumption].
         apply get_not_bot_valid_vpath. intro wr. apply (H _ Hq). rewrite wr. reflexivity.
       + destruct (Hv q) as (r & ? & ?).
-        * rewrite constructor_vset_vget_not_prefix in Hq; assumption.
-        * exists r. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
+        * rewrite get_node_vset_vget_not_prefix in Hq; assumption.
+        * exists r. split; [assumption | ]. rewrite get_node_vset_vget_not_prefix.
           assumption. intro. apply not_prefix. transitivity r; auto with spath.
     - rewrite vset_invalid by assumption. assumption.
   Qed.
 
   Lemma not_contains_outer_sset_in_borrow is_mut_borrow P v p w :
     not_contains_outer is_mut_borrow P v
-    -> (exists q, vstrict_prefix q p /\ is_mut_borrow (get_constructor (v.[[q]])))
+    -> (exists q, vstrict_prefix q p /\ is_mut_borrow (get_node (v.[[q]])))
     -> not_contains_outer is_mut_borrow P (v.[[p <- w]]).
   Proof.
     intros Hv (q & H & ?). destruct (valid_or_invalid p v).
@@ -1597,10 +1597,10 @@ Section GetSetPath.
       + exists q.
         split.
         * destruct H as (i & ? & <-). eexists i, _. rewrite<- app_assoc. reflexivity.
-        * rewrite constructor_vset_vget_not_prefix by auto with spath. assumption.
+        * rewrite get_node_vset_vget_not_prefix by auto with spath. assumption.
       + destruct (Hv r) as (q' & ? & ?).
-        * rewrite constructor_vset_vget_not_prefix in Hr; assumption.
-        * exists q'. split; [assumption | ]. rewrite constructor_vset_vget_not_prefix.
+        * rewrite get_node_vset_vget_not_prefix in Hr; assumption.
+        * exists q'. split; [assumption | ]. rewrite get_node_vset_vget_not_prefix.
           assumption. intro. apply not_prefix. transitivity q'; auto with spath.
     - rewrite vset_invalid by assumption. assumption.
   Qed.
@@ -1630,7 +1630,7 @@ Section GetSetPath.
 
 
   Lemma sweight_non_zero S : sweight S > 0 ->
-    exists p, valid_spath S p /\ weight (get_constructor (S.[p])) > 0.
+    exists p, valid_spath S p /\ weight (get_node (S.[p])) > 0.
   Proof.
     intros (i & ? & H)%sum_non_zero. rewrite nth_error_map in H.
     destruct (nth_error S i) as [bv | ] eqn:Hbv; [ | discriminate].
@@ -1652,81 +1652,81 @@ End GetSetPath.
 Section StateUniqueConstructor.
   Context {V : Type}.
   Context {IsValue : Value V}.
-  Context {ConstructorEqDec : EqDec constructors}.
+  Context {ConstructorEqDec : EqDec nodes}.
   Context {B : Type}.
   Context `{EqDecBinder : EqDec B}.
 
-  Definition at_most_one_constructor c (S : state B V) :=
-    forall p q, get_constructor (S.[p]) = c -> get_constructor (S.[q]) = c -> p = q.
+  Definition at_most_one_node c (S : state B V) :=
+    forall p q, get_node (S.[p]) = c -> get_node (S.[q]) = c -> p = q.
 
-  Definition at_most_one_constructor_alt c (S : state B V) :=
-    exists p, forall q, get_constructor (S.[q]) = c -> p = q.
+  Definition at_most_one_node_alt c (S : state B V) :=
+    exists p, forall q, get_node (S.[q]) = c -> p = q.
 
-  Lemma not_contains_implies_at_most_one_constructor c S :
-    c <> get_constructor bot -> not_state_contains (eq c) S -> at_most_one_constructor c S.
+  Lemma not_contains_implies_at_most_one_node c S :
+    c <> get_node bot -> not_state_contains (eq c) S -> at_most_one_node c S.
   Proof.
     intros not_bot not_contains p ? Hp. exfalso. eapply not_contains; [ | eauto].
     apply get_not_bot_valid_spath. congruence.
   Qed.
 
-  Lemma at_most_one_constructor_alt_implies_at_most_one_constructor c S :
-    at_most_one_constructor_alt c S -> at_most_one_constructor c S.
+  Lemma at_most_one_node_alt_implies_at_most_one_node c S :
+    at_most_one_node_alt c S -> at_most_one_node c S.
   Proof.
     intros (p & H) q r Hq Hr. rewrite <-(H _ Hq), <-(H _ Hr). reflexivity.
   Qed.
 
-  Lemma unique_constructor_implies_at_most_one_constructor c S :
-    c <> get_constructor bot -> not_state_contains (eq c) S -> at_most_one_constructor c S.
+  Lemma unique_node_implies_at_most_one_node c S :
+    c <> get_node bot -> not_state_contains (eq c) S -> at_most_one_node c S.
   Proof.
     intros not_bot not_contains p ? Hp. exfalso. eapply not_contains; [ | eauto].
     apply get_not_bot_valid_spath. congruence.
   Qed.
 
-  Lemma decide_at_most_one_constructor c S (not_bot : c <> get_constructor bot) :
-    at_most_one_constructor c S <-> sweight (identify c) S <= 1.
+  Lemma decide_at_most_one_node c S (not_bot : c <> get_node bot) :
+    at_most_one_node c S <-> sweight (indicator c) S <= 1.
   Proof.
     split.
     - intros H. apply sum_unique_one.
       + intros i ? G. rewrite nth_error_map in G.
         destruct (nth_error S i) as [bv | ] eqn:get_S_i; [ | discriminate].
         injection G as <-. apply weight_one_at_most_one_vpath.
-        * intro d. unfold identify. destruct (eq_dec c d); lia.
+        * intro d. unfold indicator. destruct (eq_dec c d); lia.
         * intros p q _ _ Hp Hq.
-          unfold identify in *.
-          destruct (eq_dec c (get_constructor ((snd bv).[[p]]))); [ | lia].
-          destruct (eq_dec c (get_constructor ((snd bv).[[q]]))); [ | lia].
+          unfold indicator in *.
+          destruct (eq_dec c (get_node ((snd bv).[[p]]))); [ | lia].
+          destruct (eq_dec c (get_node ((snd bv).[[q]]))); [ | lia].
           assert ((i, p) = (i, q)) as eq_spath; [ | inversion eq_spath; auto].
           apply H; unfold sget; cbn; rewrite get_S_i; auto.
       + intros i j Hi Hj. rewrite nth_error_map in *.
         destruct (nth_error S i) as [bvi | ] eqn:get_S_i; [ | discriminate].
         destruct (nth_error S j) as [bvj | ] eqn:get_S_j; [ | discriminate].
         injection Hi as ?. injection Hj as ?.
-        assert (total_weight (identify c) (snd bvi) > 0) as (p & ? & ?)%weight_non_zero by lia.
-        assert (total_weight (identify c) (snd bvj) > 0) as (q & ? & ?)%weight_non_zero by lia.
-        unfold identify in *.
-        destruct (eq_dec c (get_constructor ((snd bvi).[[p]]))); [ | lia].
-        destruct (eq_dec c (get_constructor ((snd bvj).[[q]]))); [ | lia].
+        assert (total_weight (indicator c) (snd bvi) > 0) as (p & ? & ?)%weight_non_zero by lia.
+        assert (total_weight (indicator c) (snd bvj) > 0) as (q & ? & ?)%weight_non_zero by lia.
+        unfold indicator in *.
+        destruct (eq_dec c (get_node ((snd bvi).[[p]]))); [ | lia].
+        destruct (eq_dec c (get_node ((snd bvj).[[q]]))); [ | lia].
         assert ((i, p) = (j, q)) as eq_spath; [ | inversion eq_spath; auto].
         apply H; unfold sget; cbn; rewrite ?get_S_i, ?get_S_j; auto.
     - intros [H | H]%Nat.le_1_r.
-      + apply not_contains_implies_at_most_one_constructor; [exact not_bot | ].
+      + apply not_contains_implies_at_most_one_node; [exact not_bot | ].
         intros p valid_p HSp.
-        pose proof (weight_sget_le (identify c) _ _ valid_p) as G.
-        rewrite total_weight_prop, <-HSp, identify_same in G. lia.
-      + assert (sweight (identify c) S > 0)
+        pose proof (weight_sget_le (indicator c) _ _ valid_p) as G.
+        rewrite total_weight_prop, <-HSp, indicator_same in G. lia.
+      + assert (sweight (indicator c) S > 0)
           as (i & ? & Hi)%sum_non_zero
           by lia.
         rewrite nth_error_map in Hi.
         destruct (nth_error S i) as [bvi | ] eqn:Hbvi; [ | discriminate].
         injection Hi as Hi.
-        assert (total_weight (identify c) (snd bvi) <= 1).
+        assert (total_weight (indicator c) (snd bvi) <= 1).
         { unfold sweight in H.
           etransitivity; [eapply sum_ge_element | rewrite H; reflexivity].
           rewrite nth_error_map, Hbvi. reflexivity. }
-        assert (total_weight (identify c) (snd bvi) = 1)
+        assert (total_weight (indicator c) (snd bvi) = 1)
           as (p & (valid_p & ? & unique_p))%weight_at_most_one
           by lia.
-        apply at_most_one_constructor_alt_implies_at_most_one_constructor.
+        apply at_most_one_node_alt_implies_at_most_one_node.
         exists (i, p). intros (j & q) G.
         unfold sget in G. cbn in G.
         destruct (nth_error S j) as [bvj | ] eqn:Hbvj; [ | congruence].
@@ -1734,30 +1734,31 @@ Section StateUniqueConstructor.
         { apply get_not_bot_valid_vpath. congruence. }
         replace j with i in *.
         * f_equal. replace bvj with bvi in * by congruence.
-          apply unique_p; [assumption | rewrite G, identify_same; constructor].
-        * assert (sweight (identify c) S <= 1) as unique_i by lia.
+          apply unique_p; [assumption | rewrite G, indicator_same; constructor].
+        * assert (sweight (indicator c) S <= 1) as unique_i by lia.
           eapply sum_le_one with (i := i) (j := j).
           -- exact unique_i.
           -- rewrite nth_error_map, Hbvi. reflexivity.
           -- rewrite nth_error_map, Hbvj. reflexivity.
-          -- pose proof (weight_vget_le (identify c) _ _ valid_p) as le_get_p.
+          -- pose proof (weight_vget_le (indicator c) _ _ valid_p) as le_get_p.
              rewrite total_weight_prop in le_get_p. lia.
-          -- pose proof (weight_vget_le (identify c) _ _ valid_q) as le_get_q.
-             rewrite total_weight_prop, G, identify_same in le_get_q. lia.
+          -- pose proof (weight_vget_le (indicator c) _ _ valid_q) as le_get_q.
+             rewrite total_weight_prop, G, indicator_same in le_get_q. lia.
   Qed.
+End StateUniqueConstructor.
 
 (* Automatically solving comparisons using environment information. *)
-Hint Resolve strict_prefix_one_subvalue : spath.
-Hint Resolve not_vprefix_one_subvalue : spath.
-Hint Resolve not_prefix_one_subvalue : spath. (* TODO: delete? *)
-Hint Extern 5 (length (subvalues ?v) = _) =>
+Hint Resolve strict_prefix_one_child : spath.
+Hint Resolve not_vprefix_one_child : spath.
+Hint Resolve not_prefix_one_child : spath. (* TODO: delete? *)
+Hint Extern 5 (length (children ?v) = _) =>
   match goal with
-  | H : get_constructor (?S.[?p]) = _ |- _ =>
-      rewrite length_subvalues_is_arity, H; reflexivity
+  | H : get_node (?S.[?p]) = _ |- _ =>
+      rewrite length_children_is_arity, H; reflexivity
   end : spath.
 Hint Extern 5 (~strict_prefix ?p ?q) =>
   match goal with
-  | H : get_constructor (?S.[?p]) = _ |- _ =>
+  | H : get_node (?S.[?p]) = _ |- _ =>
       simple apply (get_nil_prefix_right S); [rewrite H | ]
   end : spath.
 Hint Resolve disj_spath_to_last : spath.
@@ -1772,55 +1773,55 @@ Hint Resolve disj_spath_to_last' : spath.
  *   - Otherwise, reduce to valid S pi
  * - Search the proof that pi is the evaluation of a place.
  * - Search for a proof that S.[p] <> bot in the hypotheses.
- * - Search for a proof that the constructor of S.[p] is not bot in the hypotheses.
+ * - Search for a proof that the node of S.[p] is not bot in the hypotheses.
  *)
-Lemma valid_get_constructor_sget_not_bot {B V} `{IsValue : Value V} (S : state B V) p :
-  get_constructor (S.[p]) <> get_constructor bot -> valid_spath S p.
+Lemma valid_get_node_sget_not_bot {B V} `{IsValue : Value V} (S : state B V) p :
+  get_node (S.[p]) <> get_node bot -> valid_spath S p.
 Proof. intros G. apply get_not_bot_valid_spath. intro K. apply G. rewrite K. reflexivity. Qed.
 
-Lemma valid_get_constructor_vget_not_bot {V} `{IsValue : Value V} v p :
-  get_constructor (v.[[p]]) <> get_constructor bot -> valid_vpath v p.
+Lemma valid_get_node_vget_not_bot {V} `{IsValue : Value V} v p :
+  get_node (v.[[p]]) <> get_node bot -> valid_vpath v p.
 Proof. intros G. apply get_not_bot_valid_vpath. intro K. apply G. rewrite K. reflexivity. Qed.
 
-Lemma valid_vpath_app_last_get_constructor_not_zeoray {V} `{IsValue : Value V} v p :
-  arity (get_constructor (v.[[p]])) > 0 -> valid_vpath v (p ++ [0]).
+Lemma valid_vpath_app_last_get_node_not_zeoray {V} `{IsValue : Value V} v p :
+  arity (get_node (v.[[p]])) > 0 -> valid_vpath v (p ++ [0]).
 Proof.
   intro. apply valid_vpath_app. split.
   - apply get_not_bot_valid_vpath. intro G. rewrite G in H.
-    rewrite <-length_subvalues_is_arity, subvalues_bot in H. inversion H.
-  - rewrite<- length_subvalues_is_arity in H. apply nth_error_Some' in H.
+    rewrite <-length_children_is_arity, children_bot in H. inversion H.
+  - rewrite<- length_children_is_arity in H. apply nth_error_Some' in H.
     destruct H. econstructor; [eassumption | constructor].
 Qed.
 
-Lemma valid_spath_app_last_get_constructor_not_zeoray {B V} `{IsValue : Value V} (S : state B V) p :
-  arity (get_constructor (S.[p])) > 0 -> valid_spath S (p +++ [0]).
+Lemma valid_spath_app_last_get_node_not_zeoray {B V} `{IsValue : Value V} (S : state B V) p :
+  arity (get_node (S.[p])) > 0 -> valid_spath S (p +++ [0]).
 Proof.
   intro. apply valid_spath_app. split.
   - apply get_not_bot_valid_spath. intro G. rewrite G in H.
-    rewrite <-length_subvalues_is_arity, subvalues_bot in H. inversion H.
-  - rewrite<- length_subvalues_is_arity in H. apply nth_error_Some' in H.
+    rewrite <-length_children_is_arity, children_bot in H. inversion H.
+  - rewrite<- length_children_is_arity in H. apply nth_error_Some' in H.
     destruct H. econstructor; [eassumption | constructor].
 Qed.
 
 Ltac solve_validity0 :=
   lazymatch goal with
-  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S ?p =>
-      apply (valid_get_constructor_sget_not_bot S p);
+  | H : get_node (?S.[?p]) = _ |- valid_spath ?S ?p =>
+      apply (valid_get_node_sget_not_bot S p);
       rewrite H;
       discriminate
-  | H : get_constructor (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
-      simple apply valid_spath_app_last_get_constructor_not_zeoray;
+  | H : get_node (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
+      simple apply valid_spath_app_last_get_node_not_zeoray;
       rewrite H;
       constructor
-  | H : get_constructor (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [0]) =>
+  | H : get_node (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [0]) =>
       rewrite (app_spath_vpath_assoc p q [0]);
-      simple apply valid_spath_app_last_get_constructor_not_zeoray;
+      simple apply valid_spath_app_last_get_node_not_zeoray;
       rewrite H;
       constructor
-  | H : get_constructor (?S.[?p +++ ?q ++ ?r]) = _ |- valid_spath ?S (?p +++ ?q ++ ?r ++ [0]) =>
+  | H : get_node (?S.[?p +++ ?q ++ ?r]) = _ |- valid_spath ?S (?p +++ ?q ++ ?r ++ [0]) =>
       rewrite (app_assoc q r [0]);
       rewrite (app_spath_vpath_assoc p (q ++ r) [0]);
-      simple apply valid_spath_app_last_get_constructor_not_zeoray;
+      simple apply valid_spath_app_last_get_node_not_zeoray;
       rewrite H;
       constructor
   | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
@@ -1848,16 +1849,16 @@ Ltac solve_validity0 :=
       solve_validity0
   | |- valid_vpath _ ([_] ++ _) =>
       econstructor; [reflexivity | solve_validity0]
-  | H : get_constructor (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [0]) =>
-      simple apply valid_vpath_app_last_get_constructor_not_zeoray;
+  | H : get_node (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [0]) =>
+      simple apply valid_vpath_app_last_get_node_not_zeoray;
       rewrite H;
       constructor
   | H : ?v.[[?p]] = _ |- valid_vpath ?v ?p =>
-      apply (valid_get_constructor_vget_not_bot v p);
+      apply (valid_get_node_vget_not_bot v p);
       rewrite H;
       discriminate
-  | H : get_constructor (?v.[[?p]]) = _ |- valid_vpath ?v ?p =>
-      apply (valid_get_constructor_vget_not_bot v p);
+  | H : get_node (?v.[[?p]]) = _ |- valid_vpath ?v ?p =>
+      apply (valid_get_node_vget_not_bot v p);
       rewrite H;
       discriminate
   (* TODO: maybe use a more general forme ?v.[[?q <- _]] ?p, at the condition that ?q
@@ -1880,7 +1881,7 @@ Ltac solve_validity :=
 Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
 Proof. intros. solve_validity. Qed.
 
-Goal forall (S : HLPL_plus_state) p l, get_constructor (S.[p]) = locC(l) -> valid_spath S p.
+Goal forall (S : HLPL_plus_state) p l, get_node (S.[p]) = locC(l) -> valid_spath S p.
 Proof. intros. solve_validity. Qed.
 
 Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
@@ -1899,7 +1900,7 @@ Proof. intros. solve_validity. Qed.
  * Let's denote Sl := S.[p0 <- v0] ... .[pm <- vm] and Sr := S.[q0 <- w0] ... .[qn <- vn]. To prove
  * that Sl = Sr, we are going to prove that Sl.[q] = Sr.[q] for q = p0, ..., pm. For the spaths q
  * that are not prefix of p0, ..., pm, we are going to prove that Sl.[q] and Sr.[q] have the same
- * constructor.
+ * node.
  * Finally, we also need to prove that Sl and Sr have the binders, which is an easy consequence of
  * the fact that they are sets of the same state S.
  *)
@@ -1907,10 +1908,10 @@ Lemma prove_states_eq_4 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 p2 p
   (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
   S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) -> (S.[p2] = S'.[p2]) -> (S.[p3] = S'.[p3]) ->
   (forall q, ~prefix p0 q -> ~prefix p1 q -> ~prefix p2 q -> ~prefix p3 q ->
-    get_constructor (S.[q]) = get_constructor (S'.[q])) ->
+    get_node (S.[q]) = get_node (S'.[q])) ->
   S = S'.
 Proof.
-  intros. apply get_constructor_sget_ext; [assumption | ].
+  intros. apply get_node_sget_ext; [assumption | ].
   intro q.
   destruct (decidable_prefix p0 q) as [(? & <-) | ];
    [rewrite !sget_app; congruence | ].
@@ -1927,10 +1928,10 @@ Lemma prove_states_eq_3 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 p2 :
   (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
   S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) -> (S.[p2] = S'.[p2]) ->
   (forall q, ~prefix p0 q -> ~prefix p1 q -> ~prefix p2 q ->
-    get_constructor (S.[q]) = get_constructor (S'.[q])) ->
+    get_node (S.[q]) = get_node (S'.[q])) ->
   S = S'.
 Proof.
-  intros. apply get_constructor_sget_ext; [assumption | ].
+  intros. apply get_node_sget_ext; [assumption | ].
   intro q.
   destruct (decidable_prefix p0 q) as [(? & <-) | ];
    [rewrite !sget_app; congruence | ].
@@ -1945,10 +1946,10 @@ Lemma prove_states_eq_2 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 :
   (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
   S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) ->
   (forall q, ~prefix p0 q -> ~prefix p1 q ->
-    get_constructor (S.[q]) = get_constructor (S'.[q])) ->
+    get_node (S.[q]) = get_node (S'.[q])) ->
   S = S'.
 Proof.
-  intros. apply get_constructor_sget_ext; [assumption | ].
+  intros. apply get_node_sget_ext; [assumption | ].
   intro q.
   destruct (decidable_prefix p0 q) as [(? & <-) | ];
    [rewrite !sget_app; congruence | ].
@@ -2049,7 +2050,7 @@ Hint Rewrite <- app_spath_vpath_assoc : spath.
 (* When the term to rewrite contains a subterm of the form S.[q <- v].[v], it is not in normal
    form. We apply one of the following rewrite rules to commute the get and the set, or to
    remove the set operation entirely. *)
-Hint Rewrite @constructor_sset_sget_not_prefix using eauto with spath; fail : spath.
+Hint Rewrite @get_node_sset_sget_not_prefix using eauto with spath; fail : spath.
 Hint Rewrite @sset_sget_equal using solve_validity : spath.
 Hint Rewrite @sset_sget_prefix using solve_validity : spath.
 Hint Rewrite @sset_sget_prefix_right using solve_validity : spath.
@@ -2061,7 +2062,7 @@ Hint Rewrite @vset_vget_equal using solve_validity : spath.
 Hint Rewrite @vset_vget_prefix using solve_validity : spath.
 Hint Rewrite @vset_vget_prefix_right using solve_validity : spath.
 
-Hint Rewrite @constructor_vset_cons using discriminate : spath.
+Hint Rewrite @get_node_vset_cons using discriminate : spath.
 
 Hint Rewrite @sset_twice_prefix_left : spath.
 Hint Rewrite @sset_twice_prefix_right : spath.
@@ -2080,19 +2081,19 @@ Hint Rewrite<- @sget_app : spath.
 Hint Rewrite<- @vget_app : spath.
 
 (* Adding a hint to reslove a relation ~prefix p q using the facts that:
- * - S.[p] does not contain a constructor c.
- * - S.[q] starts by the constructor c.
+ * - S.[p] does not contain a node c.
+ * - S.[q] starts by the node c.
  * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
  * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
  * the expression (get_value v) produced, so that it can be solved automatically.
  *)
 Hint Extern 3 (~prefix ?p ?q) =>
   match goal with
-  | H : get_constructor (?S.[?q]) = _ |- _ =>
+  | H : get_node (?S.[?q]) = _ |- _ =>
     simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | solve_validity]
   end : spath.
 
-(* Trying to prove that a value doesn't contain a constructor (ex: loan, loc, bot).
+(* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
    This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
 Ltac prove_not_contains0 :=
   try assumption;
@@ -2130,5 +2131,5 @@ Hint Rewrite Nat2Z.inj_lt : weight.
 
 Hint Rewrite @sweight_sset using solve_validity : weight.
 
-Hint Rewrite @identify_same : weight.
-Hint Rewrite @identify_diff using congruence : weight.
+Hint Rewrite @indicator_same : weight.
+Hint Rewrite @indicator_diff using congruence : weight.

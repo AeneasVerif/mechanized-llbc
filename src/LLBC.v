@@ -25,7 +25,7 @@ Variant LLBC_binder :=
 Program Global Instance EqDec_binder : EqDec LLBC_binder.
 Next Obligation. repeat decide equality. Defined.
 
-Variant LLBC_constructor :=
+Variant LLBC_nodes :=
 | LLBC_botC
 | LLBC_intC (n : nat)
 | LLBC_mut_loanC (l : loan_id)
@@ -39,14 +39,14 @@ Definition LLBC_arity c := match c with
 | LLBC_mut_borrowC _ => 1
 end.
 
-Definition LLBC_get_constructor v := match v with
+Definition LLBC_get_node v := match v with
 | LLBC_bot => LLBC_botC
 | LLBC_int n => LLBC_intC n
 | LLBC_mut_loan l => LLBC_mut_loanC l
 | LLBC_mut_borrow l _ => LLBC_mut_borrowC l
 end.
 
-Definition LLBC_subvalues v := match v with
+Definition LLBC_children v := match v with
 | LLBC_bot => []
 | LLBC_int _ => []
 | LLBC_mut_loan _ => []
@@ -63,21 +63,21 @@ end.
 Fixpoint LLBC_weight node_weight v :=
   match v with
   | LLBC_mut_borrow l v => node_weight (LLBC_mut_borrowC l) + LLBC_weight node_weight v
-  | v => node_weight (LLBC_get_constructor v)
+  | v => node_weight (LLBC_get_node v)
 end.
 
 Program Instance ValueLLBC : Value LLBC_val := {
-  constructors := LLBC_constructor;
+  nodes := LLBC_nodes;
   arity := LLBC_arity;
-  get_constructor := LLBC_get_constructor;
-  subvalues := LLBC_subvalues;
+  get_node := LLBC_get_node;
+  children := LLBC_children;
   fold_value := LLBC_fold;
   total_weight := LLBC_weight;
   bot := LLBC_bot;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
 Next Obligation.
-destruct v; destruct w; inversion eq_constructor; inversion eq_subvalues; reflexivity.
+destruct v; destruct w; inversion eq_node; inversion eq_children; reflexivity.
 Qed.
 
 Next Obligation.
@@ -125,7 +125,7 @@ Inductive eval_proj (S : LLBC_state) perm : proj -> spath -> spath -> Prop :=
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
 | Eval_Deref_MutBorrow q l
     (Hperm : perm <> Mov)
-    (get_q : get_constructor (S.[q]) = borrowC^m(l)) :
+    (get_q : get_node (S.[q]) = borrowC^m(l)) :
     eval_proj S perm Deref q (q +++ [0])
 .
 
@@ -166,7 +166,7 @@ Proof.
 Qed.
 Hint Resolve eval_place_valid : spath.
 
-Variant is_loan : LLBC_constructor -> Prop :=
+Variant is_loan : LLBC_nodes -> Prop :=
 | IsLoan_MutLoan l : is_loan (loanC^m(l)).
 Hint Constructors is_loan : spath.
 Definition not_contains_loan := not_value_contains is_loan.
@@ -178,7 +178,7 @@ Definition not_contains_bot v :=
 Hint Unfold not_contains_bot : spath.
 Hint Extern 0 (_ <> botC) => discriminate : spath.
 
-Variant is_mut_borrow : LLBC_constructor -> Prop :=
+Variant is_mut_borrow : LLBC_nodes -> Prop :=
 | IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
 Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 
@@ -223,7 +223,7 @@ Variant eval_rvalue : rvalue -> LLBC_state -> (LLBC_val * LLBC_state) -> Prop :=
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
 Definition not_in_borrow (S : LLBC_state) p :=
-  forall q, prefix q p -> is_mut_borrow (get_constructor (S.[q])) -> q = p.
+  forall q, prefix q p -> is_mut_borrow (get_node (S.[q])) -> q = p.
 
 Inductive reorg : LLBC_state -> LLBC_state -> Prop :=
 | Reorg_none S : reorg S S
@@ -297,7 +297,7 @@ Definition decide_not_contains_outer_loan v :=
   end.
 
 (* TODO: move in PathToSubtree.v *)
-Lemma valid_vpath_no_subvalues v p (valid_p : valid_vpath v p) (H : subvalues v = []) : p = [].
+Lemma valid_vpath_no_children v p (valid_p : valid_vpath v p) (H : children v = []) : p = [].
 Proof.
   induction valid_p as [ | ? ? ? ? G].
   - reflexivity.
@@ -325,12 +325,12 @@ Definition decide_is_loan_id l v :=
   | _ => false
   end.
 
-Fixpoint decide_not_value_contains (P : constructors -> bool) v :=
-  negb (P (get_constructor v)) && match v with borrow^m(l, w) => decide_not_value_contains P w | _ => true end.
+Fixpoint decide_not_value_contains (P : nodes -> bool) v :=
+  negb (P (get_node v)) && match v with borrow^m(l, w) => decide_not_value_contains P w | _ => true end.
 
 (*
 Lemma decide_value_contains_subval P v w i
-  (H : nth_error (subvalues v) i = Some w) (G : decide_not_value_contains P v = true) :
+  (H : nth_error (children v) i = Some w) (G : decide_not_value_contains P v = true) :
   decide_not_value_contains P w = true.
 Proof.
   apply nth_error_In in H.
@@ -344,11 +344,11 @@ Lemma decide_not_value_contains_correct H P v (H_implies_P : forall v, H v -> P 
   decide_not_value_contains P v = true -> not_value_contains H v.
 Proof.
   intro decide_is_true. induction v.
-  - intros p valid_p. apply valid_vpath_no_subvalues in valid_p; [ | reflexivity].
+  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
     subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
-  - intros p valid_p. apply valid_vpath_no_subvalues in valid_p; [ | reflexivity].
+  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
     subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
-  - intros p valid_p. apply valid_vpath_no_subvalues in valid_p; [ | reflexivity].
+  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
     subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
   - intros p valid_p. inversion valid_p; subst.
     + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
@@ -368,7 +368,7 @@ Proof.
   intros ? G. destruct G. reflexivity.
 Qed.
 
-Definition decide_not_state_contains (P : constructors -> bool) (S : LLBC_state) :=
+Definition decide_not_state_contains (P : nodes -> bool) (S : LLBC_state) :=
   forallb (fun bv => decide_not_value_contains P (snd bv)) S.
 
 Lemma decide_state_contains_correct H P S (H_implies_P : forall v, H v -> P v = true) :
