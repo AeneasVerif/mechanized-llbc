@@ -556,7 +556,7 @@ Notation "S .[ p <- v ]" := (sset p v S) (left associativity, at level 50).
 
 Section GetSetPath.
   Context {V : Type}.
-  Context {IsValue : Value V}.
+  Context `{IsValue : Value V}.
   Context {B : Type}.
 
   Lemma vget_app v p q : v.[[p ++ q]] = v.[[p]].[[q]].
@@ -1412,17 +1412,6 @@ Section GetSetPath.
     valid_vpath v p /\ P (get_node (v.[[p]])) /\
     forall q, valid_vpath v q -> P (get_node (v.[[q]])) -> p = q.
 
-  Lemma vpath_unique_implies_at_most_one P v p :
-    vpath_unique P v p -> value_at_most_one P v.
-  Proof.
-    intros (_ & _ & H) q r ? ? ? ?.
-    rewrite<- (H q); [ | assumption..]. rewrite<- (H r); [ | assumption..]. reflexivity.
-  Qed.
-
-  Lemma not_value_contains_implies_at_most_one P v :
-    not_value_contains P v -> value_at_most_one P v.
-  Proof. intros not_contains p ? valid_p _ P_p. exfalso. eapply not_contains; eassumption. Qed.
-
   Lemma weight_at_most_one v :
     vweight v = 1 -> exists p, vpath_unique (fun c => weight c > 0) v p.
   Proof.
@@ -1628,6 +1617,8 @@ Section GetSetPath.
     apply weight_vget_le. assumption.
   Qed.
 
+  Corollary weight_sget_node_le S p : valid_spath S p -> weight (get_node (S.[p])) <= sweight S.
+  Proof. intros H%weight_sget_le. rewrite total_weight_prop in H. lia. Qed.
 
   Lemma sweight_non_zero S : sweight S > 0 ->
     exists p, valid_spath S p /\ weight (get_node (S.[p])) > 0.
@@ -1651,8 +1642,8 @@ End GetSetPath.
 
 Section StateUniqueConstructor.
   Context {V : Type}.
-  Context {IsValue : Value V}.
-  Context {ConstructorEqDec : EqDec nodes}.
+  Context `{IsValue : Value V}.
+  Context `{ConstructorEqDec : EqDec nodes}.
   Context {B : Type}.
   Context `{EqDecBinder : EqDec B}.
 
@@ -1711,8 +1702,8 @@ Section StateUniqueConstructor.
     - intros [H | H]%Nat.le_1_r.
       + apply not_contains_implies_at_most_one_node; [exact not_bot | ].
         intros p valid_p HSp.
-        pose proof (weight_sget_le (indicator c) _ _ valid_p) as G.
-        rewrite total_weight_prop, <-HSp, indicator_same in G. lia.
+        pose proof (weight_sget_node_le (indicator c) _ _ valid_p) as G.
+        rewrite <-HSp, indicator_same in G. lia.
       + assert (sweight (indicator c) S > 0)
           as (i & ? & Hi)%sum_non_zero
           by lia.
@@ -2128,8 +2119,10 @@ Ltac prove_not_contains := prove_not_contains0; auto with spath.
 Hint Rewrite Nat2Z.inj_add : weight.
 Hint Rewrite Nat2Z.inj_le : weight.
 Hint Rewrite Nat2Z.inj_lt : weight.
+Hint Rewrite Nat2Z.inj_gt : weight.
 
 Hint Rewrite @sweight_sset using solve_validity : weight.
 
 Hint Rewrite @indicator_same : weight.
 Hint Rewrite @indicator_diff using congruence : weight.
+Hint Rewrite @indicator_eq using auto; fail : weight.

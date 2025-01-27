@@ -476,26 +476,76 @@ Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
     le_state_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
 
 Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
-  unique_borrow_mut l p q : get_node (S.[p]) = borrowC^m(l) ->
-                            get_node (S.[q]) = borrowC^m(l) -> p = q;
-  unique_loan_mut l p q : get_node (S.[p]) = loanC^m(l) ->
-                          get_node (S.[q]) = loanC^m(l) -> p = q;
-  no_mut_loan_ptr l p : get_node (S.[p]) = loanC^m(l) ->
-                        not_state_contains (eq ptrC(l)) S;
-  no_mut_loan_loc l p : get_node (S.[p]) = loanC^m(l) ->
-                        not_state_contains (eq locC(l)) S;
+  at_most_one_borrow_mut l : at_most_one_node (borrowC^m(l)) S;
+  at_most_one_loan_mut l : at_most_one_node (loanC^m(l)) S;
+  at_most_one_loc l : at_most_one_node (locC(l)) S;
+  pointer_implies_loc l p : get_node (S.[p]) = ptrC(l) -> exists q, get_node (S.[q]) = locC(l);
+  no_mut_loan_loc l p : get_node (S.[p]) = loanC^m(l) -> not_state_contains (eq locC(l)) S;
 }.
+
+Lemma no_mut_loan_ptr (S : HLPL_plus_state) l p :
+  HLPL_plus_well_formed S -> get_node (S.[p]) = loanC^m(l) -> not_state_contains (eq ptrC(l)) S.
+Proof.
+  intros WF ? q valid_q H.
+  symmetry in H. apply (pointer_implies_loc _ WF) in H. destruct H.
+  eapply no_mut_loan_loc; [eassumption | eassumption | | eauto]. solve_validity.
+Qed.
 
 Notation scount c S := (sweight (indicator c) S).
 
 Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
-  unique_borrow_mut_alt : scount (borrowC^m(l)) S <= 1;
+  at_most_one_borrow_mut_alt : scount (borrowC^m(l)) S <= 1;
   no_mut_loan_loc_alt : scount (loanC^m(l)) S + scount (locC(l)) S <= 1;
-  no_mut_loan_ptr_alt : scount (loanC^m(l)) S <= 0 \/ scount (ptrC(l)) S <= 0;
+  pointer_implies_loc_alt : scount (ptrC(l)) S > 0 -> scount (locC(l)) S > 0;
 }.
 
+(* Note: the following proof mix objects of types `HLPL_plus_nodes` and
+   `@nodes HLPL_plus_value ValueHLPL`. Though equal, those types cannot be unified by the tactic
+   `lia`. This is why at times, this proof contain `cbn in * |-` or `cbn`, to implicitely reduce
+   the type `@nodes HLPL_plus_value ValueHLPL`. *)
 Lemma well_formedness_equiv S : HLPL_plus_well_formed S <-> forall l, HLPL_plus_well_formed_alt S l.
-Admitted.
+Proof.
+  split.
+  - intros WF l. destruct WF. split.
+    + rewrite<- decide_at_most_one_node; easy.
+    + specialize (at_most_one_loan_mut0 l).
+      rewrite decide_at_most_one_node in at_most_one_loan_mut0; [ | discriminate].
+      specialize (at_most_one_loc0 l).
+      rewrite decide_at_most_one_node in at_most_one_loc0; [ | discriminate ].
+      apply Nat.le_1_r in at_most_one_loan_mut0. destruct (at_most_one_loan_mut0).
+      * cbn in * |-.  lia.
+      * cbn in * |-.
+        assert (scount loanC^m(l) S > 0) as (p & ? & ?%indicator_non_zero)%sweight_non_zero by lia.
+        specialize (no_mut_loan_loc0 l p).
+        apply not_state_contains_implies_weight_zero
+          with (weight := indicator (locC(l))) in no_mut_loan_loc0;
+          [lia | apply indicator_non_zero | auto].
+    + intros (p & _ & ?%indicator_non_zero)%sweight_non_zero.
+      specialize (pointer_implies_loc0 l p).
+      destruct pointer_implies_loc0 as (q & ?); [auto | ].
+      assert (valid_q : valid_spath S q) by solve_validity.
+      pose proof (weight_sget_node_le (indicator (locC(l))) _ _ valid_q) as get_S_q.
+      autorewrite with weight in get_S_q. lia.
+  - intros WF. split; intros l; destruct (WF l).
+    + apply decide_at_most_one_node; [discriminate | ]. assumption.
+    + apply decide_at_most_one_node; [discriminate | ]. cbn. lia.
+    + apply decide_at_most_one_node; [discriminate | ]. cbn. lia.
+    + intros p H.
+      apply sweight_non_zero in pointer_implies_loc_alt0.
+      destruct pointer_implies_loc_alt0 as (q & _ & ?).
+      exists q. symmetry. apply indicator_non_zero. assumption.
+      assert (valid_p : valid_spath S p) by solve_validity.
+      apply weight_sget_node_le with (weight := indicator (ptrC(l))) in valid_p.
+      rewrite H, indicator_same in valid_p. exact valid_p.
+    + intros p H.
+      assert (valid_p : valid_spath S p) by solve_validity.
+      apply weight_sget_node_le with (weight := indicator (loanC^m(l))) in valid_p.
+      rewrite H, indicator_same in valid_p.
+      assert (scount (locC(l)) S = 0) by lia.
+      intros q valid_q Hq.
+      apply weight_sget_node_le with (weight := indicator (locC(l))) in valid_q.
+      autorewrite with weight in valid_q. lia.
+Qed.
 
 (* TODO: move *)
 (* Rewriting weight_arity_0 and weight_arity_1 using goals of the form "get_node S.[p] = c".
@@ -529,6 +579,7 @@ Ltac prove_weight_inequality :=
   autorewrite with weight spath;
   lia
 .
+
 (* TODO: give names to hypotheses. *)
 Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_plus_val :=
 { le_base := le_state_base;
@@ -538,7 +589,7 @@ Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_p
 Next Obligation.
   rewrite well_formedness_equiv. rewrite well_formedness_equiv in H.
   intro l0. specialize (H l0). destruct H. destruct H0.
-  - destruct (Nat.eq_dec l0 l) as [<- | ]; split; prove_weight_inequality.
+  - destruct (Nat.eq_dec l0 l) as [<- | ]; split; try prove_weight_inequality.
 Qed.
 
 (* TODO: move *)
@@ -1106,10 +1157,10 @@ Proof.
          that we turn into a loc at sp_loan, and that the borrow that we end at q is the
          borrow we turn into a pointer at sp_borrow. *)
       * assert (p = sp_loan) as ->.
-        { eapply unique_loan_mut. eassumption.
+        { eapply at_most_one_loan_mut. eassumption.
           rewrite H0. reflexivity. rewrite HS_loan. reflexivity. }
         assert (q = sp_borrow) as ->.
-        { eapply unique_borrow_mut. eassumption.
+        { eapply at_most_one_borrow_mut. eassumption.
           rewrite H1. reflexivity. assumption. }
         eapply complete_square_diagram.
         -- reflexivity.

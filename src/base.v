@@ -15,6 +15,12 @@ Definition indicator {A : Type} `{EqDec A} a b :=
 Lemma indicator_same {A} `{EqDec A} (a : A) : indicator a a = 1.
 Proof. unfold indicator. destruct (eq_dec a a); congruence. Qed.
 
+Lemma indicator_eq {A} `{EqDec A} (a b : A) : a = b -> indicator a b = 1.
+Proof. intros <-. apply indicator_same. Qed.
+
+Lemma indicator_non_zero {A} `{EqDec A} (a b : A) : indicator a b > 0 -> a = b.
+Proof. unfold indicator. destruct (eq_dec a b); easy. Qed.
+
 Lemma indicator_diff {A} `{EqDec A} (a b : A) : a <> b -> indicator a b = 0.
 Proof. unfold indicator. destruct (eq_dec a b); congruence. Qed.
 
