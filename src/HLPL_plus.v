@@ -570,6 +570,10 @@ Lemma total_weight_ptr weight l : total_weight weight (ptr(l)) = weight (ptrC(l)
 Proof. reflexivity. Qed.
 Hint Rewrite total_weight_ptr : weight.
 
+Lemma total_weight_bot weight : total_weight weight bot = weight (botC).
+Proof. reflexivity. Qed.
+Hint Rewrite total_weight_bot : weight.
+
 Ltac prove_weight_inequality :=
   (* Translate the inequality into relatives, and repeatedly rewrite sweight_sset. *)
   autorewrite with weight spath;
@@ -1123,6 +1127,24 @@ Proof.
            ++ autorewrite with spath. f_equal. prove_states_eq.
 Qed.
 
+Lemma reorg_preserves_well_formedness (S S' : state HLPL_plus_binder HLPL_plus_val) :
+  reorg S S' -> well_formed S -> well_formed S'.
+Proof.
+  rewrite !well_formedness_equiv. intros Hreorg WF l. specialize (WF l). destruct WF.
+  destruct Hreorg.
+  - split; prove_weight_inequality.
+  - split.
+    + prove_weight_inequality.
+    + prove_weight_inequality.
+    + destruct (Nat.eq_dec l l0); prove_weight_inequality.
+  - split.
+    + prove_weight_inequality.
+    + prove_weight_inequality.
+    + apply not_state_contains_implies_weight_zero with (weight := (indicator ptrC(l0))) in H0;
+       [ | intro; apply indicator_non_zero].
+       destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+Qed.
+
 Definition measure_node c :=
   match c with
   | loanC^m(_) => 2
@@ -1148,7 +1170,7 @@ Proof.
   eapply preservation_reorg with (measure := @sweight _ ValueHLPL _ measure_node).
   { intros Sl Sr Hle. destruct Hle; prove_weight_inequality. }
   { intros ? ? Hreorg. destruct Hreorg; prove_weight_inequality. }
-  { admit. }
+  { apply reorg_preserves_well_formedness. }
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
   (* Case Reorg_end_borrow_m: *)
   - intros ? Hle. destruct Hle.
