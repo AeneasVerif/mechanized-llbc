@@ -1224,6 +1224,18 @@ Proof.
            ++ autorewrite with spath. f_equal. prove_states_eq.
 Qed.
 
+Lemma store_preserves_well_formedness p vS S' :
+  not_contains_loc (fst vS) -> store p vS S' -> well_formed_state_value vS -> well_formed S'.
+Proof.
+  rewrite well_formedness_equiv, well_formedness_state_value_equiv. 
+  intros ? Hstore WF l. destruct Hstore.
+  specialize (WF l). inversion WF as [? ? ? WF']. destruct WF'.
+  autorewrite with weight in * |-.
+  assert (valid_spath S sp).
+  { eapply eval_path_app_last in eval_p; eauto with spath. }
+  split; prove_weight_inequality.
+Qed.
+
 Lemma reorg_preserves_well_formedness (S S' : state HLPL_plus_binder HLPL_plus_val) :
   reorg S S' -> well_formed S -> well_formed S'.
 Proof.
