@@ -44,7 +44,6 @@ Variant HLPL_plus_nodes :=
 Program Instance EqDec_HLPL_plus_nodes : EqDec HLPL_plus_nodes.
 Next Obligation. decide equality; decide equality. Qed.
 
-
 Definition HLPL_plus_arity c := match c with
 | HLPL_plus_botC => 0
 | HLPL_plus_intC _ => 0
@@ -500,9 +499,9 @@ Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
 }.
 
 (* Note: the following proof mix objects of types `HLPL_plus_nodes` and
-   `@nodes HLPL_plus_value ValueHLPL`. Though equal, those types cannot be unified by the tactic
-   `lia`. This is why at times, this proof contain `cbn in * |-` or `cbn`, to implicitely reduce
-   the type `@nodes HLPL_plus_value ValueHLPL`. *)
+ * `@nodes HLPL_plus_value ValueHLPL`. Though equal, those types are not unified by the tactic
+ * `lia`. This is why at times, this proof contain `cbn in * |-` or `cbn`, to implicitely reduce
+ * the type `@nodes HLPL_plus_value ValueHLPL`. *)
 Lemma well_formedness_equiv S : HLPL_plus_well_formed S <-> forall l, HLPL_plus_well_formed_alt S l.
 Proof.
   split.
@@ -569,6 +568,11 @@ Hint Rewrite total_weight_loc : weight.
 Lemma total_weight_ptr weight l : total_weight weight (ptr(l)) = weight (ptrC(l)).
 Proof. reflexivity. Qed.
 Hint Rewrite total_weight_ptr : weight.
+
+Lemma total_weight_int weight n :
+  total_weight weight (HLPL_plus_int n) = weight (HLPL_plus_intC n).
+Proof. reflexivity. Qed.
+Hint Rewrite total_weight_int : weight.
 
 Lemma total_weight_bot weight : total_weight weight bot = weight (botC).
 Proof. reflexivity. Qed.
@@ -834,6 +838,40 @@ Proof.
         -- constructor. eassumption. all: autorewrite with spath; assumption.
         -- autorewrite with spath. f_equal. prove_states_eq.
 Admitted.
+
+(* TODO: move in base.v *)
+Inductive well_formed_state_value : HLPL_plus_val * HLPL_plus_state -> Prop :=
+  | WF_vS v S (WF : HLPL_plus_well_formed (S,, Anon |-> v)) : well_formed_state_value (v, S).
+
+Inductive well_formed_alt_state_value : HLPL_plus_val * HLPL_plus_state -> loan_id -> Prop :=
+  | WF_alt_vS v S l (WF : HLPL_plus_well_formed_alt (S,, Anon |-> v) l) : well_formed_alt_state_value (v, S) l.
+
+Lemma well_formedness_state_value_equiv vS :
+  well_formed_state_value vS <-> forall l, well_formed_alt_state_value vS l.
+Proof.
+  split.
+  - intros []. rewrite well_formedness_equiv in WF. constructor. auto.
+  - intros H. destruct vS. constructor. rewrite well_formedness_equiv.
+    intros l. specialize (H l). inversion H. assumption.
+Qed.
+
+Lemma copy_preserves_well_formedness S p v w :
+  copy_val v w -> S.[p] = v -> well_formed S -> well_formed_state_value (w, S).
+Proof.
+  rewrite well_formedness_equiv, well_formedness_state_value_equiv.
+  intros eval_copy get_S_p WF. revert p get_S_p.
+  induction eval_copy; intros p get_S_p l0; constructor.
+  + specialize (WF l0). destruct WF. split; prove_weight_inequality.
+  + specialize (WF l0). destruct WF. split.
+    * prove_weight_inequality.
+    * prove_weight_inequality.
+    * assert (valid_p : valid_spath S p) by solve_validity.
+      pose proof (weight_sget_node_le (indicator (ptrC(l))) _ _ valid_p) as H.
+      rewrite get_S_p in H. cbn in H. autorewrite with weight in H.
+      destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+  + apply (f_equal (vget [0])) in get_S_p. autorewrite with spath in get_S_p.
+    specialize (IHeval_copy _ get_S_p l0). inversion IHeval_copy. assumption.
+Qed.
 
 Lemma le_base_implies_le S0 S1 : le_base S0 S1 -> le S0 S1.
 Proof. now constructor. Qed.
@@ -1226,7 +1264,7 @@ Proof.
                  auto with spath. all: autorewrite with spath. eassumption.
                  assumption. assumption. auto with spath.
               ** autorewrite with spath. prove_states_eq.
-           (* Case 4: the loan that we end is disjoint from the borrow that we turn into a pointer. 
+           (* Case 4: the loan that we end is disjoint from the borrow that we turn into a pointer.
            *)
            ++ assert (disj sp_borrow p) by reduce_comp.
               eapply complete_square_diagram.

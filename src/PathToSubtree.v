@@ -1620,6 +1620,9 @@ Section GetSetPath.
   Corollary weight_sget_node_le S p : valid_spath S p -> weight (get_node (S.[p])) <= sweight S.
   Proof. intros H%weight_sget_le. rewrite total_weight_prop in H. lia. Qed.
 
+  Lemma sweight_add_anon S b v : sweight (S,, b |-> v) = sweight S + vweight v.
+  Proof. unfold sweight. rewrite map_app, sum_app. cbn. lia. Qed.
+
   Lemma sweight_non_zero S : sweight S > 0 ->
     exists p, valid_spath S p /\ weight (get_node (S.[p])) > 0.
   Proof.
@@ -2122,6 +2125,7 @@ Hint Rewrite Nat2Z.inj_lt : weight.
 Hint Rewrite Nat2Z.inj_gt : weight.
 
 Hint Rewrite @sweight_sset using solve_validity : weight.
+Hint Rewrite @sweight_add_anon : weight.
 
 Hint Rewrite @indicator_same : weight.
 Hint Rewrite @indicator_diff using congruence : weight.

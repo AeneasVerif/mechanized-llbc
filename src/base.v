@@ -226,3 +226,6 @@ Proof.
   - specialize (H 0 (2 + x)). rewrite nth_error_cons_0 in H.
     assert (2 + x <= 1) by auto. lia.
 Qed.
+
+Lemma sum_app l0 l1 : sum (l0 ++ l1) = sum l0 + sum l1.
+Proof. unfold sum. induction l0; cbn in *; lia. Qed.
