@@ -1254,6 +1254,10 @@ Proof.
        destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
 Qed.
 
+Corollary reorgs_preserve_well_formedness (S S' : state HLPL_plus_binder HLPL_plus_val) :
+  refl_trans_closure reorg S S' -> well_formed S -> well_formed S'.
+Proof. intro Hreorg. induction Hreorg; eauto using reorg_preserves_well_formedness. Qed.
+
 Definition measure_node c :=
   match c with
   | loanC^m(_) => 2
@@ -1437,7 +1441,21 @@ Proof.
                  repeat apply not_state_contains_sset.
                  assumption. all: prove_not_contains. cbn. congruence.
               ** autorewrite with spath. prove_states_eq.
-Admitted.
+Qed.
+
+Lemma stmt_preserves_well_formedness S s r S' :
+  S |-{stmt} s => r, S' -> well_formed S -> well_formed S'.
+Proof.
+  intros eval_s. induction eval_s.
+  - auto.
+  - auto.
+  - auto.
+  - intros.
+    assert (well_formed_state_value vS') by eauto using rvalue_preserves_well_formedness.
+    apply eval_rvalue_no_loan_loc in eval_rv. destruct eval_rv as (_ & ?).
+    eauto using store_preserves_well_formedness.
+  - intros. apply IHeval_s. eauto using reorgs_preserve_well_formedness.
+Qed.
 
 Lemma stmt_preserves_HLPL_plus_rel s r : well_formed_preservation (eval_stmt s r).
 Proof.
@@ -1445,8 +1463,8 @@ Proof.
   - eexists. split; [eassumption | constructor].
   - specialize (IHHeval1 WF_Sr _ Hle).
     destruct IHHeval1 as (Sl' & ? & ?).
-    edestruct IHHeval2 as (Sl'' & ? & ?); [ | eassumption | ].
-    { admit. }
+    edestruct IHHeval2 as (Sl'' & ? & ?);
+      [eauto using stmt_preserves_well_formedness | eassumption | ].
     exists Sl''. split; [assumption | ]. eapply Eval_seq_unit; eassumption.
   - specialize (IHHeval WF_Sr _ Hle).
     destruct IHHeval as (Sl' & ? & ?).
@@ -1459,10 +1477,10 @@ Proof.
       [ | eapply eval_rvalue_no_loan_loc; exact eval_rv..].
     destruct (Hstore _ le_vSl_vS') as (Sl'' & le_Sl'' & store_vSl').
     exists Sl''. split; [assumption | ]. econstructor; eassumption.
-  - apply reorg_preserves_HLPL_plus_rel in Hreorg; [ | assumption].
+  - assert (well_formed S1) by eauto using reorgs_preserve_well_formedness.
+    apply reorg_preserves_HLPL_plus_rel in Hreorg; [ | assumption].
     destruct (Hreorg _ Hle) as (Sl1 & le_Sl1 & reorg_Sl1).
-    edestruct IHHeval as (Sl2 & le_Sl2 & eval_in_Sl2); [ | eassumption | ].
-    { admit. }
+    edestruct IHHeval as (Sl2 & le_Sl2 & eval_in_Sl2); [ assumption | eassumption | ].
     exists Sl2. split; [assumption | ].
     apply Eval_reorg with (S1 := Sl1); assumption.
-Admitted.
+Qed.
