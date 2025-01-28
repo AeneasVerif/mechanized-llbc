@@ -418,7 +418,6 @@ Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_st
       (Hancestor_loc : ancestor S pi = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
   | Eval_pointer_no_loc S p pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
-      (Hancestor_no_loc : ~is_loc (ancestor S pi))
       (* This hypothesis is not necessary for the proof of preservation of HLPL+, but it is
          useful in that it can help us eliminate cases. *)
       (Hno_loan : not_contains_loan (S.[pi])) :
@@ -931,28 +930,16 @@ Proof.
   - intros Sl Hle. destruct Hle.
     + eval_place_preservation.
       destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
-      * destruct r.
-        (* Case 1: the place p is just under sp_borrow. *)
-        -- rewrite app_nil_r in *. eapply complete_square_diagram.
-           ++ eapply prove_le_state_val.
-              { apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
-              { autorewrite with spath. reflexivity. }
-              (* This requires to apply the rule Le-Merge-Locs, that we have not defined yet. *)
-              admit.
-           ++ apply Eval_pointer_loc with (pi := sp_loan +++ [0]).
-              assumption. autorewrite with spath. reflexivity.
-           ++ admit.
-        (* Case 2: the place p is just under sp_borrow, but not just under. *)
-        -- eapply complete_square_diagram.
-           ++ eapply prove_le_state_val.
-              { apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
-              { autorewrite with spath. reflexivity. }
-              reflexivity.
-           ++ apply Eval_pointer_no_loc with (l := l). eassumption.
-              all: autorewrite with spath. autorewrite with spath in Hancestor_no_loc.
-              exact Hancestor_no_loc. assumption. prove_not_contains.
-           ++ f_equal. prove_states_eq.
-      (* Case 3: *)
+      (* Case 1: the place p is under sp_borrow. *)
+      * eapply complete_square_diagram.
+        -- eapply prove_le_state_val.
+            { apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
+            { autorewrite with spath. reflexivity. }
+            reflexivity.
+        -- apply Eval_pointer_no_loc with (l := l). eassumption.
+            all: autorewrite with spath. assumption. prove_not_contains.
+        -- f_equal. prove_states_eq.
+      (* Case 2: *)
       * assert (disj sp_loan pi) by reduce_comp.
         destruct (decidable_prefix pi sp_borrow) as [(r & <-) | ].
         -- eapply complete_square_diagram.
@@ -962,7 +949,7 @@ Proof.
               { autorewrite with spath. reflexivity. }
               reflexivity.
            ++ apply Eval_pointer_no_loc with (l := l). eassumption.
-              autorewrite with spath. assumption. all: autounfold with spath; prove_not_contains.
+              autorewrite with spath. all: autounfold with spath; prove_not_contains.
            ++ f_equal. autorewrite with spath. prove_states_eq.
         -- assert (disj sp_borrow pi) by reduce_comp.
            eapply complete_square_diagram.
