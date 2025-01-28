@@ -873,6 +873,17 @@ Proof.
     specialize (IHeval_copy _ get_S_p l0). inversion IHeval_copy. assumption.
 Qed.
 
+Lemma operand_preserves_well_formedness op S vS :
+  S |-{op} op => vS -> HLPL_plus_well_formed S -> well_formed_state_value vS.
+Proof.
+  intros eval_op WF. destruct eval_op.
+  - constructor. rewrite well_formedness_equiv in *.
+    intros l. specialize (WF l). destruct WF. split; prove_weight_inequality.
+  - eauto using copy_preserves_well_formedness.
+  - constructor. rewrite well_formedness_equiv in *.
+    intros l. specialize (WF l). destruct WF. split; prove_weight_inequality.
+Qed.
+
 Lemma le_base_implies_le S0 S1 : le_base S0 S1 -> le S0 S1.
 Proof. now constructor. Qed.
 
