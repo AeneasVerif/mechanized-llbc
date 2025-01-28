@@ -963,6 +963,67 @@ Proof.
            ++ f_equal. autorewrite with spath. prove_states_eq.
 Admitted.
 
+Lemma well_formed_state_value_implies_well_formed_state v S :
+  not_contains_loc v -> well_formed_state_value (v, S) -> well_formed S.
+Proof.
+  rewrite well_formedness_state_value_equiv, well_formedness_equiv.
+  intros no_loc WF l.
+  specialize (WF l). inversion WF as [? ? ? WF']. destruct WF'. autorewrite with weight in * |-.
+  apply not_value_contains_weight with (weight := indicator (locC(l))) in no_loc;
+    [ | intros ? <-%indicator_non_zero; constructor].
+  split; prove_weight_inequality.
+Qed.
+
+Lemma eval_operand_no_loc op S vS : S |-{op} op => vS -> not_contains_loc (fst vS).
+Proof.
+  intros eval_op. unfold not_contains_loc. destruct eval_op.
+  - prove_not_contains.
+  - clear Heval_place. cbn. induction Hcopy_val; prove_not_contains.
+  - prove_not_contains.
+Qed.
+
+Corollary operand_preserves_well_formedness' op S v S' :
+  S |-{op} op => (v, S') -> HLPL_plus_well_formed S -> HLPL_plus_well_formed S'.
+Proof.
+  intros eval_op WF. eapply operand_preserves_well_formedness in WF; [ | eassumption].
+  inversion WF.
+  eapply well_formed_state_value_implies_well_formed_state; [ | eassumption].
+  apply eval_operand_no_loc in eval_op. exact eval_op.
+Qed.
+
+Lemma rvalue_preserves_well_formedness rv S vS :
+  S |-{rv} rv => vS -> HLPL_plus_well_formed S -> well_formed_state_value vS.
+Proof.
+  intros eval_rv WF. destruct eval_rv.
+  - eauto using operand_preserves_well_formedness.
+  - apply operand_preserves_well_formedness' in H; [ | assumption].
+    apply operand_preserves_well_formedness' in H0; [ | assumption].
+    constructor. rewrite well_formedness_equiv in *.
+    intros l0. specialize (H0 l0). destruct H0. split; prove_weight_inequality.
+  - apply ancestor_is_not_bot in Hancestor_loc; [ | discriminate].
+    destruct Hancestor_loc as (q & ? & -> & ?).
+    assert (valid_q : valid_spath S q) by solve_validity.
+    apply weight_sget_node_le with (weight := indicator (locC(l))) in valid_q.
+    rewrite H, indicator_same in valid_q.
+    constructor. rewrite well_formedness_equiv in *.
+    intros l0. specialize (WF l0). destruct WF. split.
+    + prove_weight_inequality.
+    + prove_weight_inequality.
+    + destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+  - apply eval_place_valid in Heval_place.
+    assert (scount (locC(l)) S = 0).
+    { eapply not_state_contains_implies_weight_zero; [ | exact H].
+      intros ? <-%indicator_non_zero. constructor. }
+    assert (scount (loanC^m(l)) S = 0).
+    { eapply not_state_contains_implies_weight_zero; [ | exact H].
+      intros ? <-%indicator_non_zero. constructor. }
+    constructor. rewrite well_formedness_equiv in *.
+    intros l0. specialize (WF l0). destruct WF. split.
+    + prove_weight_inequality.
+    + destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+    + destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+Qed.
+
 Hint Extern 0 (not_value_contains _ _) => prove_not_contains0 : spath.
 Lemma eval_rvalue_no_loan_loc S rv vS' : S |-{rv} rv => vS' ->
   not_contains_loan (fst vS') /\ not_contains_loc (fst vS').
