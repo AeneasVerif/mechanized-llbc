@@ -818,27 +818,6 @@ Section GetSetPath.
 
   Hint Resolve nth_error_length : core.
 
-  (* Two values are equal if they have the same nodes everywhere. *)
-  Lemma get_node_vget_ext v w :
-    (forall p, get_node (v.[[p]]) = get_node (w.[[p]])) -> v = w.
-  Proof.
-    remember (size v) as n. revert v w Heqn.
-    induction n as [n IH] using lt_wf_ind. intros v w -> H.
-    assert (get_node v = get_node w) by exact (H []).
-    assert (eq_length : length (children v) = length (children w)).
-    { rewrite !length_children_is_arity. f_equal. assumption. }
-    apply get_nodes_children_inj; [assumption | ].
-    apply nth_error_ext. intro i. destruct (nth_error (children v) i) eqn:EQN.
-    - assert (i < length (children w)).
-      { rewrite <-eq_length. eauto. }
-      assert (nth_error (children w) i <> None) by now apply nth_error_Some.
-      destruct (nth_error (children w) i) eqn:EQN'; [ | contradiction].
-      f_equal. eapply IH; [ | reflexivity | ].
-      + eapply size_decreasing. exact EQN.
-      + intro p. specialize (H (i :: p)). cbn in H. rewrite EQN, EQN' in H. exact H.
-    - symmetry. apply nth_error_None. rewrite <-eq_length. apply nth_error_None. assumption.
-    Qed.
-
   Lemma length_sset (S : state B V) p v : length (S.[p <- v]) = length S.
   Proof. apply map_nth_length. Qed.
 
@@ -1233,20 +1212,6 @@ Section GetSetPath.
       destruct (i - length S).
       + easy.
       + cbn in H. rewrite nth_error_nil in H. easy.
-  Qed.
-
-  (* Two states are equal if they have the same nodes everywhere. *)
-  Lemma get_node_sget_ext (S S' : state B V) :
-    (forall i, get_binder S i = get_binder S' i) -> (forall p, get_node (S.[p]) = get_node (S'.[p])) -> S = S'.
-  Proof.
-    intros eq_binders eq_nodes.
-    apply nth_error_ext. intro i. specialize (eq_binders i). destruct (nth_error S i) eqn:EQN.
-    - destruct (nth_error S' i) eqn:EQN'; [ | discriminate].
-      f_equal. apply injective_projections; [simplify_option | ].
-      apply get_node_vget_ext. intro q.
-      specialize (eq_nodes (i, q)). unfold sget in eq_nodes. cbn in eq_nodes.
-      rewrite EQN, EQN' in eq_nodes. exact eq_nodes.
-    - destruct (nth_error S' i); easy.
   Qed.
 
   Context `{EqDecBinder : EqDec B}.
@@ -1883,92 +1848,33 @@ Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r ->
 Proof. intros. solve_validity. Qed.
  *)
 
+(* When we want to prove an equality of the form Sl = Sr.[p <- v] or Sl = Sr.[p +++ q <- v],
+   we perform commutations so that all of the writes [p <- v] or [p +++ r <- v] are at the end.
+ *)
+Ltac commute_ssets :=
+  lazymatch goal with
+  | |- _ = _.[?p +++ ?q <- _] =>
+    lazymatch goal with
+    | |- context [ _.[p <- _].[_ <- _] ] =>
+      rewrite (sset_twice_disj_commute _ p) by eauto with spath
+    end
+  | |- _ = _.[?p <- _] =>
+    lazymatch goal with
+    | |- context [ _.[p <- _].[_ <- _] ] =>
+      rewrite (sset_twice_disj_commute _ p) by eauto with spath
+    | |- context [ _.[p +++ ?q <- _].[_ <- _] ] =>
+      rewrite (sset_twice_disj_commute _ (p +++ q)) by eauto with spath
+    end
+  end
+.
+
 (* Automatically solve equality between two states that are sets of a state S, ie solves goals of
  * the form:
  * S.[p0 <- v0] ... .[pm <- vm] = S.[q0 <- w0] ... .[qn <- vn]
- *
- * Strategy: it's easy to compute values that are a get of a sequence of sets, i.e:
- * S.[p0 <- v0] ... .[pm <- vm] .[q]
- * This works when we know the relation between the state q we get and the states p0, ..., pk we
- * set.
- * Let's denote Sl := S.[p0 <- v0] ... .[pm <- vm] and Sr := S.[q0 <- w0] ... .[qn <- vn]. To prove
- * that Sl = Sr, we are going to prove that Sl.[q] = Sr.[q] for q = p0, ..., pm. For the spaths q
- * that are not prefix of p0, ..., pm, we are going to prove that Sl.[q] and Sr.[q] have the same
- * node.
- * Finally, we also need to prove that Sl and Sr have the binders, which is an easy consequence of
- * the fact that they are sets of the same state S.
  *)
-Lemma prove_states_eq_4 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 p2 p3 :
-  (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
-  S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) -> (S.[p2] = S'.[p2]) -> (S.[p3] = S'.[p3]) ->
-  (forall q, ~prefix p0 q -> ~prefix p1 q -> ~prefix p2 q -> ~prefix p3 q ->
-    get_node (S.[q]) = get_node (S'.[q])) ->
-  S = S'.
-Proof.
-  intros. apply get_node_sget_ext; [assumption | ].
-  intro q.
-  destruct (decidable_prefix p0 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-  destruct (decidable_prefix p1 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-  destruct (decidable_prefix p2 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-  destruct (decidable_prefix p3 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-   auto.
-Qed.
-
-Lemma prove_states_eq_3 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 p2 :
-  (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
-  S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) -> (S.[p2] = S'.[p2]) ->
-  (forall q, ~prefix p0 q -> ~prefix p1 q -> ~prefix p2 q ->
-    get_node (S.[q]) = get_node (S'.[q])) ->
-  S = S'.
-Proof.
-  intros. apply get_node_sget_ext; [assumption | ].
-  intro q.
-  destruct (decidable_prefix p0 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-  destruct (decidable_prefix p1 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-  destruct (decidable_prefix p2 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-   auto.
-Qed.
-
-Lemma prove_states_eq_2 {B V} `{IsValue : Value V} (S S' : state B V) p0 p1 :
-  (forall i, SOME c <- nth_error S i IN Some (fst c) = SOME c <- nth_error S' i IN Some (fst c)) ->
-  S.[p0] = S'.[p0] -> (S.[p1] = S'.[p1]) ->
-  (forall q, ~prefix p0 q -> ~prefix p1 q ->
-    get_node (S.[q]) = get_node (S'.[q])) ->
-  S = S'.
-Proof.
-  intros. apply get_node_sget_ext; [assumption | ].
-  intro q.
-  destruct (decidable_prefix p0 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-  destruct (decidable_prefix p1 q) as [(? & <-) | ];
-   [rewrite !sget_app; congruence | ].
-   auto.
-Qed.
-
 Ltac prove_states_eq :=
-  let q := fresh "q" in
-  (* autorewrite with spath; *)
-  lazymatch goal with
-  | |- ?S.[?p0 <- _].[?p1 <- _].[?p2 <- _].[?p3 <- _] = ?S' =>
-    simple apply (prove_states_eq_4 _ S' p0 p1 p2 p3);
-    intros;
-    [rewrite !get_binder_sset; reflexivity | autorewrite with spath; try reflexivity..]
-  | |- ?S.[?p0 <- _].[?p1 <- _].[?p2 <- _] = ?S' =>
-    simple apply (prove_states_eq_3 _ S' p0 p1 p2);
-    intros;
-    [rewrite !get_binder_sset; reflexivity | autorewrite with spath; try reflexivity..]
-  | |- ?S.[?p0 <- _].[?p1 <- _] = ?S' =>
-    simple apply (prove_states_eq_2 _ S' p0 p1);
-    intros;
-    [rewrite !get_binder_sset; reflexivity | autorewrite with spath; try reflexivity..]
-  end.
+  repeat (repeat (commute_ssets; autorewrite with spath); f_equal)
+.
 
 (* Note: not really maintained. *)
 (* A _comparison_ `C p q` between is one of those relation:
@@ -2058,6 +1964,7 @@ Hint Rewrite @vset_vget_prefix_right using solve_validity : spath.
 
 Hint Rewrite @get_node_vset_cons using discriminate : spath.
 
+Hint Rewrite @sset_twice_equal : spath.
 Hint Rewrite @sset_twice_prefix_left : spath.
 Hint Rewrite @sset_twice_prefix_right : spath.
 

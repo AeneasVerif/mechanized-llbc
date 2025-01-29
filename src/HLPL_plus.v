@@ -1307,7 +1307,7 @@ Proof.
              assert (not_state_contains (eq ptrC(l)) S).
              { eapply no_mut_loan_ptr. eassumption. rewrite HS_loan. reflexivity. }        rewrite sset_twice_equal. (* TODO: automatic rewriting. *)
              prove_not_contains. }
-        -- prove_states_eq.
+        -- autorewrite with spath. prove_states_eq.
       * assert (q <> sp_borrow) by congruence.
         assert (~strict_prefix sp_borrow q). { apply H3. rewrite HS_borrow. constructor. }
         assert (disj p sp_loan) by reduce_comp.
