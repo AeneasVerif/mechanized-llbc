@@ -666,7 +666,7 @@ Section MutBorrow_to_Ptr.
     - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
       exists (q_loc +++ [0]). split; try assumption.
       apply Eval_Deref_Ptr_Locs with (l := l); try assumption.
-      rewrite sget_app in *. autorewrite with spath in *. assumption.
+      autorewrite with spath. assumption.
     - specialize (IHeval_proj (r ++ [0])). destruct IHeval_proj as (q'' & ? & ?).
       + rewrite<- app_spath_vpath_assoc. reflexivity.
       + exists q''. split; try assumption.
@@ -820,7 +820,7 @@ Proof.
       * eapply complete_square_diagram.
         -- eapply prove_le_state_val.
            { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := (length S, q)).
-             (*auto with spath.*) admit. all: autorewrite with spath; eassumption. }
+             eauto with spath. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
         -- constructor. eassumption. all: autounfold with spath; prove_not_contains.
