@@ -2034,6 +2034,11 @@ Hint Rewrite Nat2Z.inj_gt : weight.
 Hint Rewrite @sweight_sset using solve_validity : weight.
 Hint Rewrite @sweight_add_anon : weight.
 
+(* When applying twice sweight_sset on a state of the form S.[p <- v].[q <- w], we end up
+   with value S.[p <- v].[q], that we reduce using sset_sget_disj: *)
+Hint Rewrite @sset_sget_disj using eauto with spath : weight.
+Hint Rewrite<- @sget_app : weight.
+
 Hint Rewrite @indicator_same : weight.
 Hint Rewrite @indicator_diff using congruence : weight.
 Hint Rewrite @indicator_eq using auto; fail : weight.

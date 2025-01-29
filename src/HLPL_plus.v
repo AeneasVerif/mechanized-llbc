@@ -579,11 +579,11 @@ Hint Rewrite total_weight_bot : weight.
 
 Ltac prove_weight_inequality :=
   (* Translate the inequality into relatives, and repeatedly rewrite sweight_sset. *)
-  autorewrite with weight spath;
+  autorewrite with weight;
   (* Use the hypotheses "get_node S.[p] = c" to further rewrite the formula. *)
   repeat weight_given_node;
   (* Final rewriting. *)
-  autorewrite with weight spath;
+  autorewrite with weight;
   lia
 .
 
@@ -596,7 +596,7 @@ Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_p
 Next Obligation.
   rewrite well_formedness_equiv. rewrite well_formedness_equiv in H.
   intro l0. specialize (H l0). destruct H. destruct H0.
-  - destruct (Nat.eq_dec l0 l) as [<- | ]; split; try prove_weight_inequality.
+  - destruct (Nat.eq_dec l0 l) as [<- | ]; split; prove_weight_inequality.
 Qed.
 
 (* TODO: move *)
