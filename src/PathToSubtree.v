@@ -1762,7 +1762,7 @@ Proof.
     destruct H. econstructor; [eassumption | constructor].
 Qed.
 
-Ltac solve_validity0 :=
+Ltac validity0 :=
   lazymatch goal with
   | H : get_node (?S.[?p]) = _ |- valid_spath ?S ?p =>
       apply (valid_get_node_sget_not_bot S p);
@@ -1789,15 +1789,15 @@ Ltac solve_validity0 :=
       discriminate
   | |- valid_spath (?S.[?p <- ?v]) (?p +++ ?q) =>
       simple apply sset_prefix_valid;
-      solve_validity0
+      validity0
   | |- valid_spath (?S.[?p <- ?v]) ?q =>
-      apply sset_not_prefix_valid; [ | solve_validity0]
+      apply sset_not_prefix_valid; [ | validity0]
   | |- valid_spath (?S ++ _) (length ?S, ?q) =>
       apply valid_spath_last;
-      solve_validity0
+      validity0
   | |- valid_spath (?S ++ ?S') ?p =>
       simple apply valid_app_spath;
-      solve_validity0
+      validity0
   | |- valid_spath ?S ?p => idtac
 
   (* Solving valid_vpath: *)
@@ -1805,9 +1805,9 @@ Ltac solve_validity0 :=
       apply (valid_spath_app S p q);
       (* In case p is of the form p0 +++ p1, we rewrite (p0 +++ p1) +++ q into
          p0 +++ (p1 ++ q) *)
-      solve_validity0
+      validity0
   | |- valid_vpath _ ([_] ++ _) =>
-      econstructor; [reflexivity | solve_validity0]
+      econstructor; [reflexivity | validity0]
   | H : get_node (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [0]) =>
       simple apply valid_vpath_app_last_get_node_not_zeoray;
       rewrite H;
@@ -1823,29 +1823,29 @@ Ltac solve_validity0 :=
   (* TODO: maybe use a more general forme ?v.[[?q <- _]] ?p, at the condition that ?q
      is not a strict prefix of p. This would require an extra lemma. *)
   | |- valid_vpath (?v.[[?p ++ _ <- _]]) ?p =>
-      simple apply vset_prefix_right_valid; solve_validity0
+      simple apply vset_prefix_right_valid; validity0
   | |- valid_vpath ?v ?p => idtac
   end.
 Hint Extern 0 (valid_spath _ _) =>
   repeat rewrite <-app_spath_vpath_assoc;
-  solve_validity0 : spath.
-Ltac solve_validity :=
+  validity0 : spath.
+Ltac validity :=
   repeat rewrite <-app_spath_vpath_assoc;
-  solve_validity0;
+  validity0;
   eauto with spath.
 
 (* Testing that I can automatically prove validity: *)
 (* TODO: rewrite or delete. *)
 (*
 Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
-Proof. intros. solve_validity. Qed.
+Proof. intros. validity. Qed.
 
 Goal forall (S : HLPL_plus_state) p l, get_node (S.[p]) = locC(l) -> valid_spath S p.
-Proof. intros. solve_validity. Qed.
+Proof. intros. validity. Qed.
 
 Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
   -> valid_spath (S.[p <- v].[q <- w]) r.
-Proof. intros. solve_validity. Qed.
+Proof. intros. validity. Qed.
  *)
 
 (* When we want to prove an equality of the form Sl = Sr.[p <- v] or Sl = Sr.[p +++ q <- v],
@@ -1872,7 +1872,14 @@ Ltac commute_ssets :=
  * the form:
  * S.[p0 <- v0] ... .[pm <- vm] = S.[q0 <- w0] ... .[qn <- vn]
  *)
-Ltac prove_states_eq :=
+Ltac states_eq :=
+  autorewrite with spath;
+  (* In case we want to prove equality between pairs (v, S), we prove the equality between the
+   * values by reflexivity, and leave as a goal the proof of equality between the states. *)
+  lazymatch goal with
+  | |- (_, _) = (_, _) => refine (proj2 (pair_equal_spec _ _ _ _) _); split; [reflexivity | ]
+  | _ => idtac
+  end;
   repeat (repeat (commute_ssets; autorewrite with spath); f_equal)
 .
 
@@ -1951,16 +1958,16 @@ Hint Rewrite <- app_spath_vpath_assoc : spath.
    form. We apply one of the following rewrite rules to commute the get and the set, or to
    remove the set operation entirely. *)
 Hint Rewrite @get_node_sset_sget_not_prefix using eauto with spath; fail : spath.
-Hint Rewrite @sset_sget_equal using solve_validity : spath.
-Hint Rewrite @sset_sget_prefix using solve_validity : spath.
-Hint Rewrite @sset_sget_prefix_right using solve_validity : spath.
-Hint Rewrite @sset_sget_common_prefix using solve_validity : spath.
+Hint Rewrite @sset_sget_equal using validity : spath.
+Hint Rewrite @sset_sget_prefix using validity : spath.
+Hint Rewrite @sset_sget_prefix_right using validity : spath.
+Hint Rewrite @sset_sget_common_prefix using validity : spath.
 Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
 
 (* Idem for vpaths: *)
-Hint Rewrite @vset_vget_equal using solve_validity : spath.
-Hint Rewrite @vset_vget_prefix using solve_validity : spath.
-Hint Rewrite @vset_vget_prefix_right using solve_validity : spath.
+Hint Rewrite @vset_vget_equal using validity : spath.
+Hint Rewrite @vset_vget_prefix using validity : spath.
+Hint Rewrite @vset_vget_prefix_right using validity : spath.
 
 Hint Rewrite @get_node_vset_cons using discriminate : spath.
 
@@ -1972,10 +1979,10 @@ Hint Rewrite @sset_twice_prefix_right : spath.
    (S,, Anon |-> v).[p <- w], it is not in normal form.
    Depending on whether p is a path in S, or a path in the last binding Anon |-> v, we use
    one of the following rewrite rules. *)
-Hint Rewrite @sset_app_state using solve_validity; fail : spath.
+Hint Rewrite @sset_app_state using validity; fail : spath.
 Hint Rewrite @sset_app_last_state
   using repeat rewrite length_sset; try assumption; reflexivity : spath.
-Hint Rewrite @sget_app_state using solve_validity; fail : spath.
+Hint Rewrite @sget_app_state using validity; fail : spath.
 Hint Rewrite @sget_app_last_state
   using repeat rewrite length_sset; try assumption; reflexivity : spath.
 Hint Rewrite<- @sget_app : spath.
@@ -1991,37 +1998,37 @@ Hint Rewrite<- @vget_app : spath.
 Hint Extern 3 (~prefix ?p ?q) =>
   match goal with
   | H : get_node (?S.[?q]) = _ |- _ =>
-    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | solve_validity]
+    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | validity]
   end : spath.
 
 (* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
    This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
-Ltac prove_not_contains0 :=
+Ltac not_contains0 :=
   try assumption;
   match goal with
   | |- True => auto
   | |- not_state_contains ?P (?S.[?p <- ?v]) =>
       simple apply not_state_contains_sset;
-      prove_not_contains0
+      not_contains0
   | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
       simple apply not_value_contains_sset_disj;
-        [auto with spath; fail | prove_not_contains0]
+        [auto with spath; fail | not_contains0]
   | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
       simple apply not_value_contains_sset;
-       [ prove_not_contains0 | prove_not_contains0 | solve_validity0]
+       [ not_contains0 | not_contains0 | validity0]
   | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
       simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
-      solve_validity0
+      validity0
   | |- not_value_contains ?P (?v.[[?p <- ?w]]) =>
-      simple apply not_value_contains_vset; prove_not_contains0
+      simple apply not_value_contains_vset; not_contains0
   | |- not_value_contains ?P (?S.[?p]) => idtac
   | |- not_value_contains ?P ?v =>
       simple apply not_value_contains_zeroary; [reflexivity | ]
   | |- not_value_contains ?P ?v =>
-      simple eapply not_value_contains_unary; [reflexivity | | prove_not_contains0]
+      simple eapply not_value_contains_unary; [reflexivity | | not_contains0]
   | |- _ => idtac
   end.
-Ltac prove_not_contains := prove_not_contains0; auto with spath.
+Ltac not_contains := not_contains0; auto with spath.
 
 (* Populating the "weight" rewrite database: *)
 (* These hints turn operations on naturals onto operations on relatives, so to rewrite
@@ -2031,7 +2038,7 @@ Hint Rewrite Nat2Z.inj_le : weight.
 Hint Rewrite Nat2Z.inj_lt : weight.
 Hint Rewrite Nat2Z.inj_gt : weight.
 
-Hint Rewrite @sweight_sset using solve_validity : weight.
+Hint Rewrite @sweight_sset using validity : weight.
 Hint Rewrite @sweight_add_anon : weight.
 
 (* When applying twice sweight_sset on a state of the form S.[p <- v].[q <- w], we end up

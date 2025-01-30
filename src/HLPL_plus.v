@@ -247,7 +247,7 @@ Hint Resolve not_in_borrow_sset : spath.
 
 Lemma loc_is_not_bot x : is_loc x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
 Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
-Ltac prove_not_contains_outer :=
+Ltac not_contains_outer :=
   (* The values we use this tactic on are of the form
      (S,, Anon |-> v) (.[ sp <- v])* .[sp]
      where the path sp we read is a path of S. We first do some rewritings to commute
@@ -259,12 +259,12 @@ Ltac prove_not_contains_outer :=
       let H := fresh "H" in
       assert (H : not_value_contains P w) by auto with spath;
       apply not_contains_outer_sset_no_contains;
-        [prove_not_contains_outer | exact H | exact loc_is_not_bot || exact loan_is_not_bot]
+        [not_contains_outer | exact H | exact loc_is_not_bot || exact loan_is_not_bot]
   | no_outer_loan : not_contains_outer_loan (?S.[?q]),
     loan_at_q : get_node (?S.[?q +++ ?p]) = loanC^m(?l)
     |- not_contains_outer _ ?P (?S.[?q].[[?p <- ?w]]) =>
     apply not_contains_outer_sset_in_borrow;
-     [ prove_not_contains_outer |
+     [ not_contains_outer |
        apply no_outer_loan; rewrite<- (sget_app S q p), loan_at_q; constructor ]
   | |- not_contains_outer _ _ _ =>
       idtac
@@ -486,7 +486,7 @@ Lemma no_mut_loan_ptr (S : HLPL_plus_state) l p :
 Proof.
   intros WF ? q valid_q H.
   symmetry in H. apply (pointer_implies_loc _ WF) in H. destruct H.
-  eapply no_mut_loan_loc; [eassumption | eassumption | | eauto]. solve_validity.
+  eapply no_mut_loan_loc; [eassumption | eassumption | | eauto]. validity.
 Qed.
 
 Notation scount c S := (sweight (indicator c) S).
@@ -521,7 +521,7 @@ Proof.
     + intros (p & _ & ?%indicator_non_zero)%sweight_non_zero.
       specialize (pointer_implies_loc0 l p).
       destruct pointer_implies_loc0 as (q & ?); [auto | ].
-      assert (valid_q : valid_spath S q) by solve_validity.
+      assert (valid_q : valid_spath S q) by validity.
       pose proof (weight_sget_node_le (indicator (locC(l))) _ _ valid_q) as get_S_q.
       autorewrite with weight in get_S_q. lia.
   - intros WF. split; intros l; destruct (WF l).
@@ -532,11 +532,11 @@ Proof.
       apply sweight_non_zero in pointer_implies_loc_alt0.
       destruct pointer_implies_loc_alt0 as (q & _ & ?).
       exists q. symmetry. apply indicator_non_zero. assumption.
-      assert (valid_p : valid_spath S p) by solve_validity.
+      assert (valid_p : valid_spath S p) by validity.
       apply weight_sget_node_le with (weight := indicator (ptrC(l))) in valid_p.
       rewrite H, indicator_same in valid_p. exact valid_p.
     + intros p H.
-      assert (valid_p : valid_spath S p) by solve_validity.
+      assert (valid_p : valid_spath S p) by validity.
       apply weight_sget_node_le with (weight := indicator (loanC^m(l))) in valid_p.
       rewrite H, indicator_same in valid_p.
       assert (scount (locC(l)) S = 0) by lia.
@@ -577,7 +577,7 @@ Lemma total_weight_bot weight : total_weight weight bot = weight (botC).
 Proof. reflexivity. Qed.
 Hint Rewrite total_weight_bot : weight.
 
-Ltac prove_weight_inequality :=
+Ltac weight_inequality :=
   (* Translate the inequality into relatives, and repeatedly rewrite sweight_sset. *)
   autorewrite with weight;
   (* Use the hypotheses "get_node S.[p] = c" to further rewrite the formula. *)
@@ -596,7 +596,7 @@ Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_binder HLPL_p
 Next Obligation.
   rewrite well_formedness_equiv. rewrite well_formedness_equiv in H.
   intro l0. specialize (H l0). destruct H. destruct H0.
-  - destruct (Nat.eq_dec l0 l) as [<- | ]; split; prove_weight_inequality.
+  - destruct (Nat.eq_dec l0 l) as [<- | ]; split; weight_inequality.
 Qed.
 
 (* TODO: move *)
@@ -823,8 +823,8 @@ Proof.
              eauto with spath. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
-        -- constructor. eassumption. all: autounfold with spath; prove_not_contains.
-        -- autorewrite with spath. f_equal. prove_states_eq.
+        -- constructor. eassumption. all: autounfold with spath; not_contains.
+        -- states_eq.
       (* Case 2: the mutable borrow we're transforming to a pointer is disjoint to the moved value.
        *)
       * assert (disj pi sp_borrow) by reduce_comp.
@@ -835,7 +835,7 @@ Proof.
            { autorewrite with spath. reflexivity. }
            reflexivity.
         -- constructor. eassumption. all: autorewrite with spath; assumption.
-        -- autorewrite with spath. f_equal. prove_states_eq.
+        -- states_eq.
 Admitted.
 
 (* TODO: move in base.v *)
@@ -860,14 +860,14 @@ Proof.
   rewrite well_formedness_equiv, well_formedness_state_value_equiv.
   intros eval_copy get_S_p WF. revert p get_S_p.
   induction eval_copy; intros p get_S_p l0; constructor.
-  + specialize (WF l0). destruct WF. split; prove_weight_inequality.
+  + specialize (WF l0). destruct WF. split; weight_inequality.
   + specialize (WF l0). destruct WF. split.
-    * prove_weight_inequality.
-    * prove_weight_inequality.
-    * assert (valid_p : valid_spath S p) by solve_validity.
+    * weight_inequality.
+    * weight_inequality.
+    * assert (valid_p : valid_spath S p) by validity.
       pose proof (weight_sget_node_le (indicator (ptrC(l))) _ _ valid_p) as H.
       rewrite get_S_p in H. cbn in H. autorewrite with weight in H.
-      destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+      destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
   + apply (f_equal (vget [0])) in get_S_p. autorewrite with spath in get_S_p.
     specialize (IHeval_copy _ get_S_p l0). inversion IHeval_copy. assumption.
 Qed.
@@ -877,10 +877,10 @@ Lemma operand_preserves_well_formedness op S vS :
 Proof.
   intros eval_op WF. destruct eval_op.
   - constructor. rewrite well_formedness_equiv in *.
-    intros l. specialize (WF l). destruct WF. split; prove_weight_inequality.
+    intros l. specialize (WF l). destruct WF. split; weight_inequality.
   - eauto using copy_preserves_well_formedness.
   - constructor. rewrite well_formedness_equiv in *.
-    intros l. specialize (WF l). destruct WF. split; prove_weight_inequality.
+    intros l. specialize (WF l). destruct WF. split; weight_inequality.
 Qed.
 
 Lemma le_base_implies_le S0 S1 : le_base S0 S1 -> le S0 S1.
@@ -937,8 +937,8 @@ Proof.
             { autorewrite with spath. reflexivity. }
             reflexivity.
         -- apply Eval_pointer_no_loc with (l := l). eassumption.
-            all: autorewrite with spath. assumption. prove_not_contains.
-        -- f_equal. prove_states_eq.
+            all: autorewrite with spath. assumption. not_contains.
+        -- states_eq.
       (* Case 2: *)
       * assert (disj sp_loan pi) by reduce_comp.
         destruct (decidable_prefix pi sp_borrow) as [(r & <-) | ].
@@ -949,8 +949,8 @@ Proof.
               { autorewrite with spath. reflexivity. }
               reflexivity.
            ++ apply Eval_pointer_no_loc with (l := l). eassumption.
-              autorewrite with spath. all: autounfold with spath; prove_not_contains.
-           ++ f_equal. autorewrite with spath. prove_states_eq.
+              autorewrite with spath. all: autounfold with spath; not_contains.
+           ++ states_eq.
         -- assert (disj sp_borrow pi) by reduce_comp.
            eapply complete_square_diagram.
            ++ eapply prove_le_state_val.
@@ -959,8 +959,8 @@ Proof.
               { autorewrite with spath. reflexivity. }
               reflexivity.
            ++ apply Eval_pointer_no_loc with (l := l). eassumption.
-              autorewrite with spath. assumption. all: autounfold with spath; prove_not_contains.
-           ++ f_equal. autorewrite with spath. prove_states_eq.
+              autorewrite with spath. assumption. all: autounfold with spath; not_contains.
+           ++ states_eq.
 Admitted.
 
 Lemma well_formed_state_value_implies_well_formed_state v S :
@@ -971,15 +971,15 @@ Proof.
   specialize (WF l). inversion WF as [? ? ? WF']. destruct WF'. autorewrite with weight in * |-.
   apply not_value_contains_weight with (weight := indicator (locC(l))) in no_loc;
     [ | intros ? <-%indicator_non_zero; constructor].
-  split; prove_weight_inequality.
+  split; weight_inequality.
 Qed.
 
 Lemma eval_operand_no_loc op S vS : S |-{op} op => vS -> not_contains_loc (fst vS).
 Proof.
   intros eval_op. unfold not_contains_loc. destruct eval_op.
-  - prove_not_contains.
-  - clear Heval_place. cbn. induction Hcopy_val; prove_not_contains.
-  - prove_not_contains.
+  - not_contains.
+  - clear Heval_place. cbn. induction Hcopy_val; not_contains.
+  - not_contains.
 Qed.
 
 Corollary operand_preserves_well_formedness' op S v S' :
@@ -999,17 +999,17 @@ Proof.
   - apply operand_preserves_well_formedness' in H; [ | assumption].
     apply operand_preserves_well_formedness' in H0; [ | assumption].
     constructor. rewrite well_formedness_equiv in *.
-    intros l0. specialize (H0 l0). destruct H0. split; prove_weight_inequality.
+    intros l0. specialize (H0 l0). destruct H0. split; weight_inequality.
   - apply ancestor_is_not_bot in Hancestor_loc; [ | discriminate].
     destruct Hancestor_loc as (q & ? & -> & ?).
-    assert (valid_q : valid_spath S q) by solve_validity.
+    assert (valid_q : valid_spath S q) by validity.
     apply weight_sget_node_le with (weight := indicator (locC(l))) in valid_q.
     rewrite H, indicator_same in valid_q.
     constructor. rewrite well_formedness_equiv in *.
     intros l0. specialize (WF l0). destruct WF. split.
-    + prove_weight_inequality.
-    + prove_weight_inequality.
-    + destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+    + weight_inequality.
+    + weight_inequality.
+    + destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
   - apply eval_place_valid in Heval_place.
     assert (scount (locC(l)) S = 0).
     { eapply not_state_contains_implies_weight_zero; [ | exact H].
@@ -1019,12 +1019,12 @@ Proof.
       intros ? <-%indicator_non_zero. constructor. }
     constructor. rewrite well_formedness_equiv in *.
     intros l0. specialize (WF l0). destruct WF. split.
-    + prove_weight_inequality.
-    + destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
-    + destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+    + weight_inequality.
+    + destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
+    + destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
 Qed.
 
-Hint Extern 0 (not_value_contains _ _) => prove_not_contains0 : spath.
+Hint Extern 0 (not_value_contains _ _) => not_contains0 : spath.
 Lemma eval_rvalue_no_loan_loc S rv vS' : S |-{rv} rv => vS' ->
   not_contains_loan (fst vS') /\ not_contains_loc (fst vS').
 Proof.
@@ -1058,11 +1058,11 @@ Proof.
     { clear IHG. induction Heval_proj; autorewrite with spath in get_q.
       - eapply Eval_Deref_MutBorrow; eassumption.
       - eapply Eval_Deref_Ptr_Locs; [eassumption.. | ].
-        assert (valid_q' : valid_spath (S,, Anon |-> v) q') by solve_validity.
+        assert (valid_q' : valid_spath (S,, Anon |-> v) q') by validity.
         apply valid_spath_app_last_cases in valid_q'.
         destruct valid_q'; autorewrite with spath in get_q'.
         + exact get_q'.
-        + exfalso. apply no_loc with (p := snd q'); [solve_validity | ].
+        + exfalso. apply no_loc with (p := snd q'); [validity | ].
           rewrite get_q'. constructor.
       - eapply Eval_Loc; eauto with spath.
     }
@@ -1093,13 +1093,13 @@ Proof.
   intros Hle Hno_loan Hno_loc. destruct Hle; subst.
   - assert (valid_spath Sr sp_loan).
     (* TODO: this piec of reasonning is used several times. Automate it. *)
-    { assert (valid_sp_loan : valid_spath (Sr,, Anon |-> vr) sp_loan) by solve_validity.
+    { assert (valid_sp_loan : valid_spath (Sr,, Anon |-> vr) sp_loan) by validity.
       apply valid_spath_app_last_cases in valid_sp_loan. destruct valid_sp_loan.
       - assumption.
       - autorewrite with spath in HS_loan. exfalso.
-        eapply Hno_loan; [ | rewrite HS_loan; constructor]. solve_validity.
+        eapply Hno_loan; [ | rewrite HS_loan; constructor]. validity.
     }
-    assert (valid_sp_borrow : valid_spath (Sr,, Anon |-> vr) sp_borrow) by solve_validity.
+    assert (valid_sp_borrow : valid_spath (Sr,, Anon |-> vr) sp_borrow) by validity.
     apply valid_spath_app_last_cases in valid_sp_borrow. destruct valid_sp_borrow.
     + autorewrite with spath in HeqvSl.
       apply state_app_last_eq in HeqvSl. destruct HeqvSl as (_ & <-). auto.
@@ -1134,11 +1134,11 @@ Proof.
   remember (Sl,, Anon |-> vl) eqn:HeqvSl. remember (Sr,, Anon |-> vr).
   destruct Hle; subst.
   - eval_place_preservation. clear valid_p.
-    assert (valid_sp_loan : valid_spath (Sr,, Anon |-> vr) sp_loan) by solve_validity.
+    assert (valid_sp_loan : valid_spath (Sr,, Anon |-> vr) sp_loan) by validity.
     apply valid_spath_app_last_cases in valid_sp_loan.
     destruct valid_sp_loan.
     2: { autorewrite with spath in HS_loan. exfalso.
-      eapply no_loan; [ | rewrite HS_loan ]. solve_validity. constructor. }
+      eapply no_loan; [ | rewrite HS_loan ]. validity. constructor. }
     autorewrite with spath in HS_loan |-.
     destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
     (* Case 1: the place sp where we write is inside the borrow. *)
@@ -1151,8 +1151,8 @@ Proof.
         assumption. all: autorewrite with spath; eassumption.
       * constructor. eassumption.
         all: autorewrite with spath; assumption.
-      * autorewrite with spath. f_equal. prove_states_eq.
-    + assert (valid_sp_borrow : valid_spath (Sr,, Anon |-> vr) sp_borrow) by solve_validity.
+      * states_eq.
+    + assert (valid_sp_borrow : valid_spath (Sr,, Anon |-> vr) sp_borrow) by validity.
       apply valid_spath_app_last_cases in valid_sp_borrow.
       destruct valid_sp_borrow as [valid_sp_borrw | ]; autorewrite with spath in HS_borrow.
       * autorewrite with spath in HeqvSl. apply state_app_last_eq in HeqvSl.
@@ -1168,7 +1168,7 @@ Proof.
                                                  (sp_borrow := (length Sr, r_borrow)).
                   eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor. eassumption.
-                 all: prove_not_contains_outer.
+                 all: not_contains_outer.
               ** autorewrite with spath. reflexivity.
           (* Case 3b: the loan is disjoint to the place we write in. *)
            ++ assert (disj sp sp_loan) by reduce_comp.
@@ -1177,8 +1177,8 @@ Proof.
                  eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                                  (sp_borrow := (length Sr, r_borrow)).
                  eauto with spath. all: autorewrite with spath; eassumption.
-              ** constructor. eassumption. all: prove_not_contains_outer.
-              ** autorewrite with spath. f_equal. prove_states_eq.
+              ** constructor. eassumption. all: not_contains_outer.
+              ** states_eq.
         (* Case 3: the borrow is disjoint from the place we write in. *)
         -- assert (disj sp sp_borrow) by reduce_comp.
            destruct (decidable_prefix sp sp_loan) as [(r_loan & <-) | ].
@@ -1188,8 +1188,8 @@ Proof.
                  eapply Le_MutBorrow_To_Ptr with (sp_loan := (length Sr, r_loan))
                                                  (sp_borrow := sp_borrow).
                  eauto with spath. all: autorewrite with spath; eassumption.
-              ** constructor. eassumption. all: prove_not_contains_outer.
-              ** autorewrite with spath. f_equal. prove_states_eq.
+              ** constructor. eassumption. all: not_contains_outer.
+              ** states_eq.
           (* Case 3b: the loan is disjoint to the place we write in. *)
            ++ assert (disj sp sp_loan) by reduce_comp.
               eapply complete_square_diagram.
@@ -1197,8 +1197,8 @@ Proof.
                  eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                                  (sp_borrow := sp_borrow).
                  auto with spath. all: autorewrite with spath; eassumption.
-              ** constructor. eassumption. all: prove_not_contains_outer.
-              ** autorewrite with spath. f_equal. prove_states_eq.
+              ** constructor. eassumption. all: not_contains_outer.
+              ** states_eq.
       (* Case 4: the borrow is inside the evaluated value. *)
       * destruct sp_borrow as (i & q). cbn in H2. subst i.
         autorewrite with spath in HS_borrow.
@@ -1212,7 +1212,7 @@ Proof.
               eapply Le_MutBorrow_To_Ptr with (sp_loan := (length Sr, r))
                                               (sp_borrow := sp +++ q).
               eauto with spath. all: autorewrite with spath; eassumption.
-           ++ constructor. eassumption. all: prove_not_contains_outer.
+           ++ constructor. eassumption. all: not_contains_outer.
            ++ autorewrite with spath. reflexivity.
         (* Case 4b: the loan is disjoint to the place we write in. *)
         -- assert (disj sp sp_loan) by reduce_comp.
@@ -1220,8 +1220,8 @@ Proof.
            ++ constructor.
               eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp +++ q).
               auto with spath. all: autorewrite with spath; eassumption.
-           ++ constructor. eassumption. all: prove_not_contains_outer.
-           ++ autorewrite with spath. f_equal. prove_states_eq.
+           ++ constructor. eassumption. all: not_contains_outer.
+           ++ states_eq.
 Qed.
 
 Lemma store_preserves_well_formedness p vS S' :
@@ -1233,7 +1233,7 @@ Proof.
   autorewrite with weight in * |-.
   assert (valid_spath S sp).
   { eapply eval_path_app_last in eval_p; eauto with spath. }
-  split; prove_weight_inequality.
+  split; weight_inequality.
 Qed.
 
 Lemma reorg_preserves_well_formedness (S S' : state HLPL_plus_binder HLPL_plus_val) :
@@ -1241,17 +1241,17 @@ Lemma reorg_preserves_well_formedness (S S' : state HLPL_plus_binder HLPL_plus_v
 Proof.
   rewrite !well_formedness_equiv. intros Hreorg WF l. specialize (WF l). destruct WF.
   destruct Hreorg.
-  - split; prove_weight_inequality.
+  - split; weight_inequality.
   - split.
-    + prove_weight_inequality.
-    + prove_weight_inequality.
-    + destruct (Nat.eq_dec l l0); prove_weight_inequality.
+    + weight_inequality.
+    + weight_inequality.
+    + destruct (Nat.eq_dec l l0); weight_inequality.
   - split.
-    + prove_weight_inequality.
-    + prove_weight_inequality.
+    + weight_inequality.
+    + weight_inequality.
     + apply not_state_contains_implies_weight_zero with (weight := (indicator ptrC(l0))) in H0;
        [ | intro; apply indicator_non_zero].
-       destruct (Nat.eq_dec l l0) as [<- | ]; prove_weight_inequality.
+       destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
 Qed.
 
 Corollary reorgs_preserve_well_formedness (S S' : state HLPL_plus_binder HLPL_plus_val) :
@@ -1281,8 +1281,8 @@ Hint Rewrite measure_bot : weight.
 Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation (refl_trans_closure reorg).
 Proof.
   eapply preservation_reorg with (measure := @sweight _ ValueHLPL _ measure_node).
-  { intros Sl Sr Hle. destruct Hle; prove_weight_inequality. }
-  { intros ? ? Hreorg. destruct Hreorg; prove_weight_inequality. }
+  { intros Sl Sr Hle. destruct Hle; weight_inequality. }
+  { intros ? ? Hreorg. destruct Hreorg; weight_inequality. }
   { apply reorg_preserves_well_formedness. }
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
   (* Case Reorg_end_borrow_m: *)
@@ -1306,8 +1306,8 @@ Proof.
              autorewrite with spath. reflexivity.
              assert (not_state_contains (eq ptrC(l)) S).
              { eapply no_mut_loan_ptr. eassumption. rewrite HS_loan. reflexivity. }        rewrite sset_twice_equal. (* TODO: automatic rewriting. *)
-             prove_not_contains. }
-        -- autorewrite with spath. prove_states_eq.
+             not_contains. }
+        -- states_eq.
       * assert (q <> sp_borrow) by congruence.
         assert (~strict_prefix sp_borrow q). { apply H3. rewrite HS_borrow. constructor. }
         assert (disj p sp_loan) by reduce_comp.
@@ -1323,8 +1323,8 @@ Proof.
               auto with spath. all: autorewrite with spath; eassumption.
            ++ constructor. eapply Reorg_end_borrow_m with (p := p) (q := q).
               assumption. all: autorewrite with spath. eassumption. assumption.
-              prove_not_contains. auto with spath.
-           ++ autorewrite with spath. prove_states_eq.
+              not_contains. auto with spath.
+           ++ states_eq.
         -- assert (disj q sp_borrow) by reduce_comp.
            destruct (decidable_prefix sp_borrow p).
            (* Case 3: the loan that we end is is the borrow that we turn into a pointer. *)
@@ -1338,7 +1338,7 @@ Proof.
               ** constructor. eapply Reorg_end_borrow_m with (p := sp_loan +++ [0] ++ r) (q := q).
                  auto with spath. all: autorewrite with spath. eassumption.
                  assumption. assumption. auto with spath.
-              ** autorewrite with spath. prove_states_eq.
+              ** states_eq.
            (* Case 4: the loan that we end is disjoint from the borrow that we turn into a pointer.
            *)
            ++ assert (disj sp_borrow p) by reduce_comp.
@@ -1349,7 +1349,7 @@ Proof.
               ** constructor. eapply Reorg_end_borrow_m with (p := p) (q := q).
                  assumption. all: autorewrite with spath. eassumption.
                  assumption. assumption. auto with spath.
-              ** autorewrite with spath. prove_states_eq.
+              ** states_eq.
   - intros ? Hle. destruct Hle.
     + destruct (decidable_prefix sp_borrow p).
       * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by eauto with spath.
@@ -1360,7 +1360,7 @@ Proof.
            assumption. all: autorewrite with spath; eassumption.
         -- constructor. eapply Reorg_end_ptr with (p := sp_loan +++ [0] ++ q).
            autorewrite with spath. eassumption.
-        -- autorewrite with spath. prove_states_eq.
+        -- states_eq.
       * assert (disj sp_borrow p) by reduce_comp.
         assert (disj sp_loan p) by reduce_comp.
         eapply complete_square_diagram.
@@ -1368,11 +1368,11 @@ Proof.
            eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
            assumption. all: autorewrite with spath; eassumption.
         -- constructor. eapply Reorg_end_ptr with (p := p). autorewrite with spath. eassumption.
-        -- autorewrite with spath. prove_states_eq.
+        -- states_eq.
   - intros ? Hle. destruct Hle.
     + assert (l <> l0).
       { intros <-. eapply no_mut_loan_loc; [ eassumption.. | | symmetry; eassumption].
-        solve_validity. }
+        validity. }
       destruct (decidable_prefix sp_borrow p).
       (* Case 1: the loc we end is is the borrow we turn into a pointer. *)
       * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by eauto with spath.
@@ -1382,8 +1382,8 @@ Proof.
            eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
            assumption. all: autorewrite with spath; eassumption.
         -- constructor. eapply Reorg_end_loc with (p := sp_loan +++ [0] ++ q).
-           autorewrite with spath. eassumption. prove_not_contains. cbn. congruence.
-        -- autorewrite with spath. prove_states_eq.
+           autorewrite with spath. eassumption. not_contains. cbn. congruence.
+        -- states_eq.
       * destruct (decidable_prefix p sp_borrow).
         -- assert (prefix (p +++ [0]) sp_borrow) as (q & <-) by eauto with spath.
            destruct (decidable_prefix p sp_loan).
@@ -1399,7 +1399,7 @@ Proof.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
                  repeat apply not_state_contains_sset.
-                 assumption. all: prove_not_contains. cbn. congruence.
+                 assumption. all: not_contains. cbn. congruence.
               ** autorewrite with spath. reflexivity.
            (* Case 3: the borrow we turn into a pointer is in the location we end, but the loan we
             * turn into a location is disjoint. *)
@@ -1412,8 +1412,8 @@ Proof.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
                  repeat apply not_state_contains_sset.
-                 assumption. all: prove_not_contains. cbn. congruence.
-              ** autorewrite with spath. prove_states_eq.
+                 assumption. all: not_contains. cbn. congruence.
+              ** states_eq.
         -- assert (disj p sp_borrow) by reduce_comp.
            destruct (decidable_prefix p sp_loan).
            (* Case 4: the loan we turn into a location is in the location we end, but the borrow we
@@ -1427,8 +1427,8 @@ Proof.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
                  repeat apply not_state_contains_sset.
-                 assumption. all: prove_not_contains. cbn. congruence.
-              ** autorewrite with spath. prove_states_eq.
+                 assumption. all: not_contains. cbn. congruence.
+              ** states_eq.
            (* Case 5: the loan and the borrow we turn into a location and a pointer are in the loc
             * we end. *)
            ++ assert (disj p sp_loan) by reduce_comp.
@@ -1439,8 +1439,8 @@ Proof.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
                  repeat apply not_state_contains_sset.
-                 assumption. all: prove_not_contains. cbn. congruence.
-              ** autorewrite with spath. prove_states_eq.
+                 assumption. all: not_contains. cbn. congruence.
+              ** states_eq.
 Qed.
 
 Lemma stmt_preserves_well_formedness S s r S' :
