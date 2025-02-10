@@ -44,120 +44,120 @@ Proof. intro H. apply nth_error_Some. rewrite H. discriminate. Qed.
 Local Hint Resolve nth_error_length : core.
 
 (* TODO: move in a separate file? *)
-Section Map_nth.
+Section Alter_list.
   Context {A : Type}.
 
   (* Returns the list where the n-th element has been set to `a`. If n is out of bound,
      returns the list l unchanged. *)
-  Fixpoint map_nth (l : list A) n (f : A -> A) :=
+  Fixpoint alter_list (l : list A) n (f : A -> A) :=
   match l, n with
   | nil, _ => nil
   | a :: l', 0 => (f a) :: l'
-  | a :: l', S m => a :: (map_nth l' m f)
+  | a :: l', S m => a :: (alter_list l' m f)
   end.
 
-  Lemma map_nth_length l f : forall n, length (map_nth l n f) = length l.
+  Lemma alter_list_length l f : forall n, length (alter_list l n f) = length l.
   Proof. induction l; intros [ | ]; cbn; auto. Qed.
 
-  Lemma nth_error_map_nth_eq l f :
-    forall n, nth_error (map_nth l n f) n = SOME x <- nth_error l n IN Some (f x).
+  Lemma nth_error_alter_list_eq l f :
+    forall n, nth_error (alter_list l n f) n = SOME x <- nth_error l n IN Some (f x).
   Proof.
     induction l; intros; try rewrite !nth_error_nil; cbn; simplify_option.
   Qed.
 
-  Corollary nth_error_map_nth_eq_some l f n a (H : nth_error l n = Some a) :
-    nth_error (map_nth l n f) n = Some (f a).
-  Proof. rewrite nth_error_map_nth_eq, H. reflexivity. Qed.
+  Corollary nth_error_alter_list_eq_some l f n a (H : nth_error l n = Some a) :
+    nth_error (alter_list l n f) n = Some (f a).
+  Proof. rewrite nth_error_alter_list_eq, H. reflexivity. Qed.
 
-  Lemma nth_error_map_nth_lt l a :
-    forall m n, m < n -> nth_error (map_nth l m a) n = nth_error l n.
+  Lemma nth_error_alter_list_lt l a :
+    forall m n, m < n -> nth_error (alter_list l m a) n = nth_error l n.
   Proof.
     induction l as [ | b l' IH]; try easy.
     intros m n H. destruct n; try easy. destruct m; try easy.
     apply PeanoNat.lt_S_n in H. cbn. auto.
   Qed.
 
-  Lemma nth_error_map_nth_gt l a :
-    forall m n, m > n -> nth_error (map_nth l m a) n = nth_error l n.
+  Lemma nth_error_alter_list_gt l a :
+    forall m n, m > n -> nth_error (alter_list l m a) n = nth_error l n.
   Proof.
     induction l as [ | b l' IH]; try easy.
     intros m n H. destruct m; try easy. destruct n; try easy.
     apply PeanoNat.lt_S_n in H. cbn. auto.
   Qed.
 
-  Corollary nth_error_map_nth_neq l a m n (H : m <> n) :
-    nth_error (map_nth l m a) n = nth_error l n.
+  Corollary nth_error_alter_list_neq l a m n (H : m <> n) :
+    nth_error (alter_list l m a) n = nth_error l n.
   Proof.
     rewrite Nat.lt_gt_cases in H. destruct H.
-    - apply nth_error_map_nth_lt. assumption.
-    - apply nth_error_map_nth_gt. assumption.
+    - apply nth_error_alter_list_lt. assumption.
+    - apply nth_error_alter_list_gt. assumption.
    Qed.
 
-  Lemma map_nth_neq_commute l m n f g (H : m <> n) :
-    map_nth (map_nth l m f) n g = map_nth (map_nth l n g) m f.
+  Lemma alter_list_neq_commute l m n f g (H : m <> n) :
+    alter_list (alter_list l m f) n g = alter_list (alter_list l n g) m f.
   Proof.
     apply nth_error_ext. intro i.
     destruct (Nat.eq_dec m i) as [-> | ]; destruct (Nat.eq_dec n i) as [-> | ];
-      repeat rewrite nth_error_map_nth_eq || rewrite nth_error_map_nth_neq by auto; easy.
+      repeat rewrite nth_error_alter_list_eq || rewrite nth_error_alter_list_neq by auto; easy.
   Qed.
 
-  Lemma map_nth_invariant (l : list A) n x f
-    (Hx : nth_error l n = Some x) (Hf : f x = x) : map_nth l n f = l.
+  Lemma alter_list_invariant (l : list A) n x f
+    (Hx : nth_error l n = Some x) (Hf : f x = x) : alter_list l n f = l.
   Proof.
     apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite nth_error_map_nth_eq. autodestruct.
-    - rewrite nth_error_map_nth_neq; auto.
+    - rewrite nth_error_alter_list_eq. autodestruct.
+    - rewrite nth_error_alter_list_neq; auto.
   Qed.
 
-  Lemma map_nth_equal_Some (l : list A) n x f g
-    (Hx : nth_error l n = Some x) (Hfg : f x = g x) : map_nth l n f = map_nth l n g.
+  Lemma alter_list_equal_Some (l : list A) n x f g
+    (Hx : nth_error l n = Some x) (Hfg : f x = g x) : alter_list l n f = alter_list l n g.
   Proof.
     apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite !nth_error_map_nth_eq. autodestruct.
-    - rewrite !nth_error_map_nth_neq; auto.
+    - rewrite !nth_error_alter_list_eq. autodestruct.
+    - rewrite !nth_error_alter_list_neq; auto.
   Qed.
 
-  Lemma map_nth_equal_None (l : list A) n f
-    (Hx : nth_error l n = None) : map_nth l n f = l.
+  Lemma alter_list_equal_None (l : list A) n f
+    (Hx : nth_error l n = None) : alter_list l n f = l.
   Proof.
     apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite !nth_error_map_nth_eq. autodestruct.
-    - rewrite !nth_error_map_nth_neq; auto.
+    - rewrite !nth_error_alter_list_eq. autodestruct.
+    - rewrite !nth_error_alter_list_neq; auto.
   Qed.
 
-  Lemma map_nth_compose (l : list A) n f g :
-    map_nth (map_nth l n g) n f = map_nth l n (fun x => f (g x)).
+  Lemma alter_list_compose (l : list A) n f g :
+    alter_list (alter_list l n g) n f = alter_list l n (fun x => f (g x)).
   Proof.
     apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
-    - rewrite !nth_error_map_nth_eq. autodestruct.
-    - rewrite !nth_error_map_nth_neq; auto.
+    - rewrite !nth_error_alter_list_eq. autodestruct.
+    - rewrite !nth_error_alter_list_neq; auto.
   Qed.
 
-  Lemma map_nth_equiv (l : list A) n f g
-    (Hfg : forall x, f x = g x) : map_nth l n f = map_nth l n g.
+  Lemma alter_list_equiv (l : list A) n f g
+    (Hfg : forall x, f x = g x) : alter_list l n f = alter_list l n g.
   Proof.
     destruct (nth_error l n) eqn:EQN.
-    - eapply map_nth_equal_Some; eauto.
-    - rewrite !map_nth_equal_None; auto.
+    - eapply alter_list_equal_Some; eauto.
+    - rewrite !alter_list_equal_None; auto.
   Qed.
-End Map_nth.
+End Alter_list.
 
-Lemma map_map_nth [A B] l (f : A -> B) g n x : nth_error l n = Some x ->
-  map f (map_nth l n g) = map_nth (map f l) n (fun _ => f (g x)).
+Lemma map_alter_list [A B] l (f : A -> B) g n x : nth_error l n = Some x ->
+  map f (alter_list l n g) = alter_list (map f l) n (fun _ => f (g x)).
 Proof.
   intro. apply nth_error_ext. intro i. destruct (Nat.eq_dec n i) as [-> | ].
   - rewrite nth_error_map.
-    rewrite !nth_error_map_nth_eq.
+    rewrite !nth_error_alter_list_eq.
     rewrite nth_error_map. simplify_option.
   - rewrite nth_error_map.
-    rewrite !nth_error_map_nth_neq by assumption.
+    rewrite !nth_error_alter_list_neq by assumption.
     rewrite nth_error_map. reflexivity.
 Qed.
 
 Definition sum (l : list nat) := fold_right Nat.add 0 l.
 
-Lemma sum_map_nth l n f x : nth_error l n = Some x ->
-  (Z.of_nat (sum (map_nth l n f))) = ((Z.of_nat (sum l)) - (Z.of_nat x) + (Z.of_nat (f x)))%Z.
+Lemma sum_alter_list l n f x : nth_error l n = Some x ->
+  (Z.of_nat (sum (alter_list l n f))) = ((Z.of_nat (sum l)) - (Z.of_nat x) + (Z.of_nat (f x)))%Z.
 Proof.
   revert l. induction n.
   - intros [ | ? l] [=->]. cbn. lia.

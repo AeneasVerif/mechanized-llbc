@@ -531,7 +531,7 @@ Notation "v .[[ p ]]" := (vget p v) (left associativity, at level 50) : GetSetPa
 Fixpoint vset {V} `{Value V} (p : vpath) (w : V) (v : V) :=
   match p with
   | nil => w
-  | i :: q => fold_value (get_node v) (map_nth (children v) i (vset q w))
+  | i :: q => fold_value (get_node v) (alter_list (children v) i (vset q w))
   end.
 Notation "v .[[ p <- w ]]" := (vset p w v) (left associativity, at level 50).
 
@@ -551,7 +551,7 @@ Definition sget {V B} `{Value V} (p : spath) (S : state B V) : V :=
 Notation "S .[ p ]" := (sget p S) (left associativity, at level 50) : GetSetPath_scope.
 
 Definition sset {V B} `{Value V} (p : spath) (v : V) (S : state B V) :=
-  map_nth S (fst p) (fun c => (fst c, (snd c).[[snd p <- v]])).
+  alter_list S (fst p) (fun c => (fst c, (snd c).[[snd p <- v]])).
 Notation "S .[ p <- v ]" := (sset p v S) (left associativity, at level 50).
 
 Section GetSetPath.
@@ -643,12 +643,12 @@ Section GetSetPath.
     p <> [] -> get_node (v.[[p <- w]]) = get_node v.
   Proof.
     intro. destruct p; [congruence | ].
-    apply get_node_fold_value. rewrite map_nth_length. apply length_children_is_arity.
+    apply get_node_fold_value. rewrite alter_list_length. apply length_children_is_arity.
   Qed.
 
   Lemma children_vset_cons v i p w :
-    children (v.[[i :: p <- w]]) = map_nth (children v) i (vset p w).
-  Proof. apply children_fold_value. rewrite map_nth_length. apply length_children_is_arity. Qed.
+    children (v.[[i :: p <- w]]) = alter_list (children v) i (vset p w).
+  Proof. apply children_fold_value. rewrite alter_list_length. apply length_children_is_arity. Qed.
 
   Lemma vget_cons v i p : v.[[i :: p]] = (get_subval_or_bot v i).[[p]].
   Proof. reflexivity. Qed.
@@ -680,7 +680,7 @@ Section GetSetPath.
   Proof.
     induction H as [ | v i p u subval_v_i valid_u_p IH].
     - reflexivity.
-    - rewrite vget_cons, <-app_comm_cons, children_vset_cons, nth_error_map_nth_eq.
+    - rewrite vget_cons, <-app_comm_cons, children_vset_cons, nth_error_alter_list_eq.
       simplify_option.
   Qed.
 
@@ -692,7 +692,7 @@ Section GetSetPath.
     induction H as [ | ? ? ? ? H].
     - constructor.
     - econstructor.
-      + rewrite children_vset_cons, nth_error_map_nth_eq, H. reflexivity.
+      + rewrite children_vset_cons, nth_error_alter_list_eq, H. reflexivity.
       + assumption.
   Qed.
 
@@ -705,7 +705,7 @@ Section GetSetPath.
   Proof.
     induction H.
     - reflexivity.
-    - cbn. f_equal. eapply map_nth_equal_Some; simplify_option.
+    - cbn. f_equal. eapply alter_list_equal_Some; simplify_option.
   Qed.
 
   Lemma _vset_same v p (H : valid_vpath v p) : v.[[p <- v.[[p]]]] = v.
@@ -714,14 +714,14 @@ Section GetSetPath.
     - reflexivity.
     - apply get_nodes_children_inj.
       + apply get_node_vset_cons. discriminate.
-      + rewrite children_vset_cons. eapply map_nth_invariant; simplify_option.
+      + rewrite children_vset_cons. eapply alter_list_invariant; simplify_option.
   Qed.
 
   (* vset is defined in such a way that v.[[p <- w]] is v when p is invalid.
    * To understand why, take v.[[i :: r <- w]] when i >= length (children v):
    * - The node of v.[[i :: r <- w]] is the same node as v.
    * - The vset function is recursively applied in the i-th child of v. But because the list
-   *   of children does not contained an i-th child, because of the definiton of map_nth, the
+   *   of children does not contained an i-th child, because of the definiton of alter_list, the
    *   list of children of v.[[i :: r <- w]] is the same as for v.
    * This trick allows us to omit validity hypotheses in some lemmas.
    *)
@@ -731,12 +731,12 @@ Section GetSetPath.
     rewrite _vset_app_split by assumption. f_equal.
     apply get_nodes_children_inj.
     - apply get_node_vset_cons. discriminate.
-    - rewrite children_vset_cons. apply map_nth_equal_None. assumption.
+    - rewrite children_vset_cons. apply alter_list_equal_None. assumption.
   Qed.
 
   Lemma vset_vget_disj_aux v i j p q w :
     i <> j -> v.[[i :: p <- w]].[[j :: q]] = v.[[j :: q]].
-  Proof. intro. rewrite vget_cons, children_vset_cons, nth_error_map_nth_neq; auto. Qed.
+  Proof. intro. rewrite vget_cons, children_vset_cons, nth_error_alter_list_neq; auto. Qed.
 
   Lemma vset_vget_disj v w p q (Hvdisj : vdisj p q) :
     v.[[p <- w]].[[q]] = v.[[q]].
@@ -754,7 +754,7 @@ Section GetSetPath.
     - reflexivity.
     - apply get_nodes_children_inj.
       + rewrite !get_node_vset_cons by discriminate. reflexivity.
-      + rewrite !children_vset_cons, map_nth_compose. apply map_nth_equiv. assumption.
+      + rewrite !children_vset_cons, alter_list_compose. apply alter_list_equiv. assumption.
   Qed.
 
   Lemma vset_same v p : v.[[p <- v.[[p]]]] = v.
@@ -788,7 +788,7 @@ Section GetSetPath.
   Proof.
     intro. apply get_nodes_children_inj.
     - rewrite !get_node_vset_cons by discriminate. reflexivity.
-    - rewrite !children_vset_cons. apply map_nth_neq_commute. assumption.
+    - rewrite !children_vset_cons. apply alter_list_neq_commute. assumption.
   Qed.
 
   Lemma vset_twice_disj_commute v p q x y :
@@ -819,7 +819,7 @@ Section GetSetPath.
   Hint Resolve nth_error_length : core.
 
   Lemma length_sset (S : state B V) p v : length (S.[p <- v]) = length S.
-  Proof. apply map_nth_length. Qed.
+  Proof. apply alter_list_length. Qed.
 
   Context (weight : nodes -> nat).
 
@@ -842,9 +842,9 @@ Section GetSetPath.
       rewrite (total_weight_prop _ (u.[[i :: p <- w]])).
       rewrite get_node_vset_cons by discriminate.
       rewrite children_vset_cons.
-      erewrite map_map_nth by eassumption.
+      erewrite map_alter_list by eassumption.
       rewrite Nat2Z.inj_add.
-      erewrite sum_map_nth by (erewrite map_nth_error by eassumption; reflexivity).
+      erewrite sum_alter_list by (erewrite map_nth_error by eassumption; reflexivity).
       replace (u.[[i :: p]]) with (v.[[p]]) by (cbn; rewrite H; reflexivity).
       lia.
   Qed.
@@ -922,7 +922,7 @@ Section GetSetPath.
     valid_spath S p -> S.[p +++ q <- v].[p] = S.[p].[[q <- v]].
   Proof.
     intros (w & Hget & Hvalid). unfold sget, sset.
-    rewrite nth_error_map_nth_eq. simplify_option. rewrite vset_vget_prefix; auto.
+    rewrite nth_error_alter_list_eq. simplify_option. rewrite vset_vget_prefix; auto.
   Qed.
 
   Lemma sset_sget_equal S p v : valid_spath S p -> S.[p <- v].[p] = v.
@@ -942,8 +942,8 @@ Section GetSetPath.
   Lemma sset_sget_disj (S : state B V) p v q : disj p q -> S.[p <- v].[q] = S.[q].
   Proof.
     unfold sset, sget. intros [ | (<- & Hdisj)].
-    - rewrite nth_error_map_nth_neq by assumption. reflexivity.
-    - rewrite nth_error_map_nth_eq. autodestruct. intro. apply vset_vget_disj. assumption.
+    - rewrite nth_error_alter_list_neq by assumption. reflexivity.
+    - rewrite nth_error_alter_list_eq. autodestruct. intro. apply vset_vget_disj. assumption.
   Qed.
 
   Lemma get_node_vset_vget_strict_prefix v p q w :
@@ -962,7 +962,7 @@ Section GetSetPath.
   Proof.
     unfold sset, sget. intro H.
     assert (fst p = fst q) as ->. { destruct H as (? & ? & <-). reflexivity. }
-    rewrite nth_error_map_nth_eq. simplify_option.
+    rewrite nth_error_alter_list_eq. simplify_option.
     intro. apply get_node_vset_vget_strict_prefix.
     destruct H as (? & ? & <-). eexists _, _. reflexivity.
   Qed.
@@ -990,7 +990,7 @@ Section GetSetPath.
   Lemma sset_twice_prefix_right (S : state B V) p q x y :
     S.[p +++ q <- x].[p <- y] = S.[p <- y].
   Proof.
-    unfold sset. cbn. rewrite map_nth_compose. cbn. apply map_nth_equiv.
+    unfold sset. cbn. rewrite alter_list_compose. cbn. apply alter_list_equiv.
     intro. rewrite vset_twice_prefix_right.
     - reflexivity.
     - exists q. reflexivity.
@@ -1002,7 +1002,7 @@ Section GetSetPath.
   Lemma sset_twice_prefix_left (S : state B V) p q x y :
     S.[p <- x].[p +++ q <- y] = S.[p <- x.[[q <- y]]].
   Proof.
-    unfold sset. cbn. rewrite map_nth_compose. cbn. apply map_nth_equiv.
+    unfold sset. cbn. rewrite alter_list_compose. cbn. apply alter_list_equiv.
     intro. rewrite vset_twice_prefix_left. reflexivity.
   Qed.
 
@@ -1010,8 +1010,8 @@ Section GetSetPath.
     disj p q -> S.[p <- v].[q <- w] = S.[q <- w].[p <- v].
   Proof.
     unfold sset. intros [ | (<- & ?)].
-    - apply map_nth_neq_commute. assumption.
-    - rewrite !map_nth_compose. apply map_nth_equiv. intro. cbn. f_equal.
+    - apply alter_list_neq_commute. assumption.
+    - rewrite !alter_list_compose. apply alter_list_equiv. intro. cbn. f_equal.
       apply vset_twice_disj_commute. assumption.
   Qed.
 
@@ -1029,7 +1029,7 @@ Section GetSetPath.
     i <> j -> valid_vpath v (i :: p) -> valid_vpath (v.[[j :: q <- w]]) (i :: p).
   Proof.
     intros ? H. inversion H. subst.
-    econstructor; [ | eassumption]. rewrite children_vset_cons, nth_error_map_nth_neq; auto.
+    econstructor; [ | eassumption]. rewrite children_vset_cons, nth_error_alter_list_neq; auto.
   Qed.
 
   Lemma vset_disj_valid v p q w :
@@ -1062,7 +1062,7 @@ Section GetSetPath.
     prefix p q -> valid_spath S p -> valid_spath (S.[q <- v]) p.
   Proof.
     intros (r & <-) (w & ? & ?). exists (w.[[snd p ++ r <- v]]). split.
-    - unfold sset. rewrite nth_error_map_nth_eq. simplify_option.
+    - unfold sset. rewrite nth_error_alter_list_eq. simplify_option.
     - apply vset_prefix_right_valid. assumption.
   Qed.
 
@@ -1075,18 +1075,18 @@ Section GetSetPath.
     - apply sset_prefix_right_valid; [ | assumption]. eexists. reflexivity.
     - contradiction.
     - destruct H as (w & ? & ?). unfold sset. destruct Hdisj as [ | (<- & ?)].
-      + exists w. split; [ | assumption]. rewrite nth_error_map_nth_neq; auto.
+      + exists w. split; [ | assumption]. rewrite nth_error_alter_list_neq; auto.
       + exists (w.[[snd q <- v]]). split.
-        * rewrite nth_error_map_nth_eq. simplify_option.
+        * rewrite nth_error_alter_list_eq. simplify_option.
         * apply vset_disj_valid; assumption.
   Qed.
 
   Lemma sset_same (S : state B V) p : S.[p <- S.[p] ] = S.
   Proof.
     unfold sget, sset. apply nth_error_ext. intro i. destruct (Nat.eq_dec (fst p) i) as [<- | ].
-    - rewrite nth_error_map_nth_eq. autodestruct.
+    - rewrite nth_error_alter_list_eq. autodestruct.
       rewrite vset_same, <-surjective_pairing. reflexivity.
-    - rewrite nth_error_map_nth_neq by assumption. reflexivity.
+    - rewrite nth_error_alter_list_neq by assumption. reflexivity.
   Qed.
 
   Lemma sset_not_prefix_valid (S : state B V) p q v :
@@ -1120,14 +1120,14 @@ Section GetSetPath.
     intros (w & (? & ?)). unfold sset. apply nth_error_ext. intro i.
     destruct (Nat.lt_ge_cases i (length S)) as [ | ].
     - destruct (Nat.eq_dec (fst p) i) as [-> | ].
-      + rewrite nth_error_map_nth_eq.
-        rewrite !nth_error_app1 by (try rewrite map_nth_length; assumption).
-        symmetry. apply nth_error_map_nth_eq.
-      + rewrite nth_error_map_nth_neq by assumption.
-        rewrite !nth_error_app1 by (try rewrite map_nth_length; assumption).
-        symmetry. apply nth_error_map_nth_neq. assumption.
-    - rewrite nth_error_map_nth_neq.
-      { rewrite !nth_error_app2; try rewrite map_nth_length; auto. }
+      + rewrite nth_error_alter_list_eq.
+        rewrite !nth_error_app1 by (try rewrite alter_list_length; assumption).
+        symmetry. apply nth_error_alter_list_eq.
+      + rewrite nth_error_alter_list_neq by assumption.
+        rewrite !nth_error_app1 by (try rewrite alter_list_length; assumption).
+        symmetry. apply nth_error_alter_list_neq. assumption.
+    - rewrite nth_error_alter_list_neq.
+      { rewrite !nth_error_app2; try rewrite alter_list_length; auto. }
       apply Nat.lt_neq. unfold lt. transitivity (length S); try assumption.
       apply nth_error_Some. simplify_option.
   Qed.
@@ -1138,11 +1138,11 @@ Section GetSetPath.
   Proof.
     destruct p. cbn. intros ->. apply nth_error_ext. intro i.
     destruct (Nat.lt_trichotomy i (length S)) as [ | [-> | ] ]; unfold sset.
-    - rewrite nth_error_map_nth_gt by assumption.
+    - rewrite nth_error_alter_list_gt by assumption.
       rewrite !nth_error_app1 by assumption. reflexivity.
-    - rewrite nth_error_map_nth_eq.
+    - rewrite nth_error_alter_list_eq.
       rewrite !nth_error_app2, Nat.sub_diag by auto. reflexivity.
-    - rewrite nth_error_map_nth_lt by assumption.
+    - rewrite nth_error_alter_list_lt by assumption.
       etransitivity; [ | symmetry].
       all: apply nth_error_None; rewrite length_app, Nat.add_1_r; assumption.
   Qed.
@@ -1265,8 +1265,8 @@ Section GetSetPath.
   Lemma get_binder_sset (S : state B V) i p v : get_binder (S.[p <- v]) i = get_binder S i.
   Proof.
     unfold sset. destruct (Nat.eq_dec (fst p) i) as [-> | ].
-    - rewrite nth_error_map_nth_eq. simplify_option.
-    - rewrite nth_error_map_nth_neq; auto.
+    - rewrite nth_error_alter_list_eq. simplify_option.
+    - rewrite nth_error_alter_list_neq; auto.
   Qed.
 
   Corollary find_binder_sset S b p v : find_binder (S.[p <- v]) b = find_binder S b.
@@ -1566,8 +1566,8 @@ Section GetSetPath.
   Proof.
     destruct H as (w & H & G).
     simplify_option; intro H.
-    unfold sweight, sset. erewrite map_map_nth; [ | exact H].
-    erewrite sum_map_nth; [ | rewrite nth_error_map, H; reflexivity].
+    unfold sweight, sset. erewrite map_alter_list; [ | exact H].
+    erewrite sum_alter_list; [ | rewrite nth_error_map, H; reflexivity].
     cbn. rewrite total_weight_vget by assumption.
     unfold sget. rewrite H. lia.
   Qed.
