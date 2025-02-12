@@ -3,6 +3,8 @@ Require Import PeanoNat Lia ZArith.
 Require Import OptionMonad.
 Import ListNotations.
 
+From stdpp Require Import fin_maps.
+
 Local Open Scope option_monad_scope.
 
 Class EqDec (A : Type) := {
@@ -229,3 +231,66 @@ Qed.
 
 Lemma sum_app l0 l1 : sum (l0 ++ l1) = sum l0 + sum l1.
 Proof. unfold sum. induction l0; cbn in *; lia. Qed.
+
+Section Map_sum.
+  Context {K : Type}.
+  Context {M : Type -> Type}.
+  Context `{FinMap K M}.
+
+  (* Contrary to the sum of a list, the sum of a map is defined over a map with in arbitrary value
+     type A, and a weight function. *)
+  Context {A : Type}.
+  Context (weight : A -> nat).
+
+  Definition map_sum : M A -> nat := map_fold (fun _ x n => weight x + n) 0.
+
+  Lemma map_sum_insert m k x : lookup k m = None -> map_sum (insert k x m) = weight x + map_sum m.
+  Proof. intros. unfold map_sum. rewrite map_fold_insert_L; [reflexivity | lia | assumption]. Qed.
+
+  Corollary map_sum_delete m k x : lookup k m = Some x -> map_sum m = weight x + map_sum (delete k m).
+  Proof. intros G%insert_delete. rewrite<- G at 1. apply map_sum_insert, lookup_delete. Qed.
+
+  Lemma map_sum_non_zero m : map_sum m > 0 -> exists k x, lookup k m = Some x /\ weight x > 0.
+  Proof.
+    unfold map_sum. induction m as [ | k x m ? _ IHm] using map_first_key_ind.
+    - rewrite map_fold_empty. lia.
+    - rewrite map_sum_insert by assumption. destruct (weight x) eqn:?.
+      + intros (k' & y & ? & ?)%IHm. exists k', y. rewrite lookup_insert_ne by congruence. auto.
+      + eexists k, _. rewrite lookup_insert. split; [reflexivity | lia].
+  Qed.
+
+  Corollary map_sum_zero m : (forall k x, lookup k m = Some x -> weight x = 0) -> map_sum m = 0.
+  Proof.
+    intros elems_zero. destruct (map_sum m) eqn:?; [reflexivity | ].
+    assert (map_sum m > 0) as (? & ? & get_m & ?)%map_sum_non_zero by lia.
+    specialize (elems_zero _ _ get_m). lia.
+  Qed.
+
+  Lemma map_sum_le_one m :
+    map_sum m <= 1 ->
+    forall i j x y, lookup i m = Some x -> lookup j m = Some y -> weight x > 0 -> weight y > 0 -> i = j.
+  Proof.
+    intros sum_one i j. destruct (decide (i = j)); [auto | ].
+    intros ? ? delete_i%insert_delete. rewrite <-delete_i in *.
+    rewrite lookup_insert_ne by assumption. intros delete_j%insert_delete.
+    rewrite <-delete_j, !map_sum_insert in sum_one
+     by (rewrite ?lookup_insert_ne, ?lookup_delete_ne by auto; apply lookup_delete).
+    lia.
+  Qed.
+
+  Lemma map_sum_unique_one m (elems_at_most_one : forall i x, lookup i m = Some x -> weight x <= 1) :
+    (forall i j x y, lookup i m = Some x -> lookup j m = Some y -> weight x > 0 -> weight y > 0 -> i = j) ->
+    map_sum m <= 1.
+  Proof.
+    intros ?. destruct (map_sum m) eqn:?; [lia | ].
+    assert (map_sum m > 0) as (k & x & get_m_k & ?)%map_sum_non_zero by lia.
+    assert (weight x <= 1) by (eapply elems_at_most_one; eassumption).
+    pose proof (sum_m_delete := get_m_k).
+    apply map_sum_delete in sum_m_delete. rewrite (map_sum_zero (delete k m)) in sum_m_delete.
+    - lia.
+    - intros k' y (? & ?)%lookup_delete_Some.
+      destruct (weight y) eqn:?.
+      + reflexivity.
+      + assert (weight y > 0) by lia. exfalso. eauto.
+  Qed.
+End Map_sum.
