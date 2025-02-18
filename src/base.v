@@ -3,28 +3,24 @@ Require Import PeanoNat Lia ZArith.
 Require Import OptionMonad.
 Import ListNotations.
 
-From stdpp Require Import fin_maps.
+From stdpp Require Import fin_maps pmap.
 
 Local Open Scope option_monad_scope.
 
-Class EqDec (A : Type) := {
-  eq_dec (a b : A) : {a = b} + {a <> b};
-}.
+Definition indicator {A : Type} `{EqDecision A} (a b : A) :=
+  if decide (a = b) then 1 else 0.
 
-Definition indicator {A : Type} `{EqDec A} a b :=
-  if eq_dec a b then 1 else 0.
+Lemma indicator_same {A} `{EqDecision A} (a : A) : indicator a a = 1.
+Proof. unfold indicator. destruct (decide (a = a)); congruence. Qed.
 
-Lemma indicator_same {A} `{EqDec A} (a : A) : indicator a a = 1.
-Proof. unfold indicator. destruct (eq_dec a a); congruence. Qed.
-
-Lemma indicator_eq {A} `{EqDec A} (a b : A) : a = b -> indicator a b = 1.
+Lemma indicator_eq {A} `{EqDecision A} (a b : A) : a = b -> indicator a b = 1.
 Proof. intros <-. apply indicator_same. Qed.
 
-Lemma indicator_non_zero {A} `{EqDec A} (a b : A) : indicator a b > 0 -> a = b.
-Proof. unfold indicator. destruct (eq_dec a b); easy. Qed.
+Lemma indicator_non_zero {A} `{EqDecision A} (a b : A) : indicator a b > 0 -> a = b.
+Proof. unfold indicator. destruct (decide (a = b)); easy. Qed.
 
-Lemma indicator_diff {A} `{EqDec A} (a b : A) : a <> b -> indicator a b = 0.
-Proof. unfold indicator. destruct (eq_dec a b); congruence. Qed.
+Lemma indicator_diff {A} `{EqDecision A} (a b : A) : a <> b -> indicator a b = 0.
+Proof. unfold indicator. destruct (decide (a = b)); congruence. Qed.
 
 Lemma length_1_is_singleton [A : Type] [l : list A] : length l = 1 -> exists a, l = [a].
 Proof.
@@ -45,7 +41,7 @@ Lemma nth_error_length [A] (l : list A) n x : nth_error l n = Some x -> n < leng
 Proof. intro H. apply nth_error_Some. rewrite H. discriminate. Qed.
 Local Hint Resolve nth_error_length : core.
 
-(* TODO: move in a separate file? *)
+(* TODO: could be removed, to use "list_alter" from stdpp. *)
 Section Alter_list.
   Context {A : Type}.
 
@@ -229,6 +225,7 @@ Proof.
     assert (2 + x <= 1) by auto. lia.
 Qed.
 
+(* TODO: delete *)
 Lemma sum_app l0 l1 : sum (l0 ++ l1) = sum l0 + sum l1.
 Proof. unfold sum. induction l0; cbn in *; lia. Qed.
 
@@ -294,3 +291,113 @@ Section Map_sum.
       + assert (weight y > 0) by lia. exfalso. eauto.
   Qed.
 End Map_sum.
+
+(* TODO: name similar to "sum_map", could be confusing *)
+Section SumMaps.
+  Context `{FinMap K0 M0}.
+  Context `{FinMap K1 M1}.
+  Context `{Countable K0}.
+  Context `{Countable K1}.
+  Context {V : Type}.
+
+  Definition encode_inl k := encode (A := K0 + K1) (inl k).
+  Definition encode_inr k := encode (A := K0 + K1) (inr k).
+
+  Definition sum_maps (m0 : M0 V) (m1 : M1 V) : Pmap V :=
+    union (kmap encode_inl m0) (kmap encode_inr m1).
+
+  Local Instance encode_inl_inj : Inj eq eq encode_inl.
+  Proof. eapply compose_inj; typeclasses eauto. Qed.
+
+  Local Instance encode_inr_inj : Inj eq eq encode_inl.
+  Proof. eapply compose_inj; typeclasses eauto. Qed.
+
+  Lemma lookup_inl_kmap_inr (m1 : M1 V) k :
+    kmap (M2 := Pmap) encode_inr m1 !! encode_inl k = None.
+  Proof.
+    unfold encode_inl, encode_inr. apply lookup_kmap_None.
+    - typeclasses eauto.
+    - intros ? ?%encode_inj. discriminate.
+  Qed.
+
+  Lemma lookup_inr_kmap_inl (m0 : M0 V) k :
+    kmap (M2 := Pmap) encode_inl m0 !! encode_inr k = None.
+  Proof.
+    unfold encode_inl, encode_inr. apply lookup_kmap_None.
+    - typeclasses eauto.
+    - intros ? ?%encode_inj. discriminate.
+  Qed.
+
+  Hint Rewrite lookup_inl_kmap_inr : core.
+  Hint Rewrite lookup_inr_kmap_inl : core.
+
+  Lemma sum_maps_lookup_l m0 m1 k :
+    lookup (encode_inl k) (sum_maps m0 m1) = lookup k m0.
+  Proof.
+    unfold sum_maps. rewrite lookup_union_l.
+    - apply lookup_kmap. typeclasses eauto.
+    - autorewrite with core. reflexivity.
+  Qed.
+
+  Lemma sum_maps_lookup_r m0 m1 k :
+    lookup (encode_inr k) (sum_maps m0 m1) = lookup k m1.
+  Proof.
+    unfold sum_maps. rewrite lookup_union_r.
+    - apply lookup_kmap. typeclasses eauto.
+    - autorewrite with core. reflexivity.
+  Qed.
+
+  Lemma sum_maps_alter_inl m0 m1 f k :
+    alter f (encode_inl k) (sum_maps m0 m1) = sum_maps (alter f k m0) m1.
+  Proof.
+    unfold sum_maps, union, map_union.
+    rewrite alter_union_with_l; autorewrite with core; try easy.
+    rewrite kmap_alter by typeclasses eauto. reflexivity.
+  Qed.
+
+  Lemma sum_maps_alter_inr m0 m1 f k :
+    alter f (encode_inr k) (sum_maps m0 m1) = sum_maps m0 (alter f k m1).
+  Proof.
+    unfold sum_maps, union, map_union.
+    rewrite alter_union_with_r; autorewrite with core; try easy.
+    rewrite kmap_alter by typeclasses eauto. reflexivity.
+  Qed.
+
+  Lemma sum_maps_insert_inr m0 m1 k v :
+    insert (encode_inr k) v (sum_maps m0 m1) = sum_maps m0 (insert k v m1).
+  Proof.
+    unfold sum_maps. rewrite insert_union_r by now autorewrite with core.
+    rewrite kmap_insert by typeclasses eauto. reflexivity.
+  Qed.
+ 
+  Lemma sum_maps_eq m0 m1 m0' m1' : sum_maps m0 m1 = sum_maps m0' m1' -> m0 = m0' /\ m1 = m1'.
+  Proof.
+    intros eq_sums. split; apply map_eq; intros k.
+    - erewrite<- !sum_maps_lookup_l, eq_sums. reflexivity.
+    - erewrite<- !sum_maps_lookup_r, eq_sums. reflexivity.
+  Qed.
+End SumMaps.
+
+Definition decode' {A} `{Countable A} (x : positive) :=
+  match decode x with
+  | Some y => if (decide (encode (A := A) y = x)) then Some y else None
+  | None => None
+  end.
+
+Lemma decode'_encode {A} `{Countable A} (a : A) : decode' (encode a) = Some a.
+Proof. unfold decode'. rewrite decode_encode. destruct decide; easy. Qed.
+
+Lemma decode'_is_Some {A} `{Countable A} x (y : A) : decode' x = Some y <-> encode y = x.
+Proof. 
+  unfold decode'. split.
+  - simplify_option.
+  - intros G. assert (decode x = Some y). { pose proof (decode_encode y). congruence. }
+    simplify_option.
+Qed.
+
+Lemma map_alter_not_in_domain `{FinMap K M} `(m : M V) k f :
+  lookup k m = None -> alter f k m = m.
+Proof.
+  intros ?. apply map_eq. intros k'.
+  destruct (decide (k = k')) as [<- | ]; simplify_map_eq; reflexivity.
+Qed.

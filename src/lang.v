@@ -1,7 +1,8 @@
 Require Import base.
 Require Import PathToSubtree.
+Require Import PArith.
 
-Definition var := nat.
+Definition var := positive.
 
 Variant proj :=
 | Deref
@@ -36,14 +37,18 @@ Inductive statement :=
 | Seq (stmt_0 : statement) (stmt_1 : statement)
 | Panic.
 
-Notation "s0 ;; s1" := (Seq s0 s1) (right associativity, at level 100).
+
+(* TODO: notation scope. *)
+Notation "s0 ;; s1" := (Seq s0 s1)
+  (at level 100, s1 at level 200, only parsing, right associativity).
 Notation "&mut p" := (BorrowMut p) (at level 80).
 Notation "'ASSIGN' p <- rv" := (Assign p rv) (at level 90).
 
-Check (&mut (0, nil)).
-Check (ASSIGN (1, nil) <- &mut (0, nil)).
-Check (ASSIGN (0, nil) <- Just (IntConst 3)).
-Check (ASSIGN (0, nil) <- Just (IntConst 3) ;; ((ASSIGN (1, nil) <- &mut (0, nil)) ;; Panic)).
+Local Open Scope positive_scope.
+Check (&mut (1, nil)).
+Check (ASSIGN (2, nil) <- &mut (1, nil)).
+Check (ASSIGN (1, nil) <- Just (IntConst 3)).
+Check (ASSIGN (1, nil) <- Just (IntConst 3) ;; ((ASSIGN (2, nil) <- &mut (1, nil)) ;; Panic)).
 
 (* These definitions are not part of the grammar, but they are common for several (all?) semantics of the LLBC. *)
 Definition loan_id := nat.

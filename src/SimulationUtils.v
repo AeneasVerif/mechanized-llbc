@@ -106,116 +106,125 @@ Definition preservation {A B} `{LeA : Le A A} `{LeB : Le B B} (RedAB : A -> B ->
    We also specify a well-formedness predicate for states. Indeed, some preservation properties
    require the well-formedness to be proven.
 *)
-Class LeBase (B V : Type) := {
-  le_base : state B V -> state B V -> Prop;
-  well_formed : state B V ->  Prop;
-  anon : B;
+Class LeBase state := {
+  le_base : state -> state -> Prop;
+  well_formed : state ->  Prop;
   le_base_preserves_well_formedness Sl Sr : well_formed Sr -> le_base Sl Sr -> well_formed Sl;
 }.
 
-Global Instance LeState B V `(LeBase B V) : Le (state B V) (state B V) :=
+Global Instance LeState state `(LeBase state) : Le (state) (state) :=
 { le := refl_trans_closure le_base }.
 
-(* For pair of value and states, we have:
-   (v, S) <= (v', S') ::= S,, _ |-> v <= S', _ |-> v'
- *)
-Global Instance LeStateVal B V `(LeBase B V) : Le (V * state B V) (V * state B V) :=
-{ le := refl_trans_closure
-    (fun vS0 vS1 => le_base ((snd vS0),, anon |-> (fst vS0)) ((snd vS1),, anon |-> (fst vS1)))
-}.
+Section LeValStateUtils.
+  Context `{State state V}.
+  Context `{LB : LeBase state}.
 
-Definition well_formed_forward_simulation {B0 V} `{LeBase B0 V} {B C D : Type}
-  (LeBA : B -> state B0 V -> Prop) (LeDC : D -> C -> Prop)
-  (RedAC : state B0 V -> C -> Prop) (RedBD : B -> D -> Prop) :=
-  forall a c, well_formed a -> RedAC a c -> forall b, LeBA b a -> exists d, LeDC d c /\ RedBD b d.
+  Definition le_base_val_state (vSl vSr : V * state) :=
+    forall a, fresh_anon (snd vSl) a -> fresh_anon (snd vSr) a ->
+    le_base ((snd vSl),, a |-> fst vSl) ((snd vSr),, a |-> fst vSr).
 
-Definition well_formed_preservation {B V} `{LB : LeBase B V} (Red : state B V -> state B V -> Prop) :=
-  @well_formed_forward_simulation _ _ LB _ _ _ (@le _ _ (LeState _ _ LB)) (@le _ _ (LeState _ _ LB)) Red Red.
+  (* For pair of value and states, we have:
+     (v, S) <= (v', S') ::= S,, _ |-> v <= S', _ |-> v'
+   *)
+  Global Instance LeStateVal : Le (V * state) (V * state) :=
+  { le := refl_trans_closure le_base_val_state }.
 
-Lemma le_preserves_well_formedness B V `(LB : LeBase B V) Sl Sr :
-  (@well_formed _ _ LB Sr) -> (@le _ _ (LeState _ _ LB) Sl Sr) -> (@well_formed _ _ LB Sl).
-Proof. intros ? H. induction H; eauto using le_base_preserves_well_formedness. Qed.
+  (* Problem: when we unfold le_base, we get a left state of the form 
+     S, a |-> v.
+     We need a general state Sl. And we need to generate a hypothesis of the form
+     Sl = S, a |-> v
+   *)
+  Lemma prove_le_state_val vl Sl vm Sm vr Sr
+    (G : forall a, fresh_anon Sm a -> fresh_anon Sr a ->
+         exists vSm, le_base vSm Sr,, a |-> vr /\ vSm = Sm,, a |-> vm) :
+    @le _ _ LeStateVal (vl, Sl) (vm, Sm) ->
+    @le _ _ LeStateVal (vl, Sl) (vr, Sr).
+  Proof.
+    intros ?. etransitivity; [eassumption | ]. constructor.
+    intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
+  Qed.
 
-(* Reorganizations and le are defined as reflexive-transitive closure of relations (that we are
- * going to denote < and reorg). When we want to prove the preservation, ie:
+  (* The issue by directly applying the lemma `preservation_by_base_case` is that it
+     obfuscates the relation le, by unfolding it and replacing it with a reflexive transitive
+     closure.
+     We're going to give similar statements, but these types, the hypothesis uses the relation le.
+   *)
+  Lemma preservation_by_base_case_le_state_le_state_val
+    (red : state -> (V * state) -> Prop) :
+    forward_simulation (@le_base _ LB) (@le _ _ LeStateVal) red red
+    -> @preservation _ _ (@LeState _ LB) LeStateVal red.
+  Proof. apply preservation_by_base_case. Qed.
+End LeValStateUtils.
 
-    Sl <*  Sr
+Section WellFormedSimulations.
+  Context `{LB : LeBase state}.
+  Definition well_formed_forward_simulation {B C D : Type}
+    (LeBA : B -> state -> Prop) (LeDC : D -> C -> Prop)
+    (RedAC : state -> C -> Prop) (RedBD : B -> D -> Prop) :=
+    forall a c, well_formed a -> RedAC a c -> forall b, LeBA b a -> exists d, LeDC d c /\ RedBD b d.
 
-    |      |
-    *      *
-    v      v
+  Definition well_formed_preservation (Red : state -> state -> Prop) :=
+    well_formed_forward_simulation (@le _ _ (@LeState _ LB)) (@le _ _ (@LeState _ LB)) Red Red.
 
-   Sl' <* Sr'
+  Lemma le_preserves_well_formedness Sl Sr : well_formed Sr -> le Sl Sr -> well_formed Sl.
+  Proof. intros ? H. induction H; eauto using le_base_preserves_well_formedness. Qed.
 
- * We want to derive it by only considering the cases of < and reorg, and ignoring the reflexive and
- * transitive cases:
+  (* Reorganizations and le are defined as reflexive-transitive closure of relations (that we are
+   * going to denote < and reorg). When we want to prove the preservation, ie:
 
-    Sl <  Sr
+      Sl <*  Sr
 
-    |     |
-    *     |
-    v     v
+      |      |
+      *      *
+      v      v
 
-   Sl' <* Sr'
+     Sl' <* Sr'
 
- * However, this proof scheme is wrong in general. Our strategy is to exhibit a measure |.| from
- * states to a well-founded order, that is decreasing by applications of < and reorg.
- *)
-(* Note: for the moment, we just use natural measures. *)
-Lemma preservation_reorg B V `(LB : LeBase B V) (reorg : state B V -> state B V -> Prop)
-  (measure : state B V -> nat)
-  (le_decreasing : forall a b, le_base a b -> measure a < measure b)
-  (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
-  (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ _ LB a -> @well_formed _ _ LB b)
-  (H : @well_formed_forward_simulation _ _ LB _ _ _ (@le_base _ _ LB) (@le _ _ (LeState _ _ LB)) reorg (refl_trans_closure reorg)) :
-  @well_formed_preservation _ _ LB (refl_trans_closure reorg).
-Proof.
-  assert (forall S S', refl_trans_closure reorg S S' -> measure S' <= measure S).
-  { intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. }
-  intros Sr.
-  remember (measure Sr) as n eqn:EQN. revert Sr EQN.
-  induction n as [? IH] using lt_wf_ind.
-  intros Sr -> Sr' well_formed_Sr reorg_Sr_Sr'.
-  destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using refl_trans_closure_ind_left.
-  { intros. eexists. split; [eassumption | reflexivity]. }
-  intros Sl le_Sl_Sr.
-  destruct le_Sl_Sr as [ | Sl Sm Sr ? _ le_Sm_Sr] using refl_trans_closure_ind_right.
-  { eexists. split; [reflexivity | ]. transitivity Sr'; [constructor | ]; assumption. }
-  specialize (H _ _ well_formed_Sr reorg_Sr_Sr' _ le_Sm_Sr). destruct H as (Sm' & le_Sm'_Sr' & reorg_Sm_Sm').
-  assert (exists Sl', le Sl' Sm' /\ refl_trans_closure reorg Sl Sl')
-    as (Sl' & ? & ?)
-  by eauto using le_base_preserves_well_formedness.
-  assert (exists Sm'', le Sm'' Sr'' /\ refl_trans_closure reorg Sm' Sm'')
-    as (Sm'' & ? & ?)
-    by eauto.
-  assert (exists Sl'', le Sl'' Sm'' /\ refl_trans_closure reorg Sl' Sl'')
-    as (? & ? & ?).
-  { eapply IH; [ | reflexivity | | eassumption..];
-    eauto using Nat.le_lt_trans, le_preserves_well_formedness. }
-  eexists. split; [transitivity Sm'' | transitivity Sl']; eassumption.
-Qed.
+   * We want to derive it by only considering the cases of < and reorg, and ignoring the reflexive and
+   * transitive cases:
 
-Lemma prove_le_state_val B V `(LB : LeBase B V) vl Sl vSm vm Sm vr Sr :
-  @le_base _ _ LB vSm (Sr,, (@anon _ _ LB) |-> vr)
-  -> vSm = (Sm,, (@anon _ _ LB) |-> vm)
-  -> @le _ _ (LeStateVal _ _ LB) (vl, Sl) (vm, Sm)
-  -> @le _ _ (LeStateVal _ _ LB) (vl, Sl) (vr, Sr).
-Proof. intros. subst. transitivity (vm, Sm); [ | constructor]; assumption. Qed.
+      Sl <  Sr
 
-(* The issue by directly applying the lemma `preservation_by_base_case` is that it
-   obfuscates the relation le, by unfolding it and replacing it with a reflexive transitive
-   closure.
-   We're going to give similar statements, but these types, the hypothesis uses the relation le.
- *)
-Lemma preservation_by_base_case_le_state_le_state_val B V `(LB : LeBase B V)
-  (red : state B V -> (V * state B V) -> Prop) :
-  forward_simulation (@le_base _ _ LB) (@le _ _ (LeStateVal _ _ LB)) red red
-  -> @preservation _ _ (@LeState _ _ LB) (LeStateVal _ _ LB) red.
-Proof. apply preservation_by_base_case. Qed.
+      |     |
+      *     |
+      v     v
 
-(* Choose the right `preservation_by_case_XXX` lemma to apply depending on the type: *)
-Ltac preservation_by_base_case :=
-  match goal with
-  | |- @preservation _ _ (@LeState ?B ?V ?LB) (LeStateVal ?B ?V ?LB) ?red =>
-      refine (preservation_by_base_case_le_state_le_state_val B V LB red _)
-  end.
+     Sl' <* Sr'
+
+   * However, this proof scheme is wrong in general. Our strategy is to exhibit a measure |.| from
+   * states to a well-founded order, that is decreasing by applications of < and reorg.
+   *)
+  (* Note: for the moment, we just use natural measures. *)
+  Lemma preservation_reorg (reorg : state -> state -> Prop)
+    (measure : state -> nat)
+    (le_decreasing : forall a b, le_base a b -> measure a < measure b)
+    (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
+    (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ LB a -> @well_formed _ LB b)
+    (H : well_formed_forward_simulation (@le_base _ LB) (@le _ _ (@LeState _ LB)) reorg (refl_trans_closure reorg)) :
+    well_formed_preservation (refl_trans_closure reorg).
+  Proof.
+    assert (forall S S', refl_trans_closure reorg S S' -> measure S' <= measure S).
+    { intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. }
+    intros Sr.
+    remember (measure Sr) as n eqn:EQN. revert Sr EQN.
+    induction n as [? IH] using lt_wf_ind.
+    intros Sr -> Sr' well_formed_Sr reorg_Sr_Sr'.
+    destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using refl_trans_closure_ind_left.
+    { intros. eexists. split; [eassumption | reflexivity]. }
+    intros Sl le_Sl_Sr.
+    destruct le_Sl_Sr as [ | Sl Sm Sr ? _ le_Sm_Sr] using refl_trans_closure_ind_right.
+    { eexists. split; [reflexivity | ]. transitivity Sr'; [constructor | ]; assumption. }
+    specialize (H _ _ well_formed_Sr reorg_Sr_Sr' _ le_Sm_Sr). destruct H as (Sm' & le_Sm'_Sr' & reorg_Sm_Sm').
+    assert (exists Sl', le Sl' Sm' /\ refl_trans_closure reorg Sl Sl')
+      as (Sl' & ? & ?)
+    by eauto using le_base_preserves_well_formedness.
+    assert (exists Sm'', le Sm'' Sr'' /\ refl_trans_closure reorg Sm' Sm'')
+      as (Sm'' & ? & ?)
+      by eauto.
+    assert (exists Sl'', le Sl'' Sm'' /\ refl_trans_closure reorg Sl' Sl'')
+      as (? & ? & ?).
+    { eapply IH; [ | reflexivity | | eassumption..];
+      eauto using Nat.le_lt_trans, le_preserves_well_formedness. }
+    eexists. split; [transitivity Sm'' | transitivity Sl']; eassumption.
+  Qed.
+End WellFormedSimulations.
