@@ -70,7 +70,7 @@ Program Instance ValueLLBC : Value LLBC_val LLBC_nodes := {
   get_node := LLBC_get_node;
   children := LLBC_children;
   fold_value := LLBC_fold;
-  total_weight := LLBC_weight;
+  vweight := LLBC_weight;
   bot := LLBC_bot;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
@@ -108,7 +108,6 @@ Program Instance IsState : State LLBC_state LLBC_val := {
     | Some (inr a) => {| vars := vars S; anons := alter f a (anons S)|}
     | None => S
     end;
-  anons := positive;
   anon_accessor := encode_anon;
   accessor_anon x :=
     match decode (A := var + positive) x with
@@ -277,7 +276,7 @@ Inductive reorg : LLBC_state -> LLBC_state -> Prop :=
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
 Variant store (p : place) : LLBC_val * LLBC_state -> LLBC_state -> Prop :=
-| Store v S (sp : spath) (a : PathToSubtree.anons (State := IsState))
+| Store v S (sp : spath) (a : anon)
   (eval_p : (S,, a |-> v) |-{p} p =>^{Mut} sp)
   (no_outer_loan : not_contains_outer_loan (S.[sp])) :
   fresh_anon S a -> store p (v, S) (S.[sp <- v],, a |-> S.[sp])
@@ -442,7 +441,6 @@ Qed.
 Ltac eval_var :=
   split; [eexists; split; [reflexivity | constructor] | ].
 
-Check (alter_insert (M := Pmap)).
 Hint Rewrite (@alter_insert _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
 Hint Rewrite (@alter_insert_ne _ _ _ _ _ _ _ _ _ _ Pmap_finmap) using discriminate : core.
 Hint Rewrite (@alter_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.

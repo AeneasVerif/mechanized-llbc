@@ -87,7 +87,7 @@ Program Instance ValueHLPL : Value HLPL_plus_val HLPL_plus_nodes := {
   get_node := HLPL_plus_get_node;
   children := HLPL_plus_children;
   fold_value := HLPL_plus_fold;
-  total_weight := HLPL_plus_weight;
+  vweight := HLPL_plus_weight;
   bot := HLPL_plus_bot;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
@@ -114,20 +114,19 @@ Record HLPL_plus_state := {
   anons : Pmap HLPL_plus_val;
 }.
 
-Program Instance IsState : State HLPL_plus_state HLPL_plus_val := {
+Program Instance IsState : State HLPL_plus_state HLPL_plus_val (H := ValueHLPL) := {
   extra := unit;
   get_map S := sum_maps (vars S) (anons S);
   get_extra _ := ();
   alter_at_accessor f a S :=
-    match decode' (A := var + positive) a with
+    match decode' (A := var + anon) a with
     | Some (inl x) => {| vars := alter f x (vars S); anons := anons S|}
     | Some (inr a) => {| vars := vars S; anons := alter f a (anons S)|}
     | None => S
     end;
-  anons := positive;
   anon_accessor := encode_inr (K0 := var);
   accessor_anon x :=
-    match decode (A := var + positive) x with
+    match decode (A := var + anon) x with
     | Some (inr a) => Some a
     | _ => None
     end;
@@ -191,7 +190,10 @@ Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
 Proof. reflexivity. Qed.
 Hint Rewrite sget_loc' : spath.
 
-Generalizable No Variables.
+(* This property represents the application of a projection p (such as a pointer dereference or a
+ * field access) on spath pi0, on a state S and given a permission perm.
+ * If this projection is successful, then we have eval_proj S perm p pi0 pi1.
+ *)
 Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop :=
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
 | Eval_Deref_MutBorrow q l
@@ -210,7 +212,8 @@ Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop 
     (eval_proj_rec : eval_proj S perm proj (q +++ [0]) q') : eval_proj S perm proj q q'
 .
 
-(* TODO: eval_path represents a computation, that evaluates and accumulate the result over [...] *)
+(* Let pi0 be a spath. If by successfully applying the projections in P (with permission perm) we
+   obtain a spath pi1, then we have the proprety eval_path S perm P pi0 pi1. *)
 Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop :=
 (* Corresponds to R-Base and W-Base in the article. *)
 | Eval_nil pi : eval_path S perm [] pi pi
@@ -219,8 +222,8 @@ Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop 
     eval_path S perm (proj :: P) p r.
 
 Definition eval_place S perm (p : place) pi :=
-  let pi_0 := (encode_inl (K1 := positive) (fst p), []) in
-  valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_inl (K1 := positive) (fst p), []) pi.
+  let pi_0 := (encode_inl (K1 := anon) (fst p), []) in
+  valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_inl (K1 := anon) (fst p), []) pi.
 
 Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
@@ -353,7 +356,11 @@ Variant eval_operand : operand -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
-(* TODO: move in PathToSubtree.v *)
+(* Note: these functions are used when borrowing a spath that is already under a location without
+ * introducing a new location. spath_pred pi given the node about pi (and botC if this node doesn't
+ * exist).
+ * However, I should maybe rewrite it with a proposition instead of a function. *)
+(* TODO: if I keep it, move in PathToSubtree.v *)
 Definition vpath_pred (p : vpath) : option vpath :=
   match p with
   | [] => None
@@ -404,10 +411,6 @@ Definition ancestor (S : HLPL_plus_state) (p : spath) : HLPL_plus_nodes :=
 Lemma vancestor_singleton v i : vancestor v [i] = get_node v.
 Proof. reflexivity. Qed.
 Hint Rewrite vancestor_singleton : spath.
-
-(* TODO: unused. delete? *)
-Lemma ancestor_add_anon S p i : ancestor S (p +++ [i]) = get_node (S.[p]).
-Proof. unfold ancestor. rewrite spath_pred_add_anon. reflexivity. Qed.
 
 Lemma ancestor_sset_not_strict_prefix S p q v :
   ~strict_prefix q p -> ancestor (S.[q <- v]) p = ancestor S p.
@@ -483,7 +486,7 @@ Hint Extern 0 (ptrC( _ ) <> _) => discriminate : spath.
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
 Variant store (p : place) : HLPL_plus_val * HLPL_plus_state -> HLPL_plus_state -> Prop :=
-| Store v S (sp : spath) (a : PathToSubtree.anons (State := IsState))
+| Store v S (sp : spath) (a : anon)
   (eval_p : (S,, a |-> v) |-{p} p =>^{Mut} sp)
   (no_outer_loc : not_contains_outer_loc (S.[sp]))
   (no_outer_loan : not_contains_outer_loan (S.[sp])) :
@@ -496,7 +499,6 @@ Variant store (p : place) : HLPL_plus_val * HLPL_plus_state -> HLPL_plus_state -
 *)
 Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
 
-(* TODO: move *)
 Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_plus_state -> Prop :=
   | Eval_nop S : S |-{stmt} Nop => rUnit, S
   | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
@@ -539,10 +541,6 @@ Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
   pointer_implies_loc_alt : scount (ptrC(l)) S > 0 -> scount (locC(l)) S > 0;
 }.
 
-(* Note: the following proof mix objects of types `HLPL_plus_nodes` and
- * `@nodes HLPL_plus_value ValueHLPL`. Though equal, those types are not unified by the tactic
- * `lia`. This is why at times, this proof contain `cbn in * |-` or `cbn`, to implicitely reduce
- * the type `@nodes HLPL_plus_value ValueHLPL`. *)
 Lemma well_formedness_equiv S : HLPL_plus_well_formed S <-> forall l, HLPL_plus_well_formed_alt S l.
 Proof.
   split.
@@ -553,9 +551,8 @@ Proof.
       specialize (at_most_one_loc0 l).
       rewrite decide_at_most_one_node in at_most_one_loc0; [ | discriminate ].
       apply Nat.le_1_r in at_most_one_loan_mut0. destruct (at_most_one_loan_mut0).
-      * cbn in * |-.  lia.
-      * cbn in * |-.
-        assert (scount loanC^m(l) S > 0) as (p & ? & ?%indicator_non_zero)%sweight_non_zero by lia.
+      * lia.
+      * assert (scount loanC^m(l) S > 0) as (p & ? & ?%indicator_non_zero)%sweight_non_zero by lia.
         specialize (no_mut_loan_loc0 l p).
         apply not_state_contains_implies_weight_zero
           with (weight := indicator (locC(l))) in no_mut_loan_loc0;
@@ -568,8 +565,8 @@ Proof.
       autorewrite with weight in get_S_q. lia.
   - intros WF. split; intros l; destruct (WF l).
     + apply decide_at_most_one_node; [discriminate | ]. assumption.
-    + apply decide_at_most_one_node; [discriminate | ]. cbn. lia.
-    + apply decide_at_most_one_node; [discriminate | ]. cbn. lia.
+    + apply decide_at_most_one_node; [discriminate | ]. lia.
+    + apply decide_at_most_one_node; [discriminate | ]. lia.
     + intros p H.
       apply sweight_non_zero in pointer_implies_loc_alt0.
       destruct pointer_implies_loc_alt0 as (q & _ & ?).
@@ -592,7 +589,7 @@ Qed.
    I couldn't do it with autorewrite, so I'm using this strang tactic instead. *)
 Ltac weight_given_node :=
   lazymatch goal with
-  | H : get_node (?S.[?p]) = _ |- context [total_weight _ (?S.[?p])] =>
+  | H : get_node (?S.[?p]) = _ |- context [vweight _ (?S.[?p])] =>
     let G := fresh in
     pose proof (G := H);
     apply (f_equal arity) in G;
@@ -601,23 +598,23 @@ Ltac weight_given_node :=
     clear G
   end.
 
-Lemma total_weight_loc weight l v :
-  total_weight weight (loc(l, v)) = weight (locC(l)) + total_weight weight v.
+Lemma vweight_loc weight l v :
+  vweight weight (loc(l, v)) = weight (locC(l)) + vweight weight v.
 Proof. reflexivity. Qed.
-Hint Rewrite total_weight_loc : weight.
+Hint Rewrite vweight_loc : weight.
 
-Lemma total_weight_ptr weight l : total_weight weight (ptr(l)) = weight (ptrC(l)).
+Lemma vweight_ptr weight l : vweight weight (ptr(l)) = weight (ptrC(l)).
 Proof. reflexivity. Qed.
-Hint Rewrite total_weight_ptr : weight.
+Hint Rewrite vweight_ptr : weight.
 
-Lemma total_weight_int weight n :
-  total_weight weight (HLPL_plus_int n) = weight (HLPL_plus_intC n).
+Lemma vweight_int weight n :
+  vweight weight (HLPL_plus_int n) = weight (HLPL_plus_intC n).
 Proof. reflexivity. Qed.
-Hint Rewrite total_weight_int : weight.
+Hint Rewrite vweight_int : weight.
 
-Lemma total_weight_bot weight : total_weight weight bot = weight (botC).
+Lemma vweight_bot weight : vweight weight bot = weight (botC).
 Proof. reflexivity. Qed.
-Hint Rewrite total_weight_bot : weight.
+Hint Rewrite vweight_bot : weight.
 
 Ltac weight_inequality :=
   (* Translate the inequality into relatives, and repeatedly rewrite sweight_sset. *)
@@ -629,7 +626,6 @@ Ltac weight_inequality :=
   lia
 .
 
-(* TODO: give names to hypotheses. *)
 Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_state :=
 { le_base := le_state_base;
   well_formed := HLPL_plus_well_formed;
@@ -639,16 +635,6 @@ Next Obligation.
   intros H G l0. specialize (H l0). destruct H. destruct G.
   - destruct (Nat.eq_dec l0 l) as [<- | ]; split; weight_inequality.
 Qed.
-
-(* TODO: move *)
-(* Proving a comparison between p and q using information from the environment S. *)
-Lemma spath_neq_by_value_node (S : HLPL_plus_state) p q v c :
-  S.[p] = v -> get_node (S.[q]) = c -> get_node v <> c -> p <> q.
-Proof. congruence. Qed.
-Hint Extern 3 (~ (@eq spath _ _)) =>
-  simple eapply spath_neq_by_value_node; [eassumption | eassumption | discriminate] : spath.
-
-Hint Extern 0 (~ (@eq spath _ _)) => congruence : spath.
 
 Section MutBorrow_to_Ptr.
   Context (S_r : HLPL_plus_state).
@@ -834,11 +820,6 @@ Ltac eval_place_preservation :=
       destruct eval_p_in_Sr as (pi_l & rel_pi_l_pi_r%rel_implies_rel' & eval_p_in_Sl)
   end.
 
-(* TODO: move in SimulationUtils.v *)
-Ltac le_val_state_step :=
-  let a := fresh "a" in
-  eapply prove_le_state_val; [intros a ? ?; eexists; split | ].
-
 Lemma operand_preserves_HLPL_plus_rel op : preservation (eval_operand op).
 Proof.
   apply preservation_by_base_case.
@@ -1012,8 +993,6 @@ Proof.
            ++ states_eq.
 Admitted.
 
-Definition max_anon S := map_fold (fun k _ m => Pos.max (k + 1) m) 1%positive (anons S).
-
 Lemma well_formed_state_value_implies_well_formed_state v S :
   not_contains_loc v -> well_formed_state_value (v, S) -> well_formed S.
 Proof.
@@ -1086,7 +1065,6 @@ Proof.
   induction Hcopy_val; auto with spath.
 Qed.
 
-(* TODO: prove the reverse lemma. *)
 Lemma eval_path_add_anon S v p k pi a (a_fresh : fresh_anon S a) :
   not_contains_loc v -> (S,, a |-> v) |-{p} p =>^{k} pi -> S |-{p} p =>^{k} pi.
 Proof.
@@ -1110,42 +1088,12 @@ Proof.
     econstructor; [ | eapply IH, eval_proj_valid]; eassumption.
 Qed.
 
-(*
-Lemma eval_place_app_last S a v k p pi (a_fresh : fresh_anon S a) :
-  S |-{p} p =>^{k} pi -> (S,, a |-> v) |-{p} p =>^{k} pi.
-Proof.
-  intros ((x & H & _) & Heval_place). split.
-  { exists x. split; [ | constructor]. rewrite get_map_add_anon, lookup_insert_ne; easy. }
-  clear H. induction Heval_place.
-  - constructor.
-  - econstructor; [ | eassumption]. induction Heval_proj.
-    + eapply Eval_Deref_MutBorrow; autorewrite with spath; eassumption.
-    + eapply Eval_Deref_Ptr_Locs; autorewrite with spath; eassumption.
-    + eapply Eval_Loc; autorewrite with spath; eauto.
-Qed.
- *)
-
-(* TODO: move in PathToSubtree.v *)
-Lemma states_add_anon_eq (Sl Sr : HLPL_plus_state) a vl vr :
-  fresh_anon Sl a -> fresh_anon Sr a ->
-  (Sl,, a |-> vl) = (Sr,, a |-> vr) -> Sl = Sr /\ vl = vr.
-Proof.
-  intros ? ? H. split.
-  - apply state_eq_ext.
-    + apply (f_equal get_map) in H. rewrite !get_map_add_anon in H.
-      apply (f_equal (delete (anon_accessor a))) in H.
-      rewrite !delete_insert in H; assumption.
-    + apply (f_equal get_extra) in H. rewrite !get_extra_add_anon in H. exact H.
-  - apply (f_equal (fun S => S.[(anon_accessor a, [])])) in H.
-    autorewrite with spath in H. exact H.
-Qed.
-
 (* Suppose that (v0, S0) <= (vn, Sn), and that vr does not contain any loan.
    Let us take (v1, S1), ..., (v_{n-1}, S_{n-1}) the intermediate pairs such that
    (v0, S0) <= (v1, S1) <= ... <= (vn, Sn).
    Then, we are going to prove that for each (vi, Si), the value vi does not contain any loan. *)
 Definition le_val_state_base' (vSl vSr : HLPL_plus_val * HLPL_plus_state) : Prop :=
-  le_base_val_state vSl vSr /\ not_contains_loan (fst vSr) /\ not_contains_loc (fst vSr).
+  le_val_state_base vSl vSr /\ not_contains_loan (fst vSr) /\ not_contains_loc (fst vSr).
 Notation le_val_state' := (refl_trans_closure le_val_state_base').
 
 Lemma le_base_does_not_insert_loan_loc vSl vSr :
@@ -1199,7 +1147,6 @@ Proof.
   - auto using fresh_anon_sset.
 Qed.
 
-(* TODO: move in PathToSubtree.v ? *)
 Lemma fresh_anon_add_anon S a v b :
   fresh_anon (S,, a |-> v) b  <-> fresh_anon S b /\ anon_accessor a <> anon_accessor b.
 Proof.
@@ -1210,8 +1157,8 @@ Proof.
   - intros (? & ?). rewrite lookup_insert_ne; assumption.
 Qed.
 
-Lemma le_base_val_state_specialize_anon a vl Sl vr Sr :
-  fresh_anon Sr a -> le_base_val_state (vl, Sl) (vr, Sr) ->
+Lemma le_val_state_base_specialize_anon a vl Sl vr Sr :
+  fresh_anon Sr a -> le_val_state_base (vl, Sl) (vr, Sr) ->
   le_base (Sl,, a |-> vl) (Sr,, a |-> vr).
 Proof.
   intros fresh_a H. apply H; [ | exact fresh_a].
@@ -1224,7 +1171,7 @@ Proof.
 Qed.
 
 Lemma fresh_anon_le_val_state_base_left vl Sl vr Sr a (fresh_a : fresh_anon Sr a) :
-  le_base_val_state (vl, Sl) (vr, Sr) -> fresh_anon Sl a.
+  le_val_state_base (vl, Sl) (vr, Sr) -> fresh_anon Sl a.
 Proof.
   intros H.
   destruct (exists_fresh_anon2 Sl (Sr,, a |-> vr))
@@ -1245,7 +1192,7 @@ Proof.
   assert (valid_spath Sr sp).
   { apply eval_path_add_anon in eval_p; [validity | assumption..]. }
   assert (fresh_anon Sl a) by eauto using fresh_anon_le_val_state_base_left.
-  apply (le_base_val_state_specialize_anon a) in Hle; [ | assumption].
+  apply (le_val_state_base_specialize_anon a) in Hle; [ | assumption].
   remember (Sl,, a |-> vl) eqn:HeqvSl. remember (Sr,, a |-> vr).
   destruct Hle; subst.
   - eval_place_preservation. clear valid_p.
@@ -1398,7 +1345,7 @@ Lemma measure_loc l : measure_node locC(l) = 1. Proof. reflexivity. Qed.
 Hint Rewrite measure_loc : weight.
 Lemma measure_ptr l : measure_node ptrC(l) = 1. Proof. reflexivity. Qed.
 Hint Rewrite measure_ptr : weight.
-Lemma measure_bot : total_weight measure_node bot = 0. Proof. reflexivity. Qed.
+Lemma measure_bot : vweight measure_node bot = 0. Proof. reflexivity. Qed.
 Hint Rewrite measure_bot : weight.
 
 Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation (refl_trans_closure reorg).
@@ -1428,8 +1375,8 @@ Proof.
            { constructor. eapply Reorg_end_loc with (p := sp_loan).
              autorewrite with spath. reflexivity.
              assert (not_state_contains (eq ptrC(l)) S).
-             { eapply no_mut_loan_ptr. eassumption. rewrite HS_loan. reflexivity. }        rewrite sset_twice_equal. (* TODO: automatic rewriting. *)
-             not_contains. }
+             { eapply no_mut_loan_ptr. eassumption. rewrite HS_loan. reflexivity. }
+             autorewrite with spath. not_contains. }
         -- states_eq.
       * assert (q <> sp_borrow) by congruence.
         assert (~strict_prefix sp_borrow q). { apply H3. rewrite HS_borrow. constructor. }

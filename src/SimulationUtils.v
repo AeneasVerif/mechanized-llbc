@@ -83,9 +83,12 @@ Qed.
    - there exists d1 such that b <= d1
    - d0 = d1
    This lemma allows us to not exhibit the terms d0 and d1 explicitely. As the relations LeCD and
-   RedBD are generally inductively defined, these terms are constructed by
+   RedBD are generally inductively defined, these terms are constructed by applying inductive
+   constructors. This is why the constructors of the relation should be on the form:
+   - red S E[S] for the reduction
+   - E[S] < S for the base relation
    Finally, the last goal d0 = d1 is intended to be solved automatically, using the tactic
-   prove_states_eq.
+   states_eq.
  *)
 Lemma complete_square_diagram {B C D : Type}
   (LeDC : D -> C -> Prop) (RedBD : B -> D -> Prop) b c (d0 d1 : D) :
@@ -119,7 +122,7 @@ Section LeValStateUtils.
   Context `{State state V}.
   Context `{LB : LeBase state}.
 
-  Definition le_base_val_state (vSl vSr : V * state) :=
+  Definition le_val_state_base (vSl vSr : V * state) :=
     forall a, fresh_anon (snd vSl) a -> fresh_anon (snd vSr) a ->
     le_base ((snd vSl),, a |-> fst vSl) ((snd vSr),, a |-> fst vSr).
 
@@ -127,18 +130,13 @@ Section LeValStateUtils.
      (v, S) <= (v', S') ::= S,, _ |-> v <= S', _ |-> v'
    *)
   Global Instance LeStateVal : Le (V * state) (V * state) :=
-  { le := refl_trans_closure le_base_val_state }.
+  { le := refl_trans_closure le_val_state_base }.
 
-  (* Problem: when we unfold le_base, we get a left state of the form 
-     S, a |-> v.
-     We need a general state Sl. And we need to generate a hypothesis of the form
-     Sl = S, a |-> v
-   *)
-  Lemma prove_le_state_val vl Sl vm Sm vr Sr
+  Lemma prove_le_val_state vSl vm Sm vr Sr
     (G : forall a, fresh_anon Sm a -> fresh_anon Sr a ->
          exists vSm, le_base vSm Sr,, a |-> vr /\ vSm = Sm,, a |-> vm) :
-    @le _ _ LeStateVal (vl, Sl) (vm, Sm) ->
-    @le _ _ LeStateVal (vl, Sl) (vr, Sr).
+    @le _ _ LeStateVal vSl (vm, Sm) ->
+    @le _ _ LeStateVal vSl (vr, Sr).
   Proof.
     intros ?. etransitivity; [eassumption | ]. constructor.
     intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
@@ -149,12 +147,28 @@ Section LeValStateUtils.
      closure.
      We're going to give similar statements, but these types, the hypothesis uses the relation le.
    *)
-  Lemma preservation_by_base_case_le_state_le_state_val
+  Lemma preservation_by_base_case_le_state_le_val_state
     (red : state -> (V * state) -> Prop) :
     forward_simulation (@le_base _ LB) (@le _ _ LeStateVal) red red
     -> @preservation _ _ (@LeState _ LB) LeStateVal red.
   Proof. apply preservation_by_base_case. Qed.
 End LeValStateUtils.
+
+(* When proving a goal `le ?vSl (vr, Sr)`, using this tactic create three subgoals:
+   1. le_base ?vSm (Sr,, a |-> v)r
+   2. ?vSm = ?Sm,, a |-> ?vm
+   3. le ?vSl (?vm, ?Sm)
+
+   The first goal is used by applying the adequate base rule. Here, a is a fresh anon.
+   The second goal is proved by rewriting (with `autorewrite with spath`) then reflexivity.
+   The third goal is proved by applying again this tactic, or concluding by reflexivity.
+
+   With this strategy, the states and values ?vSl, ?vSm, ?vm and ?Sm never have to be instantiated
+   explicitely.
+ *)
+Ltac le_val_state_step :=
+  let a := fresh "a" in
+  eapply prove_le_val_state; [intros a ? ?; eexists; split | ].
 
 Section WellFormedSimulations.
   Context `{LB : LeBase state}.
