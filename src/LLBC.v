@@ -441,111 +441,104 @@ Qed.
 Ltac eval_var :=
   split; [eexists; split; [reflexivity | constructor] | ].
 
-Hint Rewrite (@alter_insert _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
-Hint Rewrite (@alter_insert_ne _ _ _ _ _ _ _ _ _ _ Pmap_finmap) using discriminate : core.
-Hint Rewrite (@alter_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
+Section Eval_LLBC_program.
+  Hint Rewrite (@alter_insert _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
+  Hint Rewrite (@alter_insert_ne _ _ _ _ _ _ _ _ _ _ Pmap_finmap) using discriminate : core.
+  Hint Rewrite (@alter_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
 
-Lemma insert_empty_is_singleton `{FinMap K M} {V} k v : insert (M := M V) k v empty = {[k := v]}.
-Proof. reflexivity. Qed.
-Hint Rewrite (@insert_empty_is_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
+  Lemma insert_empty_is_singleton `{FinMap K M} {V} k v : insert (M := M V) k v empty = {[k := v]}.
+  Proof. reflexivity. Qed.
+  Hint Rewrite (@insert_empty_is_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
 
-(* Perform simplifications to put maps of the state in the form `{[x0 := v0; ...; xn := vn]}`,
-   that is a notation for a sequence of insertions applied to a singleton.
-   We cannot use the tactic `vm_compute` because it computes under the insertions and the
-   singleton. *)
-Ltac simpl_state :=
-  cbn;
-  (* We can actually perform vm_compute on sget, because the result is a value and not a state. *)
-  repeat (remember (sget _ _ ) eqn:EQN; vm_compute in EQN; subst);
-  autorewrite with core; cbn.
+  (* Perform simplifications to put maps of the state in the form `{[x0 := v0; ...; xn := vn]}`,
+     that is a notation for a sequence of insertions applied to a singleton.
+     We cannot use the tactic `vm_compute` because it computes under the insertions and the
+     singleton. *)
+  Ltac simpl_state :=
+    (* We can actually perform vm_compute on sget, because the result is a value and not a state. *)
+    repeat (remember (sget _ _ ) eqn:EQN; vm_compute in EQN; subst);
+    compute - [insert alter empty singleton];
+    autorewrite with core.
 
-(* TODO: move after definition. *)
-Arguments decode' /.
-Arguments decode /.
-Arguments encode /.
-Arguments decide /.
-Arguments decide_rel /.
-Arguments app_spath_vpath /.
-Arguments LLBC_fold /.
-
-Lemma safe_main :
-  exists end_state, eval_stmt main rUnit init_state end_state /\
-    exists pi, eval_place end_state Imm ((a, []) : place) pi /\ end_state.[pi] = LLBC_int 58.
-Proof.
-  eexists. split. {
-    eapply Eval_seq_unit.
-    { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
-      - apply Eval_just, Eval_IntConst.
-      - eval_var. constructor.
-      - cbn. apply decide_contains_outer_loan_correct. reflexivity.
-      - reflexivity.
+  Lemma safe_main :
+    exists end_state, eval_stmt main rUnit init_state end_state /\
+      exists pi, eval_place end_state Imm ((a, []) : place) pi /\ end_state.[pi] = LLBC_int 58.
+  Proof.
+    eexists. split. {
+      eapply Eval_seq_unit.
+      { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
+        - apply Eval_just, Eval_IntConst.
+        - eval_var. constructor.
+        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - reflexivity.
+      }
+      simpl_state. eapply Eval_seq_unit.
+      { eapply Eval_assign; [ | apply Store with (a := 2%positive)].
+        - apply Eval_just, Eval_IntConst.
+        - eval_var. constructor.
+        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - reflexivity.
+      }
+      simpl_state. eapply Eval_seq_unit.
+      { eapply Eval_assign; [ | eapply Store with (a := 3%positive)].
+        - apply Eval_mut_borrow with (l := 0).
+          + eval_var. constructor.
+          + cbn. apply decide_contains_loan. reflexivity.
+          + cbn. apply decide_contains_bot. reflexivity.
+          + cbn. apply decide_not_is_fresh. reflexivity.
+        - eval_var. constructor.
+        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - reflexivity.
+      }
+      simpl_state. eapply Eval_seq_unit.
+      { eapply Eval_assign; [ | eapply Store with (a := 4%positive)].
+        - eapply Eval_mut_borrow with (l := 1).
+          + eval_var. repeat econstructor || easy.
+          + cbn. apply decide_contains_loan. reflexivity.
+          + cbn. apply decide_contains_bot. reflexivity.
+          + cbn. apply decide_not_is_fresh. reflexivity.
+        - eval_var. constructor.
+        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - reflexivity.
+      }
+      simpl_state. eapply Eval_seq_unit.
+      { eapply Eval_assign; [ | eapply Store with (a := 5%positive)].
+        - eapply Eval_mut_borrow with (l := 2).
+          + eval_var. constructor.
+          + cbn. apply decide_contains_loan. reflexivity.
+          + cbn. apply decide_contains_bot. reflexivity.
+          + cbn. apply decide_not_is_fresh. reflexivity.
+        - eval_var. constructor.
+        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - reflexivity.
+      }
+      simpl_state. eapply Eval_seq_unit.
+      { eapply Eval_assign; [ | eapply Store with (a := 6%positive)].
+        - apply Eval_just, Eval_IntConst.
+        - eval_var. repeat econstructor || easy.
+        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - reflexivity.
+      }
+      simpl_state. eapply Eval_reorg.
+      { eapply Reorg_seq.
+        { apply Reorg_end_borrow_m with (p := (encode_anon 5, [0])) (q := (encode_var d, [])) (l := 1).
+          + left. discriminate.
+          + reflexivity.
+          + reflexivity.
+          + apply decide_contains_loan. reflexivity.
+          + intros ? ->%prefix_nil. reflexivity. }
+          simpl_state.
+          apply Reorg_end_borrow_m with (l := 0) (p := (encode_var a, [])) (q := (encode_anon 5, [])).
+          + left. discriminate.
+          + reflexivity.
+          + reflexivity.
+          + apply decide_contains_loan. reflexivity.
+          + intros ? ->%prefix_nil. reflexivity.
+      }
+      simpl_state. apply Eval_nop.
     }
-    simpl_state. eapply Eval_seq_unit.
-    { eapply Eval_assign; [ | apply Store with (a := 2%positive)].
-      - apply Eval_just, Eval_IntConst.
-      - eval_var. constructor.
-      - cbn. apply decide_contains_outer_loan_correct. reflexivity.
-      - reflexivity.
-    }
-    simpl_state. eapply Eval_seq_unit.
-    { eapply Eval_assign; [ | eapply Store with (a := 3%positive)].
-      - apply Eval_mut_borrow with (l := 0).
-        + eval_var. constructor.
-        + cbn. apply decide_contains_loan. reflexivity.
-        + cbn. apply decide_contains_bot. reflexivity.
-        + cbn. apply decide_not_is_fresh. reflexivity.
-      - eval_var. constructor.
-      - cbn. apply decide_contains_outer_loan_correct. reflexivity.
-      - reflexivity.
-    }
-    simpl_state. eapply Eval_seq_unit.
-    { eapply Eval_assign; [ | eapply Store with (a := 4%positive)].
-      - eapply Eval_mut_borrow with (l := 1).
-        + eval_var. repeat econstructor || easy.
-        + cbn. apply decide_contains_loan. reflexivity.
-        + cbn. apply decide_contains_bot. reflexivity.
-        + cbn. apply decide_not_is_fresh. reflexivity.
-      - eval_var. constructor.
-      - cbn. apply decide_contains_outer_loan_correct. reflexivity.
-      - reflexivity.
-    }
-    simpl_state. eapply Eval_seq_unit.
-    { eapply Eval_assign; [ | eapply Store with (a := 5%positive)].
-      - eapply Eval_mut_borrow with (l := 2).
-        + eval_var. constructor.
-        + cbn. apply decide_contains_loan. reflexivity.
-        + cbn. apply decide_contains_bot. reflexivity.
-        + cbn. apply decide_not_is_fresh. reflexivity.
-      - eval_var. constructor.
-      - cbn. apply decide_contains_outer_loan_correct. reflexivity.
-      - reflexivity.
-    }
-    simpl_state. eapply Eval_seq_unit.
-    { eapply Eval_assign; [ | eapply Store with (a := 6%positive)].
-      - apply Eval_just, Eval_IntConst.
-      - eval_var. repeat econstructor || easy.
-      - cbn. apply decide_contains_outer_loan_correct. reflexivity.
-      - reflexivity.
-    }
-    simpl_state. eapply Eval_reorg.
-    { eapply Reorg_seq.
-      { apply Reorg_end_borrow_m with (p := (encode_anon 5, [0])) (q := (encode_var d, [])) (l := 1).
-        + left. discriminate.
-        + reflexivity.
-        + reflexivity.
-        + apply decide_contains_loan. reflexivity.
-        + intros ? ->%prefix_nil. reflexivity. }
-        simpl_state.
-        apply Reorg_end_borrow_m with (l := 0) (p := (encode_var a, [])) (q := (encode_anon 5, [])).
-        + left. discriminate.
-        + reflexivity.
-        + reflexivity.
-        + apply decide_contains_loan. reflexivity.
-        + intros ? ->%prefix_nil. reflexivity.
-    }
-    simpl_state. apply Eval_nop.
-  }
-  eexists. split.
-  - eval_var. constructor.
-  - cbn. reflexivity.
-Qed.
+    eexists. split.
+    - eval_var. constructor.
+    - cbn. reflexivity.
+  Qed.
+End Eval_LLBC_program.
