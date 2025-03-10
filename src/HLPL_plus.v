@@ -114,6 +114,9 @@ Record HLPL_plus_state := {
   anons : Pmap HLPL_plus_val;
 }.
 
+Definition encode_var (x : var) := encode (A := var + anon) (inl x).
+Definition encode_anon (a : positive) := encode (A := var + anon) (inr a).
+
 Program Instance IsState : State HLPL_plus_state HLPL_plus_val (H := ValueHLPL) := {
   extra := unit;
   get_map S := sum_maps (vars S) (anons S);
@@ -124,7 +127,7 @@ Program Instance IsState : State HLPL_plus_state HLPL_plus_val (H := ValueHLPL) 
     | Some (inr a) => {| vars := vars S; anons := alter f a (anons S)|}
     | None => S
     end;
-  anon_accessor := encode_inr (K0 := var);
+  anon_accessor := encode_anon;
   accessor_anon x :=
     match decode (A := var + anon) x with
     | Some (inr a) => Some a
@@ -138,11 +141,7 @@ Next Obligation.
   - rewrite decode'_is_Some in H.
     destruct s; cbn; rewrite <-H; symmetry;
       first [apply sum_maps_alter_inl | apply sum_maps_alter_inr].
-  - symmetry. apply map_alter_not_in_domain. apply lookup_union_None_2.
-    + rewrite lookup_kmap_None by typeclasses eauto.
-      intros ? ->. unfold encode_inl in H. rewrite decode'_encode in H. discriminate.
-    + rewrite lookup_kmap_None by typeclasses eauto.
-      intros ? ->. unfold encode_inr in H. rewrite decode'_encode in H. discriminate.
+  - symmetry. apply map_alter_not_in_domain, sum_maps_lookup_None. assumption.
 Qed.
 Next Obligation. intros [? ?] [? ?]. cbn. intros (-> & ->)%sum_maps_eq _. reflexivity. Qed.
 (* What are the two following obligations? *)
@@ -150,7 +149,7 @@ Next Obligation. discriminate. Qed.
 Next Obligation. discriminate. Qed.
 Next Obligation. intros. cbn. symmetry. apply sum_maps_insert_inr. Qed.
 Next Obligation. reflexivity. Qed.
-Next Obligation. intros. unfold encode_inr. rewrite decode_encode. reflexivity. Qed.
+Next Obligation. intros. unfold encode_anon. rewrite decode_encode. reflexivity. Qed.
 
 
 Declare Scope hlpl_plus_scope.
@@ -222,8 +221,8 @@ Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop 
     eval_path S perm (proj :: P) p r.
 
 Definition eval_place S perm (p : place) pi :=
-  let pi_0 := (encode_inl (K1 := anon) (fst p), []) in
-  valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_inl (K1 := anon) (fst p), []) pi.
+  let pi_0 := (encode_var (fst p), []) in
+  valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_var (fst p), []) pi.
 
 Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
@@ -1069,7 +1068,7 @@ Lemma eval_path_add_anon S v p k pi a (a_fresh : fresh_anon S a) :
   not_contains_loc v -> (S,, a |-> v) |-{p} p =>^{k} pi -> S |-{p} p =>^{k} pi.
 Proof.
  intros no_loc ((y & H & _) & G).
-  remember (encode_inl (fst p), []) as q eqn:EQN.
+  remember (encode_var (fst p), []) as q eqn:EQN.
   assert (valid_spath S q).
   { rewrite EQN in *. exists y. split; [ | constructor].
     rewrite get_map_add_anon, lookup_insert_ne in H; easy. }

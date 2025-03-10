@@ -292,16 +292,39 @@ Section Map_sum.
   Qed.
 End Map_sum.
 
+Definition decode' {A} `{Countable A} (x : positive) :=
+  match decode x with
+  | Some y => if (decide (encode (A := A) y = x)) then Some y else None
+  | None => None
+  end.
+
+Lemma decode'_encode {A} `{Countable A} (a : A) : decode' (encode a) = Some a.
+Proof. unfold decode'. rewrite decode_encode. destruct decide; easy. Qed.
+
+Lemma decode'_is_Some {A} `{Countable A} x (y : A) : decode' x = Some y <-> encode y = x.
+Proof.
+  unfold decode'. split.
+  - simplify_option.
+  - intros G. assert (decode x = Some y). { pose proof (decode_encode y). congruence. }
+    simplify_option.
+Qed.
+
+Lemma map_alter_not_in_domain `{FinMap K M} `(m : M V) k f :
+  lookup k m = None -> alter f k m = m.
+Proof.
+  intros ?. apply map_eq. intros k'.
+  destruct (decide (k = k')) as [<- | ]; simplify_map_eq; reflexivity.
+Qed.
+
 (* TODO: name similar to "sum_map", could be confusing *)
 Section SumMaps.
+  Context {V K0 K1 : Type}.
   Context `{FinMap K0 M0}.
   Context `{FinMap K1 M1}.
-  Context `{Countable K0}.
-  Context `{Countable K1}.
-  Context {V : Type}.
+  Context `{Countable (K0 + K1)}.
 
-  Definition encode_inl k := encode (A := K0 + K1) (inl k).
-  Definition encode_inr k := encode (A := K0 + K1) (inr k).
+  Let encode_inl k := encode (A := K0 + K1) (inl k).
+  Let encode_inr k := encode (A := K0 + K1) (inr k).
 
   Definition sum_maps (m0 : M0 V) (m1 : M1 V) : Pmap V :=
     union (kmap encode_inl m0) (kmap encode_inr m1).
@@ -376,28 +399,14 @@ Section SumMaps.
     - erewrite<- !sum_maps_lookup_l, eq_sums. reflexivity.
     - erewrite<- !sum_maps_lookup_r, eq_sums. reflexivity.
   Qed.
+
+  Lemma sum_maps_lookup_None (m0 : M0 V) (m1 : M1 V) k (G : decode' (A := K0 + K1) k = None) :
+    lookup k (sum_maps m0 m1) = None.
+  Proof.
+    apply lookup_union_None_2.
+    - rewrite lookup_kmap_None by typeclasses eauto.
+      intros ? ->. unfold encode_inl in G. rewrite decode'_encode in G. discriminate.
+    - rewrite lookup_kmap_None by typeclasses eauto.
+      intros ? ->. unfold encode_inr in G. rewrite decode'_encode in G. discriminate.
+  Qed.
 End SumMaps.
-
-Definition decode' {A} `{Countable A} (x : positive) :=
-  match decode x with
-  | Some y => if (decide (encode (A := A) y = x)) then Some y else None
-  | None => None
-  end.
-
-Lemma decode'_encode {A} `{Countable A} (a : A) : decode' (encode a) = Some a.
-Proof. unfold decode'. rewrite decode_encode. destruct decide; easy. Qed.
-
-Lemma decode'_is_Some {A} `{Countable A} x (y : A) : decode' x = Some y <-> encode y = x.
-Proof. 
-  unfold decode'. split.
-  - simplify_option.
-  - intros G. assert (decode x = Some y). { pose proof (decode_encode y). congruence. }
-    simplify_option.
-Qed.
-
-Lemma map_alter_not_in_domain `{FinMap K M} `(m : M V) k f :
-  lookup k m = None -> alter f k m = m.
-Proof.
-  intros ?. apply map_eq. intros k'.
-  destruct (decide (k = k')) as [<- | ]; simplify_map_eq; reflexivity.
-Qed.

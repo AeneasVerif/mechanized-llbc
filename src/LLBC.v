@@ -95,8 +95,8 @@ Record LLBC_state := {
   anons : Pmap LLBC_val;
 }.
 
-Definition encode_var (x : var) := encode_inl (K1 := positive) x.
-Definition encode_anon (a : positive) := encode_inr (K0 := var) a.
+Definition encode_var (x : var) := encode (A := var + anon) (inl x).
+Definition encode_anon (a : positive) := encode (A := var + anon) (inr a).
 
 Program Instance IsState : State LLBC_state LLBC_val := {
   extra := unit;
@@ -122,19 +122,15 @@ Next Obligation.
   - rewrite decode'_is_Some in H.
     destruct s; cbn; rewrite <-H; symmetry;
       first [apply sum_maps_alter_inl | apply sum_maps_alter_inr].
-  - symmetry. apply map_alter_not_in_domain. apply lookup_union_None_2.
-    + rewrite lookup_kmap_None by typeclasses eauto.
-      intros ? ->. unfold encode_inl in H. rewrite decode'_encode in H. discriminate.
-    + rewrite lookup_kmap_None by typeclasses eauto.
-      intros ? ->. unfold encode_inr in H. rewrite decode'_encode in H. discriminate.
+  - symmetry. apply map_alter_not_in_domain, sum_maps_lookup_None. assumption.
 Qed.
 Next Obligation. intros [? ?] [? ?]. cbn. intros (-> & ->)%sum_maps_eq _. reflexivity. Qed.
 (* What are the two following obligations? *)
 Next Obligation. discriminate. Qed.
 Next Obligation. discriminate. Qed.
-Next Obligation. intros. cbn. symmetry. apply sum_maps_insert_inr. Qed.
+Next Obligation. intros. cbn. unfold encode_anon. rewrite sum_maps_insert_inr. reflexivity. Qed.
 Next Obligation. reflexivity. Qed.
-Next Obligation. intros. unfold encode_anon, encode_inr. rewrite decode_encode. reflexivity. Qed.
+Next Obligation. intros. unfold encode_anon. rewrite decode_encode. reflexivity. Qed.
 
 Declare Scope llbc_scope.
 Delimit Scope llbc_scope with llbc.
