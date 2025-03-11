@@ -3,7 +3,7 @@ Require Import PeanoNat Lia ZArith.
 Require Import OptionMonad.
 Import ListNotations.
 
-From stdpp Require Import fin_maps pmap.
+From stdpp Require Import fin_maps pmap gmap.
 
 Local Open Scope option_monad_scope.
 
@@ -386,13 +386,20 @@ Section SumMaps.
     rewrite kmap_alter by typeclasses eauto. reflexivity.
   Qed.
 
+  Lemma sum_maps_insert_inl m0 m1 k v :
+    insert (encode_inl k) v (sum_maps m0 m1) = sum_maps (insert k v m0) m1.
+  Proof.
+    unfold sum_maps. rewrite insert_union_l by now autorewrite with core.
+    rewrite kmap_insert by typeclasses eauto. reflexivity.
+  Qed.
+
   Lemma sum_maps_insert_inr m0 m1 k v :
     insert (encode_inr k) v (sum_maps m0 m1) = sum_maps m0 (insert k v m1).
   Proof.
     unfold sum_maps. rewrite insert_union_r by now autorewrite with core.
     rewrite kmap_insert by typeclasses eauto. reflexivity.
   Qed.
- 
+
   Lemma sum_maps_eq m0 m1 m0' m1' : sum_maps m0 m1 = sum_maps m0' m1' -> m0 = m0' /\ m1 = m1'.
   Proof.
     intros eq_sums. split; apply map_eq; intros k.
@@ -410,3 +417,65 @@ Section SumMaps.
       intros ? ->. unfold encode_inr in G. rewrite decode'_encode in G. discriminate.
   Qed.
 End SumMaps.
+
+(* Collapse the 2-dimensional map of regions into a 1-dimensional map. *)
+Section Flatten.
+  Context {V : Type}.
+
+  Definition flatten : Pmap (Pmap V) -> gmap (positive * positive) V :=
+    map_fold (fun i m Ms => union (kmap (fun j => (i, j)) m) Ms) empty.
+
+  Lemma flatten_insert Ms i m (G : lookup i Ms = None) :
+    flatten (insert i m Ms) = union (kmap (fun j => (i, j)) m) (flatten Ms).
+  Proof.
+    unfold flatten. rewrite map_fold_insert_L.
+    - reflexivity.
+    - intros. rewrite !map_union_assoc. f_equal. apply map_union_comm.
+      apply map_disjoint_spec.
+      intros ? ? ? (? & ? & _)%lookup_kmap_Some (? & ? & _)%lookup_kmap_Some. congruence.
+      all: typeclasses eauto.
+    - assumption.
+  Qed.
+
+  Lemma lookup_None_flatten Ms i j : lookup i Ms = None -> lookup (i, j) (flatten Ms) = None.
+  Proof.
+    intros ?.
+    induction Ms as [ | k x Ms ? _ IHm] using map_first_key_ind.
+    - unfold flatten. rewrite map_fold_empty, lookup_empty. reflexivity.
+    - assert (i <> k). { intros <-. simpl_map. congruence. }
+      simpl_map.
+      rewrite flatten_insert by assumption. apply lookup_union_None_2.
+      + apply eq_None_ne_Some_2.
+        intros ? (? & ? & _)%lookup_kmap_Some; [congruence | typeclasses eauto].
+      + auto.
+  Qed.
+
+  Lemma lookup_Some_flatten Ms i j m :
+    lookup i Ms = Some m -> lookup (i, j) (flatten Ms) = lookup j m.
+  Proof.
+    intros <-%insert_delete. rewrite flatten_insert by apply lookup_delete. rewrite lookup_union.
+    rewrite lookup_kmap by typeclasses eauto. rewrite lookup_None_flatten.
+    - apply option_union_right_id.
+    - apply lookup_delete.
+  Qed.
+
+  Lemma alter_flatten f i j Ms :
+    alter f (i, j) (flatten Ms) = flatten (alter (alter f j) i Ms).
+  Proof.
+    induction Ms as [ | k x Ms ? _ IHm] using map_first_key_ind.
+    - rewrite !map_alter_not_in_domain by now simpl_map. reflexivity.
+    - destruct (decide (i = k)) as [<- | ].
+      + rewrite alter_insert.
+        rewrite !flatten_insert by assumption.
+        unfold union, map_union. rewrite alter_union_with_l. 
+        * now rewrite kmap_alter by typeclasses eauto.
+        * reflexivity.
+        * intros ? ?. rewrite lookup_None_flatten; easy.
+      + rewrite alter_insert_ne by assumption. rewrite !flatten_insert by now simpl_map.
+        unfold union, map_union. rewrite alter_union_with by reflexivity. rewrite IHm.
+        rewrite map_alter_not_in_domain.
+        * reflexivity.
+        * rewrite eq_None_not_Some.
+          intros (? & ? & _)%lookup_kmap_is_Some; [congruence | typeclasses eauto].
+  Qed.
+End Flatten.

@@ -110,59 +110,6 @@ Definition encode_anon (a : anon) :=
   encode (A := _ + positive * positive) (inl (encode (A := var + _) (inr a))).
 Definition encode_region (x : positive * positive) := encode (A := var + anon + _) (inr x).
 
-(* Collapse the 2-dimensional map of regions into a 1-dimensional map. *)
-Section Flatten.
-  Context {V : Type}.
-
-  Definition flatten : Pmap (Pmap V) -> gmap (positive * positive) V :=
-    map_fold (fun i m Ms => union (kmap (fun j => (i, j)) m) Ms) empty.
-
-  Lemma flatten_insert Ms i m (G : lookup i Ms = None) :
-    flatten (insert i m Ms) = union (kmap (fun j => (i, j)) m) (flatten Ms).
-  Proof.
-    unfold flatten. rewrite map_fold_insert_L.
-    - reflexivity.
-    - intros. rewrite !map_union_assoc. f_equal. apply map_union_comm.
-      apply map_disjoint_spec.
-      intros ? ? ? (? & ? & _)%lookup_kmap_Some (? & ? & _)%lookup_kmap_Some. congruence.
-      all: typeclasses eauto.
-    - assumption.
-  Qed.
-
-  Lemma lookup_None_flatten Ms i j : lookup i Ms = None -> lookup (i, j) (flatten Ms) = None.
-  Proof.
-    intros ?.
-    induction Ms as [ | k x Ms ? _ IHm] using map_first_key_ind.
-    - unfold flatten. rewrite map_fold_empty, lookup_empty. reflexivity.
-    - assert (i <> k). { intros <-. simpl_map. congruence. }
-      simpl_map.
-      rewrite flatten_insert by assumption. apply lookup_union_None_2.
-      + apply eq_None_ne_Some_2.
-        intros ? (? & ? & _)%lookup_kmap_Some; [congruence | typeclasses eauto].
-      + auto.
-  Qed.
-
-  Lemma alter_flatten f i j Ms :
-    alter f (i, j) (flatten Ms) = flatten (alter (alter f j) i Ms).
-  Proof.
-    induction Ms as [ | k x Ms ? _ IHm] using map_first_key_ind.
-    - rewrite !map_alter_not_in_domain by now simpl_map. reflexivity.
-    - destruct (decide (i = k)) as [<- | ].
-      + rewrite alter_insert.
-        rewrite !flatten_insert by assumption.
-        unfold union, map_union. rewrite alter_union_with_l. 
-        * now rewrite kmap_alter by typeclasses eauto.
-        * reflexivity.
-        * intros ? ?. rewrite lookup_None_flatten; easy.
-      + rewrite alter_insert_ne by assumption. rewrite !flatten_insert by now simpl_map.
-        unfold union, map_union. rewrite alter_union_with by reflexivity. rewrite IHm.
-        rewrite map_alter_not_in_domain.
-        * reflexivity.
-        * rewrite eq_None_not_Some.
-          intros (? & ? & _)%lookup_kmap_is_Some; [congruence | typeclasses eauto].
-  Qed.
-End Flatten.
-
 (* TODO: move in base.v *)
 Lemma alter_map_union {V} `{FinMap K M} (m0 m1 : M V) f k :
   alter f k (union m0 m1) = union (alter f k m0) (alter f k m1).
@@ -172,9 +119,15 @@ Proof.
 Admitted.
 
 Program Instance IsState : State LLBC_plus_state LLBC_plus_val := {
-  extra := unit;
   get_map S := sum_maps (sum_maps (vars S) (anons S)) (flatten (regions S));
-  get_extra _ := ();
+
+  (* The flatten function in not injective. For example, R and R<[A := empty]> have the same
+   * flattening. An empty region and a non-existant region can't be distinguished.
+   * Therefore, for the axiom `state_eq_ext` to be true, we need the set of regions identifiers as
+   * extra information. *)
+  extra := Pset;
+  get_extra S := dom (regions S);
+
   alter_at_accessor f a S :=
     match decode' (A := positive + positive * positive) a with
     | Some (inl a) =>
@@ -187,15 +140,27 @@ Program Instance IsState : State LLBC_plus_state LLBC_plus_val := {
                               regions := alter (fun r => alter f j r) i (regions S)|}
     | None => S
     end;
+
   anon_accessor := encode_anon;
   accessor_anon x :=
-    match decode (A := var + positive) x with
-    | Some (inr a) => Some a
-    | _ => None
+    match decode (A := positive + positive * positive) x with
+    | Some (inl y) =>
+        match decode (A := var + anon) y with
+        | Some (inr a) => Some a
+        | Some (inl _) => None
+        | None => None
+        end
+    | Some (inr _) => None
+    | None => None
     end;
-  add_anon a v S := {| vars := vars S; anons := insert a v (anons S)|};
+  add_anon a v S := {| vars := vars S; anons := insert a v (anons S); regions := regions S|};
 }.
-Next Obligation. reflexivity. Qed.
+Next Obligation.
+  intros ? ? y. cbn. destruct (decode' y) as [[z | (i & j)] | ] eqn:H.
+  - destruct (decode' z) as [[? | ?] | ]; reflexivity.
+  - cbn. apply dom_alter_L.
+  - reflexivity.
+Qed.
 Next Obligation.
   intros ? ? y. cbn. destruct (decode' y) as [[z | (i & j)] | ] eqn:H.
   - rewrite decode'_is_Some in H.
@@ -209,3 +174,19 @@ Next Obligation.
   - cbn. rewrite decode'_is_Some in H. rewrite <-H,  sum_maps_alter_inr, alter_flatten. reflexivity.
   - symmetry. apply map_alter_not_in_domain, sum_maps_lookup_None. assumption.
 Qed.
+Next Obligation.
+  intros [? ? R0] [? ? R1]. cbn. intros ((-> & ->)%sum_maps_eq & ?)%sum_maps_eq ?. f_equal.
+  apply map_eq. intros i. destruct (decide (elem_of i (dom R0))) as [e | ].
+  - assert (elem_of i (dom R1)) as (b & Ha)%elem_of_dom by congruence.
+    apply elem_of_dom in e. destruct e as (a & Hb). rewrite Ha, Hb. f_equal.
+    apply map_eq. intros j.
+    apply lookup_Some_flatten with (j := j) in Ha. apply lookup_Some_flatten with (j := j) in Hb.
+    congruence.
+  - assert (~(elem_of i (dom R1))) by congruence. rewrite not_elem_of_dom in * |-. congruence.
+Qed.
+Next Obligation.
+  intros. cbn. symmetry. unfold encode_anon. rewrite sum_maps_insert_inl, sum_maps_insert_inr.
+  reflexivity.
+Qed.
+Next Obligation. reflexivity. Qed.
+Next Obligation. intros. unfold encode_anon. rewrite !decode_encode. reflexivity. Qed.
