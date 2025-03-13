@@ -520,24 +520,16 @@ Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
   at_most_one_borrow_mut l : at_most_one_node (borrowC^m(l)) S;
   at_most_one_loan_mut l : at_most_one_node (loanC^m(l)) S;
   at_most_one_loc l : at_most_one_node (locC(l)) S;
-  pointer_implies_loc l p : get_node (S.[p]) = ptrC(l) -> exists q, get_node (S.[q]) = locC(l);
+  no_mut_loan_ptr l p : get_node (S.[p]) = loanC^m(l) -> not_state_contains (eq ptrC(l)) S;
   no_mut_loan_loc l p : get_node (S.[p]) = loanC^m(l) -> not_state_contains (eq locC(l)) S;
 }.
-
-Lemma no_mut_loan_ptr (S : HLPL_plus_state) l p :
-  HLPL_plus_well_formed S -> get_node (S.[p]) = loanC^m(l) -> not_state_contains (eq ptrC(l)) S.
-Proof.
-  intros WF ? q valid_q H.
-  symmetry in H. apply (pointer_implies_loc _ WF) in H. destruct H.
-  eapply no_mut_loan_loc; [eassumption | eassumption | | eauto]. validity.
-Qed.
 
 Notation scount c S := (sweight (indicator c) S).
 
 Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
   at_most_one_borrow_mut_alt : scount (borrowC^m(l)) S <= 1;
   no_mut_loan_loc_alt : scount (loanC^m(l)) S + scount (locC(l)) S <= 1;
-  pointer_implies_loc_alt : scount (ptrC(l)) S > 0 -> scount (locC(l)) S > 0;
+  no_mut_loan_ptr_alt : scount (loanC^m(l)) S > 0 -> scount (ptrC(l)) S <= 0;
 }.
 
 Lemma well_formedness_equiv S : HLPL_plus_well_formed S <-> forall l, HLPL_plus_well_formed_alt S l.
@@ -556,23 +548,22 @@ Proof.
         apply not_state_contains_implies_weight_zero
           with (weight := indicator (locC(l))) in no_mut_loan_loc0;
           [lia | apply indicator_non_zero | auto].
-    + intros (p & _ & ?%indicator_non_zero)%sweight_non_zero.
-      specialize (pointer_implies_loc0 l p).
-      destruct pointer_implies_loc0 as (q & ?); [auto | ].
-      assert (valid_q : valid_spath S q) by validity.
-      pose proof (weight_sget_node_le (indicator (locC(l))) _ _ valid_q) as get_S_q.
-      autorewrite with weight in get_S_q. lia.
+    + intros (p & _ & H%indicator_non_zero)%sweight_non_zero.
+      symmetry in H. specialize (no_mut_loan_ptr0 _ _ H).
+      rewrite Nat.le_0_r. eapply not_state_contains_implies_weight_zero; [ | eassumption].
+      intros ?. apply indicator_non_zero.
   - intros WF. split; intros l; destruct (WF l).
     + apply decide_at_most_one_node; [discriminate | ]. assumption.
     + apply decide_at_most_one_node; [discriminate | ]. lia.
     + apply decide_at_most_one_node; [discriminate | ]. lia.
-    + intros p H.
-      apply sweight_non_zero in pointer_implies_loc_alt0.
-      destruct pointer_implies_loc_alt0 as (q & _ & ?).
-      exists q. symmetry. apply indicator_non_zero. assumption.
+    + intros p Hp.
       assert (valid_p : valid_spath S p) by validity.
-      apply weight_sget_node_le with (weight := indicator (ptrC(l))) in valid_p.
-      rewrite H, indicator_same in valid_p. exact valid_p.
+      apply weight_sget_node_le with (weight := indicator (loanC^m(l))) in valid_p.
+      rewrite Hp in valid_p. autorewrite with weight in valid_p.
+      intros q valid_q Hq.
+      apply weight_sget_node_le with (weight := indicator (ptrC(l))) in valid_q.
+      rewrite <-Hq in valid_q. autorewrite with weight in valid_q.
+      lia.
     + intros p H.
       assert (valid_p : valid_spath S p) by validity.
       apply weight_sget_node_le with (weight := indicator (loanC^m(l))) in valid_p.
