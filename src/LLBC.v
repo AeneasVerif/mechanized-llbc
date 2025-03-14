@@ -1,5 +1,6 @@
 Require Import base.
 Require Import lang.
+Require Import SimulationUtils.
 Require Import List.
 Import ListNotations.
 Require Import PeanoNat Lia.
@@ -262,12 +263,11 @@ Definition not_in_borrow (S : LLBC_state) p :=
   forall q, prefix q p -> is_mut_borrow (get_node (S.[q])) -> q = p.
 
 Inductive reorg : LLBC_state -> LLBC_state -> Prop :=
-| Reorg_none S : reorg S S
-| Reorg_seq S0 S1 S2 : reorg S0 S1 -> reorg S1 S2 -> reorg S0 S2
-| Reorg_end_borrow_m S (p q : spath) l v :
-    disj p q -> S.[p] = loan^m(l) -> S.[q] = borrow^m(l, v) ->
-    not_contains_loan v -> not_in_borrow S q ->
-    reorg S (S.[p <- v].[q <- bot]).
+| Reorg_end_borrow_m S (p q : spath) l :
+    disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
+    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
+    reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
+.
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
@@ -291,7 +291,8 @@ Inductive eval_stmt : statement -> statement_result -> LLBC_state -> LLBC_state 
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
   | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
-  | Eval_reorg S0 S1 S2 stmt r : reorg S0 S1 -> S1 |-{stmt} stmt => r, S2 -> S0 |-{stmt} stmt => r, S2
+  | Eval_reorg S0 S1 S2 stmt r (Hreorg : refl_trans_closure reorg S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
+      S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 Require Import Bool.
@@ -516,7 +517,7 @@ Section Eval_LLBC_program.
         - reflexivity.
       }
       simpl_state. eapply Eval_reorg.
-      { eapply Reorg_seq.
+      { etransitivity; [constructor | ].
         { apply Reorg_end_borrow_m with (p := (encode_anon 5, [0])) (q := (encode_var d, [])) (l := 1).
           + left. discriminate.
           + reflexivity.
@@ -524,6 +525,7 @@ Section Eval_LLBC_program.
           + apply decide_contains_loan. reflexivity.
           + intros ? ->%prefix_nil. reflexivity. }
           simpl_state.
+          constructor.
           apply Reorg_end_borrow_m with (l := 0) (p := (encode_var a, [])) (q := (encode_anon 5, [])).
           + left. discriminate.
           + reflexivity.
