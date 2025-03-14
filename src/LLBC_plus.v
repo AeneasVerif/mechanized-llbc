@@ -1,5 +1,6 @@
 Require Import base.
 Require Import lang.
+Require Import SimulationUtils.
 Require Import List.
 Import ListNotations.
 Require Import PeanoNat Lia.
@@ -190,3 +191,268 @@ Next Obligation.
 Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation. intros. unfold encode_anon. rewrite !decode_encode. reflexivity. Qed.
+
+Declare Scope llbc_plus_scope.
+Delimit Scope llbc_plus_scope with llbc.
+
+(* TODO: move? *)
+(* TODO: set every priority to 0? *)
+Reserved Notation "'loan^m' ( l )" (at level 0).
+Reserved Notation "'borrow^m' ( l , v )" (at level 0, l at next level, v at next level).
+Reserved Notation "'loc' ( l , v )" (at level 0, l at next level, v at next level). (* TODO: unused in LLBC_plus.v *)
+Reserved Notation "'ptr' ( l )" (at level 0). (* TODO: unused in LLBC_plus.v *)
+
+Reserved Notation "'botC'" (at level 0).
+Reserved Notation "'loanC^m'( l )" (at level 0).
+Reserved Notation "'borrow^m' ( l )" (at level 0, l at next level).
+Reserved Notation "'locC' ( l , )" (at level 0, l at next level). (* TODO: unused in LLBC_plus.v *)
+Reserved Notation "'ptrC' ( l )" (at level 0). (* TODO: unused in LLBC_plus.v *)
+
+(* Notation "'bot'" := LLBC_plus_bot: llbc_plus_scope. *)
+Notation "'loan^m' ( l )" := (LLBC_plus_mut_loan l) : llbc_plus_scope.
+Notation "'borrow^m' ( l  , v )" := (LLBC_plus_mut_borrow l v) : llbc_plus_scope.
+
+Notation "'botC'" := LLBC_plus_botC: llbc_plus_scope.
+Notation "'loanC^m' ( l )" := (LLBC_plus_mut_loanC l) : llbc_plus_scope.
+Notation "'borrowC^m' ( l )" := (LLBC_plus_mut_borrowC l) : llbc_plus_scope.
+
+(* Bind Scope llbc_plus_scope with LLBC_plus_val. *)
+Open Scope llbc_plus_scope.
+
+Inductive eval_proj (S : LLBC_plus_state) perm : proj -> spath -> spath -> Prop :=
+(* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
+| Eval_Deref_MutBorrow q l
+    (Hperm : perm <> Mov)
+    (get_q : get_node (S.[q]) = borrowC^m(l)) :
+    eval_proj S perm Deref q (q +++ [0])
+.
+
+(* TODO: eval_path represents a computation, that evaluates and accumulate the result over [...] *)
+Inductive eval_path (S : LLBC_plus_state) perm : path -> spath -> spath -> Prop :=
+(* Corresponds to R-Base and W-Base in the article. *)
+| Eval_nil pi : eval_path S perm [] pi pi
+| Eval_cons proj P p q r
+    (Heval_proj : eval_proj S perm proj p q) (Heval_path : eval_path S perm P q r) :
+    eval_path S perm (proj :: P) p r.
+
+Definition eval_place S perm (p : place) pi :=
+  let pi_0 := (encode_var (fst p), []) in
+  valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_var (fst p), []) pi.
+
+Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
+
+Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
+Proof.
+  induction H.
+  - apply valid_spath_app. split.
+    + apply get_not_bot_valid_spath. destruct (S.[q]); discriminate.
+    + destruct (S.[q]); inversion get_q. econstructor; reflexivity || constructor.
+Qed.
+
+Lemma eval_path_valid (s : LLBC_plus_state) P perm q r
+  (valid_q : valid_spath s q) (eval_q_r : eval_path s perm P q r) :
+  valid_spath s r.
+Proof.
+  induction eval_q_r.
+  - assumption.
+  - apply IHeval_q_r. eapply eval_proj_valid. eassumption.
+Qed.
+
+Lemma eval_place_valid s p perm pi (H : eval_place s perm p pi) : valid_spath s pi.
+Proof. destruct H as (? & ?). eapply eval_path_valid; eassumption. Qed.
+Hint Resolve eval_place_valid : spath.
+
+Variant is_loan : LLBC_plus_nodes -> Prop :=
+| IsLoan_MutLoan l : is_loan (loanC^m(l)).
+Hint Constructors is_loan : spath.
+Definition not_contains_loan := not_value_contains is_loan.
+Hint Unfold not_contains_loan : spath.
+Hint Extern 0 (~is_loan _) => intro; easy : spath.
+
+Variant is_borrow : LLBC_plus_nodes -> Prop :=
+| IsLoan_MutBorrow l : is_borrow (borrowC^m(l)).
+Hint Constructors is_borrow : spath.
+Definition not_contains_borrow := not_value_contains is_borrow.
+Hint Unfold not_contains_borrow : spath.
+Hint Extern 0 (~is_borrow _) => intro; easy : spath.
+
+Definition not_contains_bot v :=
+  (not_value_contains (fun c => c = botC) v).
+Hint Unfold not_contains_bot : spath.
+Hint Extern 0 (_ <> botC) => discriminate : spath.
+
+Definition not_contains_symbolic v :=
+  (not_value_contains (fun c => c = LLBC_plus_symbolicC) v).
+Hint Unfold not_contains_symbolic : spath.
+Hint Extern 0 (_ <> LLBC_plus_symbolicC) => discriminate : spath.
+
+Variant is_mut_borrow : LLBC_plus_nodes -> Prop :=
+| IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
+Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
+
+Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
+
+Inductive copy_val : LLBC_plus_val -> LLBC_plus_val -> Prop :=
+| Copy_val_int (n : nat) : copy_val (LLBC_plus_int n) (LLBC_plus_int n)
+(* Note: copies should only be allowed on copiable types. *)
+| Copy_val_symbolic (n : nat) : copy_val LLBC_plus_symbolic LLBC_plus_symbolic
+.
+
+Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
+
+Variant eval_operand : operand -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_state) -> Prop :=
+| Eval_IntConst S n : S |-{op} IntConst n => (LLBC_plus_int n, S)
+| Eval_copy S (p : place) pi v
+    (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
+    S |-{op} Copy p => (v, S)
+| Eval_move S (p : place) pi : eval_place S Mov p pi ->
+    not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
+    S |-{op} Move p => (S.[pi], S.[pi <- bot])
+where "S |-{op} op => r" := (eval_operand op S r).
+
+Definition get_loan_id c :=
+  match c with
+  | loanC^m(l) => Some l
+  | borrowC^m(l) => Some l
+  | _ => None
+  end.
+
+Notation is_fresh l S := (not_state_contains (fun c => get_loan_id c = Some l) S).
+Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
+
+Variant eval_rvalue : rvalue -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_state) -> Prop :=
+  | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
+  (* For the moment, the only operation is the natural sum. *)
+  | Eval_bin_op S S' S'' op_l op_r m n :
+      (S |-{op} op_l => (LLBC_plus_int m, S')) ->
+      (S' |-{op} op_r => (LLBC_plus_int n, S'')) ->
+      S |-{rv} (BinOp op_l op_r) => ((LLBC_plus_int (m + n)), S'')
+  | Eval_mut_borrow S p pi l : S |-{p} p =>^{Mut} pi ->
+      not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) -> is_fresh l S ->
+      S |-{rv} (&mut p) => (borrow^m(l, S.[pi]), S.[pi <- loan^m(l)])
+where "S |-{rv} rv => r" := (eval_rvalue rv S r).
+
+Definition not_in_borrow (S : LLBC_plus_state) p :=
+  forall q, prefix q p -> is_mut_borrow (get_node (S.[q])) -> q = p.
+
+Variant in_region : spath -> Prop :=
+  | InRegion i r q :
+      decode' (A := positive + positive * positive) i = Some (inr r) -> in_region (i, q).
+
+(* The property merge_maps A B C is true if the map C contains all of the pairs (key, element) of
+ * A, and all the elements of B with possibly different keys.
+
+ * Example: let's take A = {[1 := x; 2 := y|} and B = {[1 := z]}. Then merge A B C is true for any
+ * map C = {[ 1 := x; 2 := y; i := z]} for any i different from 1 or 2. *)
+Inductive merge_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
+  | MergeEmpty A : merge_maps A empty A
+  | MergeInsert A B C i j x :
+      ~elem_of i (dom A) -> ~elem_of j (dom B) ->
+      merge_maps (insert j x A) B C -> merge_maps A (insert i x B) C.
+
+Inductive reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
+| Reorg_end_borrow_m S (p q : spath) l :
+    disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
+    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q -> ~in_region q ->
+    reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
+    (* q refers to a path in region A, at index j. *)
+| Reorg_end_abstraction S i A anons' :
+    lookup i (regions S) = Some A ->
+    merge_maps (anons S) A anons' ->
+    (* no loan in A *)
+    reorg S {|vars := vars S; anons := anons'; regions := delete i (regions S)|}.
+
+(* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
+ * evaluated to a pair (v, S). *)
+Variant store (p : place) : LLBC_plus_val * LLBC_plus_state -> LLBC_plus_state -> Prop :=
+| Store v S (sp : spath) (a : anon)
+  (eval_p : (S,, a |-> v) |-{p} p =>^{Mut} sp)
+  (no_outer_loan : not_contains_outer_loan (S.[sp])) :
+  fresh_anon S a -> store p (v, S) (S.[sp <- v],, a |-> S.[sp])
+.
+
+(* When introducing non-terminating features (loops or recursivity), the signature of the relation
+   is going to be:
+   LLBC_plus_state -> statement -> nat -> Option (statement_result * LLBC_plus_state) -> Prop
+*)
+Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
+Inductive eval_stmt : statement -> statement_result -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
+  | Eval_nop S : S |-{stmt} Nop => rUnit, S
+  | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
+      (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
+  | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
+      S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
+  | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
+      S |-{stmt} ASSIGN p <- rv => rUnit, S''
+  | Eval_reorg S0 S1 S2 stmt r (Hreorg : refl_trans_closure reorg S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
+      S0 |-{stmt} stmt => r, S2
+where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
+
+(* A version of to-abs that is limited compared to the paper. Currently, we can only turn into an
+ * abstraction a value of the form:
+ * - borrow^m l σ (with σ a symbolic value)
+ * - borrow^m l0 (loan^m l1)
+ * Consequently, a single region is created.
+ *)
+Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
+| ToAbs_MutBorrow l :
+    to_abs (borrow^m(l, LLBC_plus_symbolic)) ({[1%positive := (borrow^m(l, LLBC_plus_symbolic))]})%stdpp
+| ToAbs_MutReborrow l0 l1:
+    to_abs (borrow^m(l0, loan^m(l1)))
+           ({[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]})%stdpp
+.
+Variant le_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
+| Le_ToSymbolic S sp
+    (no_loan : not_contains_loan (S.[sp]))
+    (no_borrow : not_contains_borrow (S.[sp]))
+    (no_bot : not_contains_bot (S.[sp])) :
+    le_state_base S (S.[sp <- LLBC_plus_symbolic])
+| Le_MoveValue S sp a
+    (no_outer_loan : not_contains_outer_loan (S.[sp]))
+    (fresh_a : fresh_anon S a)
+    (not_in_region : ~in_region sp) :
+    le_state_base S (S.[sp <- bot],, a |-> S.[sp])
+| Le_Fresh_MutLoan S sp l a
+    (fresh_l1 : is_fresh l S)
+    (fresh_a : fresh_anon S a) :
+    le_state_base S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
+| Le_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
+    (fresh_l1 : is_fresh l1 S)
+    (fresh_a : fresh_anon S a) :
+    get_node (S.[sp]) = borrowC^m(l0) ->
+    le_state_base S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1)))
+(* Note: this rule makes the size of the state increase from right to left.
+   We should add a decreasing quantity. *)
+| Le_Abs_Clear_Value S i A j v :
+    lookup i (regions S) = Some A -> lookup j A = Some v ->
+    not_contains_loan v -> not_contains_borrow v ->
+    le_state_base S
+    {|vars := vars S; anons := anons S; regions := insert i (delete j A) (regions S)|} 
+| Le_AnonValue S v a
+    (no_loan : not_contains_loan v)
+    (no_borrow : not_contains_borrow v)
+    (no_symbolic : not_contains_symbolic v)
+    (is_fresh : fresh_anon S a) :
+    le_state_base S (S,, a |-> v)
+.
+
+Record LLBC_plus_well_formed (S : LLBC_plus_state) : Prop := {
+  at_most_one_borrow_mut l : at_most_one_node (borrowC^m(l)) S;
+  at_most_one_loan_mut l : at_most_one_node (loanC^m(l)) S;
+}.
+
+Record LLBC_plus_well_formed_alt (S : LLBC_plus_state) l : Prop := {
+  at_most_one_borrow_mut_alt : sweight (indicator borrowC^m(l)) S <= 1;
+  no_mut_loan_loc_alt : sweight (indicator loanC^m(l)) S <= 1;
+}.
+
+Lemma well_formedness_equiv S : LLBC_plus_well_formed S <-> forall l, LLBC_plus_well_formed_alt S l.
+Proof.
+  split.
+  - intros WF l. destruct WF. split.
+    + rewrite<- decide_at_most_one_node; easy.
+    + rewrite<- decide_at_most_one_node; easy.
+  - intros WF. split; intros l; destruct (WF l).
+    + apply decide_at_most_one_node; [discriminate | ]. assumption.
+    + apply decide_at_most_one_node; [discriminate | ]. assumption.
+Qed.
