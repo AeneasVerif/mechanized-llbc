@@ -1896,3 +1896,33 @@ Hint Rewrite<- @sget_app : weight.
 Hint Rewrite @indicator_same : weight.
 Hint Rewrite @indicator_diff using congruence : weight.
 Hint Rewrite @indicator_eq using auto; fail : weight.
+
+(* Rewriting weight_arity_0 and weight_arity_1 using goals of the form "get_node S.[p] = c".
+   I couldn't do it with autorewrite, so I'm using this strang tactic instead. *)
+Ltac weight_given_node :=
+  lazymatch goal with
+  | H : get_node (?S.[?p]) = _ |- context [vweight _ (?S.[?p])] =>
+    let G := fresh in
+    pose proof (G := H);
+    apply (f_equal arity) in G;
+    (eapply weight_arity_0 in G || eapply weight_arity_1 in G);
+    rewrite G, H;
+    clear G
+  | H : get_node (?S.[?p]) = _, K : context [vweight _ (?S.[?p])] |- _ =>
+    let G := fresh in
+    pose proof (G := H);
+    apply (f_equal arity) in G;
+    (eapply weight_arity_0 in G || eapply weight_arity_1 in G);
+    rewrite G, H in K;
+    clear G
+  end.
+
+Ltac weight_inequality :=
+  (* Translate the inequality into relatives, and repeatedly rewrite sweight_sset. *)
+  autorewrite with weight in *;
+  (* Use the hypotheses "get_node S.[p] = c" to further rewrite the formula. *)
+  repeat weight_given_node;
+  (* Final rewriting. *)
+  autorewrite with weight in *;
+  lia
+.

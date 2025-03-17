@@ -574,20 +574,6 @@ Proof.
       autorewrite with weight in valid_q. lia.
 Qed.
 
-(* TODO: move *)
-(* Rewriting weight_arity_0 and weight_arity_1 using goals of the form "get_node S.[p] = c".
-   I couldn't do it with autorewrite, so I'm using this strang tactic instead. *)
-Ltac weight_given_node :=
-  lazymatch goal with
-  | H : get_node (?S.[?p]) = _ |- context [vweight _ (?S.[?p])] =>
-    let G := fresh in
-    pose proof (G := H);
-    apply (f_equal arity) in G;
-    (eapply weight_arity_0 in G || eapply weight_arity_1 in G);
-    rewrite G, H;
-    clear G
-  end.
-
 Lemma vweight_loc weight l v :
   vweight weight (loc(l, v)) = weight (locC(l)) + vweight weight v.
 Proof. reflexivity. Qed.
@@ -605,16 +591,6 @@ Hint Rewrite vweight_int : weight.
 Lemma vweight_bot weight : vweight weight bot = weight (botC).
 Proof. reflexivity. Qed.
 Hint Rewrite vweight_bot : weight.
-
-Ltac weight_inequality :=
-  (* Translate the inequality into relatives, and repeatedly rewrite sweight_sset. *)
-  autorewrite with weight;
-  (* Use the hypotheses "get_node S.[p] = c" to further rewrite the formula. *)
-  repeat weight_given_node;
-  (* Final rewriting. *)
-  autorewrite with weight;
-  lia
-.
 
 Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_state :=
 { le_base := le_state_base;

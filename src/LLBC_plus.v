@@ -281,6 +281,13 @@ Definition not_contains_bot v :=
 Hint Unfold not_contains_bot : spath.
 Hint Extern 0 (_ <> botC) => discriminate : spath.
 
+Lemma not_contains_bot_valid S sp : not_contains_bot (S.[sp]) -> valid_spath S sp.
+Proof.
+  intros H. specialize (H []). cbn in H. apply get_not_bot_valid_spath.
+  intros G. apply H. constructor. rewrite G. reflexivity.
+Qed.
+Hint Resolve not_contains_bot_valid : spath.
+
 Definition not_contains_symbolic v :=
   (not_value_contains (fun c => c = LLBC_plus_symbolicC) v).
 Hint Unfold not_contains_symbolic : spath.
@@ -401,6 +408,7 @@ Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
     to_abs (borrow^m(l0, loan^m(l1)))
            ({[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]})%stdpp
 .
+
 Variant le_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Le_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
@@ -410,11 +418,15 @@ Variant le_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Le_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
+    (valid_sp : valid_spath S sp)
     (not_in_region : ~in_region sp) :
     le_state_base S (S.[sp <- bot],, a |-> S.[sp])
 | Le_Fresh_MutLoan S sp l a
     (fresh_l1 : is_fresh l S)
-    (fresh_a : fresh_anon S a) :
+    (fresh_a : fresh_anon S a)
+    (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
+       I am going a step further: there should not be bottoms in borrowed values. *)
+    (no_bot : not_contains_bot (S.[sp])) :
     le_state_base S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
 | Le_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
     (fresh_l1 : is_fresh l1 S)
@@ -456,3 +468,42 @@ Proof.
     + apply decide_at_most_one_node; [discriminate | ]. assumption.
     + apply decide_at_most_one_node; [discriminate | ]. assumption.
 Qed.
+
+Lemma vweight_bot weight : vweight weight bot = weight botC.
+Proof. reflexivity. Qed.
+Hint Rewrite vweight_bot : weight.
+
+Lemma vweight_symbolic weight : vweight weight (LLBC_plus_symbolic) = weight (LLBC_plus_symbolicC).
+Proof. reflexivity. Qed.
+Hint Rewrite vweight_symbolic : weight.
+
+Lemma vweight_mut_loan weight l : vweight weight loan^m(l) = weight loanC^m(l).
+Proof. reflexivity. Qed.
+Hint Rewrite vweight_mut_loan : weight.
+
+Lemma vweight_mut_borrow weight l v :
+  vweight weight borrow^m(l, v) = weight borrowC^m(l) + vweight weight v.
+Proof. reflexivity. Qed.
+Hint Rewrite vweight_mut_borrow : weight.
+
+Global Program Instance HLPL_plus_state_le_base : LeBase LLBC_plus_state :=
+{ le_base := le_state_base;
+  well_formed := LLBC_plus_well_formed;
+}.
+Next Obligation.
+  intros ? ?. rewrite !well_formedness_equiv.
+  intros H G l'. specialize (H l'). destruct H. destruct G.
+  - apply not_value_contains_weight
+      with (weight := indicator (loanC^m(l'))) in no_loan;
+      [ | intros ? <-%indicator_non_zero; constructor].
+    apply not_value_contains_weight
+      with (weight := indicator (borrowC^m(l'))) in no_borrow;
+      [ | intros ? <-%indicator_non_zero; constructor].
+    split; weight_inequality.
+  - split; weight_inequality.
+  - split; weight_inequality.
+  - split; weight_inequality.
+  (* TODO: Compute the weight when removing a value. *)
+  - admit.
+  - split; weight_inequality.
+Admitted.
