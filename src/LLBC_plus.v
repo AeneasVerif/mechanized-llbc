@@ -409,43 +409,43 @@ Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
            ({[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]})%stdpp
 .
 
-Variant le_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
+Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Le_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
     (no_borrow : not_contains_borrow (S.[sp]))
     (no_bot : not_contains_bot (S.[sp])) :
-    le_state_base S (S.[sp <- LLBC_plus_symbolic])
+    leq_state_base S (S.[sp <- LLBC_plus_symbolic])
 | Le_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
     (valid_sp : valid_spath S sp)
     (not_in_region : ~in_region sp) :
-    le_state_base S (S.[sp <- bot],, a |-> S.[sp])
+    leq_state_base S (S.[sp <- bot],, a |-> S.[sp])
 | Le_Fresh_MutLoan S sp l a
     (fresh_l1 : is_fresh l S)
     (fresh_a : fresh_anon S a)
     (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
        I am going a step further: there should not be bottoms in borrowed values. *)
     (no_bot : not_contains_bot (S.[sp])) :
-    le_state_base S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
+    leq_state_base S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
 | Le_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
     (fresh_l1 : is_fresh l1 S)
     (fresh_a : fresh_anon S a) :
     get_node (S.[sp]) = borrowC^m(l0) ->
-    le_state_base S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1)))
+    leq_state_base S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1)))
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
 | Le_Abs_Clear_Value S i A j v :
     lookup i (regions S) = Some A -> lookup j A = Some v ->
     not_contains_loan v -> not_contains_borrow v ->
-    le_state_base S
+    leq_state_base S
     {|vars := vars S; anons := anons S; regions := insert i (delete j A) (regions S)|} 
 | Le_AnonValue S v a
     (no_loan : not_contains_loan v)
     (no_borrow : not_contains_borrow v)
     (no_symbolic : not_contains_symbolic v)
     (is_fresh : fresh_anon S a) :
-    le_state_base S (S,, a |-> v)
+    leq_state_base S (S,, a |-> v)
 .
 
 Record LLBC_plus_well_formed (S : LLBC_plus_state) : Prop := {
@@ -486,8 +486,8 @@ Lemma vweight_mut_borrow weight l v :
 Proof. reflexivity. Qed.
 Hint Rewrite vweight_mut_borrow : weight.
 
-Global Program Instance HLPL_plus_state_le_base : LeBase LLBC_plus_state :=
-{ le_base := le_state_base;
+Global Program Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
+{ leq_base := leq_state_base;
   well_formed := LLBC_plus_well_formed;
 }.
 Next Obligation.

@@ -510,11 +510,11 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
-Inductive le_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
+Inductive leq_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
     (HS_loan : get_node (S.[sp_loan]) = loanC^m(l))
     (HS_borrow : get_node (S.[sp_borrow]) = borrowC^m(l)) :
-    le_state_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
+    leq_state_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
 
 Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
   at_most_one_borrow_mut l : at_most_one_node (borrowC^m(l)) S;
@@ -592,8 +592,8 @@ Lemma vweight_bot weight : vweight weight bot = weight (botC).
 Proof. reflexivity. Qed.
 Hint Rewrite vweight_bot : weight.
 
-Global Program Instance HLPL_plus_state_le_base : LeBase HLPL_plus_state :=
-{ le_base := le_state_base;
+Global Program Instance HLPL_plus_state_leq_base : LeqBase HLPL_plus_state :=
+{ leq_base := leq_state_base;
   well_formed := HLPL_plus_well_formed;
 }.
 Next Obligation.
@@ -793,7 +793,7 @@ Proof.
   (* op = const n *)
   - destruct Hle.
     + eapply complete_square_diagram.
-      * le_val_state_step.
+      * leq_val_state_step.
         { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
           assumption. all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
@@ -810,7 +810,7 @@ Proof.
       destruct (decidable_prefix pi sp_borrow) as [(q & <-) | ].
       (* Case 1: the mutable borrow we're transforming to a pointer is in the moved value. *)
       * eapply complete_square_diagram.
-        --  le_val_state_step.
+        --  leq_val_state_step.
            { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                             (sp_borrow := (anon_accessor a, q)).
              eauto with spath.
@@ -826,7 +826,7 @@ Proof.
        *)
       * assert (disj pi sp_borrow) by reduce_comp.
         eapply complete_square_diagram.
-        -- le_val_state_step.
+        -- leq_val_state_step.
            { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
@@ -905,7 +905,7 @@ Proof.
          * the mutable borrow. *)
         { congruence. }
         eapply complete_square_diagram.
-        -- le_val_state_step.
+        -- leq_val_state_step.
            { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
@@ -914,7 +914,7 @@ Proof.
         -- reflexivity.
       (* Case 2: the place p is not under the borrow. *)
       * eapply complete_square_diagram.
-        -- le_val_state_step.
+        -- leq_val_state_step.
            { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
@@ -928,7 +928,7 @@ Proof.
       destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
       (* Case 1: the place p is under sp_borrow. *)
       * eapply complete_square_diagram.
-        -- le_val_state_step.
+        -- leq_val_state_step.
             { apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
             { autorewrite with spath. reflexivity. }
             reflexivity.
@@ -939,7 +939,7 @@ Proof.
       * assert (disj sp_loan pi) by reduce_comp.
         destruct (decidable_prefix pi sp_borrow) as [(r & <-) | ].
         -- eapply complete_square_diagram.
-           ++ le_val_state_step.
+           ++ leq_val_state_step.
               { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := pi +++ [0] ++ r).
                 auto with spath. all: autorewrite with spath; eassumption. }
               { autorewrite with spath. reflexivity. }
@@ -949,7 +949,7 @@ Proof.
            ++ states_eq.
         -- assert (disj sp_borrow pi) by reduce_comp.
            eapply complete_square_diagram.
-           ++ le_val_state_step.
+           ++ leq_val_state_step.
               { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                 assumption. all: autorewrite with spath; eassumption. }
               { autorewrite with spath. reflexivity. }
@@ -1058,12 +1058,12 @@ Qed.
    Let us take (v1, S1), ..., (v_{n-1}, S_{n-1}) the intermediate pairs such that
    (v0, S0) <= (v1, S1) <= ... <= (vn, Sn).
    Then, we are going to prove that for each (vi, Si), the value vi does not contain any loan. *)
-Definition le_val_state_base' (vSl vSr : HLPL_plus_val * HLPL_plus_state) : Prop :=
-  le_val_state_base vSl vSr /\ not_contains_loan (fst vSr) /\ not_contains_loc (fst vSr).
-Notation le_val_state' := (refl_trans_closure le_val_state_base').
+Definition leq_val_state_base' (vSl vSr : HLPL_plus_val * HLPL_plus_state) : Prop :=
+  leq_val_state_base vSl vSr /\ not_contains_loan (fst vSr) /\ not_contains_loc (fst vSr).
+Notation leq_val_state' := (refl_trans_closure leq_val_state_base').
 
-Lemma le_base_does_not_insert_loan_loc vSl vSr :
-  le_val_state_base' vSl vSr -> not_contains_loan (fst vSl) /\ not_contains_loc (fst vSl).
+Lemma leq_base_does_not_insert_loan_loc vSl vSr :
+  leq_val_state_base' vSl vSr -> not_contains_loan (fst vSl) /\ not_contains_loc (fst vSl).
 Proof.
   intros (Hle & Hno_loan & Hno_loc).
   edestruct exists_fresh_anon2 as (a & fresh_a_l & fresh_a_r).
@@ -1091,23 +1091,23 @@ Proof.
       destruct EQN as (_ & <-). auto with spath.
 Qed.
 
-Lemma le_val_state_no_loan_right (vSl vSr : HLPL_plus_val * HLPL_plus_state) :
-  le vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
-  -> le_val_state' vSl vSr.
+Lemma leq_val_state_no_loan_right (vSl vSr : HLPL_plus_val * HLPL_plus_state) :
+  leq vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
+  -> leq_val_state' vSl vSr.
 Proof.
   intros Hle Hno_loan Hno_loc.
   apply proj1 with (B := (not_contains_loan (fst vSl)) /\ (not_contains_loc (fst vSl))).
   induction Hle as [vSl vSr | | x y z].
-  - assert (le_val_state_base' vSl vSr) by (constructor; auto).
+  - assert (leq_val_state_base' vSl vSr) by (constructor; auto).
     split.
     + constructor. assumption.
-    + eapply le_base_does_not_insert_loan_loc. eassumption.
+    + eapply leq_base_does_not_insert_loan_loc. eassumption.
   - split; [reflexivity | auto].
   - split; [transitivity y | ]; tauto.
 Qed.
 
-Lemma fresh_anon_le_state_base_left Sl Sr a (fresh_a : fresh_anon Sr a) :
-  le_base Sl Sr -> fresh_anon Sl a.
+Lemma fresh_anon_leq_state_base_left Sl Sr a (fresh_a : fresh_anon Sr a) :
+  leq_base Sl Sr -> fresh_anon Sl a.
 Proof.
   intros Hle. inversion Hle.
   - auto using fresh_anon_sset.
@@ -1123,33 +1123,33 @@ Proof.
   - intros (? & ?). rewrite lookup_insert_ne; assumption.
 Qed.
 
-Lemma le_val_state_base_specialize_anon a vl Sl vr Sr :
-  fresh_anon Sr a -> le_val_state_base (vl, Sl) (vr, Sr) ->
-  le_base (Sl,, a |-> vl) (Sr,, a |-> vr).
+Lemma leq_val_state_base_specialize_anon a vl Sl vr Sr :
+  fresh_anon Sr a -> leq_val_state_base (vl, Sl) (vr, Sr) ->
+  leq_base (Sl,, a |-> vl) (Sr,, a |-> vr).
 Proof.
   intros fresh_a H. apply H; [ | exact fresh_a].
   destruct (exists_fresh_anon2 Sl (Sr,, a |-> vr))
     as (b & fresh_b_l & (fresh_b_r & ?)%fresh_anon_add_anon).
   specialize (H b fresh_b_l fresh_b_r).
-  apply fresh_anon_le_state_base_left with (a := a) in H;
+  apply fresh_anon_leq_state_base_left with (a := a) in H;
     [ | rewrite fresh_anon_add_anon; auto].
   rewrite fresh_anon_add_anon in H. destruct H. assumption.
 Qed.
 
-Lemma fresh_anon_le_val_state_base_left vl Sl vr Sr a (fresh_a : fresh_anon Sr a) :
-  le_val_state_base (vl, Sl) (vr, Sr) -> fresh_anon Sl a.
+Lemma fresh_anon_leq_val_state_base_left vl Sl vr Sr a (fresh_a : fresh_anon Sr a) :
+  leq_val_state_base (vl, Sl) (vr, Sr) -> fresh_anon Sl a.
 Proof.
   intros H.
   destruct (exists_fresh_anon2 Sl (Sr,, a |-> vr))
     as (b & fresh_b_l & (fresh_b_r & ?)%fresh_anon_add_anon).
   specialize (H b fresh_b_l fresh_b_r).
-  eapply fresh_anon_le_state_base_left in H.
+  eapply fresh_anon_leq_state_base_left in H.
   - rewrite fresh_anon_add_anon in H. destruct H. eassumption.
   - rewrite fresh_anon_add_anon. auto.
 Qed.
 
 Lemma store_preserves_HLPL_plus_rel p :
-  forward_simulation le_val_state' le (store p) (store p).
+  forward_simulation leq_val_state' leq (store p) (store p).
 Proof.
   apply preservation_by_base_case.
   intros vSr Sr' Hstore vSl Hle.
@@ -1157,8 +1157,8 @@ Proof.
   destruct Hle as (Hle & no_loan & no_loc). cbn in * |-. inversion Hstore. subst. clear Hstore.
   assert (valid_spath Sr sp).
   { apply eval_path_add_anon in eval_p; [validity | assumption..]. }
-  assert (fresh_anon Sl a) by eauto using fresh_anon_le_val_state_base_left.
-  apply (le_val_state_base_specialize_anon a) in Hle; [ | assumption].
+  assert (fresh_anon Sl a) by eauto using fresh_anon_leq_val_state_base_left.
+  apply (leq_val_state_base_specialize_anon a) in Hle; [ | assumption].
   remember (Sl,, a |-> vl) eqn:HeqvSl. remember (Sr,, a |-> vr).
   destruct Hle; subst.
   - eval_place_preservation. clear valid_p.
@@ -1507,16 +1507,16 @@ Proof.
     exists Sl'. split; [assumption | ].
     apply Eval_seq_panic. assumption.
   - pose proof (_eval_rv := eval_rv). apply rvalue_preserves_HLPL_plus_rel in _eval_rv.
-    destruct (_eval_rv _ Hle) as (vSl' & le_vSl_vS' & eval_Sl).
+    destruct (_eval_rv _ Hle) as (vSl' & leq_vSl_vS' & eval_Sl).
     apply store_preserves_HLPL_plus_rel in Hstore.
-    apply le_val_state_no_loan_right in le_vSl_vS';
+    apply leq_val_state_no_loan_right in leq_vSl_vS';
       [ | eapply eval_rvalue_no_loan_loc; exact eval_rv..].
-    destruct (Hstore _ le_vSl_vS') as (Sl'' & le_Sl'' & store_vSl').
+    destruct (Hstore _ leq_vSl_vS') as (Sl'' & leq_Sl'' & store_vSl').
     exists Sl''. split; [assumption | ]. econstructor; eassumption.
   - assert (well_formed S1) by eauto using reorgs_preserve_well_formedness.
     apply reorg_preserves_HLPL_plus_rel in Hreorg; [ | assumption].
-    destruct (Hreorg _ Hle) as (Sl1 & le_Sl1 & reorg_Sl1).
-    edestruct IHHeval as (Sl2 & le_Sl2 & eval_in_Sl2); [ assumption | eassumption | ].
+    destruct (Hreorg _ Hle) as (Sl1 & leq_Sl1 & reorg_Sl1).
+    edestruct IHHeval as (Sl2 & leq_Sl2 & eval_in_Sl2); [ assumption | eassumption | ].
     exists Sl2. split; [assumption | ].
     apply Eval_reorg with (S1 := Sl1); assumption.
 Qed.
