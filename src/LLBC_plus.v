@@ -490,20 +490,35 @@ Global Program Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base;
   well_formed := LLBC_plus_well_formed;
 }.
-Next Obligation.
-  intros ? ?. rewrite !well_formedness_equiv.
+
+Lemma leq_base_preserves_wf_l Sl Sr : well_formed Sl -> leq_base Sl Sr -> well_formed Sr.
+Proof.
+  rewrite !well_formedness_equiv.
   intros H G l'. specialize (H l'). destruct H. destruct G.
-  - apply not_value_contains_weight
-      with (weight := indicator (loanC^m(l'))) in no_loan;
-      [ | intros ? <-%indicator_non_zero; constructor].
-    apply not_value_contains_weight
-      with (weight := indicator (borrowC^m(l'))) in no_borrow;
-      [ | intros ? <-%indicator_non_zero; constructor].
-    split; weight_inequality.
   - split; weight_inequality.
   - split; weight_inequality.
-  - split; weight_inequality.
+  - assert (sweight (indicator (borrowC^m(l))) S = 0).
+    { eapply not_state_contains_implies_weight_zero; [ | eassumption].
+      intros ? <-%indicator_non_zero. constructor. }
+    assert (sweight (indicator (loanC^m(l))) S = 0).
+    { eapply not_state_contains_implies_weight_zero; [ | eassumption].
+      intros ? <-%indicator_non_zero. constructor. }
+    destruct (decide (l = l')) as [<- | ]; split; weight_inequality.
+    (* Note: the fact l0 <> l1 may be useful at other places. *)
+  - assert (l0 <> l1). { intros <-. eapply fresh_l1; [ | rewrite H]; [validity | constructor]. }
+    assert (sweight (indicator (borrowC^m(l1))) S = 0).
+    { eapply not_state_contains_implies_weight_zero; [ | eassumption].
+      intros ? <-%indicator_non_zero. constructor. }
+    assert (sweight (indicator (loanC^m(l1))) S = 0).
+    { eapply not_state_contains_implies_weight_zero; [ | eassumption].
+      intros ? <-%indicator_non_zero. constructor. }
+    destruct (decide (l1 = l')) as [<- | ]; [split; weight_inequality | ].
+    destruct (decide (l0 = l')) as [<- | ]; split; weight_inequality.
   (* TODO: Compute the weight when removing a value. *)
   - admit.
-  - split; weight_inequality.
+  - apply not_value_contains_weight with (weight := indicator (loanC^m(l'))) in no_loan;
+      [ | intros ? <-%indicator_non_zero; constructor].
+    apply not_value_contains_weight with (weight := indicator (borrowC^m(l'))) in no_borrow;
+      [ | intros ? <-%indicator_non_zero; constructor].
+    split; weight_inequality.
 Admitted.

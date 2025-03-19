@@ -596,8 +596,10 @@ Global Program Instance HLPL_plus_state_leq_base : LeqBase HLPL_plus_state :=
 { leq_base := leq_state_base;
   well_formed := HLPL_plus_well_formed;
 }.
-Next Obligation.
-  intros ? ?. rewrite !well_formedness_equiv.
+
+Lemma leq_base_preserves_wf_r Sl Sr : well_formed Sr -> leq_base Sl Sr -> well_formed Sl.
+Proof.
+  rewrite !well_formedness_equiv.
   intros H G l0. specialize (H l0). destruct H. destruct G.
   - destruct (Nat.eq_dec l0 l) as [<- | ]; split; weight_inequality.
 Qed.
@@ -1314,11 +1316,12 @@ Hint Rewrite measure_ptr : weight.
 Lemma measure_bot : vweight measure_node bot = 0. Proof. reflexivity. Qed.
 Hint Rewrite measure_bot : weight.
 
-Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation (refl_trans_closure reorg).
+Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation_r (refl_trans_closure reorg).
 Proof.
-  eapply preservation_reorg with (measure := sweight measure_node).
+  eapply preservation_reorg_r with (measure := sweight measure_node).
   { intros Sl Sr Hle. destruct Hle; weight_inequality. }
   { intros ? ? Hreorg. destruct Hreorg; weight_inequality. }
+  { apply leq_base_preserves_wf_r. }
   { apply reorg_preserves_well_formedness. }
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
   (* Case Reorg_end_borrow_m: *)
@@ -1493,7 +1496,7 @@ Proof.
   - intros. apply IHeval_s. eauto using reorgs_preserve_well_formedness.
 Qed.
 
-Lemma stmt_preserves_HLPL_plus_rel s r : well_formed_preservation (eval_stmt s r).
+Lemma stmt_preserves_HLPL_plus_rel s r : well_formed_preservation_r (eval_stmt s r).
 Proof.
   intros Sr Sr' WF_Sr Heval Sl Hle. revert Sl Hle. induction Heval; intros Sl Hle.
   - eexists. split; [eassumption | constructor].
