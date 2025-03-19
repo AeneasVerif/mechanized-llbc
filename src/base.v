@@ -290,7 +290,31 @@ Section Map_sum.
       + reflexivity.
       + assert (weight y > 0) by lia. exfalso. eauto.
   Qed.
+
+  Lemma map_sum_empty : map_sum empty = 0.
+  Proof. apply map_fold_empty. Qed.
+
+  Lemma map_sum_union m0 m1 : map_disjoint m0 m1 -> map_sum (union m0 m1) = map_sum m0 + map_sum m1.
+  Proof.
+    intros disj. induction m1 as [ | k x m1 ? _ IHm] using map_first_key_ind.
+    - rewrite map_union_empty, !map_sum_empty. lia.
+    - rewrite map_disjoint_insert_r in disj. destruct disj as (? & disj).
+      specialize (IHm disj).
+      rewrite<- insert_union_r by assumption.
+      rewrite !map_sum_insert by now rewrite ?lookup_union_None_2.
+      lia.
+  Qed.
 End Map_sum.
+
+Lemma map_sum_kmap {M0 M1 K0 K1 A} `{FinMap K0 M0} `{FinMap K1 M1} (f : K0 -> K1) (m : M0 A) weight :
+  Inj eq eq f -> map_sum (M := M1) weight (kmap f m) = map_sum weight m.
+Proof.
+  intros ?. induction m as [ | k x m ? _ IHm] using map_first_key_ind.
+  - rewrite kmap_empty, !map_sum_empty. reflexivity.
+  - rewrite kmap_insert by assumption.
+    rewrite !map_sum_insert by (rewrite ?lookup_kmap by assumption; assumption).
+    congruence.
+Qed.
 
 Definition decode' {A} `{Countable A} (x : positive) :=
   match decode x with
@@ -416,6 +440,13 @@ Section SumMaps.
     - rewrite lookup_kmap_None by typeclasses eauto.
       intros ? ->. unfold encode_inr in G. rewrite decode'_encode in G. discriminate.
   Qed.
+
+  Lemma sum_maps_union m0 m1 m2 :
+    sum_maps m0 (union m1 m2) = union (sum_maps m0 m1) (kmap encode_inr m2).
+  Proof.
+    unfold sum_maps. rewrite kmap_union by typeclasses eauto.
+    apply map_union_assoc.
+  Qed.
 End SumMaps.
 
 (* Collapse the 2-dimensional map of regions into a 1-dimensional map. *)
@@ -457,6 +488,15 @@ Section Flatten.
     rewrite lookup_kmap by typeclasses eauto. rewrite lookup_None_flatten.
     - apply option_union_right_id.
     - apply lookup_delete.
+  Qed.
+
+  Lemma flatten_insert' Ms i m (G : lookup i Ms = None) :
+    flatten (insert i m Ms) = union (flatten Ms) (kmap (fun j => (i, j)) m).
+  Proof.
+    rewrite flatten_insert by assumption. apply map_union_comm.
+    apply map_disjoint_spec.
+    intros ? ? ? (? & ? & _)%lookup_kmap_Some. subst. rewrite lookup_None_flatten; congruence.
+    all: typeclasses eauto.
   Qed.
 
   Lemma alter_flatten f i j Ms :

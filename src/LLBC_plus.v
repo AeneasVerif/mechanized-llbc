@@ -409,6 +409,37 @@ Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
            ({[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]})%stdpp
 .
 
+Inductive merge_abstractions :
+  Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
+  | MergeAbsEmpty A : merge_abstractions A empty A
+  | MergeAbsInsert A B C i j x :
+      lookup i A = None -> lookup j B = None ->
+      merge_abstractions (insert i x A) B C -> merge_abstractions A (insert j x B) C
+  | MergeAbs_Mut A B C i j l (H : merge_abstractions A B C) :
+      lookup i A = None -> lookup j B = None ->
+      merge_abstractions (insert i (loan^m(l)) A) (insert j (borrow^m(l, LLBC_plus_symbolic)) B) C
+.
+
+Notation "S ,,, i |-> A" :=
+    {|vars := vars S; anons := anons S; regions := insert i A (regions S)|}
+  (at level 50, left associativity).
+
+Notation fresh_abstraction S i := (lookup i (regions S) = None).
+
+Lemma sweight_add_abstraction S weight i A :
+  fresh_abstraction S i ->
+  sweight weight (S,,, i |-> A) = sweight weight S + map_sum (vweight weight) A.
+Proof.
+  intros ?. unfold sweight, get_map. cbn. rewrite flatten_insert' by assumption.
+  rewrite sum_maps_union. rewrite map_sum_union. rewrite !map_sum_kmap by typeclasses eauto.
+  reflexivity.
+  apply map_disjoint_spec. intros j ? ? lookup_l.
+  intros ((? & ?) & ? & (? & (? & ?)%pair_eq & ?)%lookup_kmap_Some)%lookup_kmap_Some.
+  subst. rewrite sum_maps_lookup_r, lookup_None_flatten in lookup_l by assumption.
+  discriminate. all: typeclasses eauto.
+Qed.
+Hint Rewrite sweight_add_abstraction using cbn; simpl_map; assumption : weight.
+
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Le_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
@@ -421,6 +452,9 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (valid_sp : valid_spath S sp)
     (not_in_region : ~in_region sp) :
     leq_state_base S (S.[sp <- bot],, a |-> S.[sp])
+| Le_MergeAbs S i j A B C (Hmerge : merge_abstractions A B C) :
+    fresh_abstraction S i -> fresh_abstraction S j -> i <> j ->
+    leq_state_base (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
 | Le_Fresh_MutLoan S sp l a
     (fresh_l1 : is_fresh l S)
     (fresh_a : fresh_anon S a)
@@ -486,6 +520,17 @@ Lemma vweight_mut_borrow weight l v :
 Proof. reflexivity. Qed.
 Hint Rewrite vweight_mut_borrow : weight.
 
+(* We cannot automatically rewrite map_sum_empty. Is it because of typeclasses?
+ * Thus, we crate an alternative. *)
+Lemma region_sum_empty (weight : LLBC_plus_val -> nat) : map_sum weight (M := Pmap) empty = 0.
+Proof. apply map_sum_empty. Qed.
+Hint Rewrite region_sum_empty : weight.
+
+Lemma region_sum_insert weight i v (A : Pmap LLBC_plus_val) :
+  lookup i A = None -> map_sum weight (insert i v A) = weight v + map_sum weight A.
+Proof. apply map_sum_insert. Qed.
+Hint Rewrite region_sum_insert using assumption : weight.
+
 Global Program Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base;
   well_formed := LLBC_plus_well_formed;
@@ -497,6 +542,10 @@ Proof.
   intros H G l'. specialize (H l'). destruct H. destruct G.
   - split; weight_inequality.
   - split; weight_inequality.
+  - induction Hmerge.
+    + split; weight_inequality.
+    + apply IHHmerge; weight_inequality.
+    + apply IHHmerge; weight_inequality.
   - assert (sweight (indicator (borrowC^m(l))) S = 0).
     { eapply not_state_contains_implies_weight_zero; [ | eassumption].
       intros ? <-%indicator_non_zero. constructor. }
