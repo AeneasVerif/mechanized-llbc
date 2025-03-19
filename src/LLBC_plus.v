@@ -440,12 +440,35 @@ Proof.
 Qed.
 Hint Rewrite sweight_add_abstraction using cbn; simpl_map; assumption : weight.
 
+Definition remove_anon a S :=
+  {| vars := vars S; anons := delete a (anons S); regions := regions S|}.
+
+Lemma add_anon_remove_anon S a v :
+  lookup (anon_accessor a) (get_map S) = Some v -> (remove_anon a S),, a |-> v = S.
+Proof.
+  intros ?. destruct S. unfold add_anon, remove_anon. cbn. f_equal.
+  apply insert_delete. revert H.
+  cbn. unfold encode_anon. rewrite sum_maps_lookup_l, sum_maps_lookup_r. auto.
+Qed.
+
+Lemma remove_anon_fresh S a : fresh_anon (remove_anon a S) a.
+Proof.
+  unfold fresh_anon, remove_anon, get_map. cbn. unfold encode_anon.
+  rewrite sum_maps_lookup_l, sum_maps_lookup_r. apply lookup_delete.
+Qed.
+Hint Rewrite @sweight_add_anon using auto using fresh_anon_sset, remove_anon_fresh : weight.
+
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Le_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
     (no_borrow : not_contains_borrow (S.[sp]))
     (no_bot : not_contains_bot (S.[sp])) :
     leq_state_base S (S.[sp <- LLBC_plus_symbolic])
+| Le_ToAbs S a v i A
+    (get_a : get_at_accessor S (anon_accessor a) = Some v)
+    (fresh_i : fresh_abstraction S i)
+    (H : to_abs v A) :
+    leq_state_base S ((remove_anon a S),,, i |-> A)
 | Le_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
@@ -473,7 +496,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     lookup i (regions S) = Some A -> lookup j A = Some v ->
     not_contains_loan v -> not_contains_borrow v ->
     leq_state_base S
-    {|vars := vars S; anons := anons S; regions := insert i (delete j A) (regions S)|} 
+    {|vars := vars S; anons := anons S; regions := insert i (delete j A) (regions S)|}
 | Le_AnonValue S v a
     (no_loan : not_contains_loan v)
     (no_borrow : not_contains_borrow v)
@@ -529,7 +552,15 @@ Hint Rewrite region_sum_empty : weight.
 Lemma region_sum_insert weight i v (A : Pmap LLBC_plus_val) :
   lookup i A = None -> map_sum weight (insert i v A) = weight v + map_sum weight A.
 Proof. apply map_sum_insert. Qed.
-Hint Rewrite region_sum_insert using assumption : weight.
+Hint Rewrite region_sum_insert using auto : weight.
+
+Lemma region_sum_singleton weight i v :
+  map_sum weight (singletonM (M := Pmap LLBC_plus_val) i v) = weight v.
+Proof.
+  unfold singletonM, map_singleton.
+  rewrite region_sum_insert, region_sum_empty by apply lookup_empty. lia.
+Qed.
+Hint Rewrite region_sum_singleton : weight.
 
 Global Program Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base;
@@ -541,6 +572,10 @@ Proof.
   rewrite !well_formedness_equiv.
   intros H G l'. specialize (H l'). destruct H. destruct G.
   - split; weight_inequality.
+  - apply add_anon_remove_anon in get_a. rewrite<- get_a in * |-. destruct H.
+    + destruct (decide (l = l')) as [<- | ]; split; weight_inequality.
+    + destruct (decide (l0 = l')) as [-> | ]; [ | split; weight_inequality].
+      destruct (decide (l1 = l')) as [-> | ]; split; weight_inequality.
   - split; weight_inequality.
   - induction Hmerge.
     + split; weight_inequality.
