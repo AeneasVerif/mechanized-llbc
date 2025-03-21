@@ -481,6 +481,12 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (fresh_i : fresh_abstraction S i)
     (Hto_abs : to_abs v A) :
     leq_state_base S ((remove_anon a S),,, i |-> A)
+(* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
+ * contain any loan or borrow, no region is created. *)
+| Leq_RemoveAnon S a v
+    (get_a : get_at_accessor S (anon_accessor a) = Some v)
+    (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
+    leq_state_base S (remove_anon a S)
 | Leq_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
@@ -590,6 +596,12 @@ Proof.
     + destruct (decide (l = l')) as [<- | ]; split; weight_inequality.
     + destruct (decide (l0 = l')) as [-> | ]; [ | split; weight_inequality].
       destruct (decide (l1 = l')) as [-> | ]; split; weight_inequality.
+  - apply add_anon_remove_anon in get_a. rewrite<- get_a in H.
+    apply not_value_contains_weight with (weight := indicator (loanC^m(l'))) in no_loan;
+      [ | intros ? <-%indicator_non_zero; constructor].
+    apply not_value_contains_weight with (weight := indicator (borrowC^m(l'))) in no_borrow;
+      [ | intros ? <-%indicator_non_zero; constructor].
+    destruct H; split; weight_inequality.
   - destruct H. split; weight_inequality.
   - apply add_remove_region in get_A, get_B.
     rewrite<- get_B, remove_add_region_ne in get_A by assumption.
