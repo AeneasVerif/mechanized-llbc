@@ -459,17 +459,17 @@ Qed.
 Hint Rewrite @sweight_add_anon using auto using fresh_anon_sset, remove_anon_fresh : weight.
 
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
-| Le_ToSymbolic S sp
+| Leq_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
     (no_borrow : not_contains_borrow (S.[sp]))
     (no_bot : not_contains_bot (S.[sp])) :
     leq_state_base S (S.[sp <- LLBC_plus_symbolic])
-| Le_ToAbs S a v i A
+| Leq_ToAbs S a v i A
     (get_a : get_at_accessor S (anon_accessor a) = Some v)
     (fresh_i : fresh_abstraction S i)
     (H : to_abs v A) :
     leq_state_base S ((remove_anon a S),,, i |-> A)
-| Le_MoveValue S sp a
+| Leq_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
     (valid_sp : valid_spath S sp)
@@ -485,19 +485,19 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
        I am going a step further: there should not be bottoms in borrowed values. *)
     (no_bot : not_contains_bot (S.[sp])) :
     leq_state_base S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
-| Le_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
+| Leq_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
     (fresh_l1 : is_fresh l1 S)
     (fresh_a : fresh_anon S a) :
     get_node (S.[sp]) = borrowC^m(l0) ->
     leq_state_base S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1)))
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
-| Le_Abs_Clear_Value S i A j v :
+| Leq_Abs_Clear_Value S i A j v :
     lookup i (regions S) = Some A -> lookup j A = Some v ->
     not_contains_loan v -> not_contains_borrow v ->
     leq_state_base S
     {|vars := vars S; anons := anons S; regions := insert i (delete j A) (regions S)|}
-| Le_AnonValue S v a
+| Leq_AnonValue S v a
     (no_loan : not_contains_loan v)
     (no_borrow : not_contains_borrow v)
     (no_symbolic : not_contains_symbolic v)

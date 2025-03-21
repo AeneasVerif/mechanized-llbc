@@ -511,7 +511,7 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 Inductive leq_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
-| Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
+| Leq_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
     (HS_loan : get_node (S.[sp_loan]) = loanC^m(l))
     (HS_borrow : get_node (S.[sp_borrow]) = borrowC^m(l)) :
     leq_state_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
@@ -796,7 +796,7 @@ Proof.
   - destruct Hle.
     + eapply complete_square_diagram.
       * leq_val_state_step.
-        { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+        { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
           assumption. all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
@@ -813,7 +813,7 @@ Proof.
       (* Case 1: the mutable borrow we're transforming to a pointer is in the moved value. *)
       * eapply complete_square_diagram.
         --  leq_val_state_step.
-           { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan)
+           { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                             (sp_borrow := (anon_accessor a, q)).
              eauto with spath.
              rewrite sget_add_anon. autorewrite with spath. eassumption.
@@ -829,7 +829,7 @@ Proof.
       * assert (disj pi sp_borrow) by reduce_comp.
         eapply complete_square_diagram.
         -- leq_val_state_step.
-           { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
@@ -908,7 +908,7 @@ Proof.
         { congruence. }
         eapply complete_square_diagram.
         -- leq_val_state_step.
-           { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
@@ -917,7 +917,7 @@ Proof.
       (* Case 2: the place p is not under the borrow. *)
       * eapply complete_square_diagram.
         -- leq_val_state_step.
-           { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
@@ -931,7 +931,7 @@ Proof.
       (* Case 1: the place p is under sp_borrow. *)
       * eapply complete_square_diagram.
         -- leq_val_state_step.
-            { apply Le_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
+            { apply Leq_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
             { autorewrite with spath. reflexivity. }
             reflexivity.
         -- apply Eval_pointer_no_loc with (l := l). eassumption.
@@ -942,7 +942,7 @@ Proof.
         destruct (decidable_prefix pi sp_borrow) as [(r & <-) | ].
         -- eapply complete_square_diagram.
            ++ leq_val_state_step.
-              { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := pi +++ [0] ++ r).
+              { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := pi +++ [0] ++ r).
                 auto with spath. all: autorewrite with spath; eassumption. }
               { autorewrite with spath. reflexivity. }
               reflexivity.
@@ -952,7 +952,7 @@ Proof.
         -- assert (disj sp_borrow pi) by reduce_comp.
            eapply complete_square_diagram.
            ++ leq_val_state_step.
-              { apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+              { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                 assumption. all: autorewrite with spath; eassumption. }
               { autorewrite with spath. reflexivity. }
               reflexivity.
@@ -1178,7 +1178,7 @@ Proof.
       destruct HeqvSl as (<- & ->). autorewrite with spath in eval_p_in_Sl.
       eapply complete_square_diagram.
       * constructor.
-        eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+        eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
         assumption. all: autorewrite with spath; eassumption.
       * constructor. eassumption. all: autorewrite with spath; assumption.
       * states_eq.
@@ -1195,7 +1195,7 @@ Proof.
            (* Case 3a: the loan is in the place we write in. *)
            ++ eapply complete_square_diagram.
               ** constructor.
-                 eapply Le_MutBorrow_To_Ptr with (sp_loan := (anon_accessor a, r_loan))
+                 eapply Leq_MutBorrow_To_Ptr with (sp_loan := (anon_accessor a, r_loan))
                                                  (sp_borrow := (anon_accessor a, r_borrow)).
                   eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor. eassumption.
@@ -1206,7 +1206,7 @@ Proof.
            ++ assert (disj sp sp_loan) by reduce_comp.
               eapply complete_square_diagram.
               ** constructor.
-                 eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan)
+                 eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                                  (sp_borrow := (anon_accessor a, r_borrow)).
                  eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor.
@@ -1218,7 +1218,7 @@ Proof.
            (* Case 3a: the loan is in the place we write in. *)
            ++ eapply complete_square_diagram.
               ** constructor.
-                 eapply Le_MutBorrow_To_Ptr with (sp_loan := (anon_accessor a, r_loan))
+                 eapply Leq_MutBorrow_To_Ptr with (sp_loan := (anon_accessor a, r_loan))
                                                  (sp_borrow := sp_borrow).
                  eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor.
@@ -1228,7 +1228,7 @@ Proof.
            ++ assert (disj sp sp_loan) by reduce_comp.
               eapply complete_square_diagram.
               ** constructor.
-                 eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan)
+                 eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                                  (sp_borrow := sp_borrow).
                  auto with spath. all: autorewrite with spath; eassumption.
               ** constructor.
@@ -1245,7 +1245,7 @@ Proof.
         (* Case 4a: the loan is in the place we write in. *)
         -- eapply complete_square_diagram.
            ++ constructor.
-              eapply Le_MutBorrow_To_Ptr with (sp_loan := (anon_accessor a, r))
+              eapply Leq_MutBorrow_To_Ptr with (sp_loan := (anon_accessor a, r))
                                               (sp_borrow := sp +++ q).
               eauto with spath. all: autorewrite with spath; eassumption.
            ++ constructor.
@@ -1255,7 +1255,7 @@ Proof.
         -- assert (disj sp sp_loan) by reduce_comp.
            eapply complete_square_diagram.
            ++ constructor.
-              eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp +++ q).
+              eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp +++ q).
               auto with spath. all: autorewrite with spath; eassumption.
            ++ constructor.
               eassumption. not_contains_outer. not_contains_outer. auto using fresh_anon_sset.
@@ -1358,7 +1358,7 @@ Proof.
            autorewrite with spath in *.
            eapply complete_square_diagram.
            ++ constructor.
-              apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ r).
+              apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ r).
               auto with spath. all: autorewrite with spath; eassumption.
            ++ constructor. eapply Reorg_end_borrow_m with (p := p) (q := q).
               assumption. all: autorewrite with spath. eassumption. assumption.
@@ -1372,7 +1372,7 @@ Proof.
               rewrite<- (app_spath_vpath_assoc sp_borrow [0] r) in * |-.
               eapply complete_square_diagram.
               ** constructor.
-                 apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+                 apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                  assumption. all: autorewrite with spath; eassumption.
               ** constructor. eapply Reorg_end_borrow_m with (p := sp_loan +++ [0] ++ r) (q := q).
                  auto with spath. all: autorewrite with spath. eassumption.
@@ -1383,7 +1383,7 @@ Proof.
            ++ assert (disj sp_borrow p) by reduce_comp.
               eapply complete_square_diagram.
               ** constructor.
-                 apply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+                 apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                  assumption. all: autorewrite with spath; eassumption.
               ** constructor. eapply Reorg_end_borrow_m with (p := p) (q := q).
                  assumption. all: autorewrite with spath. eassumption.
@@ -1395,7 +1395,7 @@ Proof.
         rewrite<- (app_spath_vpath_assoc sp_borrow [0] q) in *.
         eapply complete_square_diagram.
         -- constructor.
-           eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
            assumption. all: autorewrite with spath; eassumption.
         -- constructor. eapply Reorg_end_ptr with (p := sp_loan +++ [0] ++ q).
            autorewrite with spath. eassumption.
@@ -1404,7 +1404,7 @@ Proof.
         assert (disj sp_loan p) by reduce_comp.
         eapply complete_square_diagram.
         -- constructor.
-           eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
            assumption. all: autorewrite with spath; eassumption.
         -- constructor. eapply Reorg_end_ptr with (p := p). autorewrite with spath. eassumption.
         -- states_eq.
@@ -1418,7 +1418,7 @@ Proof.
         autorewrite with spath in *.
         eapply complete_square_diagram.
         -- constructor.
-           eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+           eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
            assumption. all: autorewrite with spath; eassumption.
         -- constructor. eapply Reorg_end_loc with (p := sp_loan +++ [0] ++ q).
            autorewrite with spath. eassumption. not_contains. cbn. congruence.
@@ -1433,7 +1433,7 @@ Proof.
               autorewrite with spath in *.
               eapply complete_square_diagram.
               ** constructor.
-                 eapply Le_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := p +++ q).
+                 eapply Leq_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := p +++ q).
                  eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
@@ -1446,7 +1446,7 @@ Proof.
               autorewrite with spath in *.
               eapply complete_square_diagram.
               ** constructor.
-                 eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ q).
+                 eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ q).
                  auto with spath. all: autorewrite with spath; eassumption.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
@@ -1461,7 +1461,7 @@ Proof.
               rewrite<- app_spath_vpath_assoc in *.
               eapply complete_square_diagram.
               ** constructor.
-                 eapply Le_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := sp_borrow).
+                 eapply Leq_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := sp_borrow).
                  eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
@@ -1473,7 +1473,7 @@ Proof.
            ++ assert (disj p sp_loan) by reduce_comp.
               eapply complete_square_diagram.
               ** constructor.
-                 eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+                 eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                  assumption. all: autorewrite with spath; eassumption.
               ** constructor. eapply Reorg_end_loc with (p := p).
                  autorewrite with spath; eassumption.
