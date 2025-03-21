@@ -438,7 +438,7 @@ Proof.
   subst. rewrite sum_maps_lookup_r, lookup_None_flatten in lookup_l by assumption.
   discriminate. all: typeclasses eauto.
 Qed.
-Hint Rewrite sweight_add_abstraction using cbn; simpl_map; assumption : weight.
+Hint Rewrite sweight_add_abstraction using cbn; simpl_map; auto : weight.
 
 Definition remove_anon a S :=
   {| vars := vars S; anons := delete a (anons S); regions := regions S|}.
@@ -458,6 +458,18 @@ Proof.
 Qed.
 Hint Rewrite @sweight_add_anon using auto using fresh_anon_sset, remove_anon_fresh : weight.
 
+(* TODO: create a definition instead of a notation? *)
+Notation remove_region i S :=
+  {|vars := vars S; anons := anons S; regions := delete i (regions S)|}.
+
+Lemma add_remove_region i A S (H : lookup i (regions S) = Some A) :
+  remove_region i S,,, i |-> A = S.
+Proof. destruct S. cbn. f_equal. apply insert_delete in H. exact H. Qed.
+
+Lemma remove_add_region_ne i j A S :
+  i <> j -> remove_region i (S,,, j |-> A) = remove_region i S,,, j |-> A.
+Proof. intros ?. destruct S. cbn. f_equal. apply delete_insert_ne. assumption. Qed.
+
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
@@ -467,7 +479,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToAbs S a v i A
     (get_a : get_at_accessor S (anon_accessor a) = Some v)
     (fresh_i : fresh_abstraction S i)
-    (H : to_abs v A) :
+    (Hto_abs : to_abs v A) :
     leq_state_base S ((remove_anon a S),,, i |-> A)
 | Leq_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
@@ -475,10 +487,12 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (valid_sp : valid_spath S sp)
     (not_in_region : ~in_region sp) :
     leq_state_base S (S.[sp <- bot],, a |-> S.[sp])
-| Le_MergeAbs S i j A B C (Hmerge : merge_abstractions A B C) :
-    fresh_abstraction S i -> fresh_abstraction S j -> i <> j ->
-    leq_state_base (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
-| Le_Fresh_MutLoan S sp l a
+(* Note: for the merge, we reuse the region i. Maybe we should use another region k? *)
+| Leq_MergeAbs S i j A B C
+    (get_A : lookup i (regions S) = Some A) (get_B : lookup j (regions S) = Some B)
+    (Hmerge : merge_abstractions A B C) :
+    i <> j -> leq_state_base S (remove_region i (remove_region j S),,, i |-> C)
+| Leq_Fresh_MutLoan S sp l a
     (fresh_l1 : is_fresh l S)
     (fresh_a : fresh_anon S a)
     (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
@@ -487,8 +501,8 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     leq_state_base S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
 | Leq_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
     (fresh_l1 : is_fresh l1 S)
-    (fresh_a : fresh_anon S a) :
-    get_node (S.[sp]) = borrowC^m(l0) ->
+    (fresh_a : fresh_anon S a)
+    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
     leq_state_base S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1)))
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
@@ -570,14 +584,17 @@ Global Program Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
 Lemma leq_base_preserves_wf_l Sl Sr : well_formed Sl -> leq_base Sl Sr -> well_formed Sr.
 Proof.
   rewrite !well_formedness_equiv.
-  intros H G l'. specialize (H l'). destruct H. destruct G.
-  - split; weight_inequality.
-  - apply add_anon_remove_anon in get_a. rewrite<- get_a in * |-. destruct H.
+  intros H G l'. specialize (H l'). destruct G.
+  - destruct H. split; weight_inequality.
+  - apply add_anon_remove_anon in get_a. rewrite<- get_a in H. destruct H, Hto_abs.
     + destruct (decide (l = l')) as [<- | ]; split; weight_inequality.
     + destruct (decide (l0 = l')) as [-> | ]; [ | split; weight_inequality].
       destruct (decide (l1 = l')) as [-> | ]; split; weight_inequality.
-  - split; weight_inequality.
-  - induction Hmerge.
+  - destruct H. split; weight_inequality.
+  - apply add_remove_region in get_A, get_B.
+    rewrite<- get_B, remove_add_region_ne in get_A by assumption.
+    rewrite <-get_B, <-get_A in H. clear get_A get_B. destruct H.
+    induction Hmerge.
     + split; weight_inequality.
     + apply IHHmerge; weight_inequality.
     + apply IHHmerge; weight_inequality.
@@ -587,16 +604,17 @@ Proof.
     assert (sweight (indicator (loanC^m(l))) S = 0).
     { eapply not_state_contains_implies_weight_zero; [ | eassumption].
       intros ? <-%indicator_non_zero. constructor. }
-    destruct (decide (l = l')) as [<- | ]; split; weight_inequality.
+    destruct H, (decide (l = l')) as [<- | ]; split; weight_inequality.
     (* Note: the fact l0 <> l1 may be useful at other places. *)
-  - assert (l0 <> l1). { intros <-. eapply fresh_l1; [ | rewrite H]; [validity | constructor]. }
+  - assert (l0 <> l1).
+    { intros <-. eapply fresh_l1; [ | rewrite get_borrow]; [validity | constructor]. }
     assert (sweight (indicator (borrowC^m(l1))) S = 0).
     { eapply not_state_contains_implies_weight_zero; [ | eassumption].
       intros ? <-%indicator_non_zero. constructor. }
     assert (sweight (indicator (loanC^m(l1))) S = 0).
     { eapply not_state_contains_implies_weight_zero; [ | eassumption].
       intros ? <-%indicator_non_zero. constructor. }
-    destruct (decide (l1 = l')) as [<- | ]; [split; weight_inequality | ].
+    destruct H. destruct (decide (l1 = l')) as [<- | ]; [split; weight_inequality | ].
     destruct (decide (l0 = l')) as [<- | ]; split; weight_inequality.
   (* TODO: Compute the weight when removing a value. *)
   - admit.
@@ -604,5 +622,5 @@ Proof.
       [ | intros ? <-%indicator_non_zero; constructor].
     apply not_value_contains_weight with (weight := indicator (borrowC^m(l'))) in no_borrow;
       [ | intros ? <-%indicator_non_zero; constructor].
-    split; weight_inequality.
+    destruct H; split; weight_inequality.
 Admitted.
