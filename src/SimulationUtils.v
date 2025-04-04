@@ -1,6 +1,30 @@
 Require Import RelationClasses.
 Require Import PathToSubtree.
 Require Import Arith.
+Require Import Relations.
+
+Arguments clos_refl_trans {_}.
+
+(* TODO: give a scope. *)
+Global Notation "R ^*" := (clos_refl_trans R).
+
+Lemma clos_refl_trans_ind_left' A R (P : A -> A -> Prop)
+  (Prefl : forall a : A, P a a)
+  (Pstep : forall a b c, R^* a b -> P a b -> R b c -> P a c) :
+  forall a b, R^* a b -> P a b.
+Proof. intros ? b. revert b. eapply clos_refl_trans_ind_left; eauto. Qed.
+
+Lemma clos_refl_trans_ind_right' A R (P : A -> A -> Prop)
+  (Prefl : forall a : A, P a a)
+  (Pstep : forall a b c, R a b -> R^* b c -> P b c -> P a c) :
+  forall a b, R^* a b -> P a b.
+Proof. intros ? b. eapply clos_refl_trans_ind_right with (P := fun a => P a b); eauto. Qed.
+
+Global Instance clos_refl_trans_refl A (R : relation A) : Reflexive R^*.
+Proof. intros ?. apply rt_refl. Qed.
+
+Global Instance clos_refl_trans_trans A (R : relation A) : Transitive R^*.
+Proof. intros ?. apply rt_trans. Qed.
 
 (* The general definition of forward simulation. That means that for all a >= b (with
    a : A and b : B) and a -> c (with c : C), then there exists d : D that completes
@@ -24,60 +48,6 @@ Definition forward_simulation {A B C D : Type}
   (RedAC : A -> C -> Prop) (RedBD : B -> D -> Prop) :=
   forall a c, RedAC a c -> forall b, LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
 
-(* The reflexive-transitive R* closure of a relation R. *)
-Inductive refl_trans_closure {A : Type} (R : A -> A -> Prop) : A -> A -> Prop :=
-| Cl_base x y : R x y -> refl_trans_closure R x y
-| Cl_refl x : refl_trans_closure R x x
-| Cl_trans x y z :
-    refl_trans_closure R x y -> refl_trans_closure R y z -> refl_trans_closure R x z.
-
-Global Instance reflexive_refl_trans_closure A (R : A -> A -> Prop) :
-  Reflexive (refl_trans_closure R).
-Proof. intro. apply Cl_refl. Qed.
-
-Global Instance transitive_refl_trans_closure A (R : A -> A -> Prop) :
-  Transitive (refl_trans_closure R).
-Proof. intros ? ? ?. apply Cl_trans. Qed.
-
-Lemma refl_trans_closure_ind_left A R (P : A -> A -> Prop)
-  (Prefl : forall a : A, P a a)
-  (Pstep : forall a b c, R a b -> refl_trans_closure R b c -> P b c -> P a c) :
-  forall a b, refl_trans_closure R a b -> P a b.
-Proof.
-  intros a b rel_a_b.
-  assert (forall c, refl_trans_closure R b c -> P b c -> P a c).
-  { induction rel_a_b; eauto using Cl_trans. }
-  auto using Cl_refl.
-Qed.
-
-Lemma refl_trans_closure_ind_right A R (P : A -> A -> Prop)
-  (Prefl : forall a : A, P a a)
-  (Pstep : forall a b c, refl_trans_closure R a b -> P a b -> R b c -> P a c) :
-  forall a b, refl_trans_closure R a b -> P a b.
-Proof.
-  intros b c rel_b_c.
-  assert (forall a, refl_trans_closure R a b -> P a b -> P a c).
-  { induction rel_b_c; eauto using Cl_trans. }
-  auto using Cl_refl.
-Qed.
-
-(* Generally, to prove preservation when the relation is a reflexive transitive closure, it
- * suffices to prove it for the base cases. *)
-Lemma preservation_by_base_case {A B : Type}
-  (LeqA : A -> A -> Prop) (LeqB : B -> B -> Prop) (RedAB : A -> B -> Prop) :
-  forward_simulation LeqA (refl_trans_closure LeqB) RedAB RedAB ->
-  forward_simulation (refl_trans_closure LeqA) (refl_trans_closure LeqB) RedAB RedAB.
-Proof.
-  intros H a b red_ab a' Leq_a_a'. revert b red_ab.
-  induction Leq_a_a' as [ | | a2 a1 a0 _ IH0 _ IH1].
-  - intros. eapply H; eassumption.
-  - intros. eexists. split; [reflexivity | eassumption].
-  - intros b0 Red_a0_b0.
-    destruct (IH1 _ Red_a0_b0) as (b1 & ? & Red_a1_b1).
-    destruct (IH0 _ Red_a1_b1) as (b2 & ? & Red_a2_b2).
-    exists b2. split; [ | assumption]. transitivity b1; assumption.
-Qed.
-
 (* Generally, to complete the square diagram, we will prove that:
    - there exists d0 such that c -> d0
    - there exists d1 such that b <= d1
@@ -96,26 +66,31 @@ Lemma complete_square_diagram {B C D : Type}
   -> exists d, LeqDC d c /\ RedBD b d.
 Proof. intros ? ? <-. exists d0. auto. Qed.
 
-(* Generally, two types A and B will have a canonical relation Leq. *)
-Class Leq (A : Type) :=
-{ leq : A -> A -> Prop }.
-
-Definition preservation {A B} `{LeqA : Leq A} `{LeqB : Leq B} (RedAB : A -> B -> Prop) :=
-  forward_simulation (@leq A LeqA) (@leq B LeqB) RedAB RedAB.
+(* Generally, to prove preservation when the relation is a reflexive transitive closure, it
+ * suffices to prove it for the base cases. *)
+Lemma preservation_by_base_case {A B : Type}
+  (LeqA : relation A) (LeqB : relation B) (Red : A -> B -> Prop) :
+  forward_simulation LeqA LeqB^* Red Red ->
+  forward_simulation LeqA^* LeqB^* Red Red.
+Proof.
+  intros H a b red_ab a' Leq_a_a'. revert b red_ab.
+  induction Leq_a_a' as [ | | a2 a1 a0 _ IH0 _ IH1].
+  - intros. eapply H; eassumption.
+  - intros. eexists. split; [apply rt_refl | eassumption].
+  - intros b0 Red_a0_b0.
+    destruct (IH1 _ Red_a0_b0) as (b1 & ? & Red_a1_b1).
+    destruct (IH0 _ Red_a1_b1) as (b2 & ? & Red_a2_b2).
+    exists b2. split; [ | assumption]. apply rt_trans with (y := b1); assumption.
+Qed.
 
 (* Relations are generally defined for types of states, for any semantics between LLBC# and
    HLPL. In the following section, we will define the relation S <= S' for states,
    and (v, S) <= (v', S') for pairs of value and state.
 *)
-(* TODO: there are no reason to define the base relation along with the well-formedness predicate.
- *)
-Class LeqBase state := {
-  leq_base : state -> state -> Prop;
-  well_formed : state ->  Prop;
-}.
+Class LeqBase state := leq_base : state -> state -> Prop.
 
-Global Instance LeqState state `(LeqBase state) : Leq state :=
-{ leq := refl_trans_closure leq_base }.
+(* TODO: is this class useful? *)
+Class WellFormed state := well_formed : state -> Prop.
 
 Section LeqValStateUtils.
   Context `{State state V}.
@@ -125,19 +100,13 @@ Section LeqValStateUtils.
     forall a, fresh_anon (snd vSl) a -> fresh_anon (snd vSr) a ->
     leq_base ((snd vSl),, a |-> fst vSl) ((snd vSr),, a |-> fst vSr).
 
-  (* For pair of value and states, we have:
-     (v, S) <= (v', S') ::= S,, _ |-> v <= S', _ |-> v'
-   *)
-  Global Instance LeqStateVal : Leq (V * state) :=
-  { leq := refl_trans_closure leq_val_state_base }.
-
   Lemma prove_leq_val_state vSl vm Sm vr Sr
     (G : forall a, fresh_anon Sm a -> fresh_anon Sr a ->
          exists vSm, leq_base vSm Sr,, a |-> vr /\ vSm = Sm,, a |-> vm) :
-    @leq _ LeqStateVal vSl (vm, Sm) ->
-    @leq _ LeqStateVal vSl (vr, Sr).
+    leq_val_state_base^* vSl (vm, Sm) ->
+    leq_val_state_base^* vSl (vr, Sr).
   Proof.
-    intros ?. etransitivity; [eassumption | ]. constructor.
+    intros ?. eapply rt_trans; [eassumption | ]. constructor.
     intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
   Qed.
 
@@ -146,11 +115,14 @@ Section LeqValStateUtils.
      closure.
      We're going to give similar statements, but these types, the hypothesis uses the relation le.
    *)
+  (*
   Lemma preservation_by_base_case_leq_state_leq_val_state
     (red : state -> (V * state) -> Prop) :
-    forward_simulation (@leq_base _ LB) (@leq _ LeqStateVal) red red
-    -> @preservation _ _ (@LeqState _ LB) LeqStateVal red.
-  Proof. apply preservation_by_base_case. Qed.
+    forward_simulation E equiv_val_state red red
+    -> forward_simulation (@leq_base _ LB) (@leq _ LeqStateVal) red red
+    -> forward_simulation (clos_refl_trans _ leq_base) LeqStateVal red.
+  Proof. apply preservation_by_base_case. intros ? ? ? ?. reflexivity. Qed.
+   *)
 End LeqValStateUtils.
 
 (* When proving a goal `leq ?vSl (vr, Sr)`, using this tactic create three subgoals:
@@ -171,6 +143,7 @@ Ltac leq_val_state_step :=
 
 Section WellFormedSimulations.
   Context `{LB : LeqBase state}.
+  Context `{WF : WellFormed state}.
 
   (* Preservation of reorgs require well-formedness. However, well-formedness for related states is
    * not proved the same in LLBC+ and HLPL+:
@@ -188,12 +161,6 @@ Section WellFormedSimulations.
   (LeqBA : state -> A -> Prop) (LeqDC : D -> C -> Prop)
   (RedAC : A -> C -> Prop) (RedBD : state -> D -> Prop) :=
   forall a b c, well_formed b -> RedAC a c -> LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
-
-  Definition well_formed_preservation_r (Red : state -> state -> Prop) :=
-    well_formed_forward_simulation_r (@leq _ (@LeqState _ LB)) (@leq _ (@LeqState _ LB)) Red Red.
-
-  Definition well_formed_preservation_l (Red : state -> state -> Prop) :=
-    well_formed_forward_simulation_l (@leq _ (@LeqState _ LB)) (@leq _ (@LeqState _ LB)) Red Red.
 
   (* Reorganizations and leq are defined as reflexive-transitive closure of relations (that we are
    * going to denote < and reorg). When we want to prove the preservation, ie:
@@ -226,34 +193,34 @@ Section WellFormedSimulations.
     (leq_decreasing : forall a b, leq_base a b -> measure a < measure b)
     (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
     (leq_base_preserves_wf_r : forall a b, well_formed b -> leq_base a b -> well_formed a)
-    (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ LB a -> @well_formed _ LB b)
-    (H : well_formed_forward_simulation_r (@leq_base _ LB) (@leq _ (@LeqState _ LB)) reorg (refl_trans_closure reorg)) :
-    well_formed_preservation_r (refl_trans_closure reorg).
+    (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ WF a -> @well_formed _ WF b)
+    (H : well_formed_forward_simulation_r (@leq_base _ LB) (@leq_base _ LB)^* reorg reorg^*) :
+    well_formed_forward_simulation_r leq_base^* leq_base^* reorg^* reorg^*.
   Proof.
-    assert (forall S S', refl_trans_closure reorg S S' -> measure S' <= measure S).
-    { intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. }
-    assert (forall Sl Sr, well_formed Sr -> leq Sl Sr -> well_formed Sl).
+    (* Sequences of reorgenizations make the measure decrease. *)
+    assert (forall S S', reorg^* S S' -> measure S' <= measure S).
+    { intros ? ? Hreorg. induction Hreorg; subst; eauto using Nat.lt_le_incl, Nat.le_trans. }
+    (* The well-formedness is preserved by sequences of the base. *)
+    assert (forall Sl Sr, well_formed Sr -> leq_base^* Sl Sr -> well_formed Sl).
     { intros ? ? ? G. induction G; eauto. }
-    intros Sr.
-    remember (measure Sr) as n eqn:EQN. revert Sr EQN.
-    induction n as [? IH] using lt_wf_ind.
-    intros Sr -> Sr' well_formed_Sr reorg_Sr_Sr'.
-    destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using refl_trans_closure_ind_left.
-    { intros. eexists. split; [eassumption | reflexivity]. }
+    intros Sr. remember (measure Sr) as n eqn:EQN. revert Sr EQN.
+    induction n as [? IH] using lt_wf_ind. intros Sr -> Sr' well_formed_Sr reorg_Sr_Sr'.
+    destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using clos_refl_trans_ind_right'.
+    { intros. eexists. split; [eassumption | apply rt_refl]. }
     intros Sl leq_Sl_Sr.
-    destruct leq_Sl_Sr as [ | Sl Sm Sr ? _ leq_Sm_Sr] using refl_trans_closure_ind_right.
-    { eexists. split; [reflexivity | ]. transitivity Sr'; [constructor | ]; assumption. }
+    destruct leq_Sl_Sr as [ | Sl Sm Sr ? _ leq_Sm_Sr] using clos_refl_trans_ind_left'.
+    { eexists. split; [apply rt_refl | ]. eapply rt_trans; [constructor | ]; eassumption. }
     specialize (H _ _ well_formed_Sr reorg_Sr_Sr' _ leq_Sm_Sr). destruct H as (Sm' & leq_Sm'_Sr' & reorg_Sm_Sm').
-    assert (exists Sl', leq Sl' Sm' /\ refl_trans_closure reorg Sl Sl')
+    assert (exists Sl', leq_base^* Sl' Sm' /\ reorg^* Sl Sl')
       as (Sl' & ? & ?)
-    by eauto.
-    assert (exists Sm'', leq Sm'' Sr'' /\ refl_trans_closure reorg Sm' Sm'')
+      by eauto.
+    assert (exists Sm'', leq_base^* Sm'' Sr'' /\ reorg^* Sm' Sm'')
       as (Sm'' & ? & ?)
       by eauto.
-    assert (exists Sl'', leq Sl'' Sm'' /\ refl_trans_closure reorg Sl' Sl'')
+    assert (exists Sl'', leq_base^* Sl'' Sm'' /\ reorg^* Sl' Sl'')
       as (? & ? & ?).
     { eapply IH; [ | reflexivity | | eassumption..]; eauto using Nat.le_lt_trans. }
-    eexists. split; [transitivity Sm'' | transitivity Sl']; eassumption.
+    eexists. split; eapply rt_trans; eassumption.
   Qed.
 
   Lemma preservation_reorg_l (reorg : state -> state -> Prop)
@@ -261,35 +228,51 @@ Section WellFormedSimulations.
     (leq_decreasing : forall a b, leq_base a b -> measure a < measure b)
     (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
     (leq_base_preserves_wf_l : forall a b, well_formed a -> leq_base a b -> well_formed b)
-    (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ LB a -> @well_formed _ LB b)
-    (H : well_formed_forward_simulation_l (@leq_base _ LB) (@leq _ (@LeqState _ LB)) reorg (refl_trans_closure reorg)) :
-    well_formed_preservation_l (refl_trans_closure reorg).
+    (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ WF a -> @well_formed _ WF b)
+    (H : well_formed_forward_simulation_l (@leq_base _ LB) (@leq_base _ LB)^* reorg reorg^*) :
+    well_formed_forward_simulation_l leq_base^* leq_base^* reorg^* reorg^*.
   Proof.
-    assert (forall S S', refl_trans_closure reorg S S' -> measure S' <= measure S).
+    assert (forall S S', reorg^* S S' -> measure S' <= measure S).
     { intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. }
-    assert (forall S S', well_formed S -> refl_trans_closure reorg S S' -> well_formed S').
+    assert (forall S S', well_formed S -> reorg^* S S' -> well_formed S').
     { intros ? ? ? Hreorg. induction Hreorg; eauto. }
-    assert (forall Sl Sr, well_formed Sl -> leq Sl Sr -> well_formed Sr).
+    assert (forall Sl Sr, well_formed Sl -> leq_base^* Sl Sr -> well_formed Sr).
     { intros ? ? ? G. induction G; eauto. }
     intros Sr.
     remember (measure Sr) as n eqn:EQN. revert Sr EQN.
     induction n as [? IH] using lt_wf_ind.
     intros Sr -> Sl Sr' well_formed_Sl reorg_Sr_Sr'.
-    destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using refl_trans_closure_ind_left.
-    { intros. eexists. split; [eassumption | reflexivity]. }
+    destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using clos_refl_trans_ind_right'.
+    { intros. eexists. split; [eassumption | apply rt_refl]. }
     intros leq_Sl_Sr.
-    destruct leq_Sl_Sr as [ | Sl Sm Sr ? _ leq_Sm_Sr] using refl_trans_closure_ind_right.
-    { eexists. split; [reflexivity | ]. transitivity Sr'; [constructor | ]; assumption. }
+    destruct leq_Sl_Sr as [ | Sl Sm Sr ? _ leq_Sm_Sr] using clos_refl_trans_ind_left'.
+    { eexists. split; [apply rt_refl | ]. eapply rt_trans; [constructor | ]; eassumption. }
     destruct (H Sr Sm Sr') as (Sm' & leq_Sm'_Sr' & reorg_Sm_Sm'); [eauto.. | ].
-    assert (exists Sl', leq Sl' Sm' /\ refl_trans_closure reorg Sl Sl')
+    assert (exists Sl', leq_base^* Sl' Sm' /\ clos_refl_trans reorg Sl Sl')
       as (Sl' & ? & ?)
-    by eauto.
-    assert (exists Sm'', leq Sm'' Sr'' /\ refl_trans_closure reorg Sm' Sm'')
+      by eauto.
+    assert (exists Sm'', leq_base^* Sm'' Sr'' /\ clos_refl_trans reorg Sm' Sm'')
       as (Sm'' & ? & ?)
       by eauto.
-    assert (exists Sl'', leq Sl'' Sm'' /\ refl_trans_closure reorg Sl' Sl'')
+    assert (exists Sl'', leq_base^* Sl'' Sm'' /\ clos_refl_trans reorg Sl' Sl'')
       as (? & ? & ?).
     { eapply IH; [ | reflexivity | | eassumption..]; eauto using Nat.le_lt_trans. }
-    eexists. split; [transitivity Sm'' | transitivity Sl']; eassumption.
+    eexists. split; eapply rt_trans; eassumption.
   Qed.
 End WellFormedSimulations.
+
+Definition rel_compose {A B C : Type} (R : A -> B -> Prop) (S : B -> C -> Prop) a c :=
+  exists b, R a b /\ S b c.
+
+Lemma forward_simulation_closure A (E R : relation A) :
+  forward_simulation E E R R -> forward_simulation E E R^* R^*.
+Proof.
+  intros H ? ? G. induction G as [ | | ? ? ? ? IH0 ? IH1].
+  - intros. edestruct H as (? & ? & ?); [eassumption.. | ].
+    eexists. split; [ | constructor]; eassumption.
+  - intros. eexists. split; [ | apply rt_refl]. assumption.
+  - intros.
+    edestruct IH0 as (? & ? & ?); [eassumption | ].
+    edestruct IH1 as (? & ? & ?); [eassumption | ].
+    eexists. split; [ | eapply rt_trans]; eassumption.
+Qed.

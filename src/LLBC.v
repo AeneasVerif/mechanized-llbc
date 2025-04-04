@@ -291,7 +291,7 @@ Inductive eval_stmt : statement -> statement_result -> LLBC_state -> LLBC_state 
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
   | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
-  | Eval_reorg S0 S1 S2 stmt r (Hreorg : refl_trans_closure reorg S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
+  | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 

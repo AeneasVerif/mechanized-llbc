@@ -4,6 +4,7 @@ Require Import List.
 Require Import PeanoNat.
 Import ListNotations.
 Require Import Lia ZArith.
+Require Import Relations.
 
 From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
@@ -506,7 +507,7 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
   | Eval_assign S vS' S'' p rv (eval_rv : S |-{rv} rv => vS') (Hstore : store p vS' S'') :
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
-  | Eval_reorg S0 S1 S2 stmt r (Hreorg : refl_trans_closure reorg S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
+  | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
@@ -593,9 +594,10 @@ Proof. reflexivity. Qed.
 Hint Rewrite vweight_bot : weight.
 
 Global Program Instance HLPL_plus_state_leq_base : LeqBase HLPL_plus_state :=
-{ leq_base := leq_state_base;
-  well_formed := HLPL_plus_well_formed;
-}.
+{ leq_base := leq_state_base; }.
+
+Global Instance HLPL_plus_WellFormed : WellFormed HLPL_plus_state :=
+{ well_formed := HLPL_plus_well_formed }.
 
 Lemma leq_base_preserves_wf_r Sl Sr : well_formed Sr -> leq_base Sl Sr -> well_formed Sl.
 Proof.
@@ -788,7 +790,8 @@ Ltac eval_place_preservation :=
       destruct eval_p_in_Sr as (pi_l & rel_pi_l_pi_r%rel_implies_rel' & eval_p_in_Sl)
   end.
 
-Lemma operand_preserves_HLPL_plus_rel op : preservation (eval_operand op).
+Lemma operand_preserves_HLPL_plus_rel op :
+  forward_simulation leq_base^* leq_val_state_base^* (eval_operand op) (eval_operand op).
 Proof.
   apply preservation_by_base_case.
   intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
@@ -885,16 +888,17 @@ Proof.
     split; weight_inequality.
 Qed.
 
-Lemma rvalue_preserves_HLPL_plus_rel rv : preservation (eval_rvalue rv).
+Lemma rvalue_preserves_HLPL_plus_rel rv :
+  forward_simulation leq_base^* leq_val_state_base^* (eval_rvalue rv) (eval_rvalue rv).
 Proof.
   apply preservation_by_base_case.
   intros ? ? Heval. destruct Heval.
   (* rv = just op *)
-  - apply operand_preserves_HLPL_plus_rel in Heval_op. intros ? ?%Cl_base.
+  - apply operand_preserves_HLPL_plus_rel in Heval_op. intros ? ?%rt_step.
     firstorder using Eval_just.
   (* rv = op + op *)
   - apply operand_preserves_HLPL_plus_rel in H, H0.
-    intros S0 Hle%Cl_base.
+    intros S0 Hle%rt_step.
     admit.
   (* rv = &mut p *)
   (* The place p evaluates to a spath under a loc. *)
@@ -1060,9 +1064,9 @@ Qed.
    Let us take (v1, S1), ..., (v_{n-1}, S_{n-1}) the intermediate pairs such that
    (v0, S0) <= (v1, S1) <= ... <= (vn, Sn).
    Then, we are going to prove that for each (vi, Si), the value vi does not contain any loan. *)
+(* TODO: the name is really similar to leq_val_state_base. *)
 Definition leq_val_state_base' (vSl vSr : HLPL_plus_val * HLPL_plus_state) : Prop :=
   leq_val_state_base vSl vSr /\ not_contains_loan (fst vSr) /\ not_contains_loc (fst vSr).
-Notation leq_val_state' := (refl_trans_closure leq_val_state_base').
 
 Lemma leq_base_does_not_insert_loan_loc vSl vSr :
   leq_val_state_base' vSl vSr -> not_contains_loan (fst vSl) /\ not_contains_loc (fst vSl).
@@ -1094,8 +1098,8 @@ Proof.
 Qed.
 
 Lemma leq_val_state_no_loan_right (vSl vSr : HLPL_plus_val * HLPL_plus_state) :
-  leq vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
-  -> leq_val_state' vSl vSr.
+  leq_val_state_base^* vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
+  -> leq_val_state_base'^* vSl vSr.
 Proof.
   intros Hle Hno_loan Hno_loc.
   apply proj1 with (B := (not_contains_loan (fst vSl)) /\ (not_contains_loc (fst vSl))).
@@ -1151,7 +1155,7 @@ Proof.
 Qed.
 
 Lemma store_preserves_HLPL_plus_rel p :
-  forward_simulation leq_val_state' leq (store p) (store p).
+  forward_simulation leq_val_state_base'^* leq_base^* (store p) (store p).
 Proof.
   apply preservation_by_base_case.
   intros vSr Sr' Hstore vSl Hle.
@@ -1293,7 +1297,7 @@ Proof.
 Qed.
 
 Corollary reorgs_preserve_well_formedness S S' :
-  refl_trans_closure reorg S S' -> well_formed S -> well_formed S'.
+  reorg^* S S' -> well_formed S -> well_formed S'.
 Proof. intro Hreorg. induction Hreorg; eauto using reorg_preserves_well_formedness. Qed.
 
 Definition measure_node c :=
@@ -1316,7 +1320,8 @@ Hint Rewrite measure_ptr : weight.
 Lemma measure_bot : vweight measure_node bot = 0. Proof. reflexivity. Qed.
 Hint Rewrite measure_bot : weight.
 
-Lemma reorg_preserves_HLPL_plus_rel : well_formed_preservation_r (refl_trans_closure reorg).
+Lemma reorg_preserves_HLPL_plus_rel :
+  well_formed_forward_simulation_r leq_base^* leq_base^* reorg^* reorg^*.
 Proof.
   eapply preservation_reorg_r with (measure := sweight measure_node).
   { intros Sl Sr Hle. destruct Hle; weight_inequality. }
@@ -1496,7 +1501,8 @@ Proof.
   - intros. apply IHeval_s. eauto using reorgs_preserve_well_formedness.
 Qed.
 
-Lemma stmt_preserves_HLPL_plus_rel s r : well_formed_preservation_r (eval_stmt s r).
+Lemma stmt_preserves_HLPL_plus_rel s r :
+  well_formed_forward_simulation_r leq_base^* leq_base^* (eval_stmt s r) (eval_stmt s r).
 Proof.
   intros Sr Sr' WF_Sr Heval Sl Hle. revert Sl Hle. induction Heval; intros Sl Hle.
   - eexists. split; [eassumption | constructor].

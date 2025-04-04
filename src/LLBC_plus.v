@@ -391,7 +391,7 @@ Inductive eval_stmt : statement -> statement_result -> LLBC_plus_state -> LLBC_p
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
   | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
-  | Eval_reorg S0 S1 S2 stmt r (Hreorg : refl_trans_closure reorg S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
+  | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
@@ -582,10 +582,11 @@ Proof.
 Qed.
 Hint Rewrite region_sum_singleton : weight.
 
-Global Program Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
-{ leq_base := leq_state_base;
-  well_formed := LLBC_plus_well_formed;
-}.
+Global Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
+{ leq_base := leq_state_base }.
+
+Global Instance LLBC_plus_WellFormed : WellFormed LLBC_plus_state :=
+{ well_formed := LLBC_plus_well_formed }.
 
 Lemma leq_base_preserves_wf_l Sl Sr : well_formed Sl -> leq_base Sl Sr -> well_formed Sr.
 Proof.
