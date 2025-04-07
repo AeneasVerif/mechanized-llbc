@@ -507,7 +507,7 @@ Section Flatten.
     - destruct (decide (i = k)) as [<- | ].
       + rewrite alter_insert.
         rewrite !flatten_insert by assumption.
-        unfold union, map_union. rewrite alter_union_with_l. 
+        unfold union, map_union. rewrite alter_union_with_l.
         * now rewrite kmap_alter by typeclasses eauto.
         * reflexivity.
         * intros ? ?. rewrite lookup_None_flatten; easy.
@@ -519,3 +519,37 @@ Section Flatten.
           intros (? & ? & _)%lookup_kmap_is_Some; [congruence | typeclasses eauto].
   Qed.
 End Flatten.
+
+Definition permutation := Pmap positive.
+
+Definition injective_permutation (p : permutation) :=
+  forall i j k, lookup i p = Some k -> lookup j p = Some k -> i = j.
+
+Definition insert_permuted_key A (p : permutation) (i : positive) (a : A) (m : Pmap A) :=
+  match lookup i p with
+  | Some j => insert j a m
+  | None => m
+  end.
+
+Definition apply_permutation {A} (p : permutation) : Pmap A -> Pmap A :=
+  map_fold (insert_permuted_key A p) empty.
+
+Lemma lookup_permutation {A} p i j (m : Pmap A) :
+  injective_permutation p -> lookup i p = Some j ->
+  lookup j (apply_permutation p m) = lookup i m.
+Proof.
+  intros inj_p H. unfold apply_permutation.
+  induction m as [ | k x m ? ? IHm] using map_first_key_ind.
+  - rewrite map_fold_empty. simpl_map. reflexivity.
+  - destruct (decide (i = k)) as [<- | ?].
+    + unfold apply_permutation.
+      rewrite map_fold_insert_first_key by assumption.
+      unfold insert_permuted_key. rewrite H. simpl_map. reflexivity.
+    + simpl_map. rewrite map_fold_insert_first_key by assumption.
+      unfold insert_permuted_key. destruct (lookup k p) eqn:?.
+      * rewrite lookup_insert_ne.
+        -- exact IHm.
+        -- intros <-.
+           (* By injectivity, we can prove that i = k, which is a contradiction. *) eauto.
+      * exact IHm.
+Qed.
