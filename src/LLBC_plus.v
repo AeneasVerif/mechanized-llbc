@@ -525,6 +525,18 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     leq_state_base S (S,, a |-> v)
 .
 
+Definition equiv_states (S0 S1 : LLBC_plus_state) :=
+  vars S0 = vars S1 /\
+  equiv_map (anons S0) (anons S1) /\
+  map_Forall2 (fun _ => equiv_map) (regions S0) (regions S1).
+(*forall i, option_Forall2 equiv_map (lookup i (regions S0)) (lookup i (regions S1)).*)
+
+Global Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
+{ leq_base := leq_state_base }.
+
+Definition leq S0 S1 :=
+  exists S1', leq_base^* S0 S1' /\ equiv_states S1' S1.
+
 Record LLBC_plus_well_formed (S : LLBC_plus_state) : Prop := {
   at_most_one_borrow_mut l : at_most_one_node (borrowC^m(l)) S;
   at_most_one_loan_mut l : at_most_one_node (loanC^m(l)) S;
@@ -581,9 +593,6 @@ Proof.
   rewrite region_sum_insert, region_sum_empty by apply lookup_empty. lia.
 Qed.
 Hint Rewrite region_sum_singleton : weight.
-
-Global Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
-{ leq_base := leq_state_base }.
 
 Global Instance LLBC_plus_WellFormed : WellFormed LLBC_plus_state :=
 { well_formed := LLBC_plus_well_formed }.
@@ -830,7 +839,7 @@ Section Eval_LLBC_plus_program.
   Ltac simpl_state :=
     (* We can actually perform vm_compute on sget, because the result is a value and not a state. *)
     repeat (remember (sget _ _ ) eqn:EQN; vm_compute in EQN; subst);
-    compute - [insert alter empty singleton delete];
+    compute - [insert alter empty singleton delete leq];
     autorewrite with core.
 
   Lemma exec_if :
@@ -848,47 +857,53 @@ Section Eval_LLBC_plus_program.
       - reflexivity.
     }
     simpl_state.
-    etransitivity; [constructor | ].
-    { eapply Leq_Reborrow_MutBorrow with (sp := (encode_var z, [])) (l1 := lz) (a := 2%positive).
-      - apply decide_not_is_fresh. reflexivity.
-      - reflexivity.
-      - reflexivity.
-    }
-    simpl_state.
-    etransitivity; [constructor | ].
-    { apply Leq_Fresh_MutLoan with (sp := (encode_var y, [])) (l := ly) (a := 3%positive).
-      - apply decide_not_is_fresh. reflexivity.
-      - reflexivity.
-      - apply decide_contains_bot. reflexivity.
-    }
-    simpl_state.
-    etransitivity; [constructor | ].
-    { eapply Leq_ToAbs with (a := 2%positive) (i := 1%positive); [reflexivity.. | constructor]. }
-    simpl_state.
-    etransitivity; [constructor | ].
-    { apply Leq_ToSymbolic with (sp := (encode_anon 3%positive, [0])).
-      - apply decide_contains_loan. reflexivity.
-      - apply decide_contains_borrow. reflexivity.
-      - apply decide_contains_bot. reflexivity.
-    }
-    simpl_state.
-    etransitivity; [constructor | ].
-    { eapply Leq_ToAbs with (a := 3%positive) (i := 2%positive); [reflexivity.. | constructor]. }
-    simpl_state.
-    etransitivity; [constructor | ].
-    { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
-      eapply MergeAbsInsert with (i := 3%positive); [reflexivity.. | ].
-      apply MergeAbsEmpty. }
-    simpl_state.
-    etransitivity; [constructor | ].
-    { apply Leq_ToSymbolic with (sp := (encode_var z, [0])).
-      - apply decide_contains_loan. reflexivity.
-      - apply decide_contains_borrow. reflexivity.
-      - apply decide_contains_bot. reflexivity. }
-    simpl_state.
-    etransitivity; [constructor | ].
-    { eapply Leq_RemoveAnon with (a := 1%positive).
-      - reflexivity.
-      - apply decide_contains_loan. reflexivity.
-      - apply decide_contains_borrow. reflexivity. }
-    simpl_state.
+    eexists. split.
+    - etransitivity; [constructor | ].
+      { eapply Leq_Reborrow_MutBorrow with (sp := (encode_var z, [])) (l1 := lz) (a := 2%positive).
+        - apply decide_not_is_fresh. reflexivity.
+        - reflexivity.
+        - reflexivity.
+      }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { apply Leq_Fresh_MutLoan with (sp := (encode_var y, [])) (l := ly) (a := 3%positive).
+        - apply decide_not_is_fresh. reflexivity.
+        - reflexivity.
+        - apply decide_contains_bot. reflexivity.
+      }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { eapply Leq_ToAbs with (a := 2%positive) (i := 1%positive); [reflexivity.. | constructor]. }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { apply Leq_ToSymbolic with (sp := (encode_anon 3%positive, [0])).
+        - apply decide_contains_loan. reflexivity.
+        - apply decide_contains_borrow. reflexivity.
+        - apply decide_contains_bot. reflexivity.
+      }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { eapply Leq_ToAbs with (a := 3%positive) (i := 2%positive); [reflexivity.. | constructor]. }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
+        eapply MergeAbsInsert with (i := 3%positive); [reflexivity.. | ].
+        apply MergeAbsEmpty. }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { apply Leq_ToSymbolic with (sp := (encode_var z, [0])).
+        - apply decide_contains_loan. reflexivity.
+        - apply decide_contains_borrow. reflexivity.
+        - apply decide_contains_bot. reflexivity. }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { eapply Leq_RemoveAnon with (a := 1%positive).
+        - reflexivity.
+        - apply decide_contains_loan. reflexivity.
+        - apply decide_contains_borrow. reflexivity. }
+      simpl_state. reflexivity.
+    - split; [ | split]; try reflexivity.
+      apply map_Forall2_singleton.
+      exists {[1%positive := 1%positive; 2%positive := 3%positive; 3%positive := 2%positive]}.
+      repeat split; compute_done.
+  Qed.
