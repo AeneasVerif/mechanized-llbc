@@ -745,7 +745,7 @@ Definition if_branch : statement :=
   ASSIGN (z, []) <- &mut (x, []).
 
 Definition else_branch : statement :=
-  ASSIGN (y, []) <- &mut (x, []).
+  ASSIGN (z, []) <- &mut (y, []).
 
 Definition end_main : statement :=
   ASSIGN (z, [Deref]) <- BinOp (Copy (z, [Deref])) (IntConst 1);;
@@ -966,5 +966,59 @@ Section Eval_LLBC_plus_program.
     - split; [ | split]; try reflexivity.
       apply map_Forall2_singleton.
       exists {[1%positive := 1%positive; 2%positive := 3%positive; 3%positive := 2%positive]}.
+      repeat split; compute_done.
+  Qed.
+
+  Lemma exec_else :
+    exists else_state, eval_stmt else_branch rUnit cond_state else_state /\ leq else_state join_state.
+  Proof.
+    eexists. split.
+    { unfold cond_state. eapply Eval_assign; [ | apply Store with (a := 1%positive)].
+      - apply Eval_mut_borrow with (l := ly).
+        + eval_var. constructor.
+        + apply decide_not_contains_loan. reflexivity.
+        + apply decide_not_contains_bot. reflexivity.
+        + apply decide_is_fresh. reflexivity.
+      - eval_var. constructor.
+      - apply decide_not_contains_outer_loan_correct. reflexivity.
+      - reflexivity.
+    }
+    simpl_state.
+    eexists. split.
+    - etransitivity.
+      { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive).
+        - apply decide_is_fresh. reflexivity.
+        - reflexivity.
+        - reflexivity.
+      }
+      simpl_state.
+      etransitivity.
+      { apply Leq_Fresh_MutLoan_Abs with (sp := (encode_var x, [])) (l := lx) (i := 2%positive).
+        - apply decide_is_fresh. reflexivity.
+        - reflexivity.
+        - apply decide_not_contains_loan. reflexivity.
+        - apply decide_not_contains_borrow. reflexivity.
+        - cbn. apply decide_not_contains_bot. reflexivity. }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
+        eapply MergeAbsInsert with (i := 3%positive); [reflexivity.. | ].
+        apply MergeAbsEmpty. }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { apply Leq_ToSymbolic with (sp := (encode_var z, [0])).
+        - apply decide_not_contains_loan. reflexivity.
+        - apply decide_not_contains_borrow. reflexivity.
+        - apply decide_not_contains_bot. reflexivity. }
+      simpl_state.
+      etransitivity; [constructor | ].
+      { eapply Leq_RemoveAnon with (a := 1%positive).
+        - reflexivity.
+        - apply decide_not_contains_loan. reflexivity.
+        - apply decide_not_contains_borrow. reflexivity. }
+      simpl_state. reflexivity.
+    - split; [ | split]; try reflexivity.
+      apply map_Forall2_singleton.
+      exists {[1%positive := 2%positive; 2%positive := 3%positive; 3%positive := 1%positive]}.
       repeat split; compute_done.
   Qed.
