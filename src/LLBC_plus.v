@@ -302,7 +302,7 @@ Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminat
 Inductive copy_val : LLBC_plus_val -> LLBC_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (LLBC_plus_int n) (LLBC_plus_int n)
 (* Note: copies should only be allowed on copiable types. *)
-| Copy_val_symbolic (n : nat) : copy_val LLBC_plus_symbolic LLBC_plus_symbolic
+| Copy_val_symbolic : copy_val LLBC_plus_symbolic LLBC_plus_symbolic
 .
 
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
@@ -334,6 +334,20 @@ Variant eval_rvalue : rvalue -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_st
       (S |-{op} op_l => (LLBC_plus_int m, S')) ->
       (S' |-{op} op_r => (LLBC_plus_int n, S'')) ->
       S |-{rv} (BinOp op_l op_r) => ((LLBC_plus_int (m + n)), S'')
+  (* Additional rules to evaluate the "+" operator with a symbolic value. *)
+  | Eval_bin_op_symbolic_int S S' S'' op_l op_r n :
+      (S |-{op} op_l => (LLBC_plus_symbolic, S')) ->
+      (S' |-{op} op_r => (LLBC_plus_int n, S'')) ->
+      S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
+  | Eval_bin_op_int_symbolic S S' S'' op_l op_r m :
+      (S |-{op} op_l => (LLBC_plus_int m, S')) ->
+      (S' |-{op} op_r => (LLBC_plus_symbolic, S'')) ->
+      S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
+  | Eval_bin_op_symbolic_symbolic S S' S'' op_l op_r :
+      (S |-{op} op_l => (LLBC_plus_symbolic, S')) ->
+      (S' |-{op} op_r => (LLBC_plus_symbolic, S'')) ->
+      S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
+
   | Eval_mut_borrow S p pi l : S |-{p} p =>^{Mut} pi ->
       not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) -> is_fresh l S ->
       S |-{rv} (&mut p) => (borrow^m(l, S.[pi]), S.[pi <- loan^m(l)])
@@ -1022,3 +1036,19 @@ Section Eval_LLBC_plus_program.
       exists {[1%positive := 2%positive; 2%positive := 3%positive; 3%positive := 1%positive]}.
       repeat split; compute_done.
   Qed.
+
+    Lemma safe_main :
+      exists end_state, eval_stmt end_main rUnit join_state end_state.
+    Proof.
+      eexists.
+      eapply Eval_seq_unit.
+      { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
+        - eapply Eval_bin_op_symbolic_int.
+          + eapply Eval_copy.
+            * eval_var. repeat econstructor || easy.
+            * constructor.
+          + apply Eval_IntConst.
+        - eval_var. repeat econstructor || easy.
+        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - reflexivity.
+      }
