@@ -451,12 +451,33 @@ Proof.
   cbn. unfold encode_anon. rewrite sum_maps_lookup_l, sum_maps_lookup_r. auto.
 Qed.
 
+(* Note: this is a general lemma on states, that could be moved into PathToSubtree.v *)
+Lemma add_anons_states_eq S S' a v w
+  (fresh_a_S : fresh_anon S a) (fresh_a_S' : fresh_anon S' a)
+  (H : S,, a |-> v = S',, a |-> w) : S = S'.
+Proof.
+  apply state_eq_ext.
+  - apply (f_equal get_map) in H. rewrite !get_map_add_anon in H.
+    apply (f_equal (delete (anon_accessor a))) in H.
+    rewrite !delete_insert in H by assumption. exact H.
+  - apply (f_equal get_extra) in H. rewrite !get_extra_add_anon in H. exact H.
+Qed.
+
 Lemma remove_anon_fresh S a : fresh_anon (remove_anon a S) a.
 Proof.
   unfold fresh_anon, remove_anon, get_map. cbn. unfold encode_anon.
   rewrite sum_maps_lookup_l, sum_maps_lookup_r. apply lookup_delete.
 Qed.
 Hint Rewrite @sweight_add_anon using auto using fresh_anon_sset, remove_anon_fresh : weight.
+
+Lemma remove_anon_add_anon S a v : fresh_anon S a -> remove_anon a (S,, a |-> v) = S.
+Proof.
+  intros H. apply add_anons_states_eq with (a := a) (v := v) (w := v).
+  - apply remove_anon_fresh.
+  - assumption.
+  - rewrite add_anon_remove_anon; [reflexivity | ].
+    rewrite get_map_add_anon. simpl_map. reflexivity.
+Qed.
 
 (* TODO: create a definition instead of a notation? *)
 Notation remove_region i S :=
@@ -646,6 +667,58 @@ Proof.
       [ | intros ? <-%indicator_non_zero; constructor].
     destruct H; split; weight_inequality.
 Admitted.
+
+(* Derived rules *)
+Lemma fresh_abstraction_sset S sp v i :
+  fresh_abstraction S i -> fresh_abstraction (S.[sp <- v]) i.
+Proof.
+  rewrite<- !not_elem_of_dom.
+  replace (dom (regions (S.[ sp <- v]))) with (get_extra (S.[ sp <- v])) by reflexivity.
+  unfold sset. rewrite get_extra_alter. auto.
+Qed.
+
+Lemma Leq_Reborrow_MutBorrow_Abs S sp l0 l1 i
+    (fresh_l1 : is_fresh l1 S)
+    (fresh_i : fresh_abstraction S i)
+    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
+    leq_state_base^* S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],,,
+                        i |-> {[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]}%stdpp).
+Proof.
+  destruct (exists_fresh_anon S) as (a & fresh_a).
+  etransitivity.
+  { constructor. apply Leq_Reborrow_MutBorrow; eassumption. }
+  etransitivity.
+  { constructor. eapply Leq_ToAbs with (a := a).
+    - rewrite get_map_add_anon. simpl_map. reflexivity.
+    - repeat apply fresh_abstraction_sset. eassumption.
+    - constructor. }
+  rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
+Qed.
+
+Lemma Leq_Fresh_MutLoan_Abs S sp l i
+    (fresh_l1 : is_fresh l S)
+    (fresh_i : fresh_abstraction S i)
+    (no_loan : not_contains_loan (S.[sp]))
+    (no_borrow : not_contains_borrow (S.[sp]))
+    (no_bot : not_contains_bot (S.[sp])) :
+    leq_state_base^* S (S.[sp <- loan^m(l)],,,
+                        i |-> {[1%positive := borrow^m(l, LLBC_plus_symbolic)]}%stdpp).
+Proof.
+  destruct (exists_fresh_anon S) as (a & fresh_a).
+  etransitivity.
+  { constructor. apply Leq_ToSymbolic; eassumption. }
+  etransitivity.
+  { constructor. apply Leq_Fresh_MutLoan with (sp := sp).
+    - not_contains. eassumption.
+    - apply fresh_anon_sset. eassumption.
+    - autorewrite with spath. apply not_value_contains_zeroary; auto. }
+  etransitivity.
+  { constructor. eapply Leq_ToAbs with (a := a) (i := i).
+    - rewrite get_map_add_anon. simpl_map. autorewrite with spath. reflexivity.
+    - repeat apply fresh_abstraction_sset. assumption.
+    - constructor. }
+  autorewrite with spath. rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
+Qed.
 
 Require Import Bool.
 Local Open Scope option_monad_scope.
@@ -858,32 +931,20 @@ Section Eval_LLBC_plus_program.
     }
     simpl_state.
     eexists. split.
-    - etransitivity; [constructor | ].
-      { eapply Leq_Reborrow_MutBorrow with (sp := (encode_var z, [])) (l1 := lz) (a := 2%positive).
+    - etransitivity.
+      { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive).
         - apply decide_is_fresh. reflexivity.
         - reflexivity.
         - reflexivity.
       }
       simpl_state.
-      etransitivity; [constructor | ].
-      { apply Leq_Fresh_MutLoan with (sp := (encode_var y, [])) (l := ly) (a := 3%positive).
+      etransitivity.
+      { apply Leq_Fresh_MutLoan_Abs with (sp := (encode_var y, [])) (l := ly) (i := 2%positive).
         - apply decide_is_fresh. reflexivity.
         - reflexivity.
-        - apply decide_not_contains_bot. reflexivity.
-      }
-      simpl_state.
-      etransitivity; [constructor | ].
-      { eapply Leq_ToAbs with (a := 2%positive) (i := 1%positive); [reflexivity.. | constructor]. }
-      simpl_state.
-      etransitivity; [constructor | ].
-      { apply Leq_ToSymbolic with (sp := (encode_anon 3%positive, [0])).
         - apply decide_not_contains_loan. reflexivity.
         - apply decide_not_contains_borrow. reflexivity.
-        - apply decide_not_contains_bot. reflexivity.
-      }
-      simpl_state.
-      etransitivity; [constructor | ].
-      { eapply Leq_ToAbs with (a := 3%positive) (i := 2%positive); [reflexivity.. | constructor]. }
+        - apply decide_not_contains_bot. reflexivity. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
