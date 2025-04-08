@@ -523,7 +523,7 @@ End Flatten.
 Definition permutation := Pmap positive.
 
 Definition injective_permutation (p : permutation) :=
-  forall i j k, lookup i p = Some k -> lookup j p = Some k -> i = j.
+  map_Forall (fun i v => map_Forall (fun j w => v = w -> i = j) p) p.
 
 Definition insert_permuted_key A (p : permutation) (i : positive) (a : A) (m : Pmap A) :=
   match lookup i p with
@@ -542,14 +542,73 @@ Proof.
   induction m as [ | k x m ? ? IHm] using map_first_key_ind.
   - rewrite map_fold_empty. simpl_map. reflexivity.
   - destruct (decide (i = k)) as [<- | ?].
-    + unfold apply_permutation.
-      rewrite map_fold_insert_first_key by assumption.
+    + rewrite map_fold_insert_first_key by assumption.
       unfold insert_permuted_key. rewrite H. simpl_map. reflexivity.
     + simpl_map. rewrite map_fold_insert_first_key by assumption.
-      unfold insert_permuted_key. destruct (lookup k p) eqn:?.
+      unfold insert_permuted_key. destruct (lookup k p) eqn:EQN.
       * rewrite lookup_insert_ne.
         -- exact IHm.
-        -- intros <-.
-           (* By injectivity, we can prove that i = k, which is a contradiction. *) eauto.
+       (* By injectivity, we can prove that i = k, which is a contradiction. *)
+        -- unfold injective_permutation,  map_Forall in inj_p. eauto.
       * exact IHm.
+Qed.
+
+Lemma lookup_permutation_None {A} p i (m : Pmap A) :
+  ~elem_of i (map_img (SA := Pset) p) -> lookup i (apply_permutation p m) = None.
+Proof.
+  intros H. unfold apply_permutation.
+  induction m as [ | k x m ? ? IHm] using map_first_key_ind.
+  - rewrite map_fold_empty. simpl_map. reflexivity.
+  - unfold apply_permutation.
+    rewrite map_fold_insert_first_key by assumption.
+    unfold insert_permuted_key. destruct (lookup k p) eqn:?.
+    + rewrite lookup_insert_ne; [exact IHm | ].
+      intros <-. apply H. eapply elem_of_map_img_2; eassumption.
+    + exact IHm.
+Qed.
+
+(* Two maps are equivalent if they have the same elements. In other words, they are equal up to a
+ * permutation of the keys. *)
+Definition equiv_map {A} (m0 m1 : Pmap A) :=
+  exists p, injective_permutation p /\ subseteq (dom m0) (dom p) /\ m1 = apply_permutation p m0.
+
+(* For a map m, extracts the permutation p mapping keys of m to themselves.
+ * This permutation is used to prove the reflexivity of equiv_map. *)
+Definition identity_map {A} (m : Pmap A) : permutation := map_imap (fun i _ => Some i) m.
+
+Lemma identity_map_lookup {A} (m : Pmap A) i (H : is_Some (lookup i m)) :
+  lookup i (identity_map m) = Some i.
+Proof. etransitivity; [apply map_lookup_imap | ]. apply bind_Some. firstorder. Qed.
+
+Lemma identity_map_lookup_None {A} (m : Pmap A) i (H : lookup i m = None) :
+  lookup i (identity_map m) = None.
+Proof. etransitivity; [apply map_lookup_imap | ]. apply bind_None. firstorder. Qed.
+
+Lemma identity_map_lookup_Some {A} (m : Pmap A) i j : lookup i (identity_map m) = Some j -> i = j.
+Proof.
+  intros H. destruct (lookup i m) eqn:EQN.
+  - rewrite identity_map_lookup in H by firstorder. congruence.
+  - rewrite identity_map_lookup_None in H by assumption. discriminate.
+Qed.
+
+Lemma injective_identity_map A (m : Pmap A) : injective_permutation (identity_map m).
+Proof. intros ? ? ?%identity_map_lookup_Some ? ? ?%identity_map_lookup_Some. congruence. Qed.
+
+Global Instance reflexive_equiv_map A : Reflexive (@equiv_map A).
+Proof.
+  intros m. exists (identity_map m). split; [ | split].
+  - apply injective_identity_map.
+  - intros i. rewrite elem_of_dom. rewrite (elem_of_dom (identity_map m)).
+    intros ?%identity_map_lookup. firstorder.
+  - apply map_eq. intros i. destruct (lookup i m) eqn:EQN.
+    + erewrite lookup_permutation.
+      * eauto.
+      * apply injective_identity_map.
+      * apply identity_map_lookup. firstorder.
+    + rewrite lookup_permutation_None; [reflexivity | ].
+      apply identity_map_lookup_None in EQN. intros (? & H)%elem_of_map_img.
+      rewrite (identity_map_lookup_Some _ _ _ H) in H.
+      (* Why can't I just conclude by congruence? *)
+      assert (Some i = None). { rewrite <-EQN, <-H. reflexivity. }
+      discriminate.
 Qed.
