@@ -348,7 +348,7 @@ Qed.
 
 (* For the moment, the type of values is so restricted that a value contains an outer loan if and
  * only if it is a mutable loan. *)
-Lemma decide_contains_outer_loan_correct v :
+Lemma decide_not_contains_outer_loan_correct v :
   is_true (decide_not_contains_outer_loan v) -> not_contains_outer_loan v.
 Proof.
   intros no_outer_loan [ | ] H.
@@ -388,11 +388,11 @@ Proof.
       * rewrite nth_error_nil in * |-. discriminate.
 Qed.
 
-Corollary decide_contains_bot v (H : decide_not_value_contains decide_is_bot v = true) :
+Corollary decide_not_contains_bot v (H : decide_not_value_contains decide_is_bot v = true) :
   not_contains_bot v.
 Proof. eapply decide_not_value_contains_correct; try exact H. intros ? ->. reflexivity. Qed.
 
-Corollary decide_contains_loan v (H : decide_not_value_contains decide_is_loan v = true) :
+Corollary decide_not_contains_loan v (H : decide_not_value_contains decide_is_loan v = true) :
   not_contains_loan v.
 Proof.
   eapply decide_not_value_contains_correct; try exact H.
@@ -415,7 +415,7 @@ Proof.
   - rewrite andb_false_l in G. discriminate.
 Qed.
 
-Corollary decide_not_is_fresh S l (H : decide_not_state_contains (decide_is_loan_id l) S = true) :
+Corollary decide_is_fresh S l (H : decide_not_state_contains (decide_is_loan_id l) S = true) :
   is_fresh l S.
 Proof.
   eapply decide_state_contains_correct; try eassumption.
@@ -466,54 +466,54 @@ Section Eval_LLBC_program.
       { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
         - apply Eval_just, Eval_IntConst.
         - eval_var. constructor.
-        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | apply Store with (a := 2%positive)].
         - apply Eval_just, Eval_IntConst.
         - eval_var. constructor.
-        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | eapply Store with (a := 3%positive)].
         - apply Eval_mut_borrow with (l := 0).
           + eval_var. constructor.
-          + cbn. apply decide_contains_loan. reflexivity.
-          + cbn. apply decide_contains_bot. reflexivity.
-          + cbn. apply decide_not_is_fresh. reflexivity.
+          + cbn. apply decide_not_contains_loan. reflexivity.
+          + cbn. apply decide_not_contains_bot. reflexivity.
+          + cbn. apply decide_is_fresh. reflexivity.
         - eval_var. constructor.
-        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | eapply Store with (a := 4%positive)].
         - eapply Eval_mut_borrow with (l := 1).
           + eval_var. repeat econstructor || easy.
-          + cbn. apply decide_contains_loan. reflexivity.
-          + cbn. apply decide_contains_bot. reflexivity.
-          + cbn. apply decide_not_is_fresh. reflexivity.
+          + cbn. apply decide_not_contains_loan. reflexivity.
+          + cbn. apply decide_not_contains_bot. reflexivity.
+          + cbn. apply decide_is_fresh. reflexivity.
         - eval_var. constructor.
-        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | eapply Store with (a := 5%positive)].
         - eapply Eval_mut_borrow with (l := 2).
           + eval_var. constructor.
-          + cbn. apply decide_contains_loan. reflexivity.
-          + cbn. apply decide_contains_bot. reflexivity.
-          + cbn. apply decide_not_is_fresh. reflexivity.
+          + cbn. apply decide_not_contains_loan. reflexivity.
+          + cbn. apply decide_not_contains_bot. reflexivity.
+          + cbn. apply decide_is_fresh. reflexivity.
         - eval_var. constructor.
-        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | eapply Store with (a := 6%positive)].
         - apply Eval_just, Eval_IntConst.
         - eval_var. repeat econstructor || easy.
-        - cbn. apply decide_contains_outer_loan_correct. reflexivity.
+        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_reorg.
@@ -522,7 +522,7 @@ Section Eval_LLBC_program.
           + left. discriminate.
           + reflexivity.
           + reflexivity.
-          + apply decide_contains_loan. reflexivity.
+          + apply decide_not_contains_loan. reflexivity.
           + intros ? ->%prefix_nil. reflexivity. }
           simpl_state.
           constructor.
@@ -530,7 +530,7 @@ Section Eval_LLBC_program.
           + left. discriminate.
           + reflexivity.
           + reflexivity.
-          + apply decide_contains_loan. reflexivity.
+          + apply decide_not_contains_loan. reflexivity.
           + intros ? ->%prefix_nil. reflexivity.
       }
       simpl_state. apply Eval_nop.

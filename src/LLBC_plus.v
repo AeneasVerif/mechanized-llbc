@@ -720,7 +720,7 @@ Qed.
 
 (* For the moment, the type of values is so restricted that a value contains an outer loan if and
  * only if it is a mutable loan. *)
-Lemma decide_contains_outer_loan_correct v :
+Lemma decide_not_contains_outer_loan_correct v :
   is_true (decide_not_contains_outer_loan v) -> not_contains_outer_loan v.
 Proof.
   intros no_outer_loan [ | ] H.
@@ -763,18 +763,18 @@ Proof.
     subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
 Qed.
 
-Corollary decide_contains_bot v (H : decide_not_value_contains decide_is_bot v = true) :
+Corollary decide_not_contains_bot v (H : decide_not_value_contains decide_is_bot v = true) :
   not_contains_bot v.
 Proof. eapply decide_not_value_contains_correct; try exact H. intros ? ->. reflexivity. Qed.
 
-Corollary decide_contains_loan v (H : decide_not_value_contains decide_is_loan v = true) :
+Corollary decide_not_contains_loan v (H : decide_not_value_contains decide_is_loan v = true) :
   not_contains_loan v.
 Proof.
   eapply decide_not_value_contains_correct; try exact H.
   intros ? G. destruct G. reflexivity.
 Qed.
 
-Corollary decide_contains_borrow v (H : decide_not_value_contains decide_is_borrow v = true) :
+Corollary decide_not_contains_borrow v (H : decide_not_value_contains decide_is_borrow v = true) :
   not_contains_borrow v.
 Proof.
   eapply decide_not_value_contains_correct; try exact H.
@@ -797,7 +797,7 @@ Proof.
   - rewrite andb_false_l in G. discriminate.
 Qed.
 
-Corollary decide_not_is_fresh S l (H : decide_not_state_contains (decide_is_loan_id l) S = true) :
+Corollary decide_is_fresh S l (H : decide_not_state_contains (decide_is_loan_id l) S = true) :
   is_fresh l S.
 Proof.
   eapply decide_state_contains_correct; try eassumption.
@@ -849,27 +849,27 @@ Section Eval_LLBC_plus_program.
     { unfold cond_state. eapply Eval_assign; [ | apply Store with (a := 1%positive)].
       - apply Eval_mut_borrow with (l := lx).
         + eval_var. constructor.
-        + apply decide_contains_loan. reflexivity.
-        + apply decide_contains_bot. reflexivity.
-        + apply decide_not_is_fresh. reflexivity.
+        + apply decide_not_contains_loan. reflexivity.
+        + apply decide_not_contains_bot. reflexivity.
+        + apply decide_is_fresh. reflexivity.
       - eval_var. constructor.
-      - apply decide_contains_outer_loan_correct. reflexivity.
+      - apply decide_not_contains_outer_loan_correct. reflexivity.
       - reflexivity.
     }
     simpl_state.
     eexists. split.
     - etransitivity; [constructor | ].
       { eapply Leq_Reborrow_MutBorrow with (sp := (encode_var z, [])) (l1 := lz) (a := 2%positive).
-        - apply decide_not_is_fresh. reflexivity.
+        - apply decide_is_fresh. reflexivity.
         - reflexivity.
         - reflexivity.
       }
       simpl_state.
       etransitivity; [constructor | ].
       { apply Leq_Fresh_MutLoan with (sp := (encode_var y, [])) (l := ly) (a := 3%positive).
-        - apply decide_not_is_fresh. reflexivity.
+        - apply decide_is_fresh. reflexivity.
         - reflexivity.
-        - apply decide_contains_bot. reflexivity.
+        - apply decide_not_contains_bot. reflexivity.
       }
       simpl_state.
       etransitivity; [constructor | ].
@@ -877,9 +877,9 @@ Section Eval_LLBC_plus_program.
       simpl_state.
       etransitivity; [constructor | ].
       { apply Leq_ToSymbolic with (sp := (encode_anon 3%positive, [0])).
-        - apply decide_contains_loan. reflexivity.
-        - apply decide_contains_borrow. reflexivity.
-        - apply decide_contains_bot. reflexivity.
+        - apply decide_not_contains_loan. reflexivity.
+        - apply decide_not_contains_borrow. reflexivity.
+        - apply decide_not_contains_bot. reflexivity.
       }
       simpl_state.
       etransitivity; [constructor | ].
@@ -892,15 +892,15 @@ Section Eval_LLBC_plus_program.
       simpl_state.
       etransitivity; [constructor | ].
       { apply Leq_ToSymbolic with (sp := (encode_var z, [0])).
-        - apply decide_contains_loan. reflexivity.
-        - apply decide_contains_borrow. reflexivity.
-        - apply decide_contains_bot. reflexivity. }
+        - apply decide_not_contains_loan. reflexivity.
+        - apply decide_not_contains_borrow. reflexivity.
+        - apply decide_not_contains_bot. reflexivity. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_RemoveAnon with (a := 1%positive).
         - reflexivity.
-        - apply decide_contains_loan. reflexivity.
-        - apply decide_contains_borrow. reflexivity. }
+        - apply decide_not_contains_loan. reflexivity.
+        - apply decide_not_contains_borrow. reflexivity. }
       simpl_state. reflexivity.
     - split; [ | split]; try reflexivity.
       apply map_Forall2_singleton.
