@@ -818,78 +818,66 @@ Proof.
     * constructor.
 Qed.
 
-Definition decide_is_bot v := match v with botC => true | _ => false end.
-Definition decide_is_loan v := match v with loanC^m(l) => true | _ => false end.
-Definition decide_is_borrow v := match v with borrowC^m(l) => true | _ => false end.
-Definition decide_is_loan_id l v :=
-  match v with
-  | borrowC^m(l') | loanC^m(l') => l =? l'
-  | _ => false
-  end.
-
-Fixpoint decide_not_value_contains (P : LLBC_plus_nodes -> bool) v :=
-  negb (P (get_node v)) && match v with borrow^m(l, w) => decide_not_value_contains P w | _ => true end.
-
-(* split in two lemmas. *)
-Lemma decide_not_value_contains_correct H P v (H_implies_P : forall v, H v -> P v = true) :
-  decide_not_value_contains P v = true -> not_value_contains H v.
+Lemma decidable_not_value_contains_zeroary P (P_dec : forall n, Decision (P n)) v :
+  children v = [] -> Decision (not_value_contains P v).
 Proof.
-  intro decide_is_true. induction v.
-  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
-    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
-  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
-    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
-  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
-    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
-  - intros p valid_p. inversion valid_p; subst.
-    + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
-    + cbn in *. rewrite nth_error_cons in * |-. destruct i.
-      * cbn in *. apply IHv. eapply andb_prop. eassumption. inversion H0. assumption.
-      * rewrite nth_error_nil in * |-. discriminate.
-  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
-    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
+  intros ?. destruct (P_dec (get_node v)).
+  - right. intros G. apply (G []); [constructor | assumption].
+  - left. intros p ->%valid_vpath_no_children; assumption.
+Defined.
+
+(* TODO: move in base.v *)
+Lemma nth_error_singleton {A} (a b : A) i : nth_error [a] i = Some b -> a = b /\ i = 0.
+Proof. destruct i; cbn; rewrite ?nth_error_nil; split; congruence. Qed.
+
+Lemma decidable_not_value_contains_unary P (P_dec : forall n, Decision (P n)) v w :
+  children v = [w] -> Decision (not_value_contains P w) -> Decision (not_value_contains P v).
+Proof.
+  intros child_v P_dec_w. destruct (P_dec (get_node v)).
+  - right. intros G. apply (G []); [constructor | assumption].
+  - destruct P_dec_w as [w_not_contains | w_contains].
+    + left. intros p valid_p. inversion valid_p as [ | ? ? ? ? H].
+      * assumption.
+      * cbn -[children]. rewrite child_v in *. apply nth_error_singleton in H.
+        destruct H. subst. eauto.
+    + right. intros G. eapply w_contains. intros p valid_p ?.
+      apply (G (0 :: p)).
+      * econstructor; [rewrite child_v; reflexivity | assumption].
+      * cbn -[children]. rewrite child_v. assumption.
+Defined.
+
+Instance decidable_not_value_contains P `(P_dec : forall n, Decision (P n)) v :
+  Decision (not_value_contains P v).
+Proof.
+  induction v; eauto using decidable_not_value_contains_zeroary, decidable_not_value_contains_unary.
+Defined.
+
+Instance decidable_is_loan v : Decision (is_loan v).
+Proof. destruct v; first [left; easy | right; easy]. Defined.
+
+Instance decidable_is_borrow v : Decision (is_borrow v).
+Proof. destruct v; first [left; easy | right; easy]. Defined.
+
+Instance LLBC_plus_val_EqDec : EqDecision LLBC_plus_nodes.
+Proof. intros ? ?. unfold Decision. repeat decide equality. Defined.
+
+(* TODO: move in PathToSubtree.v *)
+Lemma not_state_contains_map_Forall S P :
+  not_state_contains P S <-> map_Forall (fun _ => not_value_contains P) (get_map S).
+Proof.
+  split.
+  - intros H i ? get_i p valid_p ?. eapply (H (i, p)). eexists. split; eassumption.
+    unfold sget. replace (fst (i, p)) with i by reflexivity. rewrite get_i. assumption.
+  - intros H p (? & G & ?) P_p. eapply H. eassumption. eassumption. unfold sget in P_p.
+    rewrite G in P_p. exact P_p.
 Qed.
 
-Corollary decide_not_contains_bot v (H : decide_not_value_contains decide_is_bot v = true) :
-  not_contains_bot v.
-Proof. eapply decide_not_value_contains_correct; try exact H. intros ? ->. reflexivity. Qed.
-
-Corollary decide_not_contains_loan v (H : decide_not_value_contains decide_is_loan v = true) :
-  not_contains_loan v.
+Instance decide_not_state_contains P `(forall v, Decision (P v)) S :
+  Decision (not_state_contains P S).
 Proof.
-  eapply decide_not_value_contains_correct; try exact H.
-  intros ? G. destruct G. reflexivity.
-Qed.
-
-Corollary decide_not_contains_borrow v (H : decide_not_value_contains decide_is_borrow v = true) :
-  not_contains_borrow v.
-Proof.
-  eapply decide_not_value_contains_correct; try exact H.
-  intros ? G. destruct G. reflexivity.
-Qed.
-
-Definition decide_not_state_contains (P : LLBC_plus_nodes -> bool) (S : LLBC_plus_state) :=
-  map_fold (fun k v b => decide_not_value_contains P v && b) true (get_map S).
-
-Lemma decide_state_contains_correct H P S (H_implies_P : forall v, H v -> P v = true) :
-  decide_not_state_contains P S = true -> not_state_contains H S.
-Proof.
-  intros G p. unfold sget. intros (v & getval_S & ?). rewrite getval_S.
-  intros H_in_v.
-  unfold decide_not_state_contains in G.
-  erewrite map_fold_delete_L in G; [ | intros; ring | eassumption].
-  destruct (decide_not_value_contains P v) eqn:EQN.
-  - eapply decide_not_value_contains_correct in EQN; [ | eassumption].
-    eapply EQN; eassumption.
-  - rewrite andb_false_l in G. discriminate.
-Qed.
-
-Corollary decide_is_fresh S l (H : decide_not_state_contains (decide_is_loan_id l) S = true) :
-  is_fresh l S.
-Proof.
-  eapply decide_state_contains_correct; try eassumption.
-  intros c G. destruct c; inversion G; apply Nat.eqb_refl.
-Qed.
+  destruct (decide (map_Forall (fun _ => not_value_contains P) (get_map S)));
+    rewrite <-not_state_contains_map_Forall in * |-; [left | right]; assumption.
+Defined.
 
 (* TODO: move in PathToSubtree.v? *)
 Lemma prefix_nil p i : prefix p (i, []) -> p = (i, []).
@@ -934,11 +922,7 @@ Section Eval_LLBC_plus_program.
   Proof.
     eexists. split.
     { unfold cond_state. eapply Eval_assign; [ | apply Store with (a := 1%positive)].
-      - apply Eval_mut_borrow with (l := lx).
-        + eval_var. constructor.
-        + apply decide_not_contains_loan. reflexivity.
-        + apply decide_not_contains_bot. reflexivity.
-        + apply decide_is_fresh. reflexivity.
+      - apply Eval_mut_borrow with (l := lx). { eval_var. constructor. } all: compute_done.
       - eval_var. constructor.
       - apply decide_not_contains_outer_loan_correct. reflexivity.
       - reflexivity.
@@ -946,19 +930,12 @@ Section Eval_LLBC_plus_program.
     simpl_state.
     eexists. split.
     - etransitivity.
-      { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive).
-        - apply decide_is_fresh. reflexivity.
-        - reflexivity.
-        - reflexivity.
-      }
+      { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive);
+          try compute_done; reflexivity. }
       simpl_state.
       etransitivity.
-      { apply Leq_Fresh_MutLoan_Abs with (sp := (encode_var y, [])) (l := ly) (i := 2%positive).
-        - apply decide_is_fresh. reflexivity.
-        - reflexivity.
-        - apply decide_not_contains_loan. reflexivity.
-        - apply decide_not_contains_borrow. reflexivity.
-        - apply decide_not_contains_bot. reflexivity. }
+      { apply Leq_Fresh_MutLoan_Abs with (sp := (encode_var y, [])) (l := ly) (i := 2%positive);
+          compute_done. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
@@ -966,16 +943,10 @@ Section Eval_LLBC_plus_program.
         apply MergeAbsEmpty. }
       simpl_state.
       etransitivity; [constructor | ].
-      { apply Leq_ToSymbolic with (sp := (encode_var z, [0])).
-        - apply decide_not_contains_loan. reflexivity.
-        - apply decide_not_contains_borrow. reflexivity.
-        - apply decide_not_contains_bot. reflexivity. }
+      { apply Leq_ToSymbolic with (sp := (encode_var z, [0])); compute_done. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_RemoveAnon with (a := 1%positive).
-        - reflexivity.
-        - apply decide_not_contains_loan. reflexivity.
-        - apply decide_not_contains_borrow. reflexivity. }
+      { eapply Leq_RemoveAnon with (a := 1%positive); compute_done. }
       simpl_state. reflexivity.
     - split; [ | split]; try reflexivity.
       apply map_Forall2_singleton.
@@ -988,11 +959,7 @@ Section Eval_LLBC_plus_program.
   Proof.
     eexists. split.
     { unfold cond_state. eapply Eval_assign; [ | apply Store with (a := 1%positive)].
-      - apply Eval_mut_borrow with (l := ly).
-        + eval_var. constructor.
-        + apply decide_not_contains_loan. reflexivity.
-        + apply decide_not_contains_bot. reflexivity.
-        + apply decide_is_fresh. reflexivity.
+      - apply Eval_mut_borrow with (l := ly). { eval_var. constructor. } all: compute_done.
       - eval_var. constructor.
       - apply decide_not_contains_outer_loan_correct. reflexivity.
       - reflexivity.
@@ -1000,19 +967,13 @@ Section Eval_LLBC_plus_program.
     simpl_state.
     eexists. split.
     - etransitivity.
-      { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive).
-        - apply decide_is_fresh. reflexivity.
-        - reflexivity.
-        - reflexivity.
+      { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive);
+          try compute_done; reflexivity.
       }
       simpl_state.
       etransitivity.
-      { apply Leq_Fresh_MutLoan_Abs with (sp := (encode_var x, [])) (l := lx) (i := 2%positive).
-        - apply decide_is_fresh. reflexivity.
-        - reflexivity.
-        - apply decide_not_contains_loan. reflexivity.
-        - apply decide_not_contains_borrow. reflexivity.
-        - cbn. apply decide_not_contains_bot. reflexivity. }
+      { apply Leq_Fresh_MutLoan_Abs with (sp := (encode_var x, [])) (l := lx) (i := 2%positive);
+          compute_done. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
@@ -1020,16 +981,10 @@ Section Eval_LLBC_plus_program.
         apply MergeAbsEmpty. }
       simpl_state.
       etransitivity; [constructor | ].
-      { apply Leq_ToSymbolic with (sp := (encode_var z, [0])).
-        - apply decide_not_contains_loan. reflexivity.
-        - apply decide_not_contains_borrow. reflexivity.
-        - apply decide_not_contains_bot. reflexivity. }
+      { apply Leq_ToSymbolic with (sp := (encode_var z, [0])); compute_done. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_RemoveAnon with (a := 1%positive).
-        - reflexivity.
-        - apply decide_not_contains_loan. reflexivity.
-        - apply decide_not_contains_borrow. reflexivity. }
+      { eapply Leq_RemoveAnon with (a := 1%positive); compute_done. }
       simpl_state. reflexivity.
     - split; [ | split]; try reflexivity.
       apply map_Forall2_singleton.
