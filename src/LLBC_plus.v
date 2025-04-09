@@ -368,8 +368,7 @@ Variant in_region : spath -> Prop :=
 Inductive merge_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
   | MergeEmpty A : merge_maps A empty A
   | MergeInsert A B C i j x :
-      ~elem_of i (dom A) -> ~elem_of j (dom B) ->
-      merge_maps (insert j x A) B C -> merge_maps A (insert i x B) C.
+      lookup j A = None -> merge_maps (insert j x A) B C -> merge_maps A (insert i x B) C.
 
 Inductive reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Reorg_end_borrow_m S (p q : spath) l :
@@ -380,7 +379,8 @@ Inductive reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Reorg_end_abstraction S i A anons' :
     lookup i (regions S) = Some A ->
     merge_maps (anons S) A anons' ->
-    (* no loan in A *)
+    (* No value in A contains a loan: *)
+    map_Forall (fun _ => not_contains_loan) A ->
     reorg S {|vars := vars S; anons := anons'; regions := delete i (regions S)|}.
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
@@ -992,18 +992,65 @@ Section Eval_LLBC_plus_program.
       repeat split; compute_done.
   Qed.
 
-    Lemma safe_main :
-      exists end_state, eval_stmt end_main rUnit join_state end_state.
-    Proof.
-      eexists.
-      eapply Eval_seq_unit.
-      { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
-        - eapply Eval_bin_op_symbolic_int.
-          + eapply Eval_copy.
-            * eval_var. repeat econstructor || easy.
-            * constructor.
-          + apply Eval_IntConst.
-        - eval_var. repeat econstructor || easy.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+  Lemma safe_main :
+    exists end_state, eval_stmt end_main rUnit join_state end_state.
+  Proof.
+    eexists.
+    eapply Eval_seq_unit.
+    { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
+      - eapply Eval_bin_op_symbolic_int.
+        + eapply Eval_copy.
+          * eval_var. repeat econstructor || easy.
+          * constructor.
+        + apply Eval_IntConst.
+      - eval_var. repeat econstructor || easy.
+      - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+      - reflexivity.
+    }
+    simpl_state.
+    (* We must to reorganizations in order to end the loan lx. *)
+    eapply Eval_reorg.
+    { etransitivity.
+      (* Ending the loan lz ... *)
+      { constructor.
+        eapply Reorg_end_borrow_m with (p := (encode_region (1%positive, 3%positive), []))
+                                       (q := (encode_var 3%positive, [])).
+        - left. discriminate.
         - reflexivity.
+        - reflexivity.
+        - compute_done.
+        - intros ? ->%prefix_nil. reflexivity.
+        - intros H. inversion H. discriminate. }
+      simpl_state. etransitivity.
+      (* ... so that we could end the region ... *)
+      { constructor. eapply Reorg_end_abstraction with (i := 1%positive).
+        - reflexivity.
+        - cbn. apply MergeInsert with (j := 2%positive); [reflexivity | ].
+          apply MergeInsert with (j := 3%positive); [reflexivity | ].
+          apply MergeInsert with (j := 4%positive); [reflexivity | ].
+          apply MergeEmpty.
+        - compute_done.
       }
+      simpl_state.
+      (* ... so that we could end the loan lx. *)
+      { constructor.
+        eapply Reorg_end_borrow_m with (p := (encode_var 1%positive, []))
+                                       (q := (encode_anon 2%positive, [])).
+        - left. discriminate.
+        - reflexivity.
+        - reflexivity.
+        - compute_done.
+        - intros ? ->%prefix_nil. reflexivity.
+        - intros H. inversion H. discriminate. }
+    }
+    simpl_state.
+    (* Finally, we can copy and overwrite x: *)
+    eapply Eval_assign; [ | apply Store with (a := 5%positive)].
+    - eapply Eval_bin_op_symbolic_int.
+      + eapply Eval_copy; [eval_var | ]; constructor.
+      + constructor.
+    - eval_var. constructor.
+    - apply decide_not_contains_outer_loan_correct. reflexivity.
+    - reflexivity.
+  Qed.
+End Eval_LLBC_plus_program.
