@@ -1,11 +1,11 @@
-Require Import List.
-Require Import PeanoNat.
+From Stdlib Require Import List.
+From Stdlib Require Import PeanoNat.
 Require Import RelationClasses.
 Require Import OptionMonad.
 Require Import base.
-Require Import Arith.
-Require Import ZArith.
-Require Import Lia.
+From Stdlib Require Import Arith.
+From Stdlib Require Import ZArith.
+From Stdlib Require Import Lia.
 Import ListNotations.
 
 From stdpp Require Import pmap gmap.

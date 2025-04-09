@@ -1,9 +1,9 @@
 Require Import base.
 Require Import lang.
 Require Import SimulationUtils.
-Require Import List.
+From Stdlib Require Import List.
 Import ListNotations.
-Require Import PeanoNat Lia.
+From Stdlib Require Import PeanoNat Lia.
 (* Notation conflict between stdpp's `+++` and our `+++`. That's why we're importing stpp first,
    then closing the scope. *)
 From stdpp Require Import pmap.

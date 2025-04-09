@@ -1,7 +1,7 @@
 Require Import RelationClasses.
 Require Import PathToSubtree.
-Require Import Arith.
-Require Import Relations.
+From Stdlib Require Import Arith.
+From Stdlib Require Import Relations.
 
 Arguments clos_refl_trans {_}.
 

@@ -1,10 +1,10 @@
 Require Import lang.
 Require Import base.
-Require Import List.
-Require Import PeanoNat.
+From Stdlib Require Import List.
+From Stdlib Require Import PeanoNat.
 Import ListNotations.
-Require Import Lia ZArith.
-Require Import Relations.
+From Stdlib Require Import Lia ZArith.
+From Stdlib Require Import Relations.
 
 From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.

@@ -1,5 +1,5 @@
-Require Import List.
-Require Import PeanoNat Lia ZArith.
+From Stdlib Require Import List.
+From Stdlib Require Import PeanoNat Lia ZArith.
 Require Import OptionMonad.
 Import ListNotations.
 

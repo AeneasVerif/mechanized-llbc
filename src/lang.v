@@ -1,6 +1,6 @@
 Require Import base.
 Require Import PathToSubtree.
-Require Import PArith.
+From Stdlib Require Import PArith.
 
 Definition var := positive.
 

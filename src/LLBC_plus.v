@@ -1,9 +1,9 @@
 Require Import base.
 Require Import lang.
 Require Import SimulationUtils.
-Require Import List.
+From Stdlib Require Import List.
 Import ListNotations.
-Require Import PeanoNat Lia.
+From Stdlib Require Import PeanoNat Lia.
 (* Notation conflict between stdpp's `+++` and our `+++`. That's why we're importing stpp first,
    then closing the scope. *)
 From stdpp Require Import pmap gmap.
@@ -734,7 +734,6 @@ Proof.
   autorewrite with spath. rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
 Qed.
 
-Require Import Bool.
 Local Open Scope option_monad_scope.
 (*
 fn main() {
