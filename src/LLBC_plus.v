@@ -237,7 +237,7 @@ Inductive eval_path (S : LLBC_plus_state) perm : path -> spath -> spath -> Prop 
 
 Definition eval_place S perm (p : place) pi :=
   let pi_0 := (encode_var (fst p), []) in
-  valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_var (fst p), []) pi.
+  valid_spath S pi_0 /\ eval_path S perm (snd p) pi_0 pi.
 
 Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
@@ -681,6 +681,41 @@ Proof.
       [ | intros ? <-%indicator_non_zero; constructor].
     destruct H; split; weight_inequality.
 Admitted.
+
+(* Simulation proofs. *)
+Lemma eval_path_preservation Sl Sr perm p R :
+  (forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_proj Sl perm proj)) ->
+  forward_simulation R R (eval_path Sr perm p) (eval_path Sl perm p).
+Proof.
+  intros preservation_proj. intros ? ? Heval_path.
+  induction Heval_path.
+  - intros ?. intros ?. eexists. split; [eassumption | constructor].
+  - intros pi_l HR.
+    edestruct preservation_proj as (pi_l' & ? & ?); [eassumption.. | ].
+    edestruct IHHeval_path as (pi_l'' & ? & ?); [eassumption | ].
+    exists pi_l''. split; [ | econstructor]; eassumption.
+Qed.
+
+(* This lemma is use to prove preservation of place evaluation for a relation rule Sl < Sr.
+ * We prove that if p evaluates to a spath pi_r on Sr, then it also evaluates for a spath
+ * pi_l on the left, with R pi_l pi_r.
+ * The relation R depends on the rule, but for most rules it is simply going to be the equality. *)
+Lemma eval_place_preservation Sl Sr perm p pi_r (R : spath -> spath -> Prop) :
+  (* Initial case: the relation R must be preserved for all spath corresponding to a variable. *)
+  (forall i, R (i, []) (i, [])) ->
+  (* All of the variables of Sr are variables of Sl.
+   * Since most of the time, Sr is Sl alterations on regions, anonymous regions or by sset, this
+   * is always true. *)
+  (forall x v, get_at_accessor Sr (encode_var x) = Some v -> is_Some (get_at_accessor Sl (encode_var x))) ->
+  (forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_proj Sl perm proj)) ->
+  eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
+Proof.
+  intros R_nil H. intros ? ((_ & (? & ?)%H & _) & Heval_path).
+  eapply eval_path_preservation in Heval_path; [ | eassumption].
+  edestruct Heval_path as (pi_l' & ? & ?); [apply R_nil | ].
+  exists pi_l'. split; [assumption | ]. split; [ | assumption].
+  eexists. split; [eassumption | constructor].
+Qed.
 
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :
