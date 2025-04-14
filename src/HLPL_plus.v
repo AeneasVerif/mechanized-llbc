@@ -190,6 +190,7 @@ Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
 Proof. reflexivity. Qed.
 Hint Rewrite sget_loc' : spath.
 
+
 (* This property represents the application of a projection p (such as a pointer dereference or a
  * field access) on spath pi0, on a state S and given a permission perm.
  * If this projection is successful, then we have eval_proj S perm p pi0 pi1.
@@ -198,7 +199,7 @@ Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop 
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
 | Eval_Deref_MutBorrow q l
     (Hperm : perm <> Mov)
-    (get_q : @get_node HLPL_plus_val HLPL_plus_nodes _ _ (S.[q]) = borrowC^m(l)) :
+    (get_q : get_node (S.[q]) = borrowC^m(l)) :
     eval_proj S perm Deref q (q +++ [0])
 (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
 | Eval_Deref_Ptr_Locs q q' l
@@ -619,7 +620,7 @@ Section MutBorrow_to_Ptr.
 
   (* TODO: name *)
   Inductive rel : spath -> spath -> Prop :=
-    | Rel_sp_borrow_strict_prefix q : rel (sp_loan +++ [0] ++ q) (sp_borrow +++ [0] ++ q)
+  | Rel_sp_borrow_strict_prefix q : rel (sp_loan +++ [0] ++ q) (sp_borrow +++ [0] ++ q)
   | Rel_other q : ~strict_prefix sp_borrow q -> rel q q.
 
   (* An equivalent (and more usable I hope) version of rel. *)
