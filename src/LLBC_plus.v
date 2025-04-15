@@ -706,15 +706,39 @@ Lemma eval_place_preservation Sl Sr perm p pi_r (R : spath -> spath -> Prop) :
   (* All of the variables of Sr are variables of Sl.
    * Since most of the time, Sr is Sl alterations on regions, anonymous regions or by sset, this
    * is always true. *)
-  (forall x v, get_at_accessor Sr (encode_var x) = Some v -> is_Some (get_at_accessor Sl (encode_var x))) ->
+  (forall x, is_Some (get_at_accessor Sr (encode_var x)) -> is_Some (get_at_accessor Sl (encode_var x))) ->
   (forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_proj Sl perm proj)) ->
   eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
 Proof.
-  intros R_nil H. intros ? ((_ & (? & ?)%H & _) & Heval_path).
+  intros R_nil H. intros ? ((? & (? & ?)%mk_is_Some%H & _) & Heval_path).
   eapply eval_path_preservation in Heval_path; [ | eassumption].
   edestruct Heval_path as (pi_l' & ? & ?); [apply R_nil | ].
   exists pi_l'. split; [assumption | ]. split; [ | assumption].
   eexists. split; [eassumption | constructor].
+Qed.
+
+Lemma eval_place_ToSymbolic S sp p pi perm
+  (no_loan : not_contains_loan (S.[sp]))
+  (no_borrow : not_contains_borrow (S.[sp]))
+  (no_bot : not_contains_bot (S.[sp])) :
+  (S.[sp <- LLBC_plus_symbolic]) |-{p} p =>^{perm} pi -> S |-{p} p =>^{perm} pi.
+Proof.
+  intros H.
+  eapply eval_place_preservation with (R := eq) in H.
+  - destruct H as (? & -> & H). exact H.
+  - reflexivity.
+    (* TODO: this reasonning is going to come again. Make a lemma? *)
+  - intros x get_at_x.
+    unfold sset in get_at_x. rewrite get_map_alter, lookup_alter_is_Some in get_at_x.
+    assumption.
+  - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
+    inversion Heval_proj; subst.
+    (* TODO: automate this. *)
+    + eapply Eval_Deref_MutBorrow. assumption.
+      rewrite get_node_sset_sget_not_prefix in get_q. eassumption.
+      apply prove_not_prefix. intros ->. autorewrite with spath in get_q. discriminate.
+      eapply get_nil_prefix_right with (S := S.[sp <- LLBC_plus_symbolic]).
+      autorewrite with spath. reflexivity. validity.
 Qed.
 
 (* Derived rules *)
