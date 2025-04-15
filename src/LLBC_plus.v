@@ -186,8 +186,7 @@ Next Obligation.
   - assert (~(elem_of i (dom R1))) by congruence. rewrite not_elem_of_dom in * |-. congruence.
 Qed.
 Next Obligation.
-  intros. cbn. symmetry. unfold encode_anon. rewrite sum_maps_insert_inl, sum_maps_insert_inr.
-  reflexivity.
+  intros. cbn. unfold encode_anon. rewrite sum_maps_insert_inl, sum_maps_insert_inr. reflexivity.
 Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation. intros. unfold encode_anon. rewrite !decode_encode. reflexivity. Qed.
@@ -477,17 +476,33 @@ Proof.
   - apply (f_equal get_extra) in H. rewrite !get_extra_add_anon in H. exact H.
 Qed.
 
-Lemma remove_anon_fresh S a : fresh_anon (remove_anon a S) a.
+Lemma remove_anon_is_fresh S a : fresh_anon (remove_anon a S) a.
 Proof.
   unfold fresh_anon, remove_anon, get_map. cbn. unfold encode_anon.
   rewrite sum_maps_lookup_l, sum_maps_lookup_r. apply lookup_delete.
 Qed.
-Hint Rewrite @sweight_add_anon using auto using fresh_anon_sset, remove_anon_fresh : weight.
+Hint Rewrite @sweight_add_anon using auto using fresh_anon_sset, remove_anon_is_fresh : weight.
+
+Lemma remove_anon_fresh S a : fresh_anon S a -> remove_anon a S = S.
+Proof.
+  unfold fresh_anon, remove_anon. intros H. rewrite delete_notin.
+  - destruct S. cbn. reflexivity.
+  - unfold get_map, encode_anon in H. cbn in H. unfold encode_anon in H.
+    rewrite sum_maps_lookup_l, sum_maps_lookup_r in H. exact H.
+Qed.
+
+Lemma get_map_remove_anon S a : get_map (remove_anon a S) = delete (encode_anon a) (get_map S).
+Proof.
+  destruct (lookup (anon_accessor a) (get_map S)) eqn:EQN.
+  - apply add_anon_remove_anon in EQN. rewrite<- EQN at 2.
+    rewrite get_map_add_anon. symmetry. apply delete_insert, remove_anon_is_fresh.
+  - rewrite delete_notin by assumption. f_equal. apply remove_anon_fresh. assumption.
+Qed.
 
 Lemma remove_anon_add_anon S a v : fresh_anon S a -> remove_anon a (S,, a |-> v) = S.
 Proof.
   intros H. apply add_anons_states_eq with (a := a) (v := v) (w := v).
-  - apply remove_anon_fresh.
+  - apply remove_anon_is_fresh.
   - assumption.
   - rewrite add_anon_remove_anon; [reflexivity | ].
     rewrite get_map_add_anon. simpl_map. reflexivity.
@@ -566,7 +581,7 @@ Definition equiv_states (S0 S1 : LLBC_plus_state) :=
   map_Forall2 (fun _ => equiv_map) (regions S0) (regions S1).
 (*forall i, option_Forall2 equiv_map (lookup i (regions S0)) (lookup i (regions S1)).*)
 
-Global Instance HLPL_plus_state_leq_base : LeqBase LLBC_plus_state :=
+Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
 
 Definition leq S0 S1 :=
@@ -702,7 +717,7 @@ Qed.
  * The relation R depends on the rule, but for most rules it is simply going to be the equality. *)
 Lemma eval_place_preservation Sl Sr perm p pi_r (R : spath -> spath -> Prop) :
   (* Initial case: the relation R must be preserved for all spath corresponding to a variable. *)
-  (forall i, R (i, []) (i, [])) ->
+  (forall x, R (encode_var x, []) (encode_var x, [])) ->
   (* All of the variables of Sr are variables of Sl.
    * Since most of the time, Sr is Sl alterations on regions, anonymous regions or by sset, this
    * is always true. *)
@@ -718,8 +733,6 @@ Proof.
 Qed.
 
 Lemma eval_place_ToSymbolic S sp p pi perm
-  (no_loan : not_contains_loan (S.[sp]))
-  (no_borrow : not_contains_borrow (S.[sp]))
   (no_bot : not_contains_bot (S.[sp])) :
   (S.[sp <- LLBC_plus_symbolic]) |-{p} p =>^{perm} pi -> S |-{p} p =>^{perm} pi.
 Proof.
@@ -740,6 +753,40 @@ Proof.
       eapply get_nil_prefix_right with (S := S.[sp <- LLBC_plus_symbolic]).
       autorewrite with spath. reflexivity. validity.
 Qed.
+
+Lemma sget_remove_anon S a sp :
+  valid_spath (remove_anon a S) sp -> (remove_anon a S).[sp] = S.[sp].
+Proof.
+  intros (? & H & _). unfold sget.
+  rewrite get_map_remove_anon, lookup_delete_ne; [reflexivity | ].
+  intros G. rewrite<- G, remove_anon_is_fresh in H. discriminate.
+Qed.
+
+(* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
+(* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
+ * borrows. *)
+Lemma eval_place_RemoveAnon S pi perm a v p
+  (get_a : get_at_accessor S (anon_accessor a) = Some v)
+  (no_loan : not_contains_loan v) :
+  remove_anon a S |-{p} p =>^{perm} pi -> S |-{p} p =>^{perm} pi.
+Proof.
+  intros H.
+  eapply eval_place_preservation with (R := eq) in H.
+  - destruct H as (? & -> & H). exact H.
+  - reflexivity.
+    (* TODO: extract a lemma. *)
+  - intros x get_at_x.
+    erewrite <-add_anon_remove_anon with (S := S); [ | eassumption].
+    rewrite get_map_add_anon, lookup_insert_ne. assumption.
+    unfold anon_accessor. cbn. unfold encode_anon, encode_var.
+    intros ?%(f_equal (decode' (A := positive + positive * positive))).
+    rewrite !decode'_encode in H0. inversion H0.
+  - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
+    inversion Heval_proj; subst.
+    + rewrite sget_remove_anon in get_q by validity.
+      eapply Eval_Deref_MutBorrow; eassumption.
+Qed.
+
 
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :
