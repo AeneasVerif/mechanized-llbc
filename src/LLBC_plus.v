@@ -9,6 +9,7 @@ From Stdlib Require Import PeanoNat Lia.
 From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
 Require Import PathToSubtree.
+Require Import OptionMonad.
 
 Inductive LLBC_plus_val :=
 | LLBC_plus_bot
@@ -111,14 +112,6 @@ Definition encode_anon (a : anon) :=
   encode (A := _ + positive * positive) (inl (encode (A := var + _) (inr a))).
 Definition encode_region (x : positive * positive) := encode (A := var + anon + _) (inr x).
 
-(* TODO: move in base.v *)
-Lemma alter_map_union {V} `{FinMap K M} (m0 m1 : M V) f k :
-  alter f k (union m0 m1) = union (alter f k m0) (alter f k m1).
-Proof.
-  apply map_eq. intros i. destruct (decide (i = k)) as [-> | ].
-  - simpl_map. rewrite !lookup_union. simpl_map.
-Admitted.
-
 Program Instance IsState : State LLBC_plus_state LLBC_plus_val := {
   get_map S := sum_maps (sum_maps (vars S) (anons S)) (flatten (regions S));
 
@@ -190,6 +183,21 @@ Next Obligation.
 Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation. intros. unfold encode_anon. rewrite !decode_encode. reflexivity. Qed.
+
+Lemma get_at_var S x : get_at_accessor S (encode_var x) = lookup x (vars S).
+Proof. unfold get_map, encode_var. cbn. rewrite !sum_maps_lookup_l. reflexivity. Qed.
+
+Lemma get_at_anon S a : get_at_accessor S (anon_accessor a) = lookup a (anons S).
+Proof.
+  unfold get_map, anon_accessor. cbn. unfold encode_anon.
+  rewrite sum_maps_lookup_l, sum_maps_lookup_r. reflexivity.
+Qed.
+
+Lemma var_is_not_anon x a : encode_var x <> anon_accessor a.
+Proof.
+  unfold encode_var, anon_accessor. cbn. unfold encode_anon.
+  repeat apply not_inj. discriminate.
+Qed.
 
 Declare Scope llbc_plus_scope.
 Delimit Scope llbc_plus_scope with llbc.
@@ -721,16 +729,27 @@ Lemma eval_place_preservation Sl Sr perm p pi_r (R : spath -> spath -> Prop) :
   (* All of the variables of Sr are variables of Sl.
    * Since most of the time, Sr is Sl alterations on regions, anonymous regions or by sset, this
    * is always true. *)
-  (forall x, is_Some (get_at_accessor Sr (encode_var x)) -> is_Some (get_at_accessor Sl (encode_var x))) ->
+  dom (vars Sl) = dom (vars Sr) ->
   (forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_proj Sl perm proj)) ->
   eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
 Proof.
-  intros R_nil H. intros ? ((? & (? & ?)%mk_is_Some%H & _) & Heval_path).
+  intros R_nil H. intros ? ((? & G%mk_is_Some & _) & Heval_path).
+  cbn in G. unfold encode_var in G. rewrite !sum_maps_lookup_l in G.
+  rewrite <-elem_of_dom, <-H, elem_of_dom, <-get_at_var in G. destruct G as (? & ?).
   eapply eval_path_preservation in Heval_path; [ | eassumption].
   edestruct Heval_path as (pi_l' & ? & ?); [apply R_nil | ].
   exists pi_l'. split; [assumption | ]. split; [ | assumption].
   eexists. split; [eassumption | constructor].
 Qed.
+
+Lemma sset_preserves_vars_dom S sp v : dom (vars (S.[sp <- v])) = dom (vars S).
+Proof.
+  unfold sset. unfold alter_at_accessor. cbn. repeat autodestruct.
+  intros. apply dom_alter_L.
+Qed.
+
+Lemma add_anon_preserves_vars_dom S a v : dom (vars (S,, a |-> v)) = dom (vars S).
+Proof. reflexivity. Qed.
 
 Lemma eval_place_ToSymbolic S sp p pi perm
   (no_bot : not_contains_bot (S.[sp])) :
@@ -740,10 +759,7 @@ Proof.
   eapply eval_place_preservation with (R := eq) in H.
   - destruct H as (? & -> & H). exact H.
   - reflexivity.
-    (* TODO: this reasonning is going to come again. Make a lemma? *)
-  - intros x get_at_x.
-    unfold sset in get_at_x. rewrite get_map_alter, lookup_alter_is_Some in get_at_x.
-    assumption.
+  - symmetry. apply sset_preserves_vars_dom.
   - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
     inversion Heval_proj; subst.
     (* TODO: automate this. *)
@@ -774,13 +790,7 @@ Proof.
   eapply eval_place_preservation with (R := eq) in H.
   - destruct H as (? & -> & H). exact H.
   - reflexivity.
-    (* TODO: extract a lemma. *)
-  - intros x get_at_x.
-    erewrite <-add_anon_remove_anon with (S := S); [ | eassumption].
-    rewrite get_map_add_anon, lookup_insert_ne. assumption.
-    unfold anon_accessor. cbn. unfold encode_anon, encode_var.
-    intros ?%(f_equal (decode' (A := positive + positive * positive))).
-    rewrite !decode'_encode in H0. inversion H0.
+  - reflexivity.
   - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
     inversion Heval_proj; subst.
     + rewrite sget_remove_anon in get_q by validity.
@@ -799,12 +809,8 @@ Lemma eval_place_MoveValue S sp a perm p pi_r
   exists pi_l, rel_MoveValue sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
-  - intros x. left. repeat split; [apply not_strict_prefix_nil | admit].
-    (* TODO: extract a lemma. *)
-  - intros x get_at_x.
-    rewrite get_map_add_anon in get_at_x.
-    rewrite lookup_insert_ne in get_at_x by admit.
-    admit.
+  - intros x. left. repeat split; [apply not_strict_prefix_nil | apply var_is_not_anon].
+  - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
   - clear pi_r. intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
     inversion Heval_proj; subst.
     + destruct rel_pi_l_pi_r as [(-> & ? & ?) | (r & -> & ->)].
@@ -818,7 +824,7 @@ Proof.
         --- right. exists (r ++ [0]). split; autorewrite with spath; reflexivity.
         --- eapply Eval_Deref_MutBorrow. assumption.
             autorewrite with spath in get_q. exact get_q.
-Admitted.
+Qed.
 
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :
