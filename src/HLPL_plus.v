@@ -820,7 +820,7 @@ Proof.
            { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                             (sp_borrow := (anon_accessor a, q)).
              eauto with spath.
-             rewrite sget_add_anon. autorewrite with spath. eassumption.
+             rewrite sget_add_anon_by_validity. autorewrite with spath. eassumption.
              validity. assumption.
              autorewrite with spath. eassumption.
              all: autorewrite with spath; eassumption. }

@@ -787,6 +787,38 @@ Proof.
       eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
+Definition rel_MoveValue sp a p q :=
+  (p = q /\ ~strict_prefix sp p /\ fst p <> encode_anon a) \/
+  (exists r, p = sp +++ r /\ q = (encode_anon a, r)).
+
+Lemma eval_place_MoveValue S sp a perm p pi_r
+  (fresh_a : fresh_anon S a)
+  (valid_sp : valid_spath S sp)
+  (not_in_region : ~in_region sp) :
+  (S.[sp <- bot],, a |-> S.[sp]) |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_MoveValue sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Proof.
+  apply eval_place_preservation.
+  - intros x. left. repeat split; [apply not_strict_prefix_nil | admit].
+    (* TODO: extract a lemma. *)
+  - intros x get_at_x.
+    rewrite get_map_add_anon in get_at_x.
+    rewrite lookup_insert_ne in get_at_x by admit.
+    admit.
+  - clear pi_r. intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
+    inversion Heval_proj; subst.
+    + destruct rel_pi_l_pi_r as [(-> & ? & ?) | (r & -> & ->)].
+      * assert (sp <> pi_r).
+        { intros ->. autorewrite with spath in get_q. discriminate. }
+        exists (pi_r +++ [0]). split.
+        -- left. repeat split; auto with spath.
+        -- eapply Eval_Deref_MutBorrow. assumption.
+           autorewrite with spath in get_q. exact get_q.
+      * exists ((sp +++ r) +++ [0]). split.
+        --- right. exists (r ++ [0]). split; autorewrite with spath; reflexivity.
+        --- eapply Eval_Deref_MutBorrow. assumption.
+            autorewrite with spath in get_q. exact get_q.
+Admitted.
 
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :

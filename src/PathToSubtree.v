@@ -1097,12 +1097,14 @@ Section GetSetPath.
   Proof. autounfold. intros ?. rewrite get_map_alter. now apply lookup_alter_None. Qed.
 
   Lemma sget_add_anon (S : state) a v p :
-    valid_spath S p -> fresh_anon S a -> (S,, a |-> v).[p] = S.[p].
+    fst p <> anon_accessor a -> (S,, a |-> v).[p] = S.[p].
   Proof.
-    autounfold. intros (w & (? & _)) G. rewrite get_map_add_anon, lookup_insert_ne.
-    - reflexivity.
-    - congruence.
+    intros ?. autounfold. rewrite get_map_add_anon, lookup_insert_ne by auto. reflexivity.
   Qed.
+
+  Lemma sget_add_anon_by_validity (S : state) a v p :
+    valid_spath S p -> fresh_anon S a -> (S,, a |-> v).[p] = S.[p].
+  Proof. intros (w & (? & _)) G. apply sget_add_anon. congruence. Qed.
 
   Lemma sset_add_anon (S : state) a v w p :
     valid_spath S p -> fresh_anon S a -> (S,, a |-> w).[p <- v] = S.[p <- v],, a |-> w.
@@ -1830,7 +1832,8 @@ Hint Rewrite @sset_twice_prefix_right : spath.
    one of the following rewrite rules. *)
 Hint Rewrite @sset_add_anon using validity || auto with spath; fail : spath.
 Hint Rewrite @sset_anon using try assumption; reflexivity : spath.
-Hint Rewrite @sget_add_anon using validity || auto with spath; fail : spath.
+Hint Rewrite @sget_add_anon using assumption : spath.
+Hint Rewrite @sget_add_anon_by_validity using validity || auto with spath; fail : spath.
 Hint Rewrite @sget_anon using try assumption; reflexivity : spath.
 Hint Rewrite<- @sget_app : spath.
 Hint Rewrite<- @vget_app : spath.
