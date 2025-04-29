@@ -910,14 +910,10 @@ Proof.
       autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
+(* TODO: rename? This relation may be useful for more than the rule Fresh_MutLoan *)
 Definition rel_Fresh_MutLoan a (p q : spath) := p = q /\ fst p <> encode_anon a.
 
-Lemma eval_place_Fresh_MutLoan S sp l a perm p pi_r
-  (fresh_l1 : is_fresh l S)
-  (fresh_a : fresh_anon S a)
-  (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
-     I am going a step further: there should not be bottoms in borrowed values. *)
-  (no_bot : not_contains_bot (S.[sp])) :
+Lemma eval_place_Fresh_MutLoan S sp l a perm p pi_r :
   (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_Fresh_MutLoan a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
