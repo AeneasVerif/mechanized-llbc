@@ -528,6 +528,54 @@ Proof.
   intros ?. destruct S. cbn. f_equal. apply delete_insert_ne. assumption.
 Qed.
 
+Definition not_in_region i (p : spath) := forall j, fst p <> encode_region (i, j).
+
+Lemma not_in_region_app i p q : not_in_region i p -> not_in_region i (p +++ q).
+Proof. intros H ? ?. eapply H. eassumption. Qed.
+
+(* The hypothesis `fresh_abstraction S i` is not necessary, we're going to remove it. *)
+Lemma _get_at_accessor_add_region S i A x (i_fresh : fresh_abstraction S i)
+  (H : forall j, x <> encode_region (i, j)) :
+  get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
+Proof.
+  unfold get_map. cbn. rewrite flatten_insert' by assumption.
+  rewrite sum_maps_union. rewrite lookup_union_l; [reflexivity | ].
+  rewrite eq_None_not_Some. rewrite lookup_kmap_is_Some by typeclasses eauto.
+  intros (p & ? & G). rewrite lookup_kmap_is_Some in G by typeclasses eauto.
+  destruct G as (j & -> & _). eapply H. eassumption.
+Qed.
+
+Lemma add_remove_add_region S i A : (remove_region i S),,, i |-> A = S,,, i |-> A.
+Proof. unfold add_region, remove_region. cbn. f_equal. apply insert_delete_insert. Qed.
+
+Lemma get_at_accessor_add_region S i A x (H : forall j, x <> encode_region (i, j)) :
+  get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
+Proof.
+  destruct (lookup i (regions S)) eqn:EQN.
+  - apply add_remove_region in EQN. rewrite<- EQN at 2. rewrite <-add_remove_add_region.
+    rewrite !_get_at_accessor_add_region; auto; apply lookup_delete.
+  - apply _get_at_accessor_add_region; assumption.
+Qed.
+
+Lemma get_at_accessor_remove_region S i x (H : forall j, x <> encode_region (i, j)) :
+  get_at_accessor (remove_region i S) x = get_at_accessor S x.
+Proof.
+  destruct (lookup i (regions S)) eqn:EQN.
+  - apply add_remove_region in EQN. rewrite<- EQN at 2. symmetry.
+    apply get_at_accessor_add_region. assumption.
+  - repeat f_equal. unfold remove_region. rewrite delete_notin by assumption.
+    destruct S. reflexivity.
+Qed.
+
+Lemma add_region_sget S i A p : not_in_region i p -> (S,,, i |-> A).[p] = S.[p].
+Proof. intros H. unfold sget. rewrite get_at_accessor_add_region; auto. Qed.
+
+Lemma remove_region_sget S i p : not_in_region i p -> (remove_region i S).[p] = S.[p].
+Proof. intros H. unfold sget. rewrite get_at_accessor_remove_region; auto. Qed.
+
+Hint Rewrite add_region_sget using assumption : spath.
+Hint Rewrite remove_region_sget using assumption : spath.
+
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
@@ -825,54 +873,6 @@ Proof.
         --- eapply Eval_Deref_MutBorrow. assumption.
             autorewrite with spath in get_q. exact get_q.
 Qed.
-
-(* TODO: move up *)
-Definition not_in_region i (p : spath) := forall j, fst p <> encode_region (i, j).
-
-Lemma not_in_region_app i p q : not_in_region i p -> not_in_region i (p +++ q).
-Proof. intros H ? ?. eapply H. eassumption. Qed.
-
-Lemma _get_at_accessor_add_region S i A x (i_fresh : fresh_abstraction S i)
-  (H : forall j, x <> encode_region (i, j)) :
-  get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
-Proof.
-  unfold get_map. cbn. rewrite flatten_insert' by assumption.
-  rewrite sum_maps_union. rewrite lookup_union_l; [reflexivity | ].
-  rewrite eq_None_not_Some. rewrite lookup_kmap_is_Some by typeclasses eauto.
-  intros (p & ? & G). rewrite lookup_kmap_is_Some in G by typeclasses eauto.
-  destruct G as (j & -> & _). eapply H. eassumption.
-Qed.
-
-Lemma add_remove_add_region S i A : (remove_region i S),,, i |-> A = S,,, i |-> A.
-Proof. unfold add_region, remove_region. cbn. f_equal. apply insert_delete_insert. Qed.
-
-Lemma get_at_accessor_add_region S i A x (H : forall j, x <> encode_region (i, j)) :
-  get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
-Proof.
-  destruct (lookup i (regions S)) eqn:EQN.
-  - apply add_remove_region in EQN. rewrite<- EQN at 2. rewrite <-add_remove_add_region.
-    rewrite !_get_at_accessor_add_region; auto; apply lookup_delete.
-  - apply _get_at_accessor_add_region; assumption.
-Qed.
-
-Lemma get_at_accessor_remove_region S i x (H : forall j, x <> encode_region (i, j)) :
-  get_at_accessor (remove_region i S) x = get_at_accessor S x.
-Proof.
-  destruct (lookup i (regions S)) eqn:EQN.
-  - apply add_remove_region in EQN. rewrite<- EQN at 2. symmetry.
-    apply get_at_accessor_add_region. assumption.
-  - repeat f_equal. unfold remove_region. rewrite delete_notin by assumption.
-    destruct S. reflexivity.
-Qed.
-
-Lemma add_region_sget S i A p : not_in_region i p -> (S,,, i |-> A).[p] = S.[p].
-Proof. intros H. unfold sget. rewrite get_at_accessor_add_region; auto. Qed.
-
-Lemma remove_region_sget S i p : not_in_region i p -> (remove_region i S).[p] = S.[p].
-Proof. intros H. unfold sget. rewrite get_at_accessor_remove_region; auto. Qed.
-
-Hint Rewrite add_region_sget using assumption : spath.
-Hint Rewrite remove_region_sget using assumption : spath.
 
 Definition rel_MergeAbs i j p q :=
   p = q /\ not_in_region i p /\ not_in_region j p /\ not_in_region i q.
