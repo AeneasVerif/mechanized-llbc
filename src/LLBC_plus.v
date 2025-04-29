@@ -929,6 +929,45 @@ Proof.
       repeat split; try assumption. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
+(* When changing the id of a mutable borrow at p, generally using the rule Leq_Reborrow_MutBorrow,
+ * accessing any other node that the one in sp is unchanged. *)
+(* Note: in its current form, this lemma cannot be used with rewrite, but only with erewrite.
+ * This is because the equality does not involve l0. Replacing H with an existential could make
+ * this lemma amenable to rewrite and autorewrite. *)
+Lemma get_node_reborrow_mut_borrow S p q l0 l1
+  (H : get_node (S.[p]) = borrowC^m(l0)) (diff_p_q : p <> q) :
+  get_node (S.[p <- borrow^m(l1, S.[p +++ [0] ])].[q]) = get_node (S.[q]).
+Proof.
+  destruct (decidable_prefix p q).
+  - assert (strict_prefix p q) as (i & ? & <-) by auto with spath.
+    autorewrite with spath. destruct i.
+    + cbn. autorewrite with spath. reflexivity.
+    (* If i > 0, then the path q is invalid. *)
+    + cbn. rewrite sget_app.
+      apply (f_equal arity) in H. rewrite<- length_children_is_arity in H.
+      apply length_1_is_singleton in H. cbn - [children]. destruct H as (? & ->).
+      reflexivity.
+  - autorewrite with spath. reflexivity.
+Qed.
+
+Lemma eval_place_Reborrow_MutBorrow S sp l0 l1 a perm p pi_r
+    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
+  (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1))) |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_Fresh_MutLoan a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Proof.
+  apply eval_place_preservation.
+  - split; [reflexivity | inversion 1].
+  - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
+  - clear pi_r. intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+    inversion Heval_proj; subst.
+    + repeat split; try assumption.
+      destruct (decide (sp = pi_r)) as [<- | ].
+      * eapply Eval_Deref_MutBorrow; eassumption.
+      * autorewrite with spath in get_q.
+        erewrite get_node_reborrow_mut_borrow in get_q by eassumption.
+        eapply Eval_Deref_MutBorrow; eassumption.
+Qed.
+
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :
   fresh_abstraction S i -> fresh_abstraction (S.[sp <- v]) i.
