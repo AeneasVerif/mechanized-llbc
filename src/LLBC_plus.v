@@ -193,12 +193,6 @@ Proof.
   rewrite sum_maps_lookup_l, sum_maps_lookup_r. reflexivity.
 Qed.
 
-Lemma var_is_not_anon x a : encode_var x <> anon_accessor a.
-Proof.
-  unfold encode_var, anon_accessor. cbn. unfold encode_anon.
-  repeat apply not_inj. discriminate.
-Qed.
-
 Declare Scope llbc_plus_scope.
 Delimit Scope llbc_plus_scope with llbc.
 
@@ -809,7 +803,7 @@ Lemma eval_place_MoveValue S sp a perm p pi_r
   exists pi_l, rel_MoveValue sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
-  - intros x. left. repeat split; [apply not_strict_prefix_nil | apply var_is_not_anon].
+  - intros x. left. repeat split; [apply not_strict_prefix_nil | inversion 1].
   - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
   - clear pi_r. intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
     inversion Heval_proj; subst.
