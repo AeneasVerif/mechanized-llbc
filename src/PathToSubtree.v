@@ -1596,8 +1596,7 @@ End StateUniqueConstructor.
 
 (* Automatically solving comparisons using environment information. *)
 Hint Resolve strict_prefix_one_child : spath.
-Hint Resolve not_vprefix_one_child : spath.
-Hint Resolve not_prefix_one_child : spath. (* TODO: delete? *)
+Hint Resolve not_prefix_one_child : spath.
 Hint Extern 5 (length (children ?v) = _) =>
   match goal with
   | H : get_node (?S.[?p]) = _ |- _ =>
