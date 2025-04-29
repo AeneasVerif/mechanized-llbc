@@ -435,9 +435,10 @@ Inductive merge_abstractions :
       merge_abstractions (insert i (loan^m(l)) A) (insert j (borrow^m(l, LLBC_plus_symbolic)) B) C
 .
 
-Notation "S ,,, i |-> A" :=
-    {|vars := vars S; anons := anons S; regions := insert i A (regions S)|}
-  (at level 50, left associativity).
+Definition add_region S i A :=
+  {|vars := vars S; anons := anons S; regions := insert i A (regions S)|}.
+
+Notation "S ,,, i |-> A" := (add_region S i A) (at level 50, left associativity).
 
 Notation fresh_abstraction S i := (lookup i (regions S) = None).
 
@@ -510,17 +511,22 @@ Proof.
     rewrite get_map_add_anon. simpl_map. reflexivity.
 Qed.
 
-(* TODO: create a definition instead of a notation? *)
-Notation remove_region i S :=
+Definition remove_region i S :=
   {|vars := vars S; anons := anons S; regions := delete i (regions S)|}.
 
 Lemma add_remove_region i A S (H : lookup i (regions S) = Some A) :
   remove_region i S,,, i |-> A = S.
-Proof. destruct S. cbn. f_equal. apply insert_delete in H. exact H. Qed.
+Proof.
+  unfold add_region, remove_region.
+  destruct S. cbn. f_equal. apply insert_delete in H. exact H.
+Qed.
 
 Lemma remove_add_region_ne i j A S :
   i <> j -> remove_region i (S,,, j |-> A) = remove_region i S,,, j |-> A.
-Proof. intros ?. destruct S. cbn. f_equal. apply delete_insert_ne. assumption. Qed.
+Proof.
+  unfold add_region, remove_region.
+  intros ?. destruct S. cbn. f_equal. apply delete_insert_ne. assumption.
+Qed.
 
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToSymbolic S sp
@@ -826,6 +832,48 @@ Definition not_in_region i (p : spath) := forall j, fst p <> encode_region (i, j
 Lemma not_in_region_app i p q : not_in_region i p -> not_in_region i (p +++ q).
 Proof. intros H ? ?. eapply H. eassumption. Qed.
 
+Lemma _get_at_accessor_add_region S i A x (i_fresh : fresh_abstraction S i)
+  (H : forall j, x <> encode_region (i, j)) :
+  get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
+Proof.
+  unfold get_map. cbn. rewrite flatten_insert' by assumption.
+  rewrite sum_maps_union. rewrite lookup_union_l; [reflexivity | ].
+  rewrite eq_None_not_Some. rewrite lookup_kmap_is_Some by typeclasses eauto.
+  intros (p & ? & G). rewrite lookup_kmap_is_Some in G by typeclasses eauto.
+  destruct G as (j & -> & _). eapply H. eassumption.
+Qed.
+
+Lemma add_remove_add_region S i A : (remove_region i S),,, i |-> A = S,,, i |-> A.
+Proof. unfold add_region, remove_region. cbn. f_equal. apply insert_delete_insert. Qed.
+
+Lemma get_at_accessor_add_region S i A x (H : forall j, x <> encode_region (i, j)) :
+  get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
+Proof.
+  destruct (lookup i (regions S)) eqn:EQN.
+  - apply add_remove_region in EQN. rewrite<- EQN at 2. rewrite <-add_remove_add_region.
+    rewrite !_get_at_accessor_add_region; auto; apply lookup_delete.
+  - apply _get_at_accessor_add_region; assumption.
+Qed.
+
+Lemma get_at_accessor_remove_region S i x (H : forall j, x <> encode_region (i, j)) :
+  get_at_accessor (remove_region i S) x = get_at_accessor S x.
+Proof.
+  destruct (lookup i (regions S)) eqn:EQN.
+  - apply add_remove_region in EQN. rewrite<- EQN at 2. symmetry.
+    apply get_at_accessor_add_region. assumption.
+  - repeat f_equal. unfold remove_region. rewrite delete_notin by assumption.
+    destruct S. reflexivity.
+Qed.
+
+Lemma add_region_sget S i A p : not_in_region i p -> (S,,, i |-> A).[p] = S.[p].
+Proof. intros H. unfold sget. rewrite get_at_accessor_add_region; auto. Qed.
+
+Lemma remove_region_sget S i p : not_in_region i p -> (remove_region i S).[p] = S.[p].
+Proof. intros H. unfold sget. rewrite get_at_accessor_remove_region; auto. Qed.
+
+Hint Rewrite add_region_sget using assumption : spath.
+Hint Rewrite remove_region_sget using assumption : spath.
+
 Definition rel_MergeAbs i j p q :=
   p = q /\ not_in_region i p /\ not_in_region j p /\ not_in_region i q.
 
@@ -842,9 +890,8 @@ Proof.
     inversion Heval_proj; subst.
     + destruct rel_pi_l_pi_r as (-> & ? & ? & ?). exists (pi_r +++ [0]).
       repeat split; [eauto using not_in_region_app.. | ].
-      eapply Eval_Deref_MutBorrow. assumption.
-      autorewrite with spath in get_q.
-Abort.
+      autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
+Qed.
 
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :
