@@ -968,6 +968,19 @@ Proof.
         eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
+Lemma eval_place_AnonValue S v a perm p pi_r (no_loan : not_contains_loan v) :
+  (S,, a |-> v) |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_Fresh_MutLoan a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Proof.
+  apply eval_place_preservation.
+  - split; [reflexivity | inversion 1].
+  - reflexivity.
+  - clear pi_r. intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+    inversion Heval_proj; subst.
+    + repeat split; try assumption. autorewrite with spath in get_q.
+      eapply Eval_Deref_MutBorrow; eassumption.
+Qed.
+
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :
   fresh_abstraction S i -> fresh_abstraction (S.[sp <- v]) i.
