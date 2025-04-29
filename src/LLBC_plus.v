@@ -110,7 +110,7 @@ Definition encode_var (x : var) :=
   encode (A := _ + positive * positive) (inl (encode (A := _ + anon) (inl x))).
 Definition encode_anon (a : anon) :=
   encode (A := _ + positive * positive) (inl (encode (A := var + _) (inr a))).
-Definition encode_region (x : positive * positive) := encode (A := var + anon + _) (inr x).
+Definition encode_region (x : positive * positive) := encode (A := positive + _) (inr x).
 
 Program Instance IsState : State LLBC_plus_state LLBC_plus_val := {
   get_map S := sum_maps (sum_maps (vars S) (anons S)) (flatten (regions S));
@@ -819,6 +819,32 @@ Proof.
         --- eapply Eval_Deref_MutBorrow. assumption.
             autorewrite with spath in get_q. exact get_q.
 Qed.
+
+(* TODO: move up *)
+Definition not_in_region i (p : spath) := forall j, fst p <> encode_region (i, j).
+
+Lemma not_in_region_app i p q : not_in_region i p -> not_in_region i (p +++ q).
+Proof. intros H ? ?. eapply H. eassumption. Qed.
+
+Definition rel_MergeAbs i j p q :=
+  p = q /\ not_in_region i p /\ not_in_region j p /\ not_in_region i q.
+
+Lemma eval_place_MergeAbs S i j A B C perm p pi_r
+    (get_A : lookup i (regions S) = Some A) (get_B : lookup j (regions S) = Some B)
+    (Hmerge : merge_abstractions A B C) :
+    i <> j -> (remove_region i (remove_region j S),,, i |-> C) |-{p} p =>^{perm} pi_r ->
+    exists pi_l, rel_MergeAbs i j pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Proof.
+  intros diff. apply eval_place_preservation.
+  - repeat split; inversion 1.
+  - reflexivity.
+  - clear pi_r. intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
+    inversion Heval_proj; subst.
+    + destruct rel_pi_l_pi_r as (-> & ? & ? & ?). exists (pi_r +++ [0]).
+      repeat split; [eauto using not_in_region_app.. | ].
+      eapply Eval_Deref_MutBorrow. assumption.
+      autorewrite with spath in get_q.
+Abort.
 
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :
