@@ -799,6 +799,27 @@ Qed.
 Lemma add_anon_preserves_vars_dom S a v : dom (vars (S,, a |-> v)) = dom (vars S).
 Proof. reflexivity. Qed.
 
+(* TODO: move in PathToSubtree.v *)
+(* TODO: name *)
+Lemma sget_sset_zeroary_not_prefix S p q v n :
+  get_node (S.[p <- v].[q]) = n ->
+  arity (get_node v) = 0 -> get_node v <> n -> n <> get_node bot -> ~prefix p q.
+Proof.
+  intros H ? ? ? Hprefix.
+  assert (valid_q : valid_spath (S.[p <- v]) q) by (apply get_not_bot_valid_spath; congruence).
+  assert (valid_spath S p). {
+    destruct Hprefix as (? & <-). apply valid_spath_app in valid_q.
+    destruct valid_q as (valid_p & _).
+    rewrite <-sset_not_prefix_valid in valid_p; auto with spath. }
+  apply prefix_if_equal_or_strict_prefix in Hprefix. destruct Hprefix as [<- | Hstrict_prefix].
+  - rewrite sset_sget_equal in H by assumption. auto.
+  - apply get_nil_prefix_right with (S := S.[p <- v]) in Hstrict_prefix.
+    + assumption.
+    + rewrite sset_sget_equal; assumption.
+    + apply get_not_bot_valid_spath. congruence.
+Qed.
+Hint Resolve sget_sset_zeroary_not_prefix : spath.
+
 Lemma eval_place_ToSymbolic S sp p pi perm
   (no_bot : not_contains_bot (S.[sp])) :
   (S.[sp <- LLBC_plus_symbolic]) |-{p} p =>^{perm} pi -> S |-{p} p =>^{perm} pi.
@@ -811,11 +832,7 @@ Proof.
   - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
     inversion Heval_proj; subst.
     (* TODO: automate this. *)
-    + eapply Eval_Deref_MutBorrow. assumption.
-      rewrite get_node_sset_sget_not_prefix in get_q. eassumption.
-      apply prove_not_prefix. intros ->. autorewrite with spath in get_q. discriminate.
-      eapply get_nil_prefix_right with (S := S.[sp <- LLBC_plus_symbolic]).
-      autorewrite with spath. reflexivity. validity.
+    + autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
 Lemma sget_remove_anon S a sp :
