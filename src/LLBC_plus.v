@@ -910,12 +910,11 @@ Proof.
       autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
-(* TODO: rename? This relation may be useful for more than the rule Fresh_MutLoan *)
-Definition rel_Fresh_MutLoan a (p q : spath) := p = q /\ fst p <> encode_anon a.
+Definition rel_add_anon a (p q : spath) := p = q /\ fst p <> encode_anon a.
 
 Lemma eval_place_Fresh_MutLoan S sp l a perm p pi_r :
   (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_Fresh_MutLoan a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
@@ -953,7 +952,7 @@ Qed.
 Lemma eval_place_Reborrow_MutBorrow S sp l0 l1 a perm p pi_r
     (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
   (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1))) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_Fresh_MutLoan a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
@@ -970,7 +969,7 @@ Qed.
 
 Lemma eval_place_AnonValue S v a perm p pi_r (no_loan : not_contains_loan v) :
   (S,, a |-> v) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_Fresh_MutLoan a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
