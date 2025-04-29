@@ -910,6 +910,29 @@ Proof.
       autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
+Definition rel_Fresh_MutLoan a (p q : spath) := p = q /\ fst p <> encode_anon a.
+
+Lemma eval_place_Fresh_MutLoan S sp l a perm p pi_r
+  (fresh_l1 : is_fresh l S)
+  (fresh_a : fresh_anon S a)
+  (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
+     I am going a step further: there should not be bottoms in borrowed values. *)
+  (no_bot : not_contains_bot (S.[sp])) :
+  (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])) |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_Fresh_MutLoan a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Proof.
+  apply eval_place_preservation.
+  - split; [reflexivity | inversion 1].
+  - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
+  - clear pi_r. intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+    inversion Heval_proj; subst.
+    + autorewrite with spath in get_q.
+      (* Note: this autorewrite takes a long time to execute (0.54s on my machine).
+         `eauto with spath` takes 98% of the time.
+         This could be a good candidate to improve automatic search. *)
+      repeat split; try assumption. eapply Eval_Deref_MutBorrow; eassumption.
+Qed.
+
 (* Derived rules *)
 Lemma fresh_abstraction_sset S sp v i :
   fresh_abstraction S i -> fresh_abstraction (S.[sp <- v]) i.
