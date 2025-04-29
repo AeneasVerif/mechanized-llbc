@@ -771,19 +771,19 @@ Qed.
  * We prove that if p evaluates to a spath pi_r on Sr, then it also evaluates for a spath
  * pi_l on the left, with R pi_l pi_r.
  * The relation R depends on the rule, but for most rules it is simply going to be the equality. *)
-Lemma eval_place_preservation Sl Sr perm p pi_r (R : spath -> spath -> Prop) :
+Lemma eval_place_preservation Sl Sr perm p (R : spath -> spath -> Prop)
   (* Initial case: the relation R must be preserved for all spath corresponding to a variable. *)
-  (forall x, R (encode_var x, []) (encode_var x, [])) ->
+  (R_nil : forall x, R (encode_var x, []) (encode_var x, []))
   (* All of the variables of Sr are variables of Sl.
    * Since most of the time, Sr is Sl alterations on regions, anonymous regions or by sset, this
    * is always true. *)
-  dom (vars Sl) = dom (vars Sr) ->
-  (forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_proj Sl perm proj)) ->
-  eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
+  (dom_eq : dom (vars Sl) = dom (vars Sr))
+  (Hsim : forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_proj Sl perm proj)) :
+  forall pi_r, eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
 Proof.
-  intros R_nil H. intros ? ((? & G%mk_is_Some & _) & Heval_path).
+  intros pi_r ((? & G%mk_is_Some & _) & Heval_path).
   cbn in G. unfold encode_var in G. rewrite !sum_maps_lookup_l in G.
-  rewrite <-elem_of_dom, <-H, elem_of_dom, <-get_at_var in G. destruct G as (? & ?).
+  rewrite <-elem_of_dom, <-dom_eq, elem_of_dom, <-get_at_var in G. destruct G as (? & ?).
   eapply eval_path_preservation in Heval_path; [ | eassumption].
   edestruct Heval_path as (pi_l' & ? & ?); [apply R_nil | ].
   exists pi_l'. split; [assumption | ]. split; [ | assumption].
@@ -866,17 +866,17 @@ Definition rel_MoveValue sp a p q :=
   (p = q /\ ~strict_prefix sp p /\ fst p <> encode_anon a) \/
   (exists r, p = sp +++ r /\ q = (encode_anon a, r)).
 
-Lemma eval_place_MoveValue S sp a perm p pi_r
+Lemma eval_place_MoveValue S sp a perm p
   (fresh_a : fresh_anon S a)
   (valid_sp : valid_spath S sp)
   (not_in_region : ~in_region sp) :
-  (S.[sp <- bot],, a |-> S.[sp]) |-{p} p =>^{perm} pi_r ->
+  forall pi_r, (S.[sp <- bot],, a |-> S.[sp]) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_MoveValue sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - intros x. left. repeat split; [apply not_strict_prefix_nil | inversion 1].
   - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
-  - clear pi_r. intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
+  - intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
     inversion Heval_proj; subst.
     + destruct rel_pi_l_pi_r as [(-> & ? & ?) | (r & -> & ->)].
       * assert (sp <> pi_r).
@@ -894,16 +894,16 @@ Qed.
 Definition rel_MergeAbs i j p q :=
   p = q /\ not_in_region i p /\ not_in_region j p /\ not_in_region i q.
 
-Lemma eval_place_MergeAbs S i j A B C perm p pi_r
+Lemma eval_place_MergeAbs S i j A B C perm p
     (get_A : lookup i (regions S) = Some A) (get_B : lookup j (regions S) = Some B)
-    (Hmerge : merge_abstractions A B C) :
-    i <> j -> (remove_region i (remove_region j S),,, i |-> C) |-{p} p =>^{perm} pi_r ->
+    (Hmerge : merge_abstractions A B C) (diff : i <> j) :
+    forall pi_r, (remove_region i (remove_region j S),,, i |-> C) |-{p} p =>^{perm} pi_r ->
     exists pi_l, rel_MergeAbs i j pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
-  intros diff. apply eval_place_preservation.
+  apply eval_place_preservation.
   - repeat split; inversion 1.
   - reflexivity.
-  - clear pi_r. intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
+  - intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
     inversion Heval_proj; subst.
     + destruct rel_pi_l_pi_r as (-> & ? & ? & ?). exists (pi_r +++ [0]).
       repeat split; [eauto using not_in_region_app.. | ].
@@ -912,14 +912,14 @@ Qed.
 
 Definition rel_add_anon a (p q : spath) := p = q /\ fst p <> encode_anon a.
 
-Lemma eval_place_Fresh_MutLoan S sp l a perm p pi_r :
-  (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])) |-{p} p =>^{perm} pi_r ->
+Lemma eval_place_Fresh_MutLoan S sp l a perm p :
+  forall pi_r, (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
   - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
-  - clear pi_r. intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+  - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
     + autorewrite with spath in get_q.
       (* Note: this autorewrite takes a long time to execute (0.54s on my machine).
@@ -949,32 +949,33 @@ Proof.
   - autorewrite with spath. reflexivity.
 Qed.
 
-Lemma eval_place_Reborrow_MutBorrow S sp l0 l1 a perm p pi_r
-    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
+Lemma eval_place_Reborrow_MutBorrow S sp l0 l1 a perm p
+    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) pi_r :
   (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1))) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
-  apply eval_place_preservation.
+  revert pi_r. apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
   - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
-  - clear pi_r. intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+  - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
     + repeat split; try assumption.
       destruct (decide (sp = pi_r)) as [<- | ].
       * eapply Eval_Deref_MutBorrow; eassumption.
       * autorewrite with spath in get_q.
+        (* Note: this rewrite take up to 2s, with 80% of time spent on eauto with spath. *)
         erewrite get_node_reborrow_mut_borrow in get_q by eassumption.
         eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
-Lemma eval_place_AnonValue S v a perm p pi_r (no_loan : not_contains_loan v) :
-  (S,, a |-> v) |-{p} p =>^{perm} pi_r ->
+Lemma eval_place_AnonValue S v a perm p (no_loan : not_contains_loan v) :
+  forall pi_r, (S,, a |-> v) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
   - reflexivity.
-  - clear pi_r. intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+  - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
     + repeat split; try assumption. autorewrite with spath in get_q.
       eapply Eval_Deref_MutBorrow; eassumption.
