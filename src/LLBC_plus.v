@@ -103,35 +103,35 @@ Next Obligation. intros ? []; cbn; lia. Qed.
 Record LLBC_plus_state := {
   vars : Pmap LLBC_plus_val;
   anons : Pmap LLBC_plus_val;
-  regions : Pmap (Pmap LLBC_plus_val);
+  abstractions : Pmap (Pmap LLBC_plus_val);
 }.
 
 Definition encode_var (x : var) :=
   encode (A := _ + positive * positive) (inl (encode (A := _ + anon) (inl x))).
 Definition encode_anon (a : anon) :=
   encode (A := _ + positive * positive) (inl (encode (A := var + _) (inr a))).
-Definition encode_region (x : positive * positive) := encode (A := positive + _) (inr x).
+Definition encode_abstraction (x : positive * positive) := encode (A := positive + _) (inr x).
 
 Program Instance IsState : State LLBC_plus_state LLBC_plus_val := {
-  get_map S := sum_maps (sum_maps (vars S) (anons S)) (flatten (regions S));
+  get_map S := sum_maps (sum_maps (vars S) (anons S)) (flatten (abstractions S));
 
   (* The flatten function in not injective. For example, R and R<[A := empty]> have the same
-   * flattening. An empty region and a non-existant region can't be distinguished.
-   * Therefore, for the axiom `state_eq_ext` to be true, we need the set of regions identifiers as
-   * extra information. *)
+   * flattening. An empty region abstraction and a non-existant region abstraction can't be
+   * distinguished. Therefore, for the axiom `state_eq_ext` to be true, we need the set of region
+   * abstractions identifiers as extra information. *)
   extra := Pset;
-  get_extra S := dom (regions S);
+  get_extra S := dom (abstractions S);
 
   alter_at_accessor f a S :=
     match decode' (A := positive + positive * positive) a with
     | Some (inl a) =>
         match decode' (A := var + anon) a with
-        | Some (inl x) => {| vars := alter f x (vars S); anons := anons S; regions := regions S|}
-        | Some (inr a) => {| vars := vars S; anons := alter f a (anons S); regions := regions S|}
+        | Some (inl x) => {| vars := alter f x (vars S); anons := anons S; abstractions := abstractions S|}
+        | Some (inr a) => {| vars := vars S; anons := alter f a (anons S); abstractions := abstractions S|}
         | None => S
         end
     | Some (inr (i, j)) => {| vars := vars S; anons := anons S;
-                              regions := alter (fun r => alter f j r) i (regions S)|}
+                              abstractions := alter (fun r => alter f j r) i (abstractions S)|}
     | None => S
     end;
 
@@ -147,7 +147,7 @@ Program Instance IsState : State LLBC_plus_state LLBC_plus_val := {
     | Some (inr _) => None
     | None => None
     end;
-  add_anon a v S := {| vars := vars S; anons := insert a v (anons S); regions := regions S|};
+  add_anon a v S := {| vars := vars S; anons := insert a v (anons S); abstractions := abstractions S|};
 }.
 Next Obligation.
   intros ? ? y. cbn. destruct (decode' y) as [[z | (i & j)] | ] eqn:H.
@@ -357,9 +357,9 @@ where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 Definition not_in_borrow (S : LLBC_plus_state) p :=
   forall q, prefix q p -> is_mut_borrow (get_node (S.[q])) -> q = p.
 
-Variant in_region : spath -> Prop :=
+Variant in_abstraction : spath -> Prop :=
   | InRegion i r q :
-      decode' (A := positive + positive * positive) i = Some (inr r) -> in_region (i, q).
+      decode' (A := positive + positive * positive) i = Some (inr r) -> in_abstraction (i, q).
 
 (* The property merge_maps A B C is true if the map C contains all of the pairs (key, element) of
  * A, and all the elements of B with possibly different keys.
@@ -374,15 +374,15 @@ Inductive merge_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
 Inductive reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Reorg_end_borrow_m S (p q : spath) l :
     disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
-    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q -> ~in_region q ->
+    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q -> ~in_abstraction q ->
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
-    (* q refers to a path in region A, at index j. *)
+    (* q refers to a path in abstraction A, at index j. *)
 | Reorg_end_abstraction S i A anons' :
-    lookup i (regions S) = Some A ->
+    lookup i (abstractions S) = Some A ->
     merge_maps (anons S) A anons' ->
     (* No value in A contains a loan: *)
     map_Forall (fun _ => not_contains_loan) A ->
-    reorg S {|vars := vars S; anons := anons'; regions := delete i (regions S)|}.
+    reorg S {|vars := vars S; anons := anons'; abstractions := delete i (abstractions S)|}.
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
@@ -410,11 +410,11 @@ Inductive eval_stmt : statement -> statement_result -> LLBC_plus_state -> LLBC_p
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
-(* A version of to-abs that is limited compared to the paper. Currently, we can only turn into an
- * abstraction a value of the form:
+(* A version of to-abs that is limited compared to the paper. Currently, we can only turn into a
+ * region abstraction a value of the form:
  * - borrow^m l σ (with σ a symbolic value)
  * - borrow^m l0 (loan^m l1)
- * Consequently, a single region is created.
+ * Consequently, a single region abstraction is created.
  *)
 Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
 | ToAbs_MutBorrow l :
@@ -435,12 +435,12 @@ Inductive merge_abstractions :
       merge_abstractions (insert i (loan^m(l)) A) (insert j (borrow^m(l, LLBC_plus_symbolic)) B) C
 .
 
-Definition add_region S i A :=
-  {|vars := vars S; anons := anons S; regions := insert i A (regions S)|}.
+Definition add_abstraction S i A :=
+  {|vars := vars S; anons := anons S; abstractions := insert i A (abstractions S)|}.
 
-Notation "S ,,, i |-> A" := (add_region S i A) (at level 50, left associativity).
+Notation "S ,,, i |-> A" := (add_abstraction S i A) (at level 50, left associativity).
 
-Notation fresh_abstraction S i := (lookup i (regions S) = None).
+Notation fresh_abstraction S i := (lookup i (abstractions S) = None).
 
 Lemma sweight_add_abstraction S weight i A :
   fresh_abstraction S i ->
@@ -457,7 +457,7 @@ Qed.
 Hint Rewrite sweight_add_abstraction using cbn; simpl_map; auto : weight.
 
 Definition remove_anon a S :=
-  {| vars := vars S; anons := delete a (anons S); regions := regions S|}.
+  {| vars := vars S; anons := delete a (anons S); abstractions := abstractions S|}.
 
 Lemma add_anon_remove_anon S a v :
   lookup (anon_accessor a) (get_map S) = Some v -> (remove_anon a S),, a |-> v = S.
@@ -511,31 +511,31 @@ Proof.
     rewrite get_map_add_anon. simpl_map. reflexivity.
 Qed.
 
-Definition remove_region i S :=
-  {|vars := vars S; anons := anons S; regions := delete i (regions S)|}.
+Definition remove_abstraction i S :=
+  {|vars := vars S; anons := anons S; abstractions := delete i (abstractions S)|}.
 
-Lemma add_remove_region i A S (H : lookup i (regions S) = Some A) :
-  remove_region i S,,, i |-> A = S.
+Lemma add_remove_abstraction i A S (H : lookup i (abstractions S) = Some A) :
+  remove_abstraction i S,,, i |-> A = S.
 Proof.
-  unfold add_region, remove_region.
+  unfold add_abstraction, remove_abstraction.
   destruct S. cbn. f_equal. apply insert_delete in H. exact H.
 Qed.
 
-Lemma remove_add_region_ne i j A S :
-  i <> j -> remove_region i (S,,, j |-> A) = remove_region i S,,, j |-> A.
+Lemma remove_add_abstraction_ne i j A S :
+  i <> j -> remove_abstraction i (S,,, j |-> A) = remove_abstraction i S,,, j |-> A.
 Proof.
-  unfold add_region, remove_region.
+  unfold add_abstraction, remove_abstraction.
   intros ?. destruct S. cbn. f_equal. apply delete_insert_ne. assumption.
 Qed.
 
-Definition not_in_region i (p : spath) := forall j, fst p <> encode_region (i, j).
+Definition not_in_abstraction i (p : spath) := forall j, fst p <> encode_abstraction (i, j).
 
-Lemma not_in_region_app i p q : not_in_region i p -> not_in_region i (p +++ q).
+Lemma not_in_abstraction_app i p q : not_in_abstraction i p -> not_in_abstraction i (p +++ q).
 Proof. intros H ? ?. eapply H. eassumption. Qed.
 
 (* The hypothesis `fresh_abstraction S i` is not necessary, we're going to remove it. *)
-Lemma _get_at_accessor_add_region S i A x (i_fresh : fresh_abstraction S i)
-  (H : forall j, x <> encode_region (i, j)) :
+Lemma _get_at_accessor_add_abstraction S i A x (i_fresh : fresh_abstraction S i)
+  (H : forall j, x <> encode_abstraction (i, j)) :
   get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
 Proof.
   unfold get_map. cbn. rewrite flatten_insert' by assumption.
@@ -545,36 +545,36 @@ Proof.
   destruct G as (j & -> & _). eapply H. eassumption.
 Qed.
 
-Lemma add_remove_add_region S i A : (remove_region i S),,, i |-> A = S,,, i |-> A.
-Proof. unfold add_region, remove_region. cbn. f_equal. apply insert_delete_insert. Qed.
+Lemma add_remove_add_abstraction S i A : (remove_abstraction i S),,, i |-> A = S,,, i |-> A.
+Proof. unfold add_abstraction, remove_abstraction. cbn. f_equal. apply insert_delete_insert. Qed.
 
-Lemma get_at_accessor_add_region S i A x (H : forall j, x <> encode_region (i, j)) :
+Lemma get_at_accessor_add_abstraction S i A x (H : forall j, x <> encode_abstraction (i, j)) :
   get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
 Proof.
-  destruct (lookup i (regions S)) eqn:EQN.
-  - apply add_remove_region in EQN. rewrite<- EQN at 2. rewrite <-add_remove_add_region.
-    rewrite !_get_at_accessor_add_region; auto; apply lookup_delete.
-  - apply _get_at_accessor_add_region; assumption.
+  destruct (lookup i (abstractions S)) eqn:EQN.
+  - apply add_remove_abstraction in EQN. rewrite<- EQN at 2. rewrite <-add_remove_add_abstraction.
+    rewrite !_get_at_accessor_add_abstraction; auto; apply lookup_delete.
+  - apply _get_at_accessor_add_abstraction; assumption.
 Qed.
 
-Lemma get_at_accessor_remove_region S i x (H : forall j, x <> encode_region (i, j)) :
-  get_at_accessor (remove_region i S) x = get_at_accessor S x.
+Lemma get_at_accessor_remove_abstraction S i x (H : forall j, x <> encode_abstraction (i, j)) :
+  get_at_accessor (remove_abstraction i S) x = get_at_accessor S x.
 Proof.
-  destruct (lookup i (regions S)) eqn:EQN.
-  - apply add_remove_region in EQN. rewrite<- EQN at 2. symmetry.
-    apply get_at_accessor_add_region. assumption.
-  - repeat f_equal. unfold remove_region. rewrite delete_notin by assumption.
+  destruct (lookup i (abstractions S)) eqn:EQN.
+  - apply add_remove_abstraction in EQN. rewrite<- EQN at 2. symmetry.
+    apply get_at_accessor_add_abstraction. assumption.
+  - repeat f_equal. unfold remove_abstraction. rewrite delete_notin by assumption.
     destruct S. reflexivity.
 Qed.
 
-Lemma add_region_sget S i A p : not_in_region i p -> (S,,, i |-> A).[p] = S.[p].
-Proof. intros H. unfold sget. rewrite get_at_accessor_add_region; auto. Qed.
+Lemma add_abstraction_sget S i A p : not_in_abstraction i p -> (S,,, i |-> A).[p] = S.[p].
+Proof. intros H. unfold sget. rewrite get_at_accessor_add_abstraction; auto. Qed.
 
-Lemma remove_region_sget S i p : not_in_region i p -> (remove_region i S).[p] = S.[p].
-Proof. intros H. unfold sget. rewrite get_at_accessor_remove_region; auto. Qed.
+Lemma remove_abstraction_sget S i p : not_in_abstraction i p -> (remove_abstraction i S).[p] = S.[p].
+Proof. intros H. unfold sget. rewrite get_at_accessor_remove_abstraction; auto. Qed.
 
-Hint Rewrite add_region_sget using assumption : spath.
-Hint Rewrite remove_region_sget using assumption : spath.
+Hint Rewrite add_abstraction_sget using assumption : spath.
+Hint Rewrite remove_abstraction_sget using assumption : spath.
 
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToSymbolic S sp
@@ -588,7 +588,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (Hto_abs : to_abs v A) :
     leq_state_base S ((remove_anon a S),,, i |-> A)
 (* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
- * contain any loan or borrow, no region is created. *)
+ * contain any loan or borrow, no region abstraction is created. *)
 | Leq_RemoveAnon S a v
     (get_a : get_at_accessor S (anon_accessor a) = Some v)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
@@ -597,13 +597,14 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
     (valid_sp : valid_spath S sp)
-    (not_in_region : ~in_region sp) :
+    (not_in_abstraction : ~in_abstraction sp) :
     leq_state_base S (S.[sp <- bot],, a |-> S.[sp])
-(* Note: for the merge, we reuse the region i. Maybe we should use another region k? *)
+(* Note: for the merge, we reuse the region abstraction at i. Maybe we should use another region
+ * abstraction index k? *)
 | Leq_MergeAbs S i j A B C
-    (get_A : lookup i (regions S) = Some A) (get_B : lookup j (regions S) = Some B)
+    (get_A : lookup i (abstractions S) = Some A) (get_B : lookup j (abstractions S) = Some B)
     (Hmerge : merge_abstractions A B C) :
-    i <> j -> leq_state_base S (remove_region i (remove_region j S),,, i |-> C)
+    i <> j -> leq_state_base S (remove_abstraction i (remove_abstraction j S),,, i |-> C)
 | Leq_Fresh_MutLoan S sp l a
     (fresh_l1 : is_fresh l S)
     (fresh_a : fresh_anon S a)
@@ -619,10 +620,10 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
 | Leq_Abs_Clear_Value S i A j v :
-    lookup i (regions S) = Some A -> lookup j A = Some v ->
+    lookup i (abstractions S) = Some A -> lookup j A = Some v ->
     not_contains_loan v -> not_contains_borrow v ->
     leq_state_base S
-    {|vars := vars S; anons := anons S; regions := insert i (delete j A) (regions S)|}
+    {|vars := vars S; anons := anons S; abstractions := insert i (delete j A) (abstractions S)|}
 | Leq_AnonValue S v a
     (no_loan : not_contains_loan v)
     (no_borrow : not_contains_borrow v)
@@ -634,8 +635,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 Definition equiv_states (S0 S1 : LLBC_plus_state) :=
   vars S0 = vars S1 /\
   equiv_map (anons S0) (anons S1) /\
-  map_Forall2 (fun _ => equiv_map) (regions S0) (regions S1).
-(*forall i, option_Forall2 equiv_map (lookup i (regions S0)) (lookup i (regions S1)).*)
+  map_Forall2 (fun _ => equiv_map) (abstractions S0) (abstractions S1).
 
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
@@ -683,22 +683,22 @@ Hint Rewrite vweight_mut_borrow : weight.
 
 (* We cannot automatically rewrite map_sum_empty. Is it because of typeclasses?
  * Thus, we crate an alternative. *)
-Lemma region_sum_empty (weight : LLBC_plus_val -> nat) : map_sum weight (M := Pmap) empty = 0.
+Lemma abstraction_sum_empty (weight : LLBC_plus_val -> nat) : map_sum weight (M := Pmap) empty = 0.
 Proof. apply map_sum_empty. Qed.
-Hint Rewrite region_sum_empty : weight.
+Hint Rewrite abstraction_sum_empty : weight.
 
-Lemma region_sum_insert weight i v (A : Pmap LLBC_plus_val) :
+Lemma abstraction_sum_insert weight i v (A : Pmap LLBC_plus_val) :
   lookup i A = None -> map_sum weight (insert i v A) = weight v + map_sum weight A.
 Proof. apply map_sum_insert. Qed.
-Hint Rewrite region_sum_insert using auto : weight.
+Hint Rewrite abstraction_sum_insert using auto : weight.
 
-Lemma region_sum_singleton weight i v :
+Lemma abstraction_sum_singleton weight i v :
   map_sum weight (singletonM (M := Pmap LLBC_plus_val) i v) = weight v.
 Proof.
   unfold singletonM, map_singleton.
-  rewrite region_sum_insert, region_sum_empty by apply lookup_empty. lia.
+  rewrite abstraction_sum_insert, abstraction_sum_empty by apply lookup_empty. lia.
 Qed.
-Hint Rewrite region_sum_singleton : weight.
+Hint Rewrite abstraction_sum_singleton : weight.
 
 Global Instance LLBC_plus_WellFormed : WellFormed LLBC_plus_state :=
 { well_formed := LLBC_plus_well_formed }.
@@ -719,8 +719,8 @@ Proof.
       [ | intros ? <-%indicator_non_zero; constructor].
     destruct H; split; weight_inequality.
   - destruct H. split; weight_inequality.
-  - apply add_remove_region in get_A, get_B.
-    rewrite<- get_B, remove_add_region_ne in get_A by assumption.
+  - apply add_remove_abstraction in get_A, get_B.
+    rewrite<- get_B, remove_add_abstraction_ne in get_A by assumption.
     rewrite <-get_B, <-get_A in H. clear get_A get_B. destruct H.
     induction Hmerge.
     + split; weight_inequality.
@@ -775,8 +775,8 @@ Lemma eval_place_preservation Sl Sr perm p (R : spath -> spath -> Prop)
   (* Initial case: the relation R must be preserved for all spath corresponding to a variable. *)
   (R_nil : forall x, R (encode_var x, []) (encode_var x, []))
   (* All of the variables of Sr are variables of Sl.
-   * Since most of the time, Sr is Sl alterations on regions, anonymous regions or by sset, this
-   * is always true. *)
+   * Since most of the time, Sr is Sl with alterations on region abstractions, anonymous variables
+   * or by sset, this is always true. *)
   (dom_eq : dom (vars Sl) = dom (vars Sr))
   (Hsim : forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_proj Sl perm proj)) :
   forall pi_r, eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
@@ -869,7 +869,7 @@ Definition rel_MoveValue sp a p q :=
 Lemma eval_place_MoveValue S sp a perm p
   (fresh_a : fresh_anon S a)
   (valid_sp : valid_spath S sp)
-  (not_in_region : ~in_region sp) :
+  (not_in_abstraction : ~in_abstraction sp) :
   forall pi_r, (S.[sp <- bot],, a |-> S.[sp]) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_MoveValue sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
@@ -892,12 +892,12 @@ Proof.
 Qed.
 
 Definition rel_MergeAbs i j p q :=
-  p = q /\ not_in_region i p /\ not_in_region j p /\ not_in_region i q.
+  p = q /\ not_in_abstraction i p /\ not_in_abstraction j p /\ not_in_abstraction i q.
 
 Lemma eval_place_MergeAbs S i j A B C perm p
-    (get_A : lookup i (regions S) = Some A) (get_B : lookup j (regions S) = Some B)
+    (get_A : lookup i (abstractions S) = Some A) (get_B : lookup j (abstractions S) = Some B)
     (Hmerge : merge_abstractions A B C) (diff : i <> j) :
-    forall pi_r, (remove_region i (remove_region j S),,, i |-> C) |-{p} p =>^{perm} pi_r ->
+    forall pi_r, (remove_abstraction i (remove_abstraction j S),,, i |-> C) |-{p} p =>^{perm} pi_r ->
     exists pi_l, rel_MergeAbs i j pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
@@ -906,7 +906,7 @@ Proof.
   - intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
     inversion Heval_proj; subst.
     + destruct rel_pi_l_pi_r as (-> & ? & ? & ?). exists (pi_r +++ [0]).
-      repeat split; [eauto using not_in_region_app.. | ].
+      repeat split; [eauto using not_in_abstraction_app.. | ].
       autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
@@ -986,7 +986,7 @@ Lemma fresh_abstraction_sset S sp v i :
   fresh_abstraction S i -> fresh_abstraction (S.[sp <- v]) i.
 Proof.
   rewrite<- !not_elem_of_dom.
-  replace (dom (regions (S.[ sp <- v]))) with (get_extra (S.[ sp <- v])) by reflexivity.
+  replace (dom (abstractions (S.[ sp <- v]))) with (get_extra (S.[ sp <- v])) by reflexivity.
   unfold sset. rewrite get_extra_alter. auto.
 Qed.
 
@@ -1072,7 +1072,7 @@ Open Scope stdpp.
 Definition cond_state := {|
   vars := {[x := LLBC_plus_int 0; y := LLBC_plus_int 1; z := bot]};
   anons := empty;
-  regions := empty;
+  abstractions := empty;
 |}.
 
 Definition lx : loan_id := 0.
@@ -1084,7 +1084,7 @@ Definition A : positive := 1.
 Definition join_state : LLBC_plus_state := {|
   vars := {[x := loan^m(lx); y := loan^m(ly); z := borrow^m(lz, LLBC_plus_symbolic)]};
   anons := empty;
-  regions := {[A := {[1%positive := borrow^m(lx, LLBC_plus_symbolic);
+  abstractions := {[A := {[1%positive := borrow^m(lx, LLBC_plus_symbolic);
                       2%positive := borrow^m(ly, LLBC_plus_symbolic);
                       3%positive := loan^m(lz)]} ]}
 |}.
@@ -1311,7 +1311,7 @@ Section Eval_LLBC_plus_program.
     { etransitivity.
       (* Ending the loan lz ... *)
       { constructor.
-        eapply Reorg_end_borrow_m with (p := (encode_region (1%positive, 3%positive), []))
+        eapply Reorg_end_borrow_m with (p := (encode_abstraction (1%positive, 3%positive), []))
                                        (q := (encode_var 3%positive, [])).
         - left. discriminate.
         - reflexivity.
@@ -1320,7 +1320,7 @@ Section Eval_LLBC_plus_program.
         - intros ? ->%prefix_nil. reflexivity.
         - intros H. inversion H. discriminate. }
       simpl_state. etransitivity.
-      (* ... so that we could end the region ... *)
+      (* ... so that we could end the region abstraction ... *)
       { constructor. eapply Reorg_end_abstraction with (i := 1%positive).
         - reflexivity.
         - cbn. apply MergeInsert with (j := 2%positive); [reflexivity | ].
