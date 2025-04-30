@@ -835,12 +835,38 @@ Proof.
     + autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
+(* TODO: autorewrite? *)
+(* TODO: move? *)
 Lemma sget_remove_anon S a sp :
   valid_spath (remove_anon a S) sp -> (remove_anon a S).[sp] = S.[sp].
 Proof.
   intros (? & H & _). unfold sget.
   rewrite get_map_remove_anon, lookup_delete_ne; [reflexivity | ].
   intros G. rewrite<- G, remove_anon_is_fresh in H. discriminate.
+Qed.
+
+(* While we only have mutable loans and borrows, we cannot "jump into" an abstraction. When we
+ * introduce shared loans/borrows, we need to redefine this relation. *)
+Definition rel_ToAbs i p q := p = q /\ not_in_abstraction i p.
+
+(* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
+(* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
+ * borrows. *)
+Lemma eval_place_ToAbs S a v i A p perm
+  (get_a : get_at_accessor S (anon_accessor a) = Some v)
+  (fresh_i : fresh_abstraction S i)
+  (Hto_abs : to_abs v A) :
+  forall pi_r, ((remove_anon a S),,, i |-> A) |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_ToAbs i pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Proof.
+  apply eval_place_preservation.
+  - split; [reflexivity | inversion 1].
+  - reflexivity.
+  - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+    inversion Heval_proj; subst.
+    split; [split; auto using not_in_abstraction_app | ].
+    autorewrite with spath in get_q. rewrite sget_remove_anon in get_q by validity.
+    econstructor; eassumption.
 Qed.
 
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
