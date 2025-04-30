@@ -447,6 +447,14 @@ Section SumMaps.
     unfold sum_maps. rewrite kmap_union by typeclasses eauto.
     apply map_union_assoc.
   Qed.
+
+  Lemma sum_maps_delete_inr m0 m1 k :
+    delete (encode_inr k) (sum_maps m0 m1) = sum_maps m0 (delete k m1).
+  Proof.
+    unfold sum_maps. rewrite delete_union. f_equal.
+    - apply delete_notin. autorewrite with core. reflexivity.
+    - symmetry. apply kmap_delete. typeclasses eauto.
+  Qed.
 End SumMaps.
 
 (* Collapse the 2-dimensional map of regions into a 1-dimensional map. *)
@@ -468,27 +476,23 @@ Section Flatten.
     - assumption.
   Qed.
 
-  Lemma lookup_None_flatten Ms i j : lookup i Ms = None -> lookup (i, j) (flatten Ms) = None.
+  Lemma lookup_flatten Ms i j : lookup (i, j) (flatten Ms) = mbind (lookup j) (lookup i Ms).
   Proof.
-    intros ?.
     induction Ms as [ | k x Ms ? _ IHm] using map_first_key_ind.
-    - unfold flatten. rewrite map_fold_empty, lookup_empty. reflexivity.
-    - assert (i <> k). { intros <-. simpl_map. congruence. }
-      simpl_map.
-      rewrite flatten_insert by assumption. apply lookup_union_None_2.
-      + apply eq_None_ne_Some_2.
-        intros ? (? & ? & _)%lookup_kmap_Some; [congruence | typeclasses eauto].
-      + auto.
+    - unfold flatten. rewrite map_fold_empty. simpl_map. reflexivity.
+    - rewrite flatten_insert by assumption. destruct (decide (i = k)) as [-> | ].
+      + simpl_map. rewrite lookup_union. rewrite lookup_kmap by typeclasses eauto.
+        rewrite IHm, H. apply option_union_right_id.
+      + simpl_map. rewrite lookup_union_r; [exact IHm | ].
+        rewrite lookup_kmap_None by typeclasses eauto. congruence.
   Qed.
+
+  Lemma lookup_None_flatten Ms i j : lookup i Ms = None -> lookup (i, j) (flatten Ms) = None.
+  Proof. intros H. rewrite lookup_flatten, H. reflexivity. Qed.
 
   Lemma lookup_Some_flatten Ms i j m :
     lookup i Ms = Some m -> lookup (i, j) (flatten Ms) = lookup j m.
-  Proof.
-    intros <-%insert_delete. rewrite flatten_insert by apply lookup_delete. rewrite lookup_union.
-    rewrite lookup_kmap by typeclasses eauto. rewrite lookup_None_flatten.
-    - apply option_union_right_id.
-    - apply lookup_delete.
-  Qed.
+  Proof. intros H. rewrite lookup_flatten, H. reflexivity. Qed.
 
   Lemma flatten_insert' Ms i m (G : lookup i Ms = None) :
     flatten (insert i m Ms) = union (flatten Ms) (kmap (fun j => (i, j)) m).

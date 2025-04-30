@@ -576,6 +576,47 @@ Proof. intros H. unfold sget. rewrite get_at_accessor_remove_abstraction; auto. 
 Hint Rewrite add_abstraction_sget using assumption : spath.
 Hint Rewrite remove_abstraction_sget using assumption : spath.
 
+(* Remove the value at j in the region abstraction at i, if this value exists. *)
+Definition remove_abstraction_value S i j :=
+  {|vars := vars S; anons := anons S; abstractions := alter (delete j) i (abstractions S)|}.
+
+Lemma abstractions_remove_abstraction_value S i j :
+  flatten (abstractions (remove_abstraction_value S i j)) =
+  delete (i, j) (flatten (abstractions S)).
+Proof.
+  unfold remove_abstraction_value. cbn.
+  apply map_eq. intros (a & b). destruct (decide (i = a)) as [<- | ].
+  - rewrite lookup_flatten. rewrite lookup_alter.
+    rewrite option_fmap_bind.
+    destruct (decide (j = b)) as [<- | ].
+    + rewrite lookup_delete.
+      erewrite option_bind_ext_fun by (intros ?; apply lookup_delete).
+      destruct (lookup i (abstractions S)); reflexivity.
+    + rewrite lookup_delete_ne by congruence. rewrite lookup_flatten.
+      apply option_bind_ext_fun. intros ?. apply lookup_delete_ne. assumption.
+  - rewrite lookup_delete_ne by congruence. rewrite !lookup_flatten.
+    rewrite lookup_alter_ne by assumption. reflexivity.
+Qed.
+
+Lemma get_map_remove_abstraction_value S i j :
+  get_map (remove_abstraction_value S i j) = delete (encode_abstraction (i, j)) (get_map S).
+Proof.
+  unfold get_map, encode_abstraction. cbn.
+  rewrite sum_maps_delete_inr. rewrite <-abstractions_remove_abstraction_value. reflexivity.
+Qed.
+
+(* TODO: autorewrite? *)
+Lemma sget_remove_abstraction S i j p (H : fst p <> encode_abstraction (i, j)) :
+  (remove_abstraction_value S i j).[p] = S.[p].
+Proof. unfold sget. rewrite get_map_remove_abstraction_value. simpl_map. reflexivity. Qed.
+
+(*
+Definition abstraction_contains_value S i j v :=
+  exists A, lookup i (abstractions S) = Some A /\ lookup j A = Some v.
+ *)
+Definition abstraction_contains_value S i j v :=
+  get_at_accessor S (encode_abstraction (i, j)) = Some v.
+
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
@@ -619,11 +660,9 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     leq_state_base S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1)))
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
-| Leq_Abs_Clear_Value S i A j v :
-    lookup i (abstractions S) = Some A -> lookup j A = Some v ->
-    not_contains_loan v -> not_contains_borrow v ->
-    leq_state_base S
-    {|vars := vars S; anons := anons S; abstractions := insert i (delete j A) (abstractions S)|}
+| Leq_Abs_ClearValue S i j v :
+    abstraction_contains_value S i j v -> not_contains_loan v -> not_contains_borrow v ->
+    leq_state_base S (remove_abstraction_value S i j)
 | Leq_AnonValue S v a
     (no_loan : not_contains_loan v)
     (no_borrow : not_contains_borrow v)
@@ -1004,6 +1043,22 @@ Proof.
   - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
     + repeat split; try assumption. autorewrite with spath in get_q.
+      eapply Eval_Deref_MutBorrow; eassumption.
+Qed.
+
+Definition rel_Abs_ClearValue i j (p q : spath) := p = q /\ fst p <> encode_abstraction (i, j).
+
+Lemma Abs_ClearValue S i j v perm p :
+  abstraction_contains_value S i j v -> not_contains_loan v ->
+  forall pi_r, (remove_abstraction_value S i j) |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_Abs_ClearValue i j pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Proof.
+  intros ? ?. apply eval_place_preservation.
+  - split; [reflexivity | inversion 1].
+  - reflexivity.
+  - intros ? pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+    inversion Heval_proj; subst.
+    + repeat split; try assumption. rewrite sget_remove_abstraction in get_q by assumption.
       eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
