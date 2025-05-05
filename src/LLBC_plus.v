@@ -610,6 +610,20 @@ Lemma sget_remove_abstraction S i j p (H : fst p <> encode_abstraction (i, j)) :
   (remove_abstraction_value S i j).[p] = S.[p].
 Proof. unfold sget. rewrite get_map_remove_abstraction_value. simpl_map. reflexivity. Qed.
 
+(* In order to prove that a state is of the form (S,, a |-> v), it's useful to have lemmas that
+ * commute the addition of an anonymous variable to the end. *)
+Lemma remove_anon_add_anon_ne S a a' v :
+  a <> a' -> remove_anon a (S,, a' |-> v) = (remove_anon a S),, a' |-> v.
+Proof.
+  intros ?. unfold remove_anon, add_anon. cbn. rewrite delete_insert_ne by assumption. reflexivity.
+Qed.
+
+Lemma add_anon_add_abstraction S a v i A : (S,, a |-> v),,, i |-> A = (S,,, i |-> A),, a |-> v.
+Proof. reflexivity. Qed.
+
+Hint Rewrite remove_anon_add_anon_ne using congruence : spath.
+Hint Rewrite add_anon_add_abstraction using congruence : spath.
+
 (*
 Definition abstraction_contains_value S i j v :=
   exists A, lookup i (abstractions S) = Some A /\ lookup j A = Some v.
@@ -1113,6 +1127,36 @@ Proof.
     + repeat split; try assumption. rewrite sget_remove_abstraction in get_q by assumption.
       eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
+
+Lemma operand_preserves_LLBC_plus_rel op :
+  forward_simulation leq_base^* leq_val_state_base^* (eval_operand op) (eval_operand op).
+Proof.
+  apply preservation_by_base_case.
+  intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
+  - destruct Hle.
+    + eapply complete_square_diagram'.
+      * constructor.
+      * leq_val_state_step.
+        { apply Leq_ToSymbolic with (sp := sp); autorewrite with spath; assumption. }
+        { autorewrite with spath. reflexivity. }
+        { reflexivity. }
+      * reflexivity.
+    + eapply complete_square_diagram'.
+      * constructor.
+      * leq_val_state_step.
+        { apply Leq_ToAbs with (a := a) (v := v) (i := i) (A := A).
+          all: autorewrite with spath; assumption. }
+        { autorewrite with spath. reflexivity. }
+        { reflexivity. }
+      * reflexivity.
+    + eapply complete_square_diagram'.
+      * constructor.
+      * leq_val_state_step.
+        { apply Leq_RemoveAnon with (v := v) (a := a); autorewrite with spath; assumption. }
+        { autorewrite with spath. reflexivity. }
+        { reflexivity. }
+      * reflexivity.
+Abort.
 
 Local Open Scope option_monad_scope.
 (*

@@ -66,6 +66,13 @@ Lemma complete_square_diagram {B C D : Type}
   -> exists d, LeqDC d c /\ RedBD b d.
 Proof. intros ? ? <-. exists d0. auto. Qed.
 
+(* TODO: name. *)
+Lemma complete_square_diagram' {B C D : Type}
+  (LeqDC : D -> C -> Prop) (RedBD : B -> D -> Prop) b d c0 c1 :
+  RedBD b d -> LeqDC d c1 -> c0 = c1
+  -> exists d, LeqDC d c0 /\ RedBD b d.
+Proof. intros ? ? <-. exists d. auto. Qed.
+
 (* Generally, to prove preservation when the relation is a reflexive transitive closure, it
  * suffices to prove it for the base cases. *)
 Lemma preservation_by_base_case {A B : Type}
@@ -110,6 +117,17 @@ Section LeqValStateUtils.
     intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
   Qed.
 
+  (* TODO: name *)
+  Lemma prove_leq_val_state' vl Sl vm Sm vSr
+    (G : forall a, fresh_anon Sm a -> fresh_anon Sl a ->
+         exists vSm, leq_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm) :
+    leq_val_state_base^* (vm, Sm) vSr ->
+    leq_val_state_base^* (vl, Sl) vSr.
+  Proof.
+    intros ?. eapply rt_trans; [ | eassumption]. constructor.
+    intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
+  Qed.
+
   (* The issue by directly applying the lemma `preservation_by_base_case` is that it
      obfuscates the relation le, by unfolding it and replacing it with a reflexive transitive
      closure.
@@ -139,7 +157,12 @@ End LeqValStateUtils.
  *)
 Ltac leq_val_state_step :=
   let a := fresh "a" in
-  eapply prove_leq_val_state; [intros a ? ?; eexists; split | ].
+  lazymatch goal with
+  | |- ?leq_star ?vSl (?vr, ?Sr) =>
+      eapply prove_leq_val_state; [intros a ? ?; eexists; split | ]
+  | |- ?leq_star (?vl, ?Sl) ?vSr =>
+      eapply prove_leq_val_state'; [intros a ? ?; eexists; split | ]
+  end.
 
 Section WellFormedSimulations.
   Context `{LB : LeqBase state}.
