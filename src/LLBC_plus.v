@@ -671,6 +671,58 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     leq_state_base S (S,, a |-> v)
 .
 
+(* Derived rules *)
+Lemma fresh_abstraction_sset S sp v i :
+  fresh_abstraction S i -> fresh_abstraction (S.[sp <- v]) i.
+Proof.
+  rewrite<- !not_elem_of_dom.
+  replace (dom (abstractions (S.[ sp <- v]))) with (get_extra (S.[ sp <- v])) by reflexivity.
+  unfold sset. rewrite get_extra_alter. auto.
+Qed.
+
+Lemma Leq_Reborrow_MutBorrow_Abs S sp l0 l1 i
+    (fresh_l1 : is_fresh l1 S)
+    (fresh_i : fresh_abstraction S i)
+    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
+    leq_state_base^* S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],,,
+                        i |-> {[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]}%stdpp).
+Proof.
+  destruct (exists_fresh_anon S) as (a & fresh_a).
+  etransitivity.
+  { constructor. apply Leq_Reborrow_MutBorrow; eassumption. }
+  etransitivity.
+  { constructor. eapply Leq_ToAbs with (a := a).
+    - rewrite get_map_add_anon. simpl_map. reflexivity.
+    - repeat apply fresh_abstraction_sset. eassumption.
+    - constructor. }
+  rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
+Qed.
+
+Lemma Leq_Fresh_MutLoan_Abs S sp l i
+    (fresh_l1 : is_fresh l S)
+    (fresh_i : fresh_abstraction S i)
+    (no_loan : not_contains_loan (S.[sp]))
+    (no_borrow : not_contains_borrow (S.[sp]))
+    (no_bot : not_contains_bot (S.[sp])) :
+    leq_state_base^* S (S.[sp <- loan^m(l)],,,
+                        i |-> {[1%positive := borrow^m(l, LLBC_plus_symbolic)]}%stdpp).
+Proof.
+  destruct (exists_fresh_anon S) as (a & fresh_a).
+  etransitivity.
+  { constructor. apply Leq_ToSymbolic; eassumption. }
+  etransitivity.
+  { constructor. apply Leq_Fresh_MutLoan with (sp := sp).
+    - not_contains. eassumption.
+    - apply fresh_anon_sset. eassumption.
+    - autorewrite with spath. apply not_value_contains_zeroary; auto. }
+  etransitivity.
+  { constructor. eapply Leq_ToAbs with (a := a) (i := i).
+    - rewrite get_map_add_anon. simpl_map. autorewrite with spath. reflexivity.
+    - repeat apply fresh_abstraction_sset. assumption.
+    - constructor. }
+  autorewrite with spath. rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
+Qed.
+
 Definition equiv_states (S0 S1 : LLBC_plus_state) :=
   vars S0 = vars S1 /\
   equiv_map (anons S0) (anons S1) /\
@@ -1060,58 +1112,6 @@ Proof.
     inversion Heval_proj; subst.
     + repeat split; try assumption. rewrite sget_remove_abstraction in get_q by assumption.
       eapply Eval_Deref_MutBorrow; eassumption.
-Qed.
-
-(* Derived rules *)
-Lemma fresh_abstraction_sset S sp v i :
-  fresh_abstraction S i -> fresh_abstraction (S.[sp <- v]) i.
-Proof.
-  rewrite<- !not_elem_of_dom.
-  replace (dom (abstractions (S.[ sp <- v]))) with (get_extra (S.[ sp <- v])) by reflexivity.
-  unfold sset. rewrite get_extra_alter. auto.
-Qed.
-
-Lemma Leq_Reborrow_MutBorrow_Abs S sp l0 l1 i
-    (fresh_l1 : is_fresh l1 S)
-    (fresh_i : fresh_abstraction S i)
-    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
-    leq_state_base^* S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],,,
-                        i |-> {[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]}%stdpp).
-Proof.
-  destruct (exists_fresh_anon S) as (a & fresh_a).
-  etransitivity.
-  { constructor. apply Leq_Reborrow_MutBorrow; eassumption. }
-  etransitivity.
-  { constructor. eapply Leq_ToAbs with (a := a).
-    - rewrite get_map_add_anon. simpl_map. reflexivity.
-    - repeat apply fresh_abstraction_sset. eassumption.
-    - constructor. }
-  rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
-Qed.
-
-Lemma Leq_Fresh_MutLoan_Abs S sp l i
-    (fresh_l1 : is_fresh l S)
-    (fresh_i : fresh_abstraction S i)
-    (no_loan : not_contains_loan (S.[sp]))
-    (no_borrow : not_contains_borrow (S.[sp]))
-    (no_bot : not_contains_bot (S.[sp])) :
-    leq_state_base^* S (S.[sp <- loan^m(l)],,,
-                        i |-> {[1%positive := borrow^m(l, LLBC_plus_symbolic)]}%stdpp).
-Proof.
-  destruct (exists_fresh_anon S) as (a & fresh_a).
-  etransitivity.
-  { constructor. apply Leq_ToSymbolic; eassumption. }
-  etransitivity.
-  { constructor. apply Leq_Fresh_MutLoan with (sp := sp).
-    - not_contains. eassumption.
-    - apply fresh_anon_sset. eassumption.
-    - autorewrite with spath. apply not_value_contains_zeroary; auto. }
-  etransitivity.
-  { constructor. eapply Leq_ToAbs with (a := a) (i := i).
-    - rewrite get_map_add_anon. simpl_map. autorewrite with spath. reflexivity.
-    - repeat apply fresh_abstraction_sset. assumption.
-    - constructor. }
-  autorewrite with spath. rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
 Qed.
 
 Local Open Scope option_monad_scope.
