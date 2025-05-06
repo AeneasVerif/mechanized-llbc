@@ -618,11 +618,11 @@ Proof.
   intros ?. unfold remove_anon, add_anon. cbn. rewrite delete_insert_ne by assumption. reflexivity.
 Qed.
 
-Lemma add_anon_add_abstraction S a v i A : (S,, a |-> v),,, i |-> A = (S,,, i |-> A),, a |-> v.
+Lemma add_abstraction_add_anon S a v i A : (S,, a |-> v),,, i |-> A = (S,,, i |-> A),, a |-> v.
 Proof. reflexivity. Qed.
 
 Hint Rewrite remove_anon_add_anon_ne using congruence : spath.
-Hint Rewrite add_anon_add_abstraction using congruence : spath.
+Hint Rewrite add_abstraction_add_anon : spath.
 
 (*
 Definition abstraction_contains_value S i j v :=

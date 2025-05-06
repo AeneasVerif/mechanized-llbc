@@ -481,7 +481,7 @@ Class State state V `{Value V} := {
   anon_accessor_inj a : accessor_anon (anon_accessor a) = Some a;
 }.
 Notation get_at_accessor S a := (lookup a (get_map S)).
-Notation "S ,, a  |->  v" := (add_anon a v S) (at level 1, v at level 61).
+Notation "S ,, a  |->  v" := (add_anon a v S) (left associativity, at level 63, v at level 61).
 
 (* Reads a value at path p. If the path p is invalid, returns bot. *)
 Definition sget {state V} `{State state V} (p : spath) (S : state) : V :=
@@ -1100,8 +1100,8 @@ Section GetSetPath.
     x <> anon_accessor a -> get_at_accessor (S,, a |-> v) x = get_at_accessor S x.
   Proof. intros ?. rewrite get_map_add_anon, lookup_insert_ne; auto. Qed.
 
-  Lemma add_anon_commute (S : state) a b v w :
-    a <> b -> (S,, a |-> v),, b |-> w = (S,, b |-> w),, a |-> v.
+  Lemma add_anon_commute (S : state) (a b : anon) (v w : V) :
+    a <> b -> S,, a |-> v,, b |-> w = S,, b |-> w,, a |-> v.
   Proof.
     intros ?. apply state_eq_ext.
     - rewrite !get_map_add_anon. apply insert_commute.
