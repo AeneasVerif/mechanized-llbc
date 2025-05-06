@@ -1052,7 +1052,9 @@ Proof.
   - assert (eval_proj S k proj q q'). {
     - induction Heval_proj; autorewrite with spath in * |-.
       + econstructor; eassumption.
-      + assert (valid_spath (S,, a |-> v) q') as [ | ]%valid_spath_add_anon_cases by validity.
+      + assert (valid_spath (S,, a |-> v) q')
+          as [(_ & ?) | (? & _)]%valid_spath_add_anon_cases
+          by validity.
         * autorewrite with spath in * |-. econstructor; eassumption.
         * autorewrite with spath in * |-. exfalso. apply no_loc with (p := snd q').
           -- validity.
@@ -1081,14 +1083,14 @@ Proof.
   - assert (valid_spath (snd vSr) sp_loan).
     (* TODO: this piece of reasonning is used several times. Automate it. *)
     { assert (valid_spath ((snd vSr),, a |-> fst vSr) sp_loan)
-        as [ | ]%valid_spath_add_anon_cases
+        as [(_ & ?) | (? & _)]%valid_spath_add_anon_cases
         by validity.
       - assumption.
       - autorewrite with spath in HS_loan. exfalso.
         eapply Hno_loan; [ | rewrite HS_loan; constructor]. validity.
     }
     assert (valid_spath ((snd vSr),, a |-> fst vSr) sp_borrow)
-      as [ | ]%valid_spath_add_anon_cases
+      as [(_ & ?) | (? & _)]%valid_spath_add_anon_cases
       by validity.
     + autorewrite with spath in EQN.
       apply states_add_anon_eq in EQN; [ | auto using fresh_anon_sset..].
@@ -1171,7 +1173,7 @@ Proof.
   - eval_place_preservation. clear valid_p.
     assert (valid_sp_loan : valid_spath (Sr,, a |-> vr) sp_loan) by validity.
     apply valid_spath_add_anon_cases in valid_sp_loan.
-    destruct valid_sp_loan.
+    destruct valid_sp_loan as [(_ & ?) | (? & _)].
     2: { autorewrite with spath in HS_loan. exfalso.
       eapply no_loan; [ | rewrite HS_loan ]. validity. constructor. }
     autorewrite with spath in HS_loan |-.
@@ -1189,7 +1191,8 @@ Proof.
       * states_eq.
     + assert (valid_sp_borrow : valid_spath (Sr,, a |-> vr) sp_borrow) by validity.
       apply valid_spath_add_anon_cases in valid_sp_borrow.
-      destruct valid_sp_borrow as [valid_sp_borrw | ]; autorewrite with spath in HS_borrow.
+      destruct valid_sp_borrow as [(_ & valid_sp_borrow) | (? & _)];
+        autorewrite with spath in HS_borrow.
       * autorewrite with spath in HeqvSl.
         apply states_add_anon_eq in HeqvSl; [ | auto using fresh_anon_sset..].
         destruct HeqvSl. subst.

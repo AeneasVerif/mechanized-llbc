@@ -1159,10 +1159,17 @@ Section GetSetPath.
   Qed.
 
   Lemma valid_spath_add_anon_cases S a v p :
-    valid_spath (S,, a |-> v) p -> valid_spath S p \/ fst p = anon_accessor a.
+    valid_spath (S,, a |-> v) p ->
+      fst p <> anon_accessor a /\ valid_spath S p \/
+      fst p = anon_accessor a /\ valid_vpath v (snd p).
   Proof.
-    unfold valid_spath. intros valid_p. destruct (decide (fst p = anon_accessor a)); [auto | ].
-    left. rewrite get_map_add_anon, lookup_insert_ne in valid_p by auto. exact valid_p.
+    unfold valid_spath. intros valid_p.
+    destruct (decide (fst p = anon_accessor a)) as [Heq_p_a | ].
+    - right. split; [assumption | ]. rewrite Heq_p_a in valid_p.
+      rewrite get_map_add_anon, lookup_insert in valid_p.
+      destruct valid_p as (? & Heq_v & ?). inversion Heq_v. assumption.
+    - left. split; [assumption | ].
+      rewrite get_map_add_anon, lookup_insert_ne in valid_p by auto. exact valid_p.
   Qed.
 
   Lemma get_nil_prefix_right S p q :
