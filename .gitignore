@@ -1,2 +1,3 @@
 _build
-*/.lia.cache
+.lia.cache
+src/*.aux
