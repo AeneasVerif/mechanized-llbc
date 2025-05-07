@@ -1096,6 +1096,18 @@ Section GetSetPath.
   Lemma fresh_anon_sset S p v a : fresh_anon S a -> fresh_anon (S.[p <- v]) a.
   Proof. autounfold. intros ?. rewrite get_map_alter. now apply lookup_alter_None. Qed.
 
+  (* Note: by injectivity, the hypothesis anon_accessor a <> anon_accessor b could be
+   * replaces by a <> b. *)
+  Lemma fresh_anon_add_anon S a b v :
+    fresh_anon (S,, a |-> v) b <-> (fresh_anon S b /\ anon_accessor a <> anon_accessor b).
+  Proof.
+    unfold fresh_anon. rewrite get_map_add_anon. split.
+    - intros G. assert (anon_accessor a <> anon_accessor b).
+      { intros Heq. rewrite Heq in G. rewrite lookup_insert in G. discriminate. }
+      rewrite lookup_insert_ne in G by assumption. auto.
+    - intros (? & ?). rewrite lookup_insert_ne; assumption.
+  Qed.
+
   Lemma get_at_accessor_add_anon (S : state) a x v :
     x <> anon_accessor a -> get_at_accessor (S,, a |-> v) x = get_at_accessor S x.
   Proof. intros ?. rewrite get_map_add_anon, lookup_insert_ne; auto. Qed.
@@ -1370,6 +1382,16 @@ Section GetSetPath.
       rewrite sset_sget_prefix_right by assumption. apply not_in_v. assumption.
     - rewrite get_node_sset_sget_not_prefix by assumption.
       apply not_in_S. eapply sset_not_prefix_valid; [ | exact valid_q]. auto with spath.
+  Qed.
+
+  Lemma not_state_contains_add_anon P S v a
+    (not_in_S : not_state_contains P S)
+    (not_in_v : not_value_contains P v) :
+    not_state_contains P (S,, a |-> v).
+  Proof.
+    intros q [(? & ?) | (? & ?)]%valid_spath_add_anon_cases.
+    - rewrite sget_add_anon by assumption. now apply not_in_S.
+    - rewrite sget_anon by assumption. now apply not_in_v.
   Qed.
 
   Lemma not_value_contains_sset P S v p q

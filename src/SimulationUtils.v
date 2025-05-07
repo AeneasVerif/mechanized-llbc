@@ -48,15 +48,15 @@ Definition forward_simulation {A B C D : Type}
   (RedAC : A -> C -> Prop) (RedBD : B -> D -> Prop) :=
   forall a c, RedAC a c -> forall b, LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
 
-(* Generally, to complete the square diagram, we will prove that:
-   - there exists d0 such that c -> d0
-   - there exists d1 such that b <= d1
+(* To complete a square diagram for HLPL+, we prove that:
+   - The state c reduces to a state c0
+   - The state b is in relation with a state d1: b <= d1
    - d0 = d1
    This lemma allows us to not exhibit the terms d0 and d1 explicitely. As the relations LeqCD and
    RedBD are generally inductively defined, these terms are constructed by applying inductive
    constructors. This is why the constructors of the relation should be on the form:
    - red S E[S] for the reduction
-   - E[S] < S for the base relation
+   - E[S] < S for the base relation (only true for HLPL+)
    Finally, the last goal d0 = d1 is intended to be solved automatically, using the tactic
    states_eq.
  *)
@@ -66,7 +66,19 @@ Lemma complete_square_diagram {B C D : Type}
   -> exists d, LeqDC d c /\ RedBD b d.
 Proof. intros ? ? <-. exists d0. auto. Qed.
 
-(* TODO: name. *)
+(* To complete a square diagram for LLBC+, we prove that:
+   - The state b is in relation with a state d
+   - The state d reduces to a state c1
+   - c0 = c1
+   This lemma allows us to not exhibit the terms d0 and d1 explicitely. As the relations LeqCD and
+   RedBD are generally inductively defined, these terms are constructed by applying inductive
+   constructors. This is why the constructors of the relation should be on the form:
+   - red S E[S] for the reduction
+   - S < E[S] for the base relation (only true for LLBC+)
+   Finally, the last goal c0 = c1 is intended to be solved automatically, using the tactic
+   states_eq.
+ *)
+(* TODO: name *)
 Lemma complete_square_diagram' {B C D : Type}
   (LeqDC : D -> C -> Prop) (RedBD : B -> D -> Prop) b d c0 c1 :
   RedBD b d -> LeqDC d c1 -> c0 = c1
@@ -107,9 +119,10 @@ Section LeqValStateUtils.
     forall a, fresh_anon (snd vSl) a -> fresh_anon (snd vSr) a ->
     leq_base ((snd vSl),, a |-> fst vSl) ((snd vSr),, a |-> fst vSr).
 
-  Lemma prove_leq_val_state vSl vm Sm vr Sr
+  (* The following two lemmas are used by the tactic `leq_val_state_step`. *)
+  Lemma prove_leq_val_state_right_to_left vSl vm Sm vr Sr
     (G : forall a, fresh_anon Sm a -> fresh_anon Sr a ->
-         exists vSm, leq_base vSm Sr,, a |-> vr /\ vSm = Sm,, a |-> vm) :
+         exists vSm, leq_base vSm (Sr,, a |-> vr) /\ vSm = Sm,, a |-> vm) :
     leq_val_state_base^* vSl (vm, Sm) ->
     leq_val_state_base^* vSl (vr, Sr).
   Proof.
@@ -117,8 +130,7 @@ Section LeqValStateUtils.
     intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
   Qed.
 
-  (* TODO: name *)
-  Lemma prove_leq_val_state' vl Sl vm Sm vSr
+  Lemma prove_leq_val_state_left_to_right vl Sl vm Sm vSr
     (G : forall a, fresh_anon Sm a -> fresh_anon Sl a ->
          exists vSm, leq_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm) :
     leq_val_state_base^* (vm, Sm) vSr ->
@@ -126,6 +138,21 @@ Section LeqValStateUtils.
   Proof.
     intros ?. eapply rt_trans; [ | eassumption]. constructor.
     intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
+  Qed.
+
+  (* This lemma is used by the tactic `leq_val_state_add_anon`. *)
+  Lemma prove_leq_val_state_add_anon vl Sl vm Sm vSr b w
+    (fresh_b : fresh_anon Sl b)
+    (G : forall a, fresh_anon Sm a -> fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
+         exists vSm, leq_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm,, b |-> w) :
+    leq_val_state_base^* (vm, Sm,, b |-> w) vSr ->
+    leq_val_state_base^* (vl, Sl) vSr.
+  Proof.
+    intros ?. eapply rt_trans; [ | eassumption]. constructor.
+    intros a ? (? & ?)%fresh_anon_add_anon. cbn in *.
+    rewrite add_anon_commute by congruence.
+    destruct (G a) as (? & ? & ->); try assumption.
+    now apply fresh_anon_add_anon.
   Qed.
 
   (* The issue by directly applying the lemma `preservation_by_base_case` is that it
@@ -143,25 +170,48 @@ Section LeqValStateUtils.
    *)
 End LeqValStateUtils.
 
-(* When proving a goal `leq ?vSl (vr, Sr)`, using this tactic create three subgoals:
-   1. leq_base ?vSm (Sr,, a |-> v)r
-   2. ?vSm = ?Sm,, a |-> ?vm
-   3. leq ?vSl (?vm, ?Sm)
-
-   The first goal is used by applying the adequate base rule. Here, a is a fresh anon.
-   The second goal is proved by rewriting (with `autorewrite with spath`) then reflexivity.
-   The third goal is proved by applying again this tactic, or concluding by reflexivity.
-
-   With this strategy, the states and values ?vSl, ?vSm, ?vm and ?Sm never have to be instantiated
-   explicitely.
- *)
+(* This lemma is used to prove a goal of the form ?vSl < (vr, Sr) or (vl, Sl) < ?vSr without
+ * exhibiting the existential variable ?vSl or ?vSr. *)
 Ltac leq_val_state_step :=
   let a := fresh "a" in
   lazymatch goal with
+  (* When proving a goal `leq ?vSl (vr, Sr)`, using this tactic creates three subgoals:
+     1. leq_base ?vSm (Sr,, a |-> v)
+     2. ?vSm = ?Sm,, a |-> ?vm
+     3. leq ?vSl (?vm, ?Sm) *)
   | |- ?leq_star ?vSl (?vr, ?Sr) =>
-      eapply prove_leq_val_state; [intros a ? ?; eexists; split | ]
+      eapply prove_leq_val_state_right_to_left; [intros a ? ?; eexists; split | ]
+  (* When proving a goal `leq (vl, Sl) ?vSr`, using this tactic creates three subgoals:
+     1. leq_base (Sl,, a |-> v) ?vSm
+     2. ?vSm = ?Sm,, a |-> ?vm
+     3. leq (?vm, ?Sm) ?vSr *)
   | |- ?leq_star (?vl, ?Sl) ?vSr =>
-      eapply prove_leq_val_state'; [intros a ? ?; eexists; split | ]
+      eapply prove_leq_val_state_left_to_right; [intros a ? ?; eexists; split | ]
+(* In either cases:
+   1. Solved by applying the adequate base rule. Here, a is a fresh anon.
+   2. Solved by rewriting (with `autorewrite with spath`) then reflexivity.
+   3. Solved by applying again this tactic, or concluding by reflexivity. *)
+  end.
+
+(* In LLBC+, some base rules are of the form S < S',, b |-> w (with b fresh in S). The presence of
+ * two anonymous variables, we need to do a special case.
+ * Let a be a fresh anon. We prove that
+ * 1. Sl,, a |-> vl < ?vSm
+ * 2. ?vSm = Sm,, a |-> vm,, b |-> w
+ * 3. (?vm, ?Sm) <* ?vSr
+ *
+ * To apply the base rule in (1), we need a hypothesis that b is fresh in Sl,, a |-> vl. This is
+ * true because a and b are two different fresh variables.
+ *
+ * Because a and b are fresh, we can perform the following commutation:
+ * Sm,, a |-> vm,, b |-> w = Sm,, b |-> w,, a |-> vm
+ * Using (2), that shows that (vl, Sl) < (vm, Sm,, b |-> w).
+ *)
+Ltac leq_val_state_add_anon :=
+  let a := fresh "a" in
+  lazymatch goal with
+  | H : fresh_anon ?Sl ?b |- ?leq_star (?vl, ?Sl) ?vSr =>
+      eapply prove_leq_val_state_add_anon; [exact H | intros a ? ? ?; eexists; split | ]
   end.
 
 Section WellFormedSimulations.
