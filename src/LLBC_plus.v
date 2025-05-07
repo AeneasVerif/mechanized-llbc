@@ -936,12 +936,15 @@ Qed.
 Hint Resolve sget_sset_zeroary_not_prefix : spath.
 
 Lemma eval_place_ToSymbolic S sp p pi perm
-  (no_bot : not_contains_bot (S.[sp])) :
-  (S.[sp <- LLBC_plus_symbolic]) |-{p} p =>^{perm} pi -> S |-{p} p =>^{perm} pi.
+  (no_bot : not_contains_bot (S.[sp]))
+  (H : (S.[sp <- LLBC_plus_symbolic]) |-{p} p =>^{perm} pi) :
+  S |-{p} p =>^{perm} pi /\ ~strict_prefix sp pi.
 Proof.
-  intros H.
+  pose proof (valid_pi := H). apply eval_place_valid in valid_pi.
   eapply eval_place_preservation with (R := eq) in H.
-  - destruct H as (? & -> & H). exact H.
+  - split.
+    + destruct H as (? & -> & H). exact H.
+    + eapply get_nil_prefix_right; [ | eassumption]. autorewrite with spath. reflexivity.
   - reflexivity.
   - symmetry. apply sset_preserves_vars_dom.
   - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
@@ -1124,7 +1127,7 @@ Qed.
 
 Definition rel_Abs_ClearValue i j (p q : spath) := p = q /\ fst p <> encode_abstraction (i, j).
 
-Lemma Abs_ClearValue S i j v perm p :
+Lemma eval_place_Abs_ClearValue S i j v perm p :
   abstraction_contains_value S i j v -> not_contains_loan v ->
   forall pi_r, (remove_abstraction_value S i j) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_Abs_ClearValue i j pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
@@ -1137,6 +1140,20 @@ Proof.
     + repeat split; try assumption. rewrite sget_remove_abstraction in get_q by assumption.
       eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
+
+(* Suppose that Sl <= Sr (with a base case), and that p evaluates to a spath pi in Sr
+   (Sr |-{p} p =>^{perm} pi).
+   This tactic chooses the right lemmas to apply in order to prove that p reduces to a spath pi' in Sl, and generates facts about pi'.
+   It finally clears the initial hypothesis.
+ *)
+Ltac eval_place_preservation :=
+  let eval_p_in_Sl := fresh "eval_p_in_Sl" in
+  lazymatch goal with
+  | no_bot : not_contains_bot (?S.[?sp]),
+    H : (?S.[?sp <- LLBC_plus_symbolic]) |-{p} ?p =>^{?perm} ?pi |- _ =>
+        apply eval_place_ToSymbolic in H;
+        destruct H as (eval_p_in_Sl & ?)
+  end.
 
 Lemma operand_preserves_LLBC_plus_rel op :
   forward_simulation leq_base^* leq_val_state_base^* (eval_operand op) (eval_operand op).
@@ -1218,7 +1235,33 @@ Proof.
         reflexivity.
       * reflexivity.
   - admit.
-  - admit.
+  - destruct Hle.
+    + eval_place_preservation.
+      destruct (decidable_prefix pi sp) as [(q & <-) | ].
+      (* Case 1: the value we turn into a symbolic value is in the place we move. *)
+      * eapply complete_square_diagram'.
+        --  constructor. eassumption. autorewrite with spath in *.
+           (* TODO: extract a lemma and automatize. *)
+           rewrite sget_app in no_loan.
+           eapply not_value_contains_vset with (p := q) in no_loan. 2: exact H0.
+           rewrite vset_twice_equal in no_loan. rewrite vset_same in no_loan.
+           assumption. admit.
+        -- leq_val_state_step.
+           { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)).
+             all: autorewrite with spath; assumption. }
+           { autorewrite with spath. reflexivity. }
+           reflexivity.
+        -- states_eq.
+      (* Case 2: the value we turn into a symbolic value is disjoint to the place we move. *)
+      * assert (disj sp pi) by reduce_comp.
+        autorewrite with spath in * |-.
+        eapply complete_square_diagram'.
+        --- constructor; eassumption.
+        --- leq_val_state_step.
+            { apply Leq_ToSymbolic with (sp := sp). all: autorewrite with spath; assumption. }
+            { autorewrite with spath. reflexivity. }
+            reflexivity.
+        --- states_eq.
 Abort.
 
 Local Open Scope option_monad_scope.
