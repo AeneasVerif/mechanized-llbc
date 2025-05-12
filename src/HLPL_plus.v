@@ -1093,10 +1093,10 @@ Proof.
       as [(_ & ?) | (? & _)]%valid_spath_add_anon_cases
       by validity.
     + autorewrite with spath in EQN.
-      apply states_add_anon_eq in EQN; [ | auto using fresh_anon_sset..].
+      apply states_add_anon_eq in EQN; [ | auto with spath..].
       destruct EQN as (_ & <-). auto.
     + autorewrite with spath in EQN.
-      apply states_add_anon_eq in EQN; [ | auto using fresh_anon_sset..].
+      apply states_add_anon_eq in EQN; [ | auto with spath..].
       destruct EQN as (_ & <-). auto with spath.
 Qed.
 
@@ -1119,7 +1119,7 @@ Lemma fresh_anon_leq_state_base_left Sl Sr a (fresh_a : fresh_anon Sr a) :
   leq_base Sl Sr -> fresh_anon Sl a.
 Proof.
   intros Hle. inversion Hle.
-  - auto using fresh_anon_sset.
+  - auto with spath.
 Qed.
 
 Lemma fresh_anon_add_anon S a v b :
@@ -1181,7 +1181,7 @@ Proof.
     (* Case 1: the place sp where we write is inside the borrow. *)
     + assert (valid_spath Sr sp_borrow) by (eapply valid_spath_app; eassumption).
       autorewrite with spath in HS_borrow, HeqvSl.
-      apply states_add_anon_eq in HeqvSl; [ | auto using fresh_anon_sset..].
+      apply states_add_anon_eq in HeqvSl; [ | auto with spath..].
       destruct HeqvSl as (<- & ->). autorewrite with spath in eval_p_in_Sl.
       eapply complete_square_diagram.
       * constructor.
@@ -1194,7 +1194,7 @@ Proof.
       destruct valid_sp_borrow as [(_ & valid_sp_borrow) | (? & _)];
         autorewrite with spath in HS_borrow.
       * autorewrite with spath in HeqvSl.
-        apply states_add_anon_eq in HeqvSl; [ | auto using fresh_anon_sset..].
+        apply states_add_anon_eq in HeqvSl; [ | auto with spath..].
         destruct HeqvSl. subst.
         autorewrite with spath in eval_p_in_Sl.
         destruct (decidable_prefix sp sp_borrow) as [(r_borrow & <-) | ].
@@ -1208,7 +1208,7 @@ Proof.
                   eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor. eassumption.
                  autorewrite with spath.
-                 not_contains_outer. not_contains_outer. auto using fresh_anon_sset.
+                 not_contains_outer. not_contains_outer. auto.
               ** autorewrite with spath. reflexivity.
           (* Case 3b: the loan is disjoint to the place we write in. *)
            ++ assert (disj sp sp_loan) by reduce_comp.
@@ -1218,7 +1218,7 @@ Proof.
                                                  (sp_borrow := (anon_accessor a, r_borrow)).
                  eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor.
-                 eassumption. not_contains_outer. not_contains_outer. auto using fresh_anon_sset.
+                 eassumption. not_contains_outer. not_contains_outer. auto.
               ** states_eq.
         (* Case 3: the borrow is disjoint from the place we write in. *)
         -- assert (disj sp sp_borrow) by reduce_comp.
@@ -1230,7 +1230,7 @@ Proof.
                                                  (sp_borrow := sp_borrow).
                  eauto with spath. all: autorewrite with spath; eassumption.
               ** constructor.
-                 eassumption. not_contains_outer. not_contains_outer. auto using fresh_anon_sset.
+                 eassumption. not_contains_outer. not_contains_outer. auto with spath.
               ** states_eq.
           (* Case 3b: the loan is disjoint to the place we write in. *)
            ++ assert (disj sp sp_loan) by reduce_comp.
@@ -1240,14 +1240,14 @@ Proof.
                                                  (sp_borrow := sp_borrow).
                  auto with spath. all: autorewrite with spath; eassumption.
               ** constructor.
-                 eassumption. not_contains_outer. not_contains_outer. auto using fresh_anon_sset.
+                 eassumption. not_contains_outer. not_contains_outer. auto.
               ** states_eq.
       (* Case 4: the borrow is inside the evaluated value. *)
       * destruct sp_borrow as (i & q). replace (fst (i, q)) with i in * |- by reflexivity. subst i.
         autorewrite with spath in HS_borrow.
         autorewrite with spath in eval_p_in_Sl.
         autorewrite with spath in HeqvSl.
-        apply states_add_anon_eq in HeqvSl; [ | auto using fresh_anon_sset..].
+        apply states_add_anon_eq in HeqvSl; [ | auto with spath..].
         destruct HeqvSl. subst.
         destruct (decidable_prefix sp sp_loan) as [(r & <-) | ].
         (* Case 4a: the loan is in the place we write in. *)
@@ -1257,7 +1257,7 @@ Proof.
                                               (sp_borrow := sp +++ q).
               eauto with spath. all: autorewrite with spath; eassumption.
            ++ constructor.
-              eassumption. not_contains_outer. not_contains_outer. auto using fresh_anon_sset.
+              eassumption. not_contains_outer. not_contains_outer. auto.
            ++ autorewrite with spath. reflexivity.
         (* Case 4b: the loan is disjoint to the place we write in. *)
         -- assert (disj sp sp_loan) by reduce_comp.
@@ -1266,7 +1266,7 @@ Proof.
               eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp +++ q).
               auto with spath. all: autorewrite with spath; eassumption.
            ++ constructor.
-              eassumption. not_contains_outer. not_contains_outer. auto using fresh_anon_sset.
+              eassumption. not_contains_outer. not_contains_outer. auto.
            ++ states_eq.
 Qed.
 

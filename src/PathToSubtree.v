@@ -1093,8 +1093,16 @@ Section GetSetPath.
   Definition fresh_anon S a := get_at_accessor S (anon_accessor a) = None.
   Hint Unfold fresh_anon : core.
 
-  Lemma fresh_anon_sset S p v a : fresh_anon S a -> fresh_anon (S.[p <- v]) a.
+  Lemma _fresh_anon_sset S p v a : fresh_anon S a -> fresh_anon (S.[p <- v]) a.
   Proof. autounfold. intros ?. rewrite get_map_alter. now apply lookup_alter_None. Qed.
+
+  Corollary fresh_anon_sset S p v a : fresh_anon S a <-> fresh_anon (S.[p <- v]) a.
+  Proof.
+    split.
+    - apply _fresh_anon_sset.
+    - intros ?. rewrite<- (sset_same S p). erewrite <-sset_twice_equal.
+      apply _fresh_anon_sset. eassumption.
+  Qed.
 
   (* Note: by injectivity, the hypothesis anon_accessor a <> anon_accessor b could be
    * replaces by a <> b. *)
@@ -1663,7 +1671,7 @@ Hint Resolve disj_spath_add_anon' : spath.
 Hint Extern 0 (~ (@eq spath _ _)) => congruence : spath.
 
 (* Solving goals for anons freshness: *)
-Hint Resolve fresh_anon_sset : spath.
+Hint Resolve-> fresh_anon_sset : spath weight.
 
 Lemma valid_vpath_app_last_get_node_not_zeroary {V} `{IsValue : Value V nodes} v p :
   arity (get_node (v.[[p]])) > 0 -> valid_vpath v (p ++ [0]).
@@ -1938,7 +1946,7 @@ Hint Rewrite Nat2Z.inj_lt : weight.
 Hint Rewrite Nat2Z.inj_gt : weight.
 
 Hint Rewrite @sweight_sset using validity : weight.
-Hint Rewrite @sweight_add_anon using auto using fresh_anon_sset : weight.
+Hint Rewrite @sweight_add_anon using auto with weight : weight.
 
 (* When applying twice sweight_sset on a state of the form S.[p <- v].[q <- w], we end up
    with value S.[p <- v].[q], that we reduce using sset_sget_disj: *)

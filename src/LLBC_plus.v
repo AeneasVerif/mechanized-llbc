@@ -530,7 +530,7 @@ Proof.
   - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 2.
     rewrite sset_add_anon; [ | assumption | apply remove_anon_is_fresh].
     symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
-  - rewrite !remove_anon_fresh by auto using fresh_anon_sset. reflexivity.
+  - rewrite !remove_anon_fresh by auto with spath. reflexivity.
 Qed.
 Hint Rewrite sset_remove_anon using validity : spath.
 
@@ -822,7 +822,7 @@ Proof.
     - rewrite get_map_add_anon. simpl_map. reflexivity.
     - repeat apply fresh_abstraction_sset. eassumption.
     - constructor. }
-  rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
+  rewrite remove_anon_add_anon by auto with spath. reflexivity.
 Qed.
 
 Lemma Leq_Fresh_MutLoan_Abs S sp l i
@@ -847,7 +847,7 @@ Proof.
     - rewrite get_map_add_anon. simpl_map. autorewrite with spath. reflexivity.
     - repeat apply fresh_abstraction_sset. assumption.
     - constructor. }
-  autorewrite with spath. rewrite remove_anon_add_anon by auto using fresh_anon_sset. reflexivity.
+  autorewrite with spath. rewrite remove_anon_add_anon by auto with spath. reflexivity.
 Qed.
 
 Definition equiv_states (S0 S1 : LLBC_plus_state) :=
