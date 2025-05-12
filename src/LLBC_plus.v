@@ -511,14 +511,44 @@ Proof.
     rewrite get_map_add_anon. simpl_map. reflexivity.
 Qed.
 
+(* TODO: change the hypotheses to fst sp <> anon_accessor a? *)
+Lemma sget_remove_anon S a sp :
+  valid_spath (remove_anon a S) sp -> (remove_anon a S).[sp] = S.[sp].
+Proof.
+  intros (? & H & _). unfold sget.
+  rewrite get_map_remove_anon, lookup_delete_ne; [reflexivity | ].
+  intros G. rewrite<- G, remove_anon_is_fresh in H. discriminate.
+Qed.
+Hint Rewrite sget_remove_anon using validity : spath.
+
+(* TODO: change the hypotheses to fst sp <> anon_accessor a? *)
+Lemma sset_remove_anon S a sp v :
+  valid_spath (remove_anon a S) sp -> (remove_anon a S).[sp <- v] = remove_anon a (S.[sp <- v]).
+Proof.
+  intros valid_sp. destruct (valid_sp) as (w & ? & _).
+  destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
+  - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 2.
+    rewrite sset_add_anon; [ | assumption | apply remove_anon_is_fresh].
+    symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
+  - rewrite !remove_anon_fresh by auto using fresh_anon_sset. reflexivity.
+Qed.
+Hint Rewrite sset_remove_anon using validity : spath.
+
 Definition remove_abstraction i S :=
   {|vars := vars S; anons := anons S; abstractions := delete i (abstractions S)|}.
 
 Lemma add_remove_abstraction i A S (H : lookup i (abstractions S) = Some A) :
-  remove_abstraction i S,,, i |-> A = S.
+  (remove_abstraction i S),,, i |-> A = S.
 Proof.
   unfold add_abstraction, remove_abstraction.
   destruct S. cbn. f_equal. apply insert_delete in H. exact H.
+Qed.
+
+Lemma remove_add_abstraction i A S (H : fresh_abstraction S i) :
+  remove_abstraction i (S,,, i |-> A) = S.
+Proof.
+  unfold add_abstraction, remove_abstraction.
+  destruct S. cbn. f_equal. apply delete_insert. assumption.
 Qed.
 
 Lemma remove_add_abstraction_ne i j A S :
@@ -528,13 +558,53 @@ Proof.
   intros ?. destruct S. cbn. f_equal. apply delete_insert_ne. assumption.
 Qed.
 
+Lemma remove_fresh_abstraction i S : fresh_abstraction S i -> remove_abstraction i S = S.
+Proof.
+  intros ?. unfold remove_abstraction. rewrite delete_notin by assumption. destruct S. reflexivity.
+Qed.
+
 Definition not_in_abstraction i (p : spath) := forall j, fst p <> encode_abstraction (i, j).
+
+Lemma decidable_not_in_abstraction i x :
+  (exists j, x = encode_abstraction (i, j)) \/ (forall j, x <> encode_abstraction (i, j)).
+Proof.
+  unfold encode_abstraction.
+  destruct (decode' (A := positive + positive * positive) x) as [[ | (i' & j)] | ] eqn:EQN.
+  - right. intros j H. rewrite H, decode'_encode in EQN. discriminate.
+  - destruct (decide (i = i')) as [<- | ].
+    + left. exists j. apply decode'_is_Some in EQN. auto.
+    + right. intros ? H. rewrite H, decode'_encode in EQN. congruence.
+  - right. intros ? H. rewrite H, decode'_encode in EQN. discriminate.
+Qed.
 
 Lemma not_in_abstraction_app i p q : not_in_abstraction i p -> not_in_abstraction i (p +++ q).
 Proof. intros H ? ?. eapply H. eassumption. Qed.
 
+Lemma add_remove_add_abstraction S i A : (remove_abstraction i S),,, i |-> A = S,,, i |-> A.
+Proof. unfold add_abstraction, remove_abstraction. cbn. f_equal. apply insert_delete_insert. Qed.
+
 (* The hypothesis `fresh_abstraction S i` is not necessary, we're going to remove it. *)
-Lemma _get_at_accessor_add_abstraction S i A x (i_fresh : fresh_abstraction S i)
+Lemma _get_at_accessor_add_abstraction S i j A (i_fresh : fresh_abstraction S i) :
+  get_at_accessor (S,,, i |-> A) (encode_abstraction (i, j)) = lookup j A.
+Proof.
+  unfold get_map, encode_abstraction. cbn.
+  rewrite sum_maps_lookup_r. rewrite flatten_insert by assumption.
+  rewrite lookup_union_l.
+  - rewrite lookup_kmap by typeclasses eauto. reflexivity.
+  - apply lookup_None_flatten. assumption.
+Qed.
+
+Lemma get_at_accessor_add_abstraction S i j A :
+  get_at_accessor (S,,, i |-> A) (encode_abstraction (i, j)) = lookup j A.
+Proof.
+  destruct (lookup i (abstractions S)) eqn:EQN.
+  - apply add_remove_abstraction in EQN. rewrite<- EQN. rewrite <-add_remove_add_abstraction.
+    rewrite !_get_at_accessor_add_abstraction; auto; apply lookup_delete.
+  - apply _get_at_accessor_add_abstraction. assumption.
+Qed.
+
+(* The hypothesis `fresh_abstraction S i` is not necessary, we're going to remove it. *)
+Lemma _get_at_accessor_add_abstraction_notin S i A x (i_fresh : fresh_abstraction S i)
   (H : forall j, x <> encode_abstraction (i, j)) :
   get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
 Proof.
@@ -545,16 +615,13 @@ Proof.
   destruct G as (j & -> & _). eapply H. eassumption.
 Qed.
 
-Lemma add_remove_add_abstraction S i A : (remove_abstraction i S),,, i |-> A = S,,, i |-> A.
-Proof. unfold add_abstraction, remove_abstraction. cbn. f_equal. apply insert_delete_insert. Qed.
-
-Lemma get_at_accessor_add_abstraction S i A x (H : forall j, x <> encode_abstraction (i, j)) :
+Lemma get_at_accessor_add_abstraction_notin S i A x (H : forall j, x <> encode_abstraction (i, j)) :
   get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
 Proof.
   destruct (lookup i (abstractions S)) eqn:EQN.
   - apply add_remove_abstraction in EQN. rewrite<- EQN at 2. rewrite <-add_remove_add_abstraction.
-    rewrite !_get_at_accessor_add_abstraction; auto; apply lookup_delete.
-  - apply _get_at_accessor_add_abstraction; assumption.
+    rewrite !_get_at_accessor_add_abstraction_notin; auto; apply lookup_delete.
+  - apply _get_at_accessor_add_abstraction_notin; assumption.
 Qed.
 
 Lemma get_at_accessor_remove_abstraction S i x (H : forall j, x <> encode_abstraction (i, j)) :
@@ -562,19 +629,63 @@ Lemma get_at_accessor_remove_abstraction S i x (H : forall j, x <> encode_abstra
 Proof.
   destruct (lookup i (abstractions S)) eqn:EQN.
   - apply add_remove_abstraction in EQN. rewrite<- EQN at 2. symmetry.
-    apply get_at_accessor_add_abstraction. assumption.
+    apply get_at_accessor_add_abstraction_notin. assumption.
   - repeat f_equal. unfold remove_abstraction. rewrite delete_notin by assumption.
     destruct S. reflexivity.
 Qed.
 
-Lemma add_abstraction_sget S i A p : not_in_abstraction i p -> (S,,, i |-> A).[p] = S.[p].
-Proof. intros H. unfold sget. rewrite get_at_accessor_add_abstraction; auto. Qed.
+Lemma sget_add_abstraction S i A p : not_in_abstraction i p -> (S,,, i |-> A).[p] = S.[p].
+Proof. intros H. unfold sget. rewrite get_at_accessor_add_abstraction_notin; auto. Qed.
 
-Lemma remove_abstraction_sget S i p : not_in_abstraction i p -> (remove_abstraction i S).[p] = S.[p].
+Lemma get_extra_add_abstraction S i A :
+  get_extra (S,,, i |-> A) = (union {[i]} (get_extra S))%stdpp.
+Proof. unfold get_extra. cbn. rewrite dom_insert_L. reflexivity. Qed.
+
+Lemma sset_add_abstraction S i A p v :
+  not_in_abstraction i p -> (S,,, i |-> A).[p <- v] = S.[p <- v],,, i |-> A.
+Proof.
+  intros ?. unfold sset. apply state_eq_ext.
+  - apply map_eq. intros x.
+    destruct (decide (fst p = x)) as [<- | ].
+    + rewrite get_map_alter, lookup_alter.
+      rewrite !get_at_accessor_add_abstraction_notin by assumption.
+      rewrite get_map_alter, lookup_alter. reflexivity.
+    + rewrite get_map_alter, lookup_alter_ne by auto.
+      destruct (decidable_not_in_abstraction i x) as [(j & ->) | ].
+      * rewrite !get_at_accessor_add_abstraction. reflexivity.
+      * rewrite !get_at_accessor_add_abstraction_notin by assumption.
+        rewrite get_map_alter, lookup_alter_ne by assumption. reflexivity.
+  - rewrite get_extra_alter, !get_extra_add_abstraction, get_extra_alter. reflexivity.
+Qed.
+
+Lemma fresh_abstraction_sset S p v i :
+  fresh_abstraction S i <-> fresh_abstraction (S.[p <- v]) i.
+Proof.
+  rewrite<-!not_elem_of_dom.
+  replace (dom (abstractions S)) with (get_extra S) by reflexivity.
+  replace (dom (abstractions (S.[p <- v]))) with (get_extra (S.[p <- v])) by reflexivity.
+  unfold sset. rewrite get_extra_alter. reflexivity.
+Qed.
+
+Lemma sset_remove_abstraction S i p v :
+  not_in_abstraction i p -> remove_abstraction i (S.[p <- v]) = (remove_abstraction i S).[p <- v].
+Proof.
+  intros ?.
+  destruct (lookup i (abstractions S)) as [A | ] eqn:?.
+  - rewrite <-(add_remove_abstraction i A S) at 1 by assumption.
+    rewrite sset_add_abstraction by assumption.
+    apply remove_add_abstraction.
+    rewrite <-fresh_abstraction_sset. cbn. apply lookup_delete.
+  - rewrite !remove_fresh_abstraction; rewrite <-?fresh_abstraction_sset; easy.
+Qed.
+
+Lemma sget_remove_abstraction S i p : not_in_abstraction i p -> (remove_abstraction i S).[p] = S.[p].
 Proof. intros H. unfold sget. rewrite get_at_accessor_remove_abstraction; auto. Qed.
 
-Hint Rewrite add_abstraction_sget using assumption : spath.
-Hint Rewrite remove_abstraction_sget using assumption : spath.
+Hint Rewrite sget_add_abstraction using assumption : spath.
+Hint Rewrite sset_add_abstraction using assumption : spath.
+Hint Rewrite sget_remove_abstraction using assumption : spath.
+Hint Rewrite sset_remove_abstraction using assumption : spath.
 
 (* Remove the value at j in the region abstraction at i, if this value exists. *)
 Definition remove_abstraction_value S i j :=
@@ -606,7 +717,7 @@ Proof.
 Qed.
 
 (* TODO: autorewrite? *)
-Lemma sget_remove_abstraction S i j p (H : fst p <> encode_abstraction (i, j)) :
+Lemma sget_remove_abstraction_value S i j p (H : fst p <> encode_abstraction (i, j)) :
   (remove_abstraction_value S i j).[p] = S.[p].
 Proof. unfold sget. rewrite get_map_remove_abstraction_value. simpl_map. reflexivity. Qed.
 
@@ -696,14 +807,6 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 .
 
 (* Derived rules *)
-Lemma fresh_abstraction_sset S sp v i :
-  fresh_abstraction S i -> fresh_abstraction (S.[sp <- v]) i.
-Proof.
-  rewrite<- !not_elem_of_dom.
-  replace (dom (abstractions (S.[ sp <- v]))) with (get_extra (S.[ sp <- v])) by reflexivity.
-  unfold sset. rewrite get_extra_alter. auto.
-Qed.
-
 Lemma Leq_Reborrow_MutBorrow_Abs S sp l0 l1 i
     (fresh_l1 : is_fresh l1 S)
     (fresh_i : fresh_abstraction S i)
@@ -953,16 +1056,6 @@ Proof.
     + autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
-(* TODO: autorewrite? *)
-(* TODO: move? *)
-Lemma sget_remove_anon S a sp :
-  valid_spath (remove_anon a S) sp -> (remove_anon a S).[sp] = S.[sp].
-Proof.
-  intros (? & H & _). unfold sget.
-  rewrite get_map_remove_anon, lookup_delete_ne; [reflexivity | ].
-  intros G. rewrite<- G, remove_anon_is_fresh in H. discriminate.
-Qed.
-
 (* While we only have mutable loans and borrows, we cannot "jump into" an abstraction. When we
  * introduce shared loans/borrows, we need to redefine this relation. *)
 Definition rel_ToAbs i p q := p = q /\ not_in_abstraction i p.
@@ -983,7 +1076,7 @@ Proof.
   - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
     split; [split; auto using not_in_abstraction_app | ].
-    autorewrite with spath in get_q. rewrite sget_remove_anon in get_q by validity.
+    autorewrite with spath in get_q.
     econstructor; eassumption.
 Qed.
 
@@ -1137,8 +1230,17 @@ Proof.
   - reflexivity.
   - intros ? pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
-    + repeat split; try assumption. rewrite sget_remove_abstraction in get_q by assumption.
+    + repeat split; try assumption. rewrite sget_remove_abstraction_value in get_q by assumption.
       eapply Eval_Deref_MutBorrow; eassumption.
+Qed.
+
+(* TODO: move *)
+Lemma valid_spath_add_abstraction S i A sp :
+  valid_spath (S,,, i |->  A) sp -> not_in_abstraction i sp -> valid_spath S sp.
+Proof.
+  unfold not_in_abstraction. intros (v & H & ?) ?.
+  exists v. split; [ | assumption].
+  rewrite <-H, get_at_accessor_add_abstraction_notin; auto.
 Qed.
 
 (* Suppose that Sl <= Sr (with a base case), and that p evaluates to a spath pi in Sr
