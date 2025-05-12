@@ -1226,6 +1226,15 @@ Section GetSetPath.
       intros ?%vstrict_prefix_is_vprefix. auto.
   Qed.
 
+  (* TODO: name *)
+  Lemma not_value_contains_vset_rev P v w p :
+    not_value_contains P (v.[[p]]) -> not_value_contains P (v.[[p <- w]]) ->
+    not_value_contains P v.
+  Proof.
+    intros ? ?. erewrite <-vset_same, <-vset_twice_equal.
+    apply not_value_contains_vset; eassumption.
+  Qed.
+
   Lemma weight_non_zero v :
     vweight_ v > 0 -> exists p, valid_vpath v p /\ weight (get_node (v.[[p]])) > 0.
   Proof.

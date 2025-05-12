@@ -1239,13 +1239,14 @@ Proof.
     + eval_place_preservation.
       destruct (decidable_prefix pi sp) as [(q & <-) | ].
       (* Case 1: the value we turn into a symbolic value is in the place we move. *)
-      * eapply complete_square_diagram'.
-        --  constructor. eassumption. autorewrite with spath in *.
-           (* TODO: extract a lemma and automatize. *)
-           rewrite sget_app in no_loan.
-           eapply not_value_contains_vset with (p := q) in no_loan. 2: exact H0.
-           rewrite vset_twice_equal in no_loan. rewrite vset_same in no_loan.
-           assumption. admit.
+      * autorewrite with spath in * |-.
+        eapply complete_square_diagram'.
+        -- constructor. eassumption.
+           eapply not_value_contains_vset_rev.
+           (* TODO: automate this reasonning. I should probably extend the tactic
+              `not_contains`. *)
+           autorewrite with spath. eassumption. eassumption.
+           eapply not_value_contains_vset_rev. autorewrite with spath. eassumption. eassumption.
         -- leq_val_state_step.
            { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)).
              all: autorewrite with spath; assumption. }
