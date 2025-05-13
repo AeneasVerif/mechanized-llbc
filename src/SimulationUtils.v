@@ -185,8 +185,12 @@ Ltac leq_val_state_step :=
      1. leq_base (Sl,, a |-> v) ?vSm
      2. ?vSm = ?Sm,, a |-> ?vm
      3. leq (?vm, ?Sm) ?vSr *)
+  (* Note: the hypothesis that a is fresh in ?Sm creates problems.
+     Indeed, ?Sm is an existential and it can be accidently instantiated to a wrong value by
+     eauto. That's why we're removing this hypothesis.
+     TODO: remove it from the hypotheses of the lemma? *)
   | |- ?leq_star (?vl, ?Sl) ?vSr =>
-      eapply prove_leq_val_state_left_to_right; [intros a ? ?; eexists; split | ]
+      eapply prove_leq_val_state_left_to_right; [intros a _ ?; eexists; split | ]
 (* In either cases:
    1. Solved by applying the adequate base rule. Here, a is a fresh anon.
    2. Solved by rewriting (with `autorewrite with spath`) then reflexivity.

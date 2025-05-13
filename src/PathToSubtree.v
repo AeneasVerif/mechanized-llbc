@@ -917,16 +917,18 @@ Section GetSetPath.
     valid_spath S p -> S.[p +++ q <- v].[p +++ r] = S.[p].[[q <- v]].[[r]].
   Proof. intro. rewrite sget_app. rewrite sset_sget_prefix by assumption. reflexivity. Qed.
 
+  Lemma get_at_accessor_sset_disj S p v a :
+    fst p <> a -> get_at_accessor (S.[p <- v]) a = get_at_accessor S a.
+  Proof. intros ?. unfold sset. now rewrite get_map_alter, lookup_alter_ne. Qed.
+
   Lemma sset_sget_disj (S : state) p v q : disj p q -> S.[p <- v].[q] = S.[q].
   Proof.
-    unfold sset, sget. intros Hdisj. rewrite get_map_alter.
-    destruct (get_at_accessor S (fst p)) eqn:EQN.
-    - destruct Hdisj as [ | (<- & ?)].
-      + rewrite ?get_map_alter, lookup_alter_ne by assumption. reflexivity.
-      + rewrite ?get_map_alter, lookup_alter, EQN. apply vset_vget_disj. assumption.
-    - destruct (get_at_accessor S (fst q)) eqn:EQN'.
-      + rewrite lookup_alter_ne, EQN' by congruence. reflexivity.
-      + erewrite<- lookup_alter_None in EQN'. rewrite EQN'. reflexivity.
+    unfold sget. intros [Hdiff | (<- & Hdisj)].
+    - rewrite get_at_accessor_sset_disj by assumption. reflexivity.
+    - unfold sset. rewrite get_map_alter, lookup_alter.
+      destruct (get_at_accessor S (fst p)).
+      + cbn. apply vset_vget_disj. assumption.
+      + reflexivity.
   Qed.
 
   (* During the proof of this theorem, we implicitely use the fact that if the spath p is
@@ -1871,6 +1873,8 @@ Hint Rewrite @sset_sget_prefix_right using validity : spath.
 Hint Rewrite @sset_sget_common_prefix using validity : spath.
 Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
 
+Hint Rewrite @get_at_accessor_sset_disj using congruence : spath.
+
 (* Idem for vpaths: *)
 Hint Rewrite @vset_vget_equal using validity : spath.
 Hint Rewrite @vset_vget_prefix using validity : spath.
@@ -1888,7 +1892,7 @@ Hint Rewrite @sset_twice_prefix_right : spath.
    one of the following rewrite rules. *)
 Hint Rewrite @sset_add_anon using validity || auto with spath; fail : spath.
 Hint Rewrite @sset_anon using try assumption; reflexivity : spath.
-Hint Rewrite @get_at_accessor_add_anon using congruence : spath.
+Hint Rewrite @get_at_accessor_add_anon using eauto with spath : spath.
 Hint Rewrite @sget_add_anon using assumption : spath.
 Hint Rewrite @sget_add_anon_by_validity using validity || auto with spath; fail : spath.
 Hint Rewrite @sget_anon using try assumption; reflexivity : spath.

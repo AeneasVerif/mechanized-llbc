@@ -484,7 +484,8 @@ Proof.
   unfold fresh_anon, remove_anon, get_map. cbn. unfold encode_anon.
   rewrite sum_maps_lookup_l, sum_maps_lookup_r. apply lookup_delete.
 Qed.
-Hint Rewrite @sweight_add_anon using auto using fresh_anon_sset, remove_anon_is_fresh : weight.
+Hint Resolve remove_anon_is_fresh : weight.
+Hint Rewrite @sweight_add_anon using auto with weight : weight.
 
 Lemma remove_anon_fresh S a : fresh_anon S a -> remove_anon a S = S.
 Proof.
@@ -667,6 +668,13 @@ Proof.
   unfold sset. rewrite get_extra_alter. reflexivity.
 Qed.
 
+Lemma fresh_abstraction_add_anon S a v i :
+  fresh_abstraction S i <-> fresh_abstraction (S,, a |-> v) i.
+Proof. split; intros H; exact H. Qed.
+
+Hint Resolve-> fresh_abstraction_sset : spath.
+Hint Resolve-> fresh_abstraction_add_anon : spath.
+
 Lemma sset_remove_abstraction S i p v :
   not_in_abstraction i p -> remove_abstraction i (S.[p <- v]) = (remove_abstraction i S).[p <- v].
 Proof.
@@ -740,7 +748,7 @@ Lemma remvoe_abstraction_value_add_anon S a v i j :
   remove_abstraction_value (S,, a |-> v) i j = (remove_abstraction_value S i j),, a |-> v.
 Proof. reflexivity. Qed.
 
-Hint Rewrite remove_anon_add_anon_ne using congruence : spath.
+Hint Rewrite remove_anon_add_anon_ne using eauto with spath; fail : spath.
 Hint Rewrite add_abstraction_add_anon : spath.
 Hint Rewrite remove_abstraction_add_anon : spath.
 Hint Rewrite remvoe_abstraction_value_add_anon : spath.
@@ -935,7 +943,7 @@ Proof.
       [ | intros ? <-%indicator_non_zero; constructor].
     apply not_value_contains_weight with (weight := indicator (borrowC^m(l'))) in no_borrow;
       [ | intros ? <-%indicator_non_zero; constructor].
-    destruct H; split; weight_inequality.
+    destruct H. split; weight_inequality.
   - destruct H. split; weight_inequality.
   - apply add_remove_abstraction in get_A, get_B.
     rewrite<- get_B, remove_add_abstraction_ne in get_A by assumption.
@@ -1058,7 +1066,7 @@ Qed.
 
 (* While we only have mutable loans and borrows, we cannot "jump into" an abstraction. When we
  * introduce shared loans/borrows, we need to redefine this relation. *)
-Definition rel_ToAbs i p q := p = q /\ not_in_abstraction i p.
+Definition rel_ToAbs a i p q := p = q /\ not_in_abstraction i p /\ fst p <> anon_accessor a.
 
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
 (* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
@@ -1068,16 +1076,15 @@ Lemma eval_place_ToAbs S a v i A p perm
   (fresh_i : fresh_abstraction S i)
   (Hto_abs : to_abs v A) :
   forall pi_r, ((remove_anon a S),,, i |-> A) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_ToAbs i pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_ToAbs a i pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
-  - split; [reflexivity | inversion 1].
+  - repeat split; inversion 1.
   - reflexivity.
-  - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+  - intros proj pi_r pi_r' Heval_proj ? (-> & ? & ?). exists pi_r'.
     inversion Heval_proj; subst.
     split; [split; auto using not_in_abstraction_app | ].
-    autorewrite with spath in get_q.
-    econstructor; eassumption.
+    autorewrite with spath in get_q. econstructor; eassumption.
 Qed.
 
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
@@ -1253,9 +1260,34 @@ Ltac eval_place_preservation :=
   lazymatch goal with
   | no_bot : not_contains_bot (?S.[?sp]),
     H : (?S.[?sp <- LLBC_plus_symbolic]) |-{p} ?p =>^{?perm} ?pi |- _ =>
-        apply eval_place_ToSymbolic in H;
+        apply (eval_place_ToSymbolic _ _ _ _ _ no_bot) in H;
         destruct H as (eval_p_in_Sl & ?)
+  | get_a : get_at_accessor ?S (anon_accessor ?a) = Some ?v,
+    fresh_i : fresh_abstraction ?S ?i,
+    Hto_abs : to_abs ?v ?A,
+    H : ((remove_anon ?a ?S),,, ?i |-> ?A) |-{p} ?p =>^{?perm} ?pi |- _ =>
+        let _valid_pi := fresh "_valid_pi" in
+        let valid_pi := fresh "valid_pi" in
+        (* Proving that pi is a valid spath of (remove_anon a S),,, i |-> A *)
+        pose proof (eval_place_valid _ _ _ _ H) as _valid_pi;
+        apply (eval_place_ToAbs _ _ _ _ _ _ _ get_a fresh_i Hto_abs) in H;
+        destruct H as (? & (-> & pi_not_in_abstraction & pi_not_in_a) & eval_p_in_Sl);
+        (* We can then prove that pi is a valid spath of (remove_anon a S) *)
+        pose proof (valid_spath_add_abstraction _ _ _ _ _valid_pi pi_not_in_abstraction) as valid_pi;
+        clear _valid_pi
   end.
+
+Lemma fresh_anon_diff S a b v
+  (get_a : get_at_accessor S (anon_accessor a) = Some v)
+  (fresh_b : fresh_anon S b) : a <> b.
+Proof. congruence. Qed.
+Hint Resolve fresh_anon_diff : spath.
+Hint Resolve<- fresh_anon_sset : spath.
+
+(* TODO: move in PathToSubtree.v? *)
+Lemma anon_accessor_diff a b : a <> b -> anon_accessor a <> anon_accessor b.
+Proof. intros ? H%(f_equal accessor_anon). rewrite !anon_accessor_inj in H. congruence. Qed.
+Hint Resolve anon_accessor_diff : spath.
 
 Lemma operand_preserves_LLBC_plus_rel op :
   forward_simulation leq_base^* leq_val_state_base^* (eval_operand op) (eval_operand op).
@@ -1359,12 +1391,22 @@ Proof.
       * assert (disj sp pi) by reduce_comp.
         autorewrite with spath in * |-.
         eapply complete_square_diagram'.
-        --- constructor; eassumption.
+        --- apply Eval_move; eassumption.
         --- leq_val_state_step.
             { apply Leq_ToSymbolic with (sp := sp). all: autorewrite with spath; assumption. }
             { autorewrite with spath. reflexivity. }
             reflexivity.
         --- states_eq.
+    + eval_place_preservation.
+      autorewrite with spath in * |-.
+      eapply complete_square_diagram'.
+      * apply Eval_move; eassumption.
+      * leq_val_state_step.
+        { apply Leq_ToAbs with (a := a) (i := i) (v := v).
+          autorewrite with spath. assumption. auto with spath. eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * autorewrite with spath. reflexivity.
 Abort.
 
 Local Open Scope option_monad_scope.
