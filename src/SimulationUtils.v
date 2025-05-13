@@ -214,8 +214,14 @@ Ltac leq_val_state_step :=
 Ltac leq_val_state_add_anon :=
   let a := fresh "a" in
   lazymatch goal with
-  | H : fresh_anon ?Sl ?b |- ?leq_star (?vl, ?Sl) ?vSr =>
-      eapply prove_leq_val_state_add_anon; [exact H | intros a ? ? ?; eexists; split | ]
+  |  |- ?leq_star (?vl, ?Sl) ?vSr =>
+      eapply prove_leq_val_state_add_anon;
+        (* The hypothesis fresh_anon Sl b should be resolved automatically, because there should be
+         * a single hypothesis of the form "fresh_anon Sr b" in the context, with Sr an expression
+         * of Sl, that can be used. *)
+        [eauto with spath; fail |
+         intros a ? ? ?; eexists; split |
+        ]
   end.
 
 Section WellFormedSimulations.

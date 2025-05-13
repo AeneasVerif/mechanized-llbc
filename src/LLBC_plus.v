@@ -313,8 +313,8 @@ Variant eval_operand : operand -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_
 | Eval_copy S (p : place) pi v
     (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy p => (v, S)
-| Eval_move S (p : place) pi : eval_place S Mov p pi ->
-    not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
+| Eval_move S (p : place) pi (Heval : eval_place S Mov p pi)
+    (move_no_loan : not_contains_loan (S.[pi])) (move_no_bot : not_contains_bot (S.[pi])) :
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
@@ -1108,16 +1108,25 @@ Proof.
       repeat split; try assumption. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
-Definition rel_MoveValue sp a p q :=
-  (p = q /\ ~strict_prefix sp p /\ fst p <> encode_anon a) \/
-  (exists r, p = sp +++ r /\ q = (encode_anon a, r)).
+(* Take Sr = Sl.[sp <- bot],, a |-> Sl.[sp] the left state. Relation between the evaluation
+ * pi_l in Sl and pi_r in Sr: *)
+Definition rel_MoveValue_imm sp a pi_l pi_r :=
+  (pi_l = pi_r /\ ~strict_prefix sp pi_l /\ fst pi_l <> encode_anon a) \/
+  (* If there is a (non-outer) mutable loan in S.[sp], it's possible to evaluate a place p there.
+   * What happens is that in Sl, pi_l is under sp whereas in Sr, pi_r is in the newly added
+   * anonymous variable. *)
+  (* However, this is only possible when evaluating in mode Imm. *)
+  (exists r, pi_l = sp +++ r /\ pi_r = (encode_anon a, r)).
 
-Lemma eval_place_MoveValue S sp a perm p
+Definition rel_MoveValue_mut sp a pi_l pi_r :=
+  (pi_l = pi_r /\ ~strict_prefix sp pi_l /\ fst pi_l <> encode_anon a).
+
+Lemma eval_place_MoveValue_imm S sp a p
   (fresh_a : fresh_anon S a)
   (valid_sp : valid_spath S sp)
   (not_in_abstraction : ~in_abstraction sp) :
-  forall pi_r, (S.[sp <- bot],, a |-> S.[sp]) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_MoveValue sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  forall pi_r, (S.[sp <- bot],, a |-> S.[sp]) |-{p} p =>^{Imm} pi_r ->
+  exists pi_l, rel_MoveValue_imm sp a pi_l pi_r /\ S |-{p} p =>^{Imm} pi_l.
 Proof.
   apply eval_place_preservation.
   - intros x. left. repeat split; [apply not_strict_prefix_nil | inversion 1].
@@ -1135,6 +1144,26 @@ Proof.
         --- right. exists (r ++ [0]). split; autorewrite with spath; reflexivity.
         --- eapply Eval_Deref_MutBorrow. assumption.
             autorewrite with spath in get_q. exact get_q.
+Qed.
+
+Lemma eval_place_MoveValue_mut S sp a perm p
+  (Hperm : perm <> Imm) (fresh_a : fresh_anon S a) (valid_sp : valid_spath S sp)
+  (not_in_abstraction : ~in_abstraction sp) :
+  forall pi_r, (S.[sp <- bot],, a |-> S.[sp]) |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_MoveValue_mut sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Proof.
+  apply eval_place_preservation.
+  - intros x. repeat split; [apply not_strict_prefix_nil | inversion 1].
+  - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
+  - intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
+    inversion Heval_proj; subst.
+    + destruct rel_pi_l_pi_r as (-> & ? & ?).
+      assert (sp <> pi_r).
+      { intros ->. autorewrite with spath in get_q. discriminate. }
+      exists (pi_r +++ [0]). split.
+      * repeat split; auto with spath.
+      * eapply Eval_Deref_MutBorrow. assumption.
+         autorewrite with spath in get_q. exact get_q.
 Qed.
 
 Definition rel_MergeAbs i j p q :=
@@ -1257,6 +1286,8 @@ Qed.
  *)
 Ltac eval_place_preservation :=
   let eval_p_in_Sl := fresh "eval_p_in_Sl" in
+  let pi_l := fresh "pi_l" in
+  let rel_pi_l_pi_r := fresh "rel_pi_l_pi_r" in
   lazymatch goal with
   | no_bot : not_contains_bot (?S.[?sp]),
     H : (?S.[?sp <- LLBC_plus_symbolic]) |-{p} ?p =>^{?perm} ?pi |- _ =>
@@ -1284,6 +1315,23 @@ Ltac eval_place_preservation :=
         pose proof (eval_place_valid _ _ _ _ H) as valid_pi;
         apply (eval_place_RemoveAnon _ _ _ _ _ get_a no_loan) in H;
         destruct H as (? & (-> & pi_not_a) & eval_p_in_Sl)
+  (* Case MoveValue *)
+  (* Preservation of place evaluation with permission Imm. *)
+  | no_outer_loan : not_contains_outer_loan (?S.[?sp]),
+    fresh_a : fresh_anon ?S ?a,
+    valid_sp : valid_spath ?S ?sp,
+    not_in_abstraction0 : ¬ in_abstraction ?sp,
+    H : (?S.[?sp <- bot],, ?a |-> ?S.[?sp]) |-{p} ?p =>^{Imm} ?pi |- _ =>
+        apply (eval_place_MoveValue_imm _ _ _ _ fresh_a valid_sp not_in_abstraction0) in H;
+        destruct H as (pi_l & rel_pi_l_pi_r & eval_p_in_Sl)
+  (* Preservation of place evaluation with permission Mut or Mov. *)
+  | no_outer_loan : not_contains_outer_loan (?S.[?sp]),
+    fresh_a : fresh_anon ?S ?a,
+    valid_sp : valid_spath ?S ?sp,
+    not_in_abstraction0 : ¬ in_abstraction ?sp,
+    H : (?S.[?sp <- bot],, ?a |-> ?S.[?sp]) |-{p} ?p =>^{?perm} ?pi |- _ =>
+        apply eval_place_MoveValue_mut in H;[ | discriminate | assumption..];
+        destruct H as (pi_l & (-> & ? & ?) & eval_p_in_Sl)
   end.
 
 Lemma fresh_anon_diff S a b v
@@ -1425,6 +1473,23 @@ Proof.
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * autorewrite with spath. reflexivity.
+    + eval_place_preservation.
+      (* The place pi we move does not contain any bottom value is the right state, as a
+       * condition of the move rule.
+       * The right state is Sr = S.[sp <- bot],, a |-> S.[sp].
+       * That means that that sp cannot be inside sp, thus pi and sp are disjoint. *)
+      assert (~prefix pi sp).
+      { intros (q & <-). autorewrite with spath in move_no_bot. eapply move_no_bot with (p := q).
+        apply vset_same_valid. validity. autorewrite with spath. reflexivity. }
+      assert (disj sp pi) by reduce_comp.
+      autorewrite with spath in * |-. eapply complete_square_diagram'.
+      * apply Eval_move; eassumption.
+      * leq_val_state_add_anon.
+         { apply Leq_MoveValue with (sp := sp) (a := a).
+           autorewrite with spath. assumption. assumption. validity. assumption. }
+         { autorewrite with spath. reflexivity. }
+         reflexivity.
+      * states_eq.
 Abort.
 
 Local Open Scope option_monad_scope.
