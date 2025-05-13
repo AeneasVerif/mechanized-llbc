@@ -1087,23 +1087,25 @@ Proof.
     autorewrite with spath in get_q. econstructor; eassumption.
 Qed.
 
+(* TODO: documentation. *)
+Definition rel_change_anon a (p q : spath) := p = q /\ fst p <> anon_accessor a.
+
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
 (* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
  * borrows. *)
-Lemma eval_place_RemoveAnon S pi perm a v p
+Lemma eval_place_RemoveAnon S perm a v p
   (get_a : get_at_accessor S (anon_accessor a) = Some v)
   (no_loan : not_contains_loan v) :
-  remove_anon a S |-{p} p =>^{perm} pi -> S |-{p} p =>^{perm} pi.
+  forall pi_r, remove_anon a S |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
-  intros H.
-  eapply eval_place_preservation with (R := eq) in H.
-  - destruct H as (? & -> & H). exact H.
+  eapply eval_place_preservation.
+  - split; [reflexivity | inversion 1].
   - reflexivity.
-  - reflexivity.
-  - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
+  - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
     + rewrite sget_remove_anon in get_q by validity.
-      eapply Eval_Deref_MutBorrow; eassumption.
+      repeat split; try assumption. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
 Definition rel_MoveValue sp a p q :=
@@ -1154,11 +1156,9 @@ Proof.
       autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
-Definition rel_add_anon a (p q : spath) := p = q /\ fst p <> encode_anon a.
-
 Lemma eval_place_Fresh_MutLoan S sp l a perm p :
   forall pi_r, (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
@@ -1196,7 +1196,7 @@ Qed.
 Lemma eval_place_Reborrow_MutBorrow S sp l0 l1 a perm p
     (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) pi_r :
   (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1))) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   revert pi_r. apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
@@ -1214,7 +1214,7 @@ Qed.
 
 Lemma eval_place_AnonValue S v a perm p (no_loan : not_contains_loan v) :
   forall pi_r, (S,, a |-> v) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_add_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - split; [reflexivity | inversion 1].
@@ -1268,6 +1268,7 @@ Ltac eval_place_preservation :=
     H : ((remove_anon ?a ?S),,, ?i |-> ?A) |-{p} ?p =>^{?perm} ?pi |- _ =>
         let _valid_pi := fresh "_valid_pi" in
         let valid_pi := fresh "valid_pi" in
+        let pi_not_in_a := fresh "pi_not_in_a" in
         (* Proving that pi is a valid spath of (remove_anon a S),,, i |-> A *)
         pose proof (eval_place_valid _ _ _ _ H) as _valid_pi;
         apply (eval_place_ToAbs _ _ _ _ _ _ _ get_a fresh_i Hto_abs) in H;
@@ -1275,6 +1276,14 @@ Ltac eval_place_preservation :=
         (* We can then prove that pi is a valid spath of (remove_anon a S) *)
         pose proof (valid_spath_add_abstraction _ _ _ _ _valid_pi pi_not_in_abstraction) as valid_pi;
         clear _valid_pi
+  | get_a : get_at_accessor ?S (anon_accessor ?a) = Some ?v,
+    no_loan : not_contains_loan ?v,
+    H : (remove_anon ?a ?S) |-{p} ?p =>^{?perm} ?pi |- _ =>
+        let valid_pi := fresh "valid_pi" in
+        let pi_not_in_a := fresh "pi_not_in_a" in
+        pose proof (eval_place_valid _ _ _ _ H) as valid_pi;
+        apply (eval_place_RemoveAnon _ _ _ _ _ get_a no_loan) in H;
+        destruct H as (? & (-> & pi_not_a) & eval_p_in_Sl)
   end.
 
 Lemma fresh_anon_diff S a b v
@@ -1404,6 +1413,16 @@ Proof.
       * leq_val_state_step.
         { apply Leq_ToAbs with (a := a) (i := i) (v := v).
           autorewrite with spath. assumption. auto with spath. eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * autorewrite with spath. reflexivity.
+    + eval_place_preservation.
+      autorewrite with spath in * |-.
+      eapply complete_square_diagram'.
+      * apply Eval_move; eassumption.
+      * leq_val_state_step.
+        { apply Leq_RemoveAnon with (a := a) (v := v).
+          all: autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * autorewrite with spath. reflexivity.
