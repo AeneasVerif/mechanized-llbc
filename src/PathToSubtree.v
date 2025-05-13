@@ -1719,7 +1719,7 @@ Ltac validity0 :=
       apply valid_spath_anon;
       validity0
   | |- valid_spath (?S,, _ |-> _) ?p =>
-      simple apply valid_spath_add_anon; [ | validity0]
+      simple apply valid_spath_add_anon; [validity0 | ]
   | |- valid_spath ?S ?p => idtac
 
   (* Solving valid_vpath: *)

@@ -1330,8 +1330,7 @@ Proof.
       * constructor.
       * leq_val_state_add_anon.
         { apply Leq_MoveValue with (sp := sp) (a := a).
-          autorewrite with spath. assumption. eassumption. apply valid_spath_add_anon; assumption.
-          assumption. }
+          autorewrite with spath. assumption. eassumption. validity. assumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * reflexivity.
