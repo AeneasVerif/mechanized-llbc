@@ -1332,6 +1332,13 @@ Ltac eval_place_preservation :=
     H : (?S.[?sp <- bot],, ?a |-> ?S.[?sp]) |-{p} ?p =>^{?perm} ?pi |- _ =>
         apply eval_place_MoveValue_mut in H;[ | discriminate | assumption..];
         destruct H as (pi_l & (-> & ? & ?) & eval_p_in_Sl)
+
+  | get_A : lookup ?i (abstractions ?S) = Some ?A, get_B : lookup ?j (abstractions ?S) = Some ?B,
+    Hmerge : merge_abstractions ?A ?B ?C, diff : ?i <> ?j,
+    Heval : (remove_abstraction ?i (remove_abstraction ?j ?S),,, ?i |-> ?C) |-{p} ?p =>^{?perm} ?pi_r
+    |- _ =>
+        apply (eval_place_MergeAbs _ _ _ _ _ _ _ _ get_A get_B Hmerge diff) in Heval;
+        destruct Heval as (? & (-> & ? & ? & ?) & eval_p_in_Sl)
   end.
 
 Lemma fresh_anon_diff S a b v
@@ -1345,6 +1352,22 @@ Hint Resolve<- fresh_anon_sset : spath.
 Lemma anon_accessor_diff a b : a <> b -> anon_accessor a <> anon_accessor b.
 Proof. intros ? H%(f_equal accessor_anon). rewrite !anon_accessor_inj in H. congruence. Qed.
 Hint Resolve anon_accessor_diff : spath.
+
+(* TODO: move *)
+Lemma get_abstraction_add_anon i S a v :
+  lookup i (abstractions (S,, a |-> v)) = lookup i (abstractions S).
+Proof. reflexivity. Qed.
+Hint Rewrite get_abstraction_add_anon : spath.
+
+(* TODO: move *)
+Lemma get_abstraction_sset i S p v :
+  not_in_abstraction i p -> lookup i (abstractions (S.[p <- v])) = lookup i (abstractions S).
+Proof.
+  intros H. unfold sset, alter_at_accessor. cbn. repeat autodestruct.
+  intros. cbn. apply lookup_alter_ne. intros ?. subst.
+  eapply H. unfold encode_abstraction. symmetry. rewrite<-decode'_is_Some. eassumption.
+Qed.
+Hint Rewrite get_abstraction_sset using assumption : spath.
 
 Lemma operand_preserves_LLBC_plus_rel op :
   forward_simulation leq_base^* leq_val_state_base^* (eval_operand op) (eval_operand op).
@@ -1490,6 +1513,15 @@ Proof.
          { autorewrite with spath. reflexivity. }
          reflexivity.
       * states_eq.
+    + eval_place_preservation.
+      autorewrite with spath in * |-. eapply complete_square_diagram'.
+      * apply Eval_move; eassumption.
+      * leq_val_state_step.
+        { apply Leq_MergeAbs with (A := A) (B := B) (i := i) (j := j).
+          all: autorewrite with spath; eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * autorewrite with spath. reflexivity.
 Abort.
 
 Local Open Scope option_monad_scope.
