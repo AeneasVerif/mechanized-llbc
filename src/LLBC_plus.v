@@ -1087,8 +1087,19 @@ Proof.
     autorewrite with spath in get_q. econstructor; eassumption.
 Qed.
 
-(* TODO: documentation. *)
+(* Let Sl < Sr be two states in relation. Let's assume that there is a difference of one anonymous
+ * variables between the two states.
+ * Ex: Sr = Sl.[p <- v],, a |- w, or Sr = remove_anon a Sl
+ * Any valid spath in Sl and Sr cannot be in the anonymous variable a.
+ * The relation "rel_change_anon a" relates two equal paths in Sl and Sr that are not in a. *)
 Definition rel_change_anon a (p q : spath) := p = q /\ fst p <> anon_accessor a.
+
+(* Relates two equal paths pi_l and pi_r such that:
+ * - Neither is in the anonymous variable a.
+ * - Neither is under a given spath sp. *)
+(* Used by the rules Leq_MoveValue and Leq_Fresh_MutLoan. *)
+Definition rel_change_anon_not_in_spath sp a pi_l pi_r :=
+  rel_change_anon a pi_l pi_r /\ ~strict_prefix sp pi_l.
 
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
 (* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
@@ -1118,9 +1129,6 @@ Definition rel_MoveValue_imm sp a pi_l pi_r :=
   (* However, this is only possible when evaluating in mode Imm. *)
   (exists r, pi_l = sp +++ r /\ pi_r = (encode_anon a, r)).
 
-Definition rel_MoveValue_mut sp a pi_l pi_r :=
-  (pi_l = pi_r /\ ~strict_prefix sp pi_l /\ fst pi_l <> encode_anon a).
-
 Lemma eval_place_MoveValue_imm S sp a p
   (fresh_a : fresh_anon S a)
   (valid_sp : valid_spath S sp)
@@ -1146,18 +1154,18 @@ Proof.
             autorewrite with spath in get_q. exact get_q.
 Qed.
 
-Lemma eval_place_MoveValue_mut S sp a perm p
+Lemma eval_place_change_anon_not_in_spath S sp a perm p
   (Hperm : perm <> Imm) (fresh_a : fresh_anon S a) (valid_sp : valid_spath S sp)
   (not_in_abstraction : ~in_abstraction sp) :
   forall pi_r, (S.[sp <- bot],, a |-> S.[sp]) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_MoveValue_mut sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_change_anon_not_in_spath sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
-  - intros x. repeat split; [apply not_strict_prefix_nil | inversion 1].
+  - intros x. repeat split; [inversion 1 | apply not_strict_prefix_nil].
   - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
   - intros proj pi_r pi_r' Heval_proj pi_l rel_pi_l_pi_r.
     inversion Heval_proj; subst.
-    + destruct rel_pi_l_pi_r as (-> & ? & ?).
+    + destruct rel_pi_l_pi_r as ((-> & ?) & ?).
       assert (sp <> pi_r).
       { intros ->. autorewrite with spath in get_q. discriminate. }
       exists (pi_r +++ [0]). split.
@@ -1187,18 +1195,19 @@ Qed.
 
 Lemma eval_place_Fresh_MutLoan S sp l a perm p :
   forall pi_r, (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  exists pi_l, rel_change_anon_not_in_spath sp a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
-  - split; [reflexivity | inversion 1].
+  - repeat split; auto with spath.
   - rewrite add_anon_preserves_vars_dom, sset_preserves_vars_dom. reflexivity.
-  - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
+  - intros proj pi_r pi_r' Heval_proj ? ((-> & ?) & ?). exists pi_r'.
     inversion Heval_proj; subst.
-    + autorewrite with spath in get_q.
-      (* Note: this autorewrite takes a long time to execute (0.54s on my machine).
-         `eauto with spath` takes 98% of the time.
-         This could be a good candidate to improve automatic search. *)
-      repeat split; try assumption. eapply Eval_Deref_MutBorrow; eassumption.
+    + (* We must perform a single rewrite in order to have the information required to prove
+       * ~prefix sp pi_r. *)
+      rewrite sget_add_anon in get_q by assumption.
+      assert (~prefix sp pi_r) by eauto with spath.
+      autorewrite with spath in get_q.
+      repeat split; eauto with spath. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
 (* When changing the id of a mutable borrow at p, generally using the rule Leq_Reborrow_MutBorrow,
@@ -1330,8 +1339,8 @@ Ltac eval_place_preservation :=
     valid_sp : valid_spath ?S ?sp,
     not_in_abstraction0 : ¬ in_abstraction ?sp,
     H : (?S.[?sp <- bot],, ?a |-> ?S.[?sp]) |-{p} ?p =>^{?perm} ?pi |- _ =>
-        apply eval_place_MoveValue_mut in H;[ | discriminate | assumption..];
-        destruct H as (pi_l & (-> & ? & ?) & eval_p_in_Sl)
+        apply eval_place_change_anon_not_in_spath in H;[ | discriminate | assumption..];
+        destruct H as (pi_l & ((-> & ?) & ?) & eval_p_in_Sl)
 
   | get_A : lookup ?i (abstractions ?S) = Some ?A, get_B : lookup ?j (abstractions ?S) = Some ?B,
     Hmerge : merge_abstractions ?A ?B ?C, diff : ?i <> ?j,
@@ -1339,6 +1348,9 @@ Ltac eval_place_preservation :=
     |- _ =>
         apply (eval_place_MergeAbs _ _ _ _ _ _ _ _ get_A get_B Hmerge diff) in Heval;
         destruct Heval as (? & (-> & ? & ? & ?) & eval_p_in_Sl)
+  | H : (?S.[?sp <- loan^m(?l)],, ?a |-> borrow^m(?l, ?S.[?sp])) |-{p} ?p =>^{?perm} ?pi |- _ =>
+        apply eval_place_Fresh_MutLoan in H;
+        destruct H as (pi_l & ((-> & ?) & ?) & eval_p_in_Sl)
   end.
 
 Lemma fresh_anon_diff S a b v
@@ -1522,6 +1534,26 @@ Proof.
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * autorewrite with spath. reflexivity.
+    + eval_place_preservation.
+      autorewrite with spath in * |-.
+      (* Because the path pi we move does not contain any loan, it cannot contain the spath sp
+       * where the mutable loan is written. *)
+      (* Note: this is similar to a reasonning we do for the case Leq_MoveValue. Make a lemma? *)
+      assert (~prefix pi sp).
+      { intros (q & <-). autorewrite with spath in move_no_loan.
+        eapply move_no_loan with (p := q). apply vset_same_valid. validity.
+        autorewrite with spath. constructor. }
+      assert (disj pi sp) by reduce_comp. autorewrite with spath in *.
+      eapply complete_square_diagram'.
+      * apply Eval_move; eassumption.
+      * leq_val_state_add_anon.
+        { apply Leq_Fresh_MutLoan with (sp := sp) (l := l).
+          (* TODO: the tactic not_contains should solve it. *)
+          apply not_state_contains_add_anon. not_contains. not_contains.
+          eassumption. autorewrite with spath. assumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * states_eq.
 Abort.
 
 Local Open Scope option_monad_scope.
