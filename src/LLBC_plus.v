@@ -529,8 +529,10 @@ Proof.
   intros valid_sp. destruct (valid_sp) as (w & ? & _).
   destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
   - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 2.
-    rewrite sset_add_anon; [ | assumption | apply remove_anon_is_fresh].
-    symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
+    rewrite sset_add_anon.
+    + symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
+    + eapply valid_spath_diff_fresh_anon; [ | eassumption].
+      apply remove_anon_is_fresh.
   - rewrite !remove_anon_fresh by auto with spath. reflexivity.
 Qed.
 Hint Rewrite sset_remove_anon using validity : spath.

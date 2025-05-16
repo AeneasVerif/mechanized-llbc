@@ -819,11 +819,7 @@ Proof.
         --  leq_val_state_step.
            { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                             (sp_borrow := (anon_accessor a, q)).
-             eauto with spath.
-             rewrite sget_add_anon_by_validity. autorewrite with spath. eassumption.
-             validity. assumption.
-             autorewrite with spath. eassumption.
-             all: autorewrite with spath; eassumption. }
+             eauto with spath. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
         -- constructor. eassumption. all: autounfold with spath; not_contains.

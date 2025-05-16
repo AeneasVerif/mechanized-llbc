@@ -1137,16 +1137,12 @@ Section GetSetPath.
     fst p <> anon_accessor a -> (S,, a |-> v).[p] = S.[p].
   Proof. intros ?. autounfold. rewrite get_at_accessor_add_anon; auto. Qed.
 
-  Lemma sget_add_anon_by_validity (S : state) a v p :
-    valid_spath S p -> fresh_anon S a -> (S,, a |-> v).[p] = S.[p].
-  Proof. intros (w & (? & _)) G. apply sget_add_anon. congruence. Qed.
-
   Lemma sset_add_anon (S : state) a v w p :
-    valid_spath S p -> fresh_anon S a -> (S,, a |-> w).[p <- v] = S.[p <- v],, a |-> w.
+    fst p <> anon_accessor a -> (S,, a |-> w).[p <- v] = S.[p <- v],, a |-> w.
   Proof.
-    autounfold. intros (u & (? & ?)) G. apply state_eq_ext.
+    autounfold. intros ?. apply state_eq_ext.
     - rewrite get_map_alter, !get_map_add_anon, get_map_alter.
-      apply alter_insert_ne. congruence.
+      apply alter_insert_ne. assumption.
     - rewrite get_extra_add_anon, !get_extra_alter. apply get_extra_add_anon.
   Qed.
 
@@ -1195,6 +1191,10 @@ Section GetSetPath.
     - left. split; [assumption | ].
       rewrite get_map_add_anon, lookup_insert_ne in valid_p by auto. exact valid_p.
   Qed.
+
+  Lemma valid_spath_diff_fresh_anon S a p :
+    fresh_anon S a -> valid_spath S p -> fst p <> anon_accessor a.
+  Proof. intros ? (? & ? & _). congruence. Qed.
 
   Lemma get_nil_prefix_right S p q :
   arity (get_node (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
@@ -1589,7 +1589,6 @@ Section GetSetPath.
     - apply (f_equal (fun S => S.[(anon_accessor a, [])])) in eq_add_anon.
       rewrite !sget_anon in eq_add_anon by reflexivity. exact eq_add_anon.
   Qed.
-
 End GetSetPath.
 
 Section StateUniqueConstructor.
@@ -1676,6 +1675,13 @@ Hint Extern 0 (~ (@eq spath _ _)) => congruence : spath.
 
 (* Solving goals for anons freshness: *)
 Hint Resolve-> fresh_anon_sset : spath weight.
+
+(* Resolving goals of the form "fst p <> anon_accessor a".
+ * They are used to solve the conditions of the rewrite lemmas sget_add_anon and sset_add_anon. *)
+Hint Resolve valid_spath_diff_fresh_anon : spath.
+Lemma diff_fist_app_spath_vpath p q x : fst p <> x -> fst (p +++ q) <> x.
+Proof. easy. Qed.
+Hint Resolve diff_fist_app_spath_vpath : spath.
 
 Lemma valid_vpath_app_last_get_node_not_zeroary {V} `{IsValue : Value V nodes} v p :
   arity (get_node (v.[[p]])) > 0 -> valid_vpath v (p ++ [0]).
@@ -1892,11 +1898,10 @@ Hint Rewrite @sset_twice_prefix_right : spath.
    (S,, Anon |-> v).[p <- w], it is not in normal form.
    Depending on whether p is a path in S, or a path in the last binding Anon |-> v, we use
    one of the following rewrite rules. *)
-Hint Rewrite @sset_add_anon using validity || auto with spath; fail : spath.
+Hint Rewrite @sset_add_anon using eauto with spath; fail : spath.
 Hint Rewrite @sset_anon using try assumption; reflexivity : spath.
 Hint Rewrite @get_at_accessor_add_anon using eauto with spath : spath.
-Hint Rewrite @sget_add_anon using assumption : spath.
-Hint Rewrite @sget_add_anon_by_validity using validity || auto with spath; fail : spath.
+Hint Rewrite @sget_add_anon using eauto with spath; fail : spath.
 Hint Rewrite @sget_anon using try assumption; reflexivity : spath.
 Hint Rewrite<- @sget_app : spath.
 Hint Rewrite<- @vget_app : spath.
