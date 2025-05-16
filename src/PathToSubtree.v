@@ -1122,12 +1122,14 @@ Section GetSetPath.
     x <> anon_accessor a -> get_at_accessor (S,, a |-> v) x = get_at_accessor S x.
   Proof. intros ?. rewrite get_map_add_anon, lookup_insert_ne; auto. Qed.
 
+  Lemma anon_accessor_diff a b : a <> b -> anon_accessor a <> anon_accessor b.
+  Proof. intros ? G%(f_equal accessor_anon). rewrite !anon_accessor_inj in G. congruence. Qed.
+
   Lemma add_anon_commute (S : state) (a b : anon) (v w : V) :
     a <> b -> S,, a |-> v,, b |-> w = S,, b |-> w,, a |-> v.
   Proof.
     intros ?. apply state_eq_ext.
-    - rewrite !get_map_add_anon. apply insert_commute.
-      intros G%(f_equal accessor_anon). rewrite !anon_accessor_inj in G. congruence.
+    - rewrite !get_map_add_anon. apply insert_commute, anon_accessor_diff. congruence.
     - rewrite !get_extra_add_anon. reflexivity.
   Qed.
 

@@ -1359,10 +1359,6 @@ Lemma fresh_anon_diff S a b v
 Proof. congruence. Qed.
 Hint Resolve fresh_anon_diff : spath.
 Hint Resolve<- fresh_anon_sset : spath.
-
-(* TODO: move in PathToSubtree.v? *)
-Lemma anon_accessor_diff a b : a <> b -> anon_accessor a <> anon_accessor b.
-Proof. intros ? H%(f_equal accessor_anon). rewrite !anon_accessor_inj in H. congruence. Qed.
 Hint Resolve anon_accessor_diff : spath.
 
 (* TODO: move *)
