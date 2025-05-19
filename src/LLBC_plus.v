@@ -1617,6 +1617,36 @@ Proof.
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * states_eq.
+    + apply eval_place_Reborrow_MutBorrow in Heval; [ | exact get_borrow].
+      destruct Heval as (? & (-> & ?) & eval_p_in_Sl).
+      autorewrite with spath in * |-.
+      destruct (decidable_prefix pi sp) as [(q & <-) | ].
+      (* Case 1: the spath sp we reborrow is in the place pi we move. *)
+      * eapply complete_square_diagram'.
+        -- apply Eval_move. eassumption.
+           eapply not_contains_rename_mut_borrow; eauto with spath.
+           eapply not_contains_rename_mut_borrow; eauto with spath.
+        -- leq_val_state_add_anon.
+          (* Because the place we reborrow was at sp +++ q, and that we move and return S.[sp],
+           * the borrow is now in the anonymous value we evaluate a0, at path q. *)
+           (* TODO: rename a0 *)
+          { apply Leq_Reborrow_MutBorrow with (sp := (anon_accessor a0, q)) (l1 := l1).
+            not_contains. eassumption. autorewrite with spath. eassumption. }
+          { autorewrite with spath. reflexivity. }
+          reflexivity.
+        -- autorewrite with spath. reflexivity.
+       (* Case 2: the spath sp we reborrow ... *)
+      * eapply complete_square_diagram'.
+        -- apply Eval_move. eassumption.
+           all: erewrite sget_reborrow_mut_borrow_not_prefix in * by eassumption; assumption.
+        -- leq_val_state_add_anon.
+           { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1).
+             not_contains. eassumption. autorewrite with spath. eassumption. }
+           { autorewrite with spath. reflexivity. }
+           reflexivity.
+        -- autorewrite with spath.
+           erewrite sget_reborrow_mut_borrow_not_prefix by eassumption.
+           erewrite sset_reborrow_mut_borrow_not_prefix by eauto with spath. reflexivity.
 Abort.
 
 Local Open Scope option_monad_scope.
