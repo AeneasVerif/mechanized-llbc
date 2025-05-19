@@ -783,6 +783,27 @@ Section GetSetPath.
     apply sum_ge_element in ith_child. lia.
   Qed.
 
+  Lemma value_get_node_ext v w : (forall p, get_node (v.[[p]]) = get_node (w.[[p]])) -> v = w.
+  Proof.
+    remember (size v) as n eqn:Heqn. revert v w Heqn.
+    induction n as [n IH] using lt_wf_ind. intros v w -> eq_vget.
+    assert (get_node v = get_node w) by (apply (eq_vget [])).
+    assert (eq_length : length (children v) = length (children w)).
+    { rewrite !length_children_is_arity. congruence. }
+    apply get_nodes_children_inj.
+    - assumption.
+    - apply nth_error_ext. intros i.
+      destruct (nth_error (children v) i) as [ | ] eqn:ith_v.
+      + destruct (nth_error_Some' (children w) i) as (? & ith_w).
+        { rewrite <-eq_length, <-nth_error_Some. congruence. }
+        rewrite ith_w. f_equal. eapply IH.
+        * eapply size_decreasing. exact ith_v.
+        * reflexivity.
+        * intros p. specialize (eq_vget (i :: p)). cbn in eq_vget.
+          rewrite ith_v, ith_w in eq_vget. assumption.
+      + symmetry. rewrite nth_error_None in *. congruence.
+  Qed.
+
   Context (weight : nodes -> nat).
 
   Notation vweight_ := (vweight weight).
@@ -896,6 +917,33 @@ Section GetSetPath.
   Corollary not_prefix_one_child S p q :
     length (children (S.[p])) = 1 -> valid_spath S q -> ~prefix (p +++ [0]) q -> ~strict_prefix p q.
   Proof. intros. eauto using strict_prefix_one_child. Qed.
+
+  Lemma decidable_valid_spath S p : valid_spath S p \/ ~valid_spath S p.
+  Proof.
+    unfold valid_spath.
+    destruct (get_at_accessor S (fst p)) as [v | ].
+    - destruct (valid_or_invalid (snd p) v).
+      + left. exists v. auto.
+      + right. intros (? & [=<-] & ?). eauto using not_valid_and_invalid.
+    - right. intros (? & ? & _). discriminate.
+  Qed.
+
+  Lemma sget_invalid S p : ~valid_spath S p -> S.[p] = bot.
+  Proof.
+    autounfold. intros G. destruct (get_at_accessor S (fst p)) as [v | ].
+    - apply vget_invalid. destruct (valid_or_invalid (snd p) v); [ | assumption].
+      exfalso. eapply G. exists v. auto.
+    - reflexivity.
+  Qed.
+
+  Lemma sset_invalid S p v : ~valid_spath S p -> S.[p <- v] = S.
+  Proof.
+    autounfold. intros G. apply state_eq_ext.
+    - rewrite get_map_alter. apply alter_id. intros w ?. apply vset_invalid.
+      destruct (valid_or_invalid (snd p) w); [ | assumption].
+      exfalso. apply G. exists w. auto.
+    - apply get_extra_alter.
+  Qed.
 
   Lemma sset_sget_prefix (S : state) v p q :
     valid_spath S p -> S.[p +++ q <- v].[p] = S.[p].[[q <- v]].
