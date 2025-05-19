@@ -762,6 +762,9 @@ Definition abstraction_contains_value S i j v :=
 Definition abstraction_contains_value S i j v :=
   get_at_accessor S (encode_abstraction (i, j)) = Some v.
 
+(* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
+Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
+
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToSymbolic S sp
     (no_loan : not_contains_loan (S.[sp]))
@@ -802,7 +805,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (fresh_l1 : is_fresh l1 S)
     (fresh_a : fresh_anon S a)
     (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
-    leq_state_base S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1)))
+    leq_state_base S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(l1)))
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
 | Leq_Abs_ClearValue S i j v :
@@ -1217,9 +1220,9 @@ Qed.
 (* Note: in its current form, this lemma cannot be used with rewrite, but only with erewrite.
  * This is because the equality does not involve l0. Replacing H with an existential could make
  * this lemma amenable to rewrite and autorewrite. *)
-Lemma get_node_reborrow_mut_borrow S p q l0 l1
+Lemma get_node_rename_mut_borrow S p q l0 l1
   (H : get_node (S.[p]) = borrowC^m(l0)) (diff_p_q : p <> q) :
-  get_node (S.[p <- borrow^m(l1, S.[p +++ [0] ])].[q]) = get_node (S.[q]).
+  get_node ((rename_mut_borrow S p l1).[q]) = get_node (S.[q]).
 Proof.
   destruct (decidable_prefix p q).
   - assert (strict_prefix p q) as (i & ? & <-) by auto with spath.
@@ -1248,7 +1251,7 @@ Proof.
       * eapply Eval_Deref_MutBorrow; eassumption.
       * autorewrite with spath in get_q.
         (* Note: this rewrite take up to 2s, with 80% of time spent on eauto with spath. *)
-        erewrite get_node_reborrow_mut_borrow in get_q by eassumption.
+        erewrite get_node_rename_mut_borrow in get_q by eassumption.
         eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
