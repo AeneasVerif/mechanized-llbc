@@ -849,7 +849,7 @@ Proof.
   { constructor. apply Leq_ToSymbolic; eassumption. }
   etransitivity.
   { constructor. apply Leq_Fresh_MutLoan with (sp := sp).
-    - not_contains. eassumption.
+    - not_contains.
     - apply fresh_anon_sset. eassumption.
     - autorewrite with spath. apply not_value_contains_zeroary; auto. }
   etransitivity.

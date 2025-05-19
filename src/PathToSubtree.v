@@ -1756,7 +1756,7 @@ Ltac validity0 :=
       simple apply vset_prefix_right_valid; validity0
   | |- valid_vpath ?v ?p => idtac
   end.
-Hint Extern 0 (valid_spath _ _) =>
+Hint Extern 5 (valid_spath _ _) =>
   repeat rewrite <-app_spath_vpath_assoc;
   validity0 : spath.
 Ltac validity :=
@@ -1925,6 +1925,8 @@ Ltac not_contains0 :=
   try assumption;
   match goal with
   | |- True => auto
+  | |- not_state_contains ?P (?S,, ?a |-> ?v) =>
+      simple apply not_state_contains_add_anon; not_contains0
   | |- not_state_contains ?P (?S.[?p <- ?v]) =>
       simple apply not_state_contains_sset;
       not_contains0
@@ -1946,7 +1948,7 @@ Ltac not_contains0 :=
       simple eapply not_value_contains_unary; [reflexivity | | not_contains0]
   | |- _ => idtac
   end.
-Ltac not_contains := not_contains0; auto with spath.
+Ltac not_contains := not_contains0; eauto with spath.
 
 (* Populating the "weight" rewrite database: *)
 (* These hints turn operations on naturals onto operations on relatives, so to rewrite
