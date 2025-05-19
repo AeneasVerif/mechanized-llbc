@@ -1236,6 +1236,68 @@ Proof.
   - autorewrite with spath. reflexivity.
 Qed.
 
+(* In the state `rename_mut_borrow S p l1`, compared to S, only the node at p is changed.
+ * Thus, if we read at a place q that is not a prefix of p, no node is changed. *)
+Lemma sget_reborrow_mut_borrow_not_prefix S p q l0 l1
+  (H : get_node (S.[p]) = borrowC^m(l0)) (G : ~prefix q p) :
+  (rename_mut_borrow S p l1).[q] = S.[q].
+Proof.
+  apply value_get_node_ext. intros r. rewrite <-!sget_app.
+  eapply get_node_rename_mut_borrow.
+  - eassumption.
+  - intros ->. apply G. exists r. reflexivity.
+Qed.
+
+Lemma valid_spath_rename_mut_borrow S p q l0 l1
+  (H : get_node (S.[p]) = borrowC^m(l0)) :
+  valid_spath (rename_mut_borrow S p l1) q <-> valid_spath S q.
+Proof.
+  split.
+  - intros valid_q. destruct (decidable_prefix (p +++ [0]) q) as [(r & <-) | ].
+    + rewrite valid_spath_app in *. destruct valid_q as (_ & valid_r). split.
+      * apply valid_spath_app_last_get_node_not_zeroary. rewrite H. constructor.
+      * autorewrite with spath in valid_r. exact valid_r.
+    + rewrite sset_not_prefix_valid. exact valid_q.
+      eapply (not_prefix_one_child (rename_mut_borrow S p l1)); [ | eassumption..].
+      rewrite length_children_is_arity. autorewrite with spath. reflexivity.
+  - intros valid_q. destruct (decidable_prefix (p +++ [0]) q) as [(r & <-) | ].
+    + autorewrite with spath in *. rewrite valid_spath_app in *. split.
+      * validity.
+      * econstructor.
+        -- autorewrite with spath. reflexivity.
+        -- apply valid_spath_app. autorewrite with spath. rewrite valid_spath_app. auto.
+    + rewrite <-sset_not_prefix_valid by eauto with spath. assumption.
+Qed.
+
+Lemma sset_reborrow_mut_borrow_not_prefix S p q l0 l1 v
+  (H : get_node (S.[p]) = borrowC^m(l0)) (G : ~prefix q p) :
+  (rename_mut_borrow S p l1).[q <- v] = rename_mut_borrow (S.[q <- v]) p l1.
+Proof.
+  destruct (decidable_valid_spath S q).
+  - destruct (decidable_prefix p q) as [ | ].
+    + assert (prefix (p +++ [0]) q) as (r & <-) by eauto with spath.
+      autorewrite with spath. reflexivity.
+    + assert (disj p q) by reduce_comp. states_eq.
+  - rewrite !(sset_invalid _ q); erewrite ?valid_spath_rename_mut_borrow; eauto.
+Qed.
+
+Lemma not_contains_rename_mut_borrow S p q l0 l1 P :
+  get_node (S.[p]) = borrowC^m(l0) -> ~P (borrowC^m(l0)) ->
+  not_value_contains P ((rename_mut_borrow S p l1).[q]) -> not_value_contains P (S.[q]).
+Proof.
+  destruct (decidable_valid_spath S q) as [valid_q | ].
+  - intros get_at_p ? Hnot_contains r valid_r.
+    specialize (Hnot_contains r). rewrite <-!sget_app in *.
+    destruct (decidable_spath_eq p (q +++ r)) as [-> | ].
+    + autorewrite with spath. rewrite get_at_p. assumption.
+    + erewrite get_node_rename_mut_borrow in Hnot_contains; [ | eassumption..].
+      apply Hnot_contains. apply valid_spath_app.
+      rewrite valid_spath_rename_mut_borrow by eassumption.
+      rewrite valid_spath_app. auto.
+  - intros ? ?. rewrite !sget_invalid; [auto.. | ].
+    intros G. apply H. erewrite valid_spath_rename_mut_borrow in G by eassumption. exact G.
+Qed.
+
 Lemma eval_place_Reborrow_MutBorrow S sp l0 l1 a perm p
     (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) pi_r :
   (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1))) |-{p} p =>^{perm} pi_r ->
