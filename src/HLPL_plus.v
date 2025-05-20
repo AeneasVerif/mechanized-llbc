@@ -152,6 +152,9 @@ Next Obligation. intros. cbn. symmetry. apply sum_maps_insert_inr. Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation. intros. unfold encode_anon. rewrite decode_encode. reflexivity. Qed.
 
+Lemma get_at_var S x : get_at_accessor S (encode_var x) = lookup x (vars S).
+Proof. unfold get_map, encode_var. cbn. apply sum_maps_lookup_l. Qed.
+
 
 Declare Scope hlpl_plus_scope.
 Delimit Scope hlpl_plus_scope with hlpl_plus.
@@ -195,7 +198,7 @@ Hint Rewrite sget_loc' : spath.
  * field access) on spath pi0, on a state S and given a permission perm.
  * If this projection is successful, then we have eval_proj S perm p pi0 pi1.
  *)
-Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop :=
+Variant eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop :=
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
 | Eval_Deref_MutBorrow q l
     (Hperm : perm <> Mov)
@@ -205,12 +208,14 @@ Inductive eval_proj (S : HLPL_plus_state) perm : proj -> spath -> spath -> Prop 
 | Eval_Deref_Ptr_Locs q q' l
     (Hperm : perm <> Mov)
     (get_q : get_node (S.[q]) = ptrC(l)) (get_q' : get_node (S.[q']) = locC(l)) :
-    eval_proj S perm Deref q (q' +++ [0])
+    eval_proj S perm Deref q q'
+.
+
+Variant eval_loc (S : HLPL_plus_state) perm : spath -> spath -> Prop :=
 (* Coresponds to R-Loc and W-Loc in the article. *)
-| Eval_Loc proj q q' l
-    (Hperm : perm = Imm)
-    (get_q : get_node (S.[q]) = locC(l))
-    (eval_proj_rec : eval_proj S perm proj (q +++ [0]) q') : eval_proj S perm proj q q'
+| Eval_Loc q l
+    (Hperm : perm <> Mov) (get_q : get_node (S.[q]) = locC(l)) :
+    eval_loc S perm q (q +++ [0])
 .
 
 (* Let pi0 be a spath. If by successfully applying the projections in P (with permission perm) we
@@ -220,7 +225,11 @@ Inductive eval_path (S : HLPL_plus_state) perm : path -> spath -> spath -> Prop 
 | Eval_nil pi : eval_path S perm [] pi pi
 | Eval_cons proj P p q r
     (Heval_proj : eval_proj S perm proj p q) (Heval_path : eval_path S perm P q r) :
-    eval_path S perm (proj :: P) p r.
+    eval_path S perm (proj :: P) p r
+| Eval_path_loc P p q r
+    (Heval_loc : eval_loc S perm  p q) (Heval_path_rec : eval_path S perm P q r) :
+    eval_path S perm P p r
+.
 
 Definition eval_place S perm (p : place) pi :=
   let pi_0 := (encode_var (fst p), []) in
@@ -229,16 +238,7 @@ Definition eval_place S perm (p : place) pi :=
 Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
 Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
-Proof.
-  induction H.
-  - apply valid_spath_app. split.
-    + apply get_not_bot_valid_spath. destruct (S.[q]); discriminate.
-    + destruct (S.[q]); inversion get_q. econstructor; reflexivity || constructor.
-  - apply valid_spath_app. destruct (S.[q']) eqn:EQN; try discriminate. split.
-    + apply get_not_bot_valid_spath. rewrite EQN. discriminate.
-    + eapply valid_cons; reflexivity || apply valid_nil.
-  - apply IHeval_proj.
-Qed.
+Proof. destruct H; validity. Qed.
 
 Lemma eval_path_valid (s : HLPL_plus_state) P perm q r
   (valid_q : valid_spath s q) (eval_q_r : eval_path s perm P q r) :
@@ -247,6 +247,7 @@ Proof.
   induction eval_q_r.
   - assumption.
   - apply IHeval_q_r. eapply eval_proj_valid. eassumption.
+  - apply IHeval_q_r. destruct Heval_loc. validity.
 Qed.
 
 Lemma eval_place_valid s p perm pi (H : eval_place s perm p pi) : valid_spath s pi.
@@ -357,96 +358,6 @@ Variant eval_operand : operand -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
-(* Note: these functions are used when borrowing a spath that is already under a location without
- * introducing a new location. spath_pred pi given the node about pi (and botC if this node doesn't
- * exist).
- * However, I should maybe rewrite it with a proposition instead of a function. *)
-(* TODO: if I keep it, move in PathToSubtree.v *)
-Definition vpath_pred (p : vpath) : option vpath :=
-  match p with
-  | [] => None
-  | _ => Some (removelast p)
-  end.
-
-Definition spath_pred (p : spath) : option spath :=
-  SOME q <- vpath_pred (snd p) IN Some (fst p, q).
-
-Lemma vpath_pred_add_anon p i : vpath_pred (p ++ [i]) = Some p.
-Proof.
-  transitivity (Some (removelast (p ++ [i]))).
-  - destruct (p ++ [i]) eqn:?.
-    + exfalso. eapply app_cons_not_nil. eauto.
-    + reflexivity.
-  - f_equal. apply removelast_last.
-Qed.
-
-Lemma spath_pred_add_anon (p : spath) i : spath_pred (p +++ [i]) = Some p.
-Proof.
-  unfold spath_pred, app_spath_vpath. cbn. rewrite vpath_pred_add_anon.
-  rewrite<- surjective_pairing. reflexivity.
-Qed.
-
-Lemma spath_pred_is_Some (p q : spath) : spath_pred p = Some q -> exists i, p = q +++ [i].
-Proof.
-  unfold spath_pred. intro.
-  assert (snd p <> []) by now destruct (snd p).
-  assert ((fst p, removelast (snd p)) = q) as <-.
-  { destruct (snd p); [discriminate | injection H; easy]. }
-  exists (List.last (snd p) 0). unfold app_spath_vpath. cbn.
-  rewrite<- app_removelast_last by assumption.
-  apply surjective_pairing.
-Qed.
-
-Definition vancestor (v : HLPL_plus_val) p : HLPL_plus_nodes :=
-  match vpath_pred p with
-  | None => botC
-  | Some q => get_node (v.[[q]])
-  end.
-
-Definition ancestor (S : HLPL_plus_state) (p : spath) : HLPL_plus_nodes :=
-  match spath_pred p with
-  | None => botC
-  | Some q => get_node (S.[q])
-  end.
-
-Lemma vancestor_singleton v i : vancestor v [i] = get_node v.
-Proof. reflexivity. Qed.
-Hint Rewrite vancestor_singleton : spath.
-
-Lemma ancestor_sset_not_strict_prefix S p q v :
-  ~strict_prefix q p -> ancestor (S.[q <- v]) p = ancestor S p.
-Proof.
-  unfold ancestor. intro. autodestruct.
-  intros (? & ->)%spath_pred_is_Some.
-  rewrite get_node_sset_sget_not_prefix by auto with spath. reflexivity.
-Qed.
-Hint Rewrite ancestor_sset_not_strict_prefix using auto with spath; fail : spath.
-
-Lemma ancestor_is_not_bot S p c :
-  ancestor S p = c -> c <> botC -> exists q i, p = q +++ [i] /\ get_node (S.[q]) = c.
-Proof.
-  unfold ancestor. autodestruct. intros (i & ->)%spath_pred_is_Some.
-  intros. eexists _, _. eauto.
-Qed.
-
-Lemma vancestor_app v p q : q <> [] -> vancestor v (p ++ q) = vancestor (v.[[p]]) q.
-Proof.
-  intro H. destruct q using rev_ind; [easy | ].
-  unfold vancestor. rewrite app_assoc, !vpath_pred_add_anon, vget_app.
-  reflexivity.
-Qed.
-
-Lemma ancestor_app S p q : q <> [] -> ancestor S (p +++ q) = vancestor (S.[p]) q.
-Proof.
-  intro H. destruct q using rev_ind; [easy | ].
-  unfold ancestor, vancestor.
-  rewrite app_spath_vpath_assoc, spath_pred_add_anon, vpath_pred_add_anon, sget_app.
-  reflexivity.
-Qed.
-
-Hint Rewrite vancestor_app using easy : spath.
-Hint Rewrite ancestor_app using easy : spath.
-
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
@@ -458,7 +369,7 @@ Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_st
       S |-{rv} (BinOp op_l op_r) => ((HLPL_plus_int (m + n)), S'')
   | Eval_pointer_loc S p pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
-      (Hancestor_loc : ancestor S pi = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
+      (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
   | Eval_pointer_no_loc S p pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
       (* This hypothesis is not necessary for the proof of preservation of HLPL+, but it is
@@ -607,151 +518,157 @@ Proof.
   - destruct (Nat.eq_dec l0 l) as [<- | ]; split; weight_inequality.
 Qed.
 
-Section MutBorrow_to_Ptr.
-  Context (S_r : HLPL_plus_state).
-  Context (l0 : loan_id).
-  Context (sp_loan sp_borrow : spath).
-  Context (Hdisj : disj sp_loan sp_borrow).
-  Hypothesis (HS_r_loan : get_node (S_r.[sp_loan]) = loanC^m(l0)).
-  Hypothesis (HS_r_borrow : get_node (S_r.[sp_borrow]) = borrowC^m(l0)).
-  Notation v := (S_r.[sp_borrow +++ [0] ]).
-  Notation S_l := (S_r.[sp_loan <- loc(l0, v)].[sp_borrow <- ptr(l0)]).
-  Context (perm : permission).
+(* Simulation proofs. *)
+Lemma eval_path_app S perm P Q p q r :
+  eval_path S perm P p q -> eval_path S perm Q q r -> eval_path S perm (P ++ Q) p r.
+Proof.
+  induction 1.
+  - auto.
+  - intros ?. cbn. eapply Eval_cons; eauto.
+  - intros ?. eapply Eval_path_loc; eauto.
+Qed.
 
-  (* TODO: name *)
-  Inductive rel : spath -> spath -> Prop :=
-  | Rel_sp_borrow_strict_prefix q : rel (sp_loan +++ [0] ++ q) (sp_borrow +++ [0] ++ q)
-  | Rel_other q : ~strict_prefix sp_borrow q -> rel q q.
+Lemma eval_path_preservation Sl Sr perm P R
+  (proj_sim : forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_path Sl perm [proj]))
+  (eval_loc_sim : forward_simulation R R (eval_loc Sr perm) (eval_loc Sl perm)) :
+  forward_simulation R R (eval_path Sr perm P) (eval_path Sl perm P).
+Proof.
+  intros ? ? Heval_path. induction Heval_path.
+  - intros ? ?. eexists. split; [eassumption | constructor].
+  - intros pi_l HR.
+    edestruct proj_sim as (pi_l' & ? & ?); [eassumption.. | ].
+    edestruct IHHeval_path as (pi_l'' & ? & ?); [eassumption | ].
+    exists pi_l''. split.
+    + eassumption.
+    + replace (proj :: P) with ([proj] ++ P) by reflexivity.
+      eapply eval_path_app; eassumption.
+  - intros pi_l HR.
+    edestruct eval_loc_sim as (pi_l' & ? & ?); [eassumption.. | ].
+    edestruct IHHeval_path as (pi_l'' & ? & ?); [eassumption | ].
+    exists pi_l''. split.
+    + eassumption.
+    + eapply Eval_path_loc; eassumption.
+Qed.
 
-  (* An equivalent (and more usable I hope) version of rel. *)
-  Definition rel' p q :=
-    (exists r, p = sp_loan +++ [0] ++ r /\ q = sp_borrow +++ [0] ++ r) \/
-    (p = q /\ ~strict_prefix sp_borrow p).
-  Definition rel_implies_rel' p q : rel p q -> rel' p q.
-  Proof.
-    intros [r | ].
-    - left. exists r. auto.
-    - right. auto.
-  Qed.
+(* This lemma is use to prove preservation of place evaluation for a relation rule Sl < Sr.
+ * We prove that if p evaluates to a spath pi_r on Sr, then it also evaluates for a spath
+ * pi_l on the left, with R pi_l pi_r.
+ * The relation R depends on the rule, but for most rules it is simply going to be the equality. *)
+Lemma eval_place_preservation Sl Sr perm p (R : spath -> spath -> Prop)
+  (* Initial case: the relation R must be preserved for all spath corresponding to a variable. *)
+  (R_nil : forall x, R (encode_var x, []) (encode_var x, []))
+  (* All of the variables of Sr are variables of Sl.
+   * Since most of the time, Sr is Sl with alterations on anonymous variables or by sset, this is
+   * always true. *)
+  (dom_eq : dom (vars Sl) = dom (vars Sr))
+  (proj_sim : forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_path Sl perm [proj]))
+  (eval_loc_sim : forward_simulation R R (eval_loc Sr perm) (eval_loc Sl perm))
+  :
+  forall pi_r, eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
+Proof.
+  intros pi_r ((? & G%mk_is_Some & _) & Heval_path).
+  cbn in G. unfold encode_var in G. rewrite sum_maps_lookup_l in G.
+  rewrite <-elem_of_dom, <-dom_eq, elem_of_dom, <-get_at_var in G. destruct G as (? & ?).
+  eapply eval_path_preservation in Heval_path; [ | eassumption..].
+  edestruct Heval_path as (pi_l' & ? & ?); [apply R_nil | ].
+  exists pi_l'. split; [assumption | ]. split; [ | assumption].
+  eexists. split; [eassumption | constructor].
+Qed.
 
-  (* TODO: name *)
-  Lemma get_loc_rel q l (H : get_node (S_r.[q]) = locC(l)) :
-    exists q', rel (q' +++ [0]) (q +++ [0]) /\ get_node (S_l.[q']) = locC(l).
-  Proof.
-    destruct (decidable_prefix sp_borrow q) as [ | ].
-    - assert (prefix (sp_borrow +++ [0]) q) as (r & <-) by eauto with spath.
-      autorewrite with spath in H.
-      exists (sp_loan +++ [0] ++ r). split.
-      + rewrite<- !app_spath_vpath_assoc. constructor.
-      + autorewrite with spath. assumption.
-    - exists q. split.
-      (* comparison reasonning: *)
-      + apply Rel_other. auto with spath.
-      + autorewrite with spath.
-        assert (~strict_prefix sp_loan q). eauto with spath.
-        assumption.
-  Qed.
+Lemma sset_preserves_vars_dom S sp v : dom (vars (S.[sp <- v])) = dom (vars S).
+Proof.
+  unfold sset. unfold alter_at_accessor. cbn. repeat autodestruct.
+  intros. apply dom_alter_L.
+Qed.
 
-  Lemma eval_proj_mut_sp_borrow_strict_prefix proj r q
-    (H : eval_proj S_r perm proj (sp_borrow +++ [0] ++ r) q) :
-    exists q', rel q' q /\ eval_proj S_l perm proj (sp_loan +++ [0] ++ r) q'.
-  Proof.
-    remember (sp_borrow +++ [0] ++ r) as p. revert r Heqp. induction H; intros r ->.
-    - exists ((sp_loan +++ [0] ++ r) +++ [0]). split.
-      + rewrite<- !app_spath_vpath_assoc. constructor.
-      + apply Eval_Deref_MutBorrow with (l := l); try assumption.
-        autorewrite with spath. assumption.
-    - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
-      exists (q_loc +++ [0]). split; try assumption.
-      apply Eval_Deref_Ptr_Locs with (l := l); try assumption.
-      autorewrite with spath. assumption.
-    - specialize (IHeval_proj (r ++ [0])). destruct IHeval_proj as (q'' & ? & ?).
-      + rewrite<- app_spath_vpath_assoc. reflexivity.
-      + exists q''. split; try assumption.
-        apply Eval_Loc with (l := l).
-        * assumption.
-        * autorewrite with spath. assumption.
-        * rewrite<- app_spath_vpath_assoc. assumption.
-  Qed.
+(* Note: instead of defining a relation between a left spath p and a right path q, I could define
+ * the left spath q as a function of p. *)
+Definition rel_MutBorrow_to_Ptr sp_loan sp_borrow p q :=
+  (exists r, p = sp_loan +++ [0] ++ r /\ q = sp_borrow +++ [0] ++ r) \/
+  (p = q /\ ~strict_prefix sp_borrow p).
 
-  Lemma eval_proj_mut_not_prefix_sp_borrow proj q r
-    (not_prefix : ~strict_prefix sp_borrow q) (H : eval_proj S_r perm proj q r) :
-    exists r', rel r' r /\ eval_proj S_l perm proj q r'.
-  Proof.
-    induction H.
-    - destruct (decidable_spath_eq q sp_borrow) as [-> | ].
-      + exists (sp_loan +++ [0]). split. { constructor. }
-        apply Eval_Deref_Ptr_Locs with (l := l0); autorewrite with spath; easy.
-      + exists (q +++ [0]). split.
-        { apply Rel_other. enough (~prefix sp_borrow q) by (intros K%strict_prefix_app_last; easy). reduce_comp. }
-        apply Eval_Deref_MutBorrow with (l := l); try assumption.
-        autorewrite with spath. assumption.
-    - apply get_loc_rel in get_q'. destruct get_q' as (q_loc & ? & ?).
-      exists (q_loc +++ [0]). split; try assumption.
-      apply Eval_Deref_Ptr_Locs with (l := l); try auto.
-      autorewrite with spath. assumption.
-    - destruct IHeval_proj as (r' & ? & ?).
-      { intros G%strict_prefix_app_last; revert G. reduce_comp. }
-      exists r'. split; try assumption. apply Eval_Loc with (l := l); try easy.
-      autorewrite with spath. assumption.
-  Qed.
+Lemma eval_place_mut_borrow_to_ptr perm p S_r l0 sp_loan sp_borrow :
+  let S_l := (S_r.[sp_loan <- loc(l0, S_r.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l0)]) in
+  disj sp_loan sp_borrow ->
+  get_node (S_r.[sp_loan]) = loanC^m(l0) ->
+  get_node (S_r.[sp_borrow]) = borrowC^m(l0) ->
+  forall pi_r, eval_place S_r perm p pi_r ->
+  exists pi_l, rel_MutBorrow_to_Ptr sp_loan sp_borrow pi_l pi_r /\
+    eval_place S_l perm p pi_l.
+Proof.
+  intros S_l Hdisj Hsp_loan Hsp_borrow. unfold S_l.
+  apply eval_place_preservation.
+  - right. eauto with spath.
+  - rewrite !sset_preserves_vars_dom. reflexivity.
+  - intros ? pi_r ? eval_pi_r. destruct eval_pi_r.
+    (* Case Eval_Deref_MutBorrow: *)
+    + intros ? [(r & -> & ->) | (-> & ?) ].
+      (* pi_r is in the mutable loan and pi_l is in the loc *)
+      * eapply complete_square_diagram.
+        -- left. exists (r ++ [0]). autorewrite with spath. split; reflexivity.
+        -- eapply Eval_cons.
+           { eapply Eval_Deref_MutBorrow; autorewrite with spath; eassumption. }
+           apply Eval_nil.
+        -- autorewrite with spath. reflexivity.
+      * destruct (decidable_spath_eq sp_borrow q) as [<- | ].
+        -- eapply complete_square_diagram.
+           ++ left. exists []. split; reflexivity.
+           ++ eapply Eval_cons.
+              { eapply Eval_Deref_Ptr_Locs; autorewrite with spath; try assumption; reflexivity. }
+              eapply Eval_path_loc.
+              { econstructor; autorewrite with spath; easy. }
+              apply Eval_nil.
+           ++ reflexivity.
+        -- assert (~prefix sp_borrow q) by reduce_comp.
+           eapply complete_square_diagram.
+           ++ right. split; [reflexivity | eauto with spath].
+           ++ eapply Eval_cons.
+              { eapply Eval_Deref_MutBorrow; autorewrite with spath; eassumption. }
+              apply Eval_nil.
+           ++ reflexivity.
+    (* Case Eval_Deref_Ptr_Locs: *)
+    + intros q_l H.
+      assert (get_at_q_l : get_node (S_l.[q_l]) = ptrC(l)).
+      { unfold S_l. destruct H as [(r & -> & ->) | (-> & ?)]; autorewrite with spath; assumption. }
+      destruct (decidable_prefix (sp_borrow +++ [0]) q') as [(r & <-) | ].
+      * autorewrite with spath in *. exists (sp_loan +++ [0] ++ r). split.
+        -- left. eexists. eauto.
+        -- eapply Eval_cons.
+           { eapply Eval_Deref_Ptr_Locs with (q' := sp_loan +++ [0] ++ r);
+               [assumption | exact get_at_q_l | ].
+             autorewrite with spath. assumption. }
+           apply Eval_nil.
+      * exists q'. split.
+        -- right. eauto with spath.
+        -- eapply Eval_cons.
+           { eapply Eval_Deref_Ptr_Locs with (q' := q'); [assumption | exact get_at_q_l | ].
+             autorewrite with spath. assumption. }
+           apply Eval_nil.
+  - intros pi_r ? eval_pi_r. destruct eval_pi_r. intros ? [(r & -> & ->) | (-> & ?)].
+    + eapply complete_square_diagram.
+      * autorewrite with spath. left. eexists. split; reflexivity.
+      * econstructor; autorewrite with spath; eassumption.
+      * autorewrite with spath. reflexivity.
+    + exists (q +++ [0]). split.
+      * right. eauto with spath.
+      * econstructor; autorewrite with spath; eassumption.
+Qed.
 
-  Lemma eval_proj_mut_borrow_to_ptr proj q_l q_r q'_r :
-    rel q_l q_r -> eval_proj S_r perm proj q_r q'_r ->
-    exists q'_l, rel q'_l q'_r /\ eval_proj S_l perm proj q_l q'_l.
-  Proof.
-    intros [ r | q G] H.
-    - apply eval_proj_mut_sp_borrow_strict_prefix. assumption.
-    - apply eval_proj_mut_not_prefix_sp_borrow; assumption.
-  Qed.
-
-  Corollary eval_path_mut_borrow_to_ptr P q_r q'_r :
-    eval_path S_r perm P q_r q'_r -> forall q_l, rel q_l q_r ->
-    exists q'_l, rel q'_l q'_r /\ eval_path S_l perm P q_l q'_l.
-  Proof.
-    intros H. induction H.
-    - eexists. split. eassumption. constructor.
-    - intros q_l ?.
-      apply eval_proj_mut_borrow_to_ptr with (q_l := q_l) in Heval_proj; try assumption.
-      destruct Heval_proj as (q'_l & rel_q'_l & ?).
-      destruct (IHeval_path q'_l rel_q'_l) as (q''_l & ? & ?).
-      exists q''_l. split. { assumption. }
-      apply Eval_cons with (q := q'_l); assumption.
-  Qed.
-
-  Lemma eval_path_mut_borrow_to_ptr_Mov P q q' :
-    eval_path S_r Mov P q q' -> eval_path S_l Mov P q q'.
-  Proof.
-    intro H. induction H.
-    - constructor.
-    - destruct Heval_proj; easy.
-  Qed.
-
-  Corollary eval_place_mut_borrow_to_ptr p pi_r :
-    eval_place S_r perm p pi_r ->
-    exists pi_l, rel pi_l pi_r /\ eval_place S_l perm p pi_l.
-  Proof.
-    intros (? & H).
-    eapply eval_path_mut_borrow_to_ptr in H.
-    - destruct H as (q'_l & rel & ?). exists q'_l.
-      repeat split; [assumption | validity | eassumption].
-    - apply Rel_other. apply not_strict_prefix_nil.
-  Qed.
-
-  Corollary eval_place_mut_borrow_to_ptr_Mov p pi :
-    eval_place S_r Mov p pi -> eval_place S_l Mov p pi.
-  Proof.
-    intros (? & H). eapply eval_path_mut_borrow_to_ptr_Mov in H. split; [validity | assumption].
-  Qed.
-
-  Lemma eval_place_mut_borrow_to_ptr_Mov_comp p pi :
-    eval_place S_r Mov p pi -> ~strict_prefix sp_borrow pi.
-  Proof.
-    intros (? & H). remember (_, []) as pi0. induction H.
-    - rewrite Heqpi0. apply not_strict_prefix_nil.
-    - destruct Heval_proj; easy.
-  Qed.
-End MutBorrow_to_Ptr.
+Lemma eval_place_mut_borrow_to_ptr_Mov p S_r l0 sp_loan sp_borrow :
+  let S_l := (S_r.[sp_loan <- loc(l0, S_r.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l0)]) in
+  forall pi, eval_place S_r Mov p pi -> eval_place S_l Mov p pi /\ ~strict_prefix sp_borrow pi.
+Proof.
+  intros S_l pi H. unfold S_l.
+  eapply eval_place_preservation
+    with (R := (fun pi_l pi_r => pi_l = pi_r /\ ~strict_prefix sp_borrow pi_r)) in H.
+  - destruct H as (? & (-> & ?) & ?). split; eassumption.
+  - split; eauto with spath.
+  - rewrite !sset_preserves_vars_dom. reflexivity.
+  (* Evaluating a projection cannot be performed in mode Mov. *)
+  - intros ? ? ? eval_pi_r. destruct eval_pi_r; contradiction.
+  (* Going under a loc cannot be performed in move Mov. *)
+  - intros ? ? eval_pi_r. destruct eval_pi_r; contradiction.
+Qed.
 
 (* Suppose that Sl <= Sr (with a base case), and that p evaluates to a spath pi in Sr
    (Sr |-{p} p =>^{perm} pi).
@@ -766,16 +683,12 @@ Ltac eval_place_preservation :=
       let eval_p_in_Sl := fresh "eval_p_in_Sl" in
       let sp_borrow_not_prefix := fresh "sp_borrow_not_prefix" in
       let valid_p := fresh "valid_p" in
-      pose proof eval_p_in_Sr as eval_p_in_Sl;
-      pose proof eval_p_in_Sr as sp_borrow_not_prefix;
       pose proof eval_p_in_Sr as valid_p;
+      apply eval_place_valid in valid_p;
       apply eval_place_mut_borrow_to_ptr_Mov
         with (sp_loan := sp_loan) (sp_borrow := sp_borrow) (l0 := l)
-        in eval_p_in_Sl;
-      apply eval_place_mut_borrow_to_ptr_Mov_comp with (sp_borrow := sp_borrow)
-        in sp_borrow_not_prefix;
-      apply eval_place_valid in valid_p;
-      clear eval_p_in_Sr
+        in eval_p_in_Sr;
+      destruct eval_p_in_Sr as (eval_p_in_Sl & sp_borrow_not_prefix)
   | eval_p_in_Sr : ?Sr |-{p} ?p =>^{ _ } ?pi_r,
     Hdisj : disj ?sp_loan ?sp_borrow,
     HSr_loan : get_node (?Sr.[?sp_loan]) = loanC^m (?l),
@@ -786,9 +699,9 @@ Ltac eval_place_preservation :=
       let valid_p := fresh "valid_p" in
       pose proof eval_p_in_Sr as valid_p;
       apply eval_place_valid in valid_p;
-      apply (eval_place_mut_borrow_to_ptr Sr l sp_loan sp_borrow Hdisj HSr_loan HSr_borrow)
+      apply (eval_place_mut_borrow_to_ptr _ _ _ _ _ _ Hdisj HSr_loan HSr_borrow)
         in eval_p_in_Sr;
-      destruct eval_p_in_Sr as (pi_l & rel_pi_l_pi_r%rel_implies_rel' & eval_p_in_Sl)
+      destruct eval_p_in_Sr as (pi_l & rel_pi_l_pi_r & eval_p_in_Sl)
   end.
 
 Lemma operand_preserves_HLPL_plus_rel op :
@@ -900,20 +813,16 @@ Proof.
   (* rv = &mut p *)
   (* The place p evaluates to a spath under a loc. *)
   - intros Sl Hle. destruct Hle.
-    + eval_place_preservation.
+    +  eval_place_preservation.
       destruct rel_pi_l_pi_r as [ (r & -> & ->) | (-> & ?)].
       (* Case 1: the place p is under the borrow. *)
-      * destruct r; autorewrite with spath in Hancestor_loc.
-        (* The place p cannot be just under the borrow, because its ancestor is a loc, it cannot be
-         * the mutable borrow. *)
-        { congruence. }
-        eapply complete_square_diagram.
+      * eapply complete_square_diagram.
         -- leq_val_state_step.
            { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
-        -- eapply Eval_pointer_loc. eassumption. autorewrite with spath. exact Hancestor_loc.
+        -- eapply Eval_pointer_loc. eassumption. autorewrite with spath. eassumption.
         -- reflexivity.
       (* Case 2: the place p is not under the borrow. *)
       * eapply complete_square_diagram.
@@ -922,7 +831,7 @@ Proof.
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
-        -- eapply Eval_pointer_loc. eassumption. autorewrite with spath. exact Hancestor_loc.
+        -- eapply Eval_pointer_loc. eassumption. autorewrite with spath. eassumption.
         -- reflexivity.
   (* rv = &mut p *)
   (* The place p evaluates to a spath that is not under a loc. *)
@@ -1001,11 +910,9 @@ Proof.
     apply operand_preserves_well_formedness' in H0; [ | assumption].
     constructor. intros ? ?. rewrite well_formedness_equiv in *.
     intros l0. specialize (H0 l0). destruct H0. split; weight_inequality.
-  - apply ancestor_is_not_bot in Hancestor_loc; [ | discriminate].
-    destruct Hancestor_loc as (q & ? & -> & ?).
-    assert (valid_q : valid_spath S q) by validity.
-    apply weight_sget_node_le with (weight := indicator (locC(l))) in valid_q.
-    rewrite H, indicator_same in valid_q.
+  - apply eval_place_valid in Heval_place.
+    apply weight_sget_node_le with (weight := indicator (locC(l))) in Heval_place.
+    rewrite Hloc, indicator_same in Heval_place.
     constructor. intros ? ?. rewrite well_formedness_equiv in *.
     intros l0. specialize (WF l0). destruct WF. split.
     + weight_inequality.
@@ -1043,7 +950,7 @@ Proof.
   { rewrite EQN in *. exists y. split; [ | constructor].
     rewrite get_map_add_anon, lookup_insert_ne in H; easy. }
   split; rewrite<- EQN; [assumption | ].
-  clear H EQN. induction G as [ | proj P q q' r ? ? IH].
+  clear H EQN. induction G as [ | proj P q q' r ? ? IH | ].
   - constructor.
   - assert (eval_proj S k proj q q'). {
     - induction Heval_proj; autorewrite with spath in * |-.
@@ -1054,9 +961,11 @@ Proof.
         * autorewrite with spath in * |-. econstructor; eassumption.
         * autorewrite with spath in * |-. exfalso. apply no_loc with (p := snd q').
           -- validity.
-          -- rewrite get_q'. constructor.
-      + econstructor; eauto with spath. }
+          -- rewrite get_q'. constructor. }
     econstructor; [ | eapply IH, eval_proj_valid]; eassumption.
+  - destruct Heval_loc. autorewrite with spath in get_q.
+    eapply Eval_path_loc; [ | apply IHG; validity].
+    econstructor; autorewrite with spath; eassumption.
 Qed.
 
 (* Suppose that (v0, S0) <= (vn, Sn), and that vr does not contain any loan.
