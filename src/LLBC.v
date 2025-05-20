@@ -9,6 +9,7 @@ From Stdlib Require Import PeanoNat Lia.
 From stdpp Require Import pmap.
 Close Scope stdpp_scope.
 Require Import PathToSubtree.
+From Stdlib Require Bool.
 
 Inductive LLBC_val :=
 | LLBC_bot
@@ -295,7 +296,6 @@ Inductive eval_stmt : statement -> statement_result -> LLBC_state -> LLBC_state 
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
-Require Import Bool.
 Local Open Scope option_monad_scope.
 (* Can we prove that the following proram terminates? *)
 (*
