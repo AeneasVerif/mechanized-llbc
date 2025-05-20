@@ -29,6 +29,15 @@ Proof.
   - exists a. f_equal. apply length_zero_iff_nil. inversion H. auto.
 Qed.
 
+Lemma length_2_is_pair [A : Type] [l : list A] : length l = 2 -> exists a b, l = [a ; b].
+Proof.
+  intro H. destruct l as [ | a l'].
+  - inversion H.
+  - destruct l' as [ | b l''].
+    * inversion H.
+    * exists a, b. repeat f_equal. apply length_zero_iff_nil. inversion H. reflexivity.
+Qed.
+
 (* A variant of the lemma `nth_error_Some` that is more convenient to use.
    Indeed, it let us perform an inversion on the result. *)
 Lemma nth_error_Some' [A : Type] (l : list A) n :

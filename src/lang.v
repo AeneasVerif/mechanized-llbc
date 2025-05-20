@@ -4,9 +4,13 @@ From Stdlib Require Import PArith.
 
 Definition var := positive.
 
+Variant field :=
+  | First
+  | Second.
+
 Variant proj :=
 | Deref
-| Field (f : nat).
+| Field (f : field).
 
 (* Places are the syntactic way of denoting and accessing memory locations. Formally,
    a place is the combination of a variable, and a list of projections called a
@@ -29,7 +33,8 @@ Variant operand :=
 Variant rvalue :=
 | Just (op : operand)
 | BinOp (op_l : operand) (op_r : operand)
-| BorrowMut (p : place).
+| BorrowMut (p : place)
+| Pair (op_l : operand) (op_r : operand).
 
 Inductive statement :=
 | Nop
