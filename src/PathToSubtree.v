@@ -905,6 +905,16 @@ Section GetSetPath.
       destruct arity_0. econstructor; [eassumption | constructor].
   Qed.
 
+  Lemma valid_spath_app_last_get_node_arity S p :
+    forall (n : nat), arity (get_node (S.[p])) > n -> valid_spath S (p +++ [n]).
+  Proof.
+    intros n arity_n. apply valid_spath_app. split.
+    - apply valid_get_node_sget_not_bot. intros G.
+      rewrite G, <-length_children_is_arity, children_bot in arity_n. easy.
+    - rewrite<- length_children_is_arity in arity_n. apply nth_error_Some' in arity_n.
+      destruct arity_n. econstructor ; [eassumption | constructor].
+  Qed.
+
   Lemma strict_prefix_one_child S p q (length_one : length (children (S.[p])) = 1) :
     strict_prefix p q -> valid_spath S q -> prefix (p +++ [0]) q.
   Proof.
@@ -1749,6 +1759,10 @@ Ltac validity0 :=
       discriminate
   | H : get_node (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
       simple apply valid_spath_app_last_get_node_not_zeroary;
+      rewrite H;
+      constructor
+  | H : get_node (?S.[?p]) = _ |- valid_spath ?S (?p +++ [?n]) =>
+      simple apply valid_spath_app_last_get_node_arity;
       rewrite H;
       constructor
   | H : get_node (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [0]) =>

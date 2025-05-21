@@ -145,6 +145,8 @@ Next Obligation. intros. cbn. symmetry. apply sum_maps_insert_inr. Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation. intros. unfold encode_anon. rewrite decode_encode. reflexivity. Qed.
 
+Lemma get_at_var S x : get_at_accessor S (encode_var x) = lookup x (vars S).
+Proof. unfold get_map, encode_var. cbn. apply sum_maps_lookup_l. Qed.
 
 Declare Scope hlpl_scope.
 Delimit Scope hlpl_scope with hlpl.
@@ -180,24 +182,26 @@ Hint Rewrite sget_loc' : spath.
  * field access) on spath pi0, on a state S and given a permission perm.
  * If this projection is successful, then we have eval_proj S perm p pi0 pi1.
  *)
-Inductive eval_proj (S : HLPL_state) perm : proj -> spath -> spath -> Prop :=
-(* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
-| Eval_Deref_Ptr_Locs q q' l
-    (Hperm : perm <> Mov)
-    (get_q : get_node (S.[q]) = ptrC(l)) (get_q' : get_node (S.[q']) = locC(l)) :
-    eval_proj S perm Deref q (q' +++ [0])
-(* Coresponds to R-Loc and W-Loc in the article. *)
-| Eval_Loc proj q q' l
-    (Hperm : perm = Imm)
-    (get_q : get_node (S.[q]) = locC(l))
-    (eval_proj_rec : eval_proj S perm proj (q +++ [0]) q') : eval_proj S perm proj q q'
-(* TODO: add fields *)
-| Eval_Field_First q
-  (get_q : get_node (S.[q]) = HLPL_pairC) :
-  eval_proj S perm (Field First) q (q +++ [0])
-| Eval_Field_Second q
-  (get_q : get_node (S.[q]) = HLPL_pairC) :
-  eval_proj S perm (Field Second) q (q +++ [1])
+Variant eval_proj (S : HLPL_state) perm : proj -> spath -> spath -> Prop :=
+  (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
+  | Eval_Deref_Ptr_Locs q q' l
+      (Hperm : perm <> Mov)
+      (get_q : get_node (S.[q]) = ptrC(l)) (get_q' : get_node (S.[q']) = locC(l)) :
+    eval_proj S perm Deref q q'
+  (* TODO: add fields *)
+  | Eval_Field_First q
+      (get_q : get_node (S.[q]) = HLPL_pairC) :
+    eval_proj S perm (Field First) q (q +++ [0])
+  | Eval_Field_Second q
+      (get_q : get_node (S.[q]) = HLPL_pairC) :
+    eval_proj S perm (Field Second) q (q +++ [1])
+.
+
+Variant eval_loc (S : HLPL_state) perm : spath -> spath -> Prop :=
+  (* Coresponds to R-Loc and W-Loc in the article. *)
+  | Eval_Loc q l
+      (Hperm : perm <> Mov) (get_q : get_node (S.[q]) = locC(l)) :
+    eval_loc S perm q (q +++ [0])
 .
 
 (* Let pi0 be a spath. If by successfully applying the projections in P (with permission perm) we
@@ -207,7 +211,11 @@ Inductive eval_path (S : HLPL_state) perm : path -> spath -> spath -> Prop :=
 | Eval_nil pi : eval_path S perm [] pi pi
 | Eval_cons proj P p q r
     (Heval_proj : eval_proj S perm proj p q) (Heval_path : eval_path S perm P q r) :
-    eval_path S perm (proj :: P) p r.
+    eval_path S perm (proj :: P) p r
+| Eval_path_loc P p q r
+    (Heval_loc : eval_loc S perm  p q) (Heval_path_rec : eval_path S perm P q r) :
+    eval_path S perm P p r
+.
 
 Definition eval_place S perm (p : place) pi :=
   let pi_0 := (encode_var (fst p), []) in
@@ -215,20 +223,9 @@ Definition eval_place S perm (p : place) pi :=
 
 Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
-Print sget.
 Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
 Proof.
-  induction H.
-  - apply valid_spath_app. destruct (S.[q']) eqn:EQN; try discriminate. split.
-    + apply get_not_bot_valid_spath. rewrite EQN. discriminate.
-    + eapply valid_cons; reflexivity || apply valid_nil.
-  - apply IHeval_proj.
-  - apply valid_spath_app. destruct (S.[q]) eqn:EQN; try discriminate. split.
-    + apply get_not_bot_valid_spath. rewrite EQN. discriminate.
-    + apply valid_cons with (w := y1); auto. apply valid_nil.
-  - apply valid_spath_app. destruct (S.[q]) eqn:EQN; try discriminate. split.
-    + apply get_not_bot_valid_spath. rewrite EQN. discriminate.
-    + apply valid_cons with (w := y2); auto. apply valid_nil.
+  destruct H; validity.
 Qed.
 
 Lemma eval_path_valid (s : HLPL_state) P perm q r
@@ -238,6 +235,7 @@ Proof.
   induction eval_q_r.
   - assumption.
   - apply IHeval_q_r. eapply eval_proj_valid. eassumption.
+  - apply IHeval_q_r. destruct Heval_loc. validity.
 Qed.
 
 Lemma eval_place_valid s p perm pi (H : eval_place s perm p pi) : valid_spath s pi.
@@ -298,96 +296,6 @@ Variant eval_operand : operand -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop 
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
-(* Note: these functions are used when borrowing a spath that is already under a location without
- * introducing a new location. spath_pred pi given the node about pi (and botC if this node doesn't
- * exist).
- * However, I should maybe rewrite it with a proposition instead of a function. *)
-(* TODO: if I keep it, move in PathToSubtree.v *)
-Definition vpath_pred (p : vpath) : option vpath :=
-  match p with
-  | [] => None
-  | _ => Some (removelast p)
-  end.
-
-Definition spath_pred (p : spath) : option spath :=
-  SOME q <- vpath_pred (snd p) IN Some (fst p, q).
-
-Lemma vpath_pred_add_anon p i : vpath_pred (p ++ [i]) = Some p.
-Proof.
-  transitivity (Some (removelast (p ++ [i]))).
-  - destruct (p ++ [i]) eqn:?.
-    + exfalso. eapply app_cons_not_nil. eauto.
-    + reflexivity.
-  - f_equal. apply removelast_last.
-Qed.
-
-Lemma spath_pred_add_anon (p : spath) i : spath_pred (p +++ [i]) = Some p.
-Proof.
-  unfold spath_pred, app_spath_vpath. cbn. rewrite vpath_pred_add_anon.
-  rewrite<- surjective_pairing. reflexivity.
-Qed.
-
-Lemma spath_pred_is_Some (p q : spath) : spath_pred p = Some q -> exists i, p = q +++ [i].
-Proof.
-  unfold spath_pred. intro.
-  assert (snd p <> []) by now destruct (snd p).
-  assert ((fst p, removelast (snd p)) = q) as <-.
-  { destruct (snd p); [discriminate | injection H; easy]. }
-  exists (List.last (snd p) 0). unfold app_spath_vpath. cbn.
-  rewrite<- app_removelast_last by assumption.
-  apply surjective_pairing.
-Qed.
-
-Definition vancestor (v : HLPL_val) p : HLPL_nodes :=
-  match vpath_pred p with
-  | None => botC
-  | Some q => get_node (v.[[q]])
-  end.
-
-Definition ancestor (S : HLPL_state) (p : spath) : HLPL_nodes :=
-  match spath_pred p with
-  | None => botC
-  | Some q => get_node (S.[q])
-  end.
-
-Lemma vancestor_singleton v i : vancestor v [i] = get_node v.
-Proof. reflexivity. Qed.
-Hint Rewrite vancestor_singleton : spath.
-
-Lemma ancestor_sset_not_strict_prefix S p q v :
-  ~strict_prefix q p -> ancestor (S.[q <- v]) p = ancestor S p.
-Proof.
-  unfold ancestor. intro. autodestruct.
-  intros (? & ->)%spath_pred_is_Some.
-  rewrite get_node_sset_sget_not_prefix by auto with spath. reflexivity.
-Qed.
-Hint Rewrite ancestor_sset_not_strict_prefix using auto with spath; fail : spath.
-
-Lemma ancestor_is_not_bot S p c :
-  ancestor S p = c -> c <> botC -> exists q i, p = q +++ [i] /\ get_node (S.[q]) = c.
-Proof.
-  unfold ancestor. autodestruct. intros (i & ->)%spath_pred_is_Some.
-  intros. eexists _, _. eauto.
-Qed.
-
-Lemma vancestor_app v p q : q <> [] -> vancestor v (p ++ q) = vancestor (v.[[p]]) q.
-Proof.
-  intro H. destruct q using rev_ind; [easy | ].
-  unfold vancestor. rewrite app_assoc, !vpath_pred_add_anon, vget_app.
-  reflexivity.
-Qed.
-
-Lemma ancestor_app S p q : q <> [] -> ancestor S (p +++ q) = vancestor (S.[p]) q.
-Proof.
-  intro H. destruct q using rev_ind; [easy | ].
-  unfold ancestor, vancestor.
-  rewrite app_spath_vpath_assoc, spath_pred_add_anon, vpath_pred_add_anon, sget_app.
-  reflexivity.
-Qed.
-
-Hint Rewrite vancestor_app using easy : spath.
-Hint Rewrite ancestor_app using easy : spath.
-
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
@@ -399,7 +307,7 @@ Variant eval_rvalue : rvalue -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
       S |-{rv} (BinOp op_l op_r) => ((HLPL_int (m + n)), S'')
   | Eval_pointer_loc S p pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
-      (Hancestor_loc : ancestor S pi = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
+      (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
   | Eval_pointer_no_loc S p pi l
       (* TODO *)
       (Heval_place : S |-{p} p =>^{Mut} pi):
@@ -459,7 +367,12 @@ Record HLPL_well_formed_alt (S : HLPL_state) l : Prop := {
 
 Lemma well_formedness_equiv S : HLPL_well_formed S <-> forall l, HLPL_well_formed_alt S l.
 Proof.
-Admitted.
+  split.
+  - intros WF l. destruct WF. split.
+    rewrite<- decide_at_most_one_node; easy.
+  - intros WF. split; intros l; destruct (WF l).
+    apply decide_at_most_one_node; [discriminate | ]. assumption.
+Qed.
 
 Lemma vweight_loc weight l v :
   vweight weight (loc(l, v)) = weight (locC(l)) + vweight weight v.
