@@ -830,12 +830,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_Abs_ClearValue S i j v :
     abstraction_contains_value S i j v -> not_contains_loan v -> not_contains_borrow v ->
     leq_state_base S (remove_abstraction_value S i j)
-| Leq_AnonValue S v a
-    (no_loan : not_contains_loan v)
-    (no_borrow : not_contains_borrow v)
-    (no_symbolic : not_contains_symbolic v)
-    (is_fresh : fresh_anon S a) :
-    leq_state_base S (S,, a |-> v)
+| Leq_AnonValue S a (is_fresh : fresh_anon S a) : leq_state_base S (S,, a |-> bot)
 .
 
 (* Derived rules *)
@@ -996,11 +991,7 @@ Proof.
     destruct (decide (l0 = l')) as [<- | ]; split; weight_inequality.
   (* TODO: Compute the weight when removing a value. *)
   - admit.
-  - apply not_value_contains_weight with (weight := indicator (loanC^m(l'))) in no_loan;
-      [ | intros ? <-%indicator_non_zero; constructor].
-    apply not_value_contains_weight with (weight := indicator (borrowC^m(l'))) in no_borrow;
-      [ | intros ? <-%indicator_non_zero; constructor].
-    destruct H; split; weight_inequality.
+  - destruct H; split; weight_inequality.
 Admitted.
 
 (* Simulation proofs. *)
@@ -1336,8 +1327,8 @@ Proof.
         eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
-Lemma eval_place_AnonValue S v a perm p (no_loan : not_contains_loan v) :
-  forall pi_r, (S,, a |-> v) |-{p} p =>^{perm} pi_r ->
+Lemma eval_place_AnonValue S a perm p :
+  forall pi_r, (S,, a |-> bot) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
@@ -1542,7 +1533,7 @@ Proof.
     + eapply complete_square_diagram'.
       * constructor.
       * leq_val_state_add_anon.
-        { apply (Leq_AnonValue _ v a); [assumption.. | ]. eassumption. }
+        { apply (Leq_AnonValue _ a); [assumption.. | ]. eassumption. }
         { reflexivity. }
         reflexivity.
       * reflexivity.
@@ -1676,6 +1667,15 @@ Proof.
       * leq_val_state_step.
         { eapply Leq_Abs_ClearValue with (i := i) (j := j); autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * reflexivity.
+    + apply eval_place_AnonValue in Heval.
+      destruct Heval as (? & (-> & ?) & eval_p_in_Sl).
+      autorewrite with spath in *. eapply complete_square_diagram'.
+      * econstructor; eassumption.
+      * leq_val_state_add_anon.
+        { apply Leq_AnonValue; eassumption. }
+        { reflexivity. }
         reflexivity.
       * reflexivity.
 Abort.
