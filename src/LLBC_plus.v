@@ -193,6 +193,12 @@ Proof.
   rewrite sum_maps_lookup_l, sum_maps_lookup_r. reflexivity.
 Qed.
 
+Lemma get_at_abstraction S i j : get_at_accessor S (encode_abstraction (i, j)) =
+  mbind (lookup j) (lookup i (abstractions S)).
+Proof.
+  unfold get_map, encode_abstraction. cbn. rewrite sum_maps_lookup_r. apply lookup_flatten.
+Qed.
+
 Declare Scope llbc_plus_scope.
 Delimit Scope llbc_plus_scope with llbc.
 
@@ -726,10 +732,27 @@ Proof.
   rewrite sum_maps_delete_inr. rewrite <-abstractions_remove_abstraction_value. reflexivity.
 Qed.
 
+Lemma get_extra_remove_abstraction_value S i j :
+  get_extra (remove_abstraction_value S i j) = get_extra S.
+Proof. unfold get_extra. cbn. rewrite dom_alter_L. reflexivity. Qed.
+
 (* TODO: autorewrite? *)
 Lemma sget_remove_abstraction_value S i j p (H : fst p <> encode_abstraction (i, j)) :
   (remove_abstraction_value S i j).[p] = S.[p].
 Proof. unfold sget. rewrite get_map_remove_abstraction_value. simpl_map. reflexivity. Qed.
+
+Lemma sset_remove_abstraction_value S i j p v (H : fst p <> encode_abstraction (i, j)) :
+  remove_abstraction_value (S.[p <-v]) i j = (remove_abstraction_value S i j).[p <- v].
+Proof.
+  apply state_eq_ext.
+  - unfold sset. rewrite get_map_remove_abstraction_value. rewrite !get_map_alter.
+    rewrite get_map_remove_abstraction_value. apply delete_alter_ne. congruence.
+  - unfold sset. rewrite get_extra_alter, !get_extra_remove_abstraction_value, get_extra_alter.
+    reflexivity.
+Qed.
+
+Hint Rewrite sget_remove_abstraction_value using assumption : spath.
+Hint Rewrite sset_remove_abstraction_value using assumption : spath.
 
 (* In order to prove that a state is of the form (S,, a |-> v), it's useful to have lemmas that
  * commute the addition of an anonymous variable to the end. *)
@@ -755,12 +778,8 @@ Hint Rewrite add_abstraction_add_anon : spath.
 Hint Rewrite remove_abstraction_add_anon : spath.
 Hint Rewrite remvoe_abstraction_value_add_anon : spath.
 
-(*
-Definition abstraction_contains_value S i j v :=
-  exists A, lookup i (abstractions S) = Some A /\ lookup j A = Some v.
- *)
-Definition abstraction_contains_value S i j v :=
-  get_at_accessor S (encode_abstraction (i, j)) = Some v.
+Notation abstraction_contains_value S i j v :=
+  (get_at_accessor S (encode_abstraction (i, j)) = Some v).
 
 (* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
 Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
@@ -1415,9 +1434,16 @@ Ltac eval_place_preservation :=
     |- _ =>
         apply (eval_place_MergeAbs _ _ _ _ _ _ _ _ get_A get_B Hmerge diff) in Heval;
         destruct Heval as (? & (-> & ? & ? & ?) & eval_p_in_Sl)
+  (* Case Fresh_MutLoan *)
   | H : (?S.[?sp <- loan^m(?l)],, ?a |-> borrow^m(?l, ?S.[?sp])) |-{p} ?p =>^{?perm} ?pi |- _ =>
         apply eval_place_Fresh_MutLoan in H;
         destruct H as (pi_l & ((-> & ?) & ?) & eval_p_in_Sl)
+  (* Case Abs_ClearValue *)
+  | H : abstraction_contains_value ?S ?i ?j ?v,
+    no_loan : not_contains_loan ?v,
+    Heval : remove_abstraction_value ?S ?i ?j |-{p} ?p =>^{?perm} ?pi_r |- _ =>
+        eapply eval_place_Abs_ClearValue in Heval; [ | eassumption..];
+        destruct Heval as (? & (-> & ?) & eval_p_in_Sl)
   end.
 
 Lemma fresh_anon_diff S a b v
@@ -1509,9 +1535,7 @@ Proof.
     + eapply complete_square_diagram'.
       * constructor.
       * leq_val_state_step.
-        { apply (Leq_Abs_ClearValue _ i j v).
-          unfold abstraction_contains_value. autorewrite with spath. assumption.
-          all: assumption. }
+        { apply (Leq_Abs_ClearValue _ i j v); autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * reflexivity.
@@ -1647,6 +1671,13 @@ Proof.
         -- autorewrite with spath.
            erewrite sget_reborrow_mut_borrow_not_prefix by eassumption.
            erewrite sset_reborrow_mut_borrow_not_prefix by eauto with spath. reflexivity.
+    + eval_place_preservation. autorewrite with spath in *. eapply complete_square_diagram'.
+      * constructor; eassumption.
+      * leq_val_state_step.
+        { eapply Leq_Abs_ClearValue with (i := i) (j := j); autorewrite with spath; eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * reflexivity.
 Abort.
 
 Local Open Scope option_monad_scope.
