@@ -25,16 +25,22 @@ Variant proj :=
 Definition path := list proj.
 Definition place : Set := var * path.
 
+Inductive type :=
+| TInt
+| TRef (t : type)
+| TPair (t1 t2 : type)
+.
+
 Variant operand :=
-| IntConst (n : nat) (* TODO: use Aeneas integer types? *)
-| Move (p : place)
-| Copy (p : place).
+| IntConst (t : type) (n : nat) (* TODO: use Aeneas integer types? *)
+| Move (t : type) (p : place)
+| Copy (t : type) (p : place).
 
 Variant rvalue :=
-| Just (op : operand)
-| BinOp (op_l : operand) (op_r : operand)
-| BorrowMut (p : place)
-| Pair (op_l : operand) (op_r : operand).
+| Just (t : type) (op : operand)
+| BinOp (t : type) (op_l : operand) (op_r : operand)
+| BorrowMut (t : type) (p : place)
+| Pair (t : type) (op_l : operand) (op_r : operand).
 
 Inductive statement :=
 | Nop
@@ -46,14 +52,15 @@ Inductive statement :=
 (* TODO: notation scope. *)
 Notation "s0 ;; s1" := (Seq s0 s1)
   (at level 100, s1 at level 200, only parsing, right associativity).
-Notation "&mut p" := (BorrowMut p) (at level 80).
+Notation "'&mut' p : t" := (BorrowMut t p) (at level 85, p at next level, t at next level).
+Notation "'INT' p" := (IntConst TInt p) (at level 80, p at next level).
 Notation "'ASSIGN' p <- rv" := (Assign p rv) (at level 90).
 
 Local Open Scope positive_scope.
-Check (&mut (1, nil)).
-Check (ASSIGN (2, nil) <- &mut (1, nil)).
-Check (ASSIGN (1, nil) <- Just (IntConst 3)).
-Check (ASSIGN (1, nil) <- Just (IntConst 3) ;; ((ASSIGN (2, nil) <- &mut (1, nil)) ;; Panic)).
+Check (&mut (1, nil) : TRef TInt) : rvalue.
+Check (ASSIGN (2, nil) <- &mut (1, nil) : TRef TInt).
+Check (ASSIGN (1, nil) <- Just TInt (INT 3)).
+Check (ASSIGN (1, nil) <- Just TInt (INT 3) ;; ((ASSIGN (2, nil) <- &mut (1, nil) : TRef TInt) ;; Panic)).
 
 (* These definitions are not part of the grammar, but they are common for several (all?) semantics of the LLBC. *)
 Definition loan_id := nat.
