@@ -15,19 +15,19 @@ Local Open Scope option_monad_scope.
 Require Import SimulationUtils.
 
 Inductive HLPL_val :=
-| HLPL_bot
-| HLPL_int (n : nat) (* TODO: use Aeneas integer types? *)
-| HLPL_loc (l : loan_id) (v : HLPL_val)
-| HLPL_ptr (l : loan_id)
-| HLPL_pair (fst : HLPL_val) (snd : HLPL_val)
+| HLPL_bot : HLPL_val
+| HLPL_int : nat -> HLPL_val 
+| HLPL_loc : loan_id -> HLPL_val -> HLPL_val
+| HLPL_ptr : loan_id -> HLPL_val
+| HLPL_pair : HLPL_val -> HLPL_val -> HLPL_val
 .
 
 Variant HLPL_nodes :=
-| HLPL_botC
-| HLPL_intC (n : nat)
-| HLPL_locC (l : loan_id)
-| HLPL_ptrC (l : loan_id)
-| HLPL_pairC
+| HLPL_botC : HLPL_nodes
+| HLPL_intC : nat -> HLPL_nodes
+| HLPL_locC : loan_id -> HLPL_nodes
+| HLPL_ptrC : loan_id -> HLPL_nodes
+| HLPL_pairC : HLPL_nodes
 .
 
 Instance EqDec_HLPL_nodes : EqDecision HLPL_nodes.
@@ -287,32 +287,39 @@ Inductive copy_val : HLPL_val -> HLPL_val -> Prop :=
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
-| Eval_IntConst S n : S |-{op} IntConst n => (HLPL_int n, S)
-| Eval_copy S (p : place) pi v
-    (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
-    S |-{op} Copy p => (v, S)
-| Eval_move S (p : place) pi : eval_place S Mov p pi ->
-     not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
-    S |-{op} Move p => (S.[pi], S.[pi <- bot])
+  | Eval_IntConst S n :
+    S |-{op} INT n => (HLPL_int n, S)
+  | Eval_copy S t (p : place) pi v
+      (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
+    S |-{op} Copy t p => (v, S)
+  | Eval_move S t (p : place) pi :
+    eval_place S Mov p pi ->
+    not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
+    S |-{op} Move t p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
-  | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
+  | Eval_just t op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just t op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' op_l op_r m n :
+  | Eval_bin_op S S' S'' t op_l op_r m n :
       (S |-{op} op_l => (HLPL_int m, S')) ->
       (S' |-{op} op_r => (HLPL_int n, S'')) ->
-      S |-{rv} (BinOp op_l op_r) => ((HLPL_int (m + n)), S'')
-  | Eval_pointer_loc S p pi l
+      S |-{rv} (BinOp t op_l op_r) => ((HLPL_int (m + n)), S'')
+  | Eval_pointer_loc S t p pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
-      (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
-  | Eval_pointer_no_loc S p pi l
+      (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p : t => (ptr(l), S)
+  | Eval_pointer_no_loc S t p pi l
       (* TODO *)
       (Heval_place : S |-{p} p =>^{Mut} pi):
       is_fresh l S ->
-      S |-{rv} (&mut p) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
+      S |-{rv} (&mut p : t) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
+  | Eval_pair
+      S S' S'' v1 v2
+      fst_op t1 (Heval_first: eval_operand fst_op S (v1, S'))
+      snd_op t2 (Heval_first: eval_operand snd_op S' (v2, S'')) :
+    eval_rvalue (Pair (TPair t1 t2) fst_op snd_op) S ((HLPL_pair v1 v2), S'')
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 (* TODO: add rule for pairs *)
 
@@ -353,6 +360,66 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_state -> HLPL_state 
   | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
+
+(* Test the semantics *)
+
+Section SemTest.
+  Hint Rewrite (@alter_insert _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
+  Hint Rewrite (@alter_insert_ne _ _ _ _ _ _ _ _ _ _ Pmap_finmap) using discriminate : core.
+  Hint Rewrite (@alter_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
+
+  Local Open Scope positive.
+
+  Notation x := 1%positive.
+  Notation y := 2%positive.
+  Notation z := 3%positive.
+
+  Definition prog :=
+    (ASSIGN (x, nil) <- Just TInt (INT 3) ;;
+     (ASSIGN (y, nil) <- &mut (1, nil) : TRef TInt)).
+
+  Variable l : loan_id.
+  Variable a1 a2 : anon.
+  Definition ea1 := encode_anon a1.
+  Definition ea2 := encode_anon a2.
+  
+  Local Open Scope stdpp.
+
+  Definition empty_state : HLPL_state :=
+    {| vars := {[ x := HLPL_int 0 ]} ; anons := PEmpty |}.
+  Definition inter_state : HLPL_state :=
+    {|
+      vars := {[ x := (HLPL_loc l (HLPL_int 3)) ]} ;
+      anons := PEmpty
+    |}.
+  Definition final_state : HLPL_state :=
+    {|
+      vars := {[ ea1 := (HLPL_loc l (HLPL_int 3)) ; ea2 := (HLPL_ptr l) ]} ;
+      anons := PEmpty
+    |}.
+
+  Goal empty_state |-{stmt} prog => rUnit, final_state. 
+    eapply Eval_seq_unit.
+    - apply Eval_assign with (vS' := (HLPL_int 3, empty_state)).
+      + apply Eval_just, Eval_IntConst.
+      + apply Store with (a := a1).
+        * split.
+          ** eexists. simpl. split.
+             *** unfold encode_var. rewrite sum_maps_lookup_l. easy.
+             *** apply valid_nil.
+          ** constructor.
+        * easy.
+    - simpl. eapply Eval_assign.
+      + apply Eval_pointer_no_loc.
+        * split.
+          ** simpl. eexists. split; simpl.
+             *** unfold encode_var. rewrite alter_singleton, sum_maps_lookup_l.
+                 easy.
+             *** apply valid_nil.
+          **  apply Eval_nil.
+        * intros p [v H].
+  Admitted.
+End SemTest.
 
 
 Record HLPL_well_formed (S : HLPL_state) : Prop := {
