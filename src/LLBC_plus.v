@@ -377,12 +377,32 @@ Inductive merge_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
   | MergeInsert A B C i j x :
       lookup j A = None -> merge_maps (insert j x A) B C -> merge_maps A (insert i x B) C.
 
+Notation abstraction_contains_value S i j v :=
+  (get_at_accessor S (encode_abstraction (i, j)) = Some v).
+
+(* Remove the value at j in the region abstraction at i, if this value exists. *)
+Definition remove_abstraction_value S i j :=
+  {|vars := vars S; anons := anons S; abstractions := alter (delete j) i (abstractions S)|}.
+
+Variant is_integer : LLBC_plus_val -> Prop :=
+  | Symbolic_is_integer : is_integer LLBC_plus_symbolic
+  | Integer_is_integer n : is_integer (LLBC_plus_int n).
+
 Inductive reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
+(* Ends a borrow when it's not in an abstraction: *)
 | Reorg_end_borrow_m S (p q : spath) l :
     disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
-    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q -> ~in_abstraction q ->
+    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
+    ~in_abstraction p -> ~in_abstraction q ->
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
-    (* q refers to a path in abstraction A, at index j. *)
+(* Ends a borrow when it's in an abstraction: *)
+(* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
+| Reorg_end_borrow_m_in_abstraction S q i j l :
+    fst q <> encode_abstraction (i, j) -> abstraction_contains_value S i j loan^m(l) ->
+    get_node (S.[q]) = borrowC^m(l) -> is_integer (S.[q +++ [0] ]) ->
+    not_in_borrow S q -> ~in_abstraction q ->
+    reorg S ((remove_abstraction_value S i j).[q <- bot])
+(* q refers to a path in abstraction A, at index j. *)
 | Reorg_end_abstraction S i A anons' :
     lookup i (abstractions S) = Some A ->
     merge_maps (anons S) A anons' ->
@@ -703,10 +723,6 @@ Hint Rewrite sset_add_abstraction using assumption : spath.
 Hint Rewrite sget_remove_abstraction using assumption : spath.
 Hint Rewrite sset_remove_abstraction using assumption : spath.
 
-(* Remove the value at j in the region abstraction at i, if this value exists. *)
-Definition remove_abstraction_value S i j :=
-  {|vars := vars S; anons := anons S; abstractions := alter (delete j) i (abstractions S)|}.
-
 Lemma abstractions_remove_abstraction_value S i j :
   flatten (abstractions (remove_abstraction_value S i j)) =
   delete (i, j) (flatten (abstractions S)).
@@ -777,9 +793,6 @@ Hint Rewrite remove_anon_add_anon_ne using eauto with spath; fail : spath.
 Hint Rewrite add_abstraction_add_anon : spath.
 Hint Rewrite remove_abstraction_add_anon : spath.
 Hint Rewrite remvoe_abstraction_value_add_anon : spath.
-
-Notation abstraction_contains_value S i j v :=
-  (get_at_accessor S (encode_abstraction (i, j)) = Some v).
 
 (* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
 Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
@@ -1958,12 +1971,12 @@ Section Eval_LLBC_plus_program.
     { etransitivity.
       (* Ending the loan lz ... *)
       { constructor.
-        eapply Reorg_end_borrow_m with (p := (encode_abstraction (1%positive, 3%positive), []))
-                                       (q := (encode_var 3%positive, [])).
-        - left. discriminate.
+        eapply Reorg_end_borrow_m_in_abstraction
+          with (i := 1%positive) (j := 3%positive) (q := (encode_var 3%positive, [])).
+        - discriminate.
         - reflexivity.
         - reflexivity.
-        - compute_done.
+        - constructor.
         - intros ? ->%prefix_nil. reflexivity.
         - intros H. inversion H. discriminate. }
       simpl_state. etransitivity.
@@ -1972,7 +1985,6 @@ Section Eval_LLBC_plus_program.
         - reflexivity.
         - cbn. apply MergeInsert with (j := 2%positive); [reflexivity | ].
           apply MergeInsert with (j := 3%positive); [reflexivity | ].
-          apply MergeInsert with (j := 4%positive); [reflexivity | ].
           apply MergeEmpty.
         - compute_done.
       }
@@ -1986,6 +1998,7 @@ Section Eval_LLBC_plus_program.
         - reflexivity.
         - compute_done.
         - intros ? ->%prefix_nil. reflexivity.
+        - intros H. inversion H. discriminate.
         - intros H. inversion H. discriminate. }
     }
     simpl_state.
