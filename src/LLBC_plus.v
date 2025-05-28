@@ -798,11 +798,10 @@ Hint Rewrite remvoe_abstraction_value_add_anon : spath.
 Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
 
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
-| Leq_ToSymbolic S sp
-    (no_loan : not_contains_loan (S.[sp]))
-    (no_borrow : not_contains_borrow (S.[sp]))
-    (no_bot : not_contains_bot (S.[sp])) :
-    leq_state_base S (S.[sp <- LLBC_plus_symbolic])
+(* Contrary to the article, symbolic values should be typed. Thus, only an integer can be converted
+ * to a symbolic value for the moment. *)
+| Leq_ToSymbolic S sp n :
+    get_node (S.[sp]) = LLBC_plus_intC n -> leq_state_base S (S.[sp <- LLBC_plus_symbolic])
 | Leq_ToAbs S a v i A
     (get_a : get_at_accessor S (anon_accessor a) = Some v)
     (fresh_i : fresh_abstraction S i)
@@ -865,18 +864,16 @@ Proof.
   rewrite remove_anon_add_anon by auto with spath. reflexivity.
 Qed.
 
-Lemma Leq_Fresh_MutLoan_Abs S sp l i
+Lemma Leq_Fresh_MutLoan_Abs S sp l i n
     (fresh_l1 : is_fresh l S)
     (fresh_i : fresh_abstraction S i)
-    (no_loan : not_contains_loan (S.[sp]))
-    (no_borrow : not_contains_borrow (S.[sp]))
-    (no_bot : not_contains_bot (S.[sp])) :
+    (is_int : get_node (S.[sp]) = LLBC_plus_intC n) :
     leq_state_base^* S (S.[sp <- loan^m(l)],,,
                         i |-> {[1%positive := borrow^m(l, LLBC_plus_symbolic)]}%stdpp).
 Proof.
   destruct (exists_fresh_anon S) as (a & fresh_a).
   etransitivity.
-  { constructor. apply Leq_ToSymbolic; eassumption. }
+  { constructor. eapply Leq_ToSymbolic; eassumption. }
   etransitivity.
   { constructor. apply Leq_Fresh_MutLoan with (sp := sp).
     - not_contains.
@@ -1074,8 +1071,8 @@ Proof.
 Qed.
 Hint Resolve sget_sset_zeroary_not_prefix : spath.
 
-Lemma eval_place_ToSymbolic S sp p pi perm
-  (no_bot : not_contains_bot (S.[sp]))
+Lemma eval_place_ToSymbolic S sp p pi perm n
+  (His_integer : get_node (S.[sp]) = LLBC_plus_intC n)
   (H : (S.[sp <- LLBC_plus_symbolic]) |-{p} p =>^{perm} pi) :
   S |-{p} p =>^{perm} pi /\ ~strict_prefix sp pi.
 Proof.
@@ -1388,9 +1385,9 @@ Ltac eval_place_preservation :=
   let pi_l := fresh "pi_l" in
   let rel_pi_l_pi_r := fresh "rel_pi_l_pi_r" in
   lazymatch goal with
-  | no_bot : not_contains_bot (?S.[?sp]),
+  | get_integer : get_node (?S.[?sp]) = LLBC_plus_intC ?n,
     H : (?S.[?sp <- LLBC_plus_symbolic]) |-{p} ?p =>^{?perm} ?pi |- _ =>
-        apply (eval_place_ToSymbolic _ _ _ _ _ no_bot) in H;
+        apply (eval_place_ToSymbolic _ _ _ _ _ _ get_integer) in H;
         destruct H as (eval_p_in_Sl & ?)
   | get_a : get_at_accessor ?S (anon_accessor ?a) = Some ?v,
     fresh_i : fresh_abstraction ?S ?i,
@@ -1483,7 +1480,7 @@ Proof.
     + eapply complete_square_diagram'.
       * constructor.
       * leq_val_state_step.
-        { apply Leq_ToSymbolic with (sp := sp); autorewrite with spath; assumption. }
+        { eapply Leq_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * reflexivity.
@@ -1558,13 +1555,19 @@ Proof.
       * autorewrite with spath in * |-.
         eapply complete_square_diagram'.
         -- constructor. eassumption.
-           eapply not_value_contains_vset_rev.
-           (* TODO: automate this reasonning. I should probably extend the tactic
-              `not_contains`. *)
-           autorewrite with spath. eassumption. eassumption.
-           eapply not_value_contains_vset_rev. autorewrite with spath. eassumption. eassumption.
+           (* TODO: automatize *)
+           eapply not_value_contains_vset_rev with (p := q).
+           autorewrite with spath.
+           eapply not_value_contains_zeroary.
+           rewrite <-length_zero_iff_nil, length_children_is_arity, H. reflexivity.
+           rewrite H. easy. eassumption.
+           eapply not_value_contains_vset_rev with (p := q).
+           autorewrite with spath.
+           eapply not_value_contains_zeroary.
+           rewrite <-length_zero_iff_nil, length_children_is_arity, H. reflexivity.
+           rewrite H. discriminate. eassumption.
         -- leq_val_state_step.
-           { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)).
+           { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
              all: autorewrite with spath; assumption. }
            { autorewrite with spath. reflexivity. }
            reflexivity.
@@ -1575,7 +1578,8 @@ Proof.
         eapply complete_square_diagram'.
         --- apply Eval_move; eassumption.
         --- leq_val_state_step.
-            { apply Leq_ToSymbolic with (sp := sp). all: autorewrite with spath; assumption. }
+            { apply Leq_ToSymbolic with (sp := sp) (n := n).
+              all: autorewrite with spath; assumption. }
             { autorewrite with spath. reflexivity. }
             reflexivity.
         --- states_eq.
@@ -1892,8 +1896,8 @@ Section Eval_LLBC_plus_program.
           try compute_done; reflexivity. }
       simpl_state.
       etransitivity.
-      { apply Leq_Fresh_MutLoan_Abs with (sp := (encode_var y, [])) (l := ly) (i := 2%positive);
-          compute_done. }
+      { eapply Leq_Fresh_MutLoan_Abs with (sp := (encode_var y, [])) (l := ly) (i := 2%positive);
+          [compute_done.. | reflexivity]. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
@@ -1901,7 +1905,7 @@ Section Eval_LLBC_plus_program.
         apply MergeAbsEmpty. }
       simpl_state.
       etransitivity; [constructor | ].
-      { apply Leq_ToSymbolic with (sp := (encode_var z, [0])); compute_done. }
+      { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_RemoveAnon with (a := 1%positive); compute_done. }
@@ -1930,8 +1934,8 @@ Section Eval_LLBC_plus_program.
       }
       simpl_state.
       etransitivity.
-      { apply Leq_Fresh_MutLoan_Abs with (sp := (encode_var x, [])) (l := lx) (i := 2%positive);
-          compute_done. }
+      { eapply Leq_Fresh_MutLoan_Abs with (sp := (encode_var x, [])) (l := lx) (i := 2%positive);
+          [compute_done.. | reflexivity]. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
@@ -1939,7 +1943,7 @@ Section Eval_LLBC_plus_program.
         apply MergeAbsEmpty. }
       simpl_state.
       etransitivity; [constructor | ].
-      { apply Leq_ToSymbolic with (sp := (encode_var z, [0])); compute_done. }
+      { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_RemoveAnon with (a := 1%positive); compute_done. }
