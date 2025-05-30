@@ -363,27 +363,101 @@ where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 (* Test the semantics *)
 
+Lemma valid_vpath_no_children v p (valid_p : valid_vpath v p) (H : children v = []) : p = [].
+Proof.
+  induction valid_p as [ | ? ? ? ? G].
+  - reflexivity.
+  - rewrite H, nth_error_nil in G. inversion G.
+Qed.
+
+Fixpoint decide_not_value_contains (P : HLPL_nodes -> bool) v :=
+  negb (P (get_node v)) &&
+    match v with
+      loc(l, w) => decide_not_value_contains P w
+    | HLPL_pair v1 v2 =>
+        decide_not_value_contains P v1 &&
+          decide_not_value_contains P v2
+    | _ => true end.
+
+Lemma decide_not_value_contains_correct H P v (H_implies_P : forall v, H v -> P v = true) :
+  decide_not_value_contains P v = true -> not_value_contains H v.
+Proof.
+  intro decide_is_true. induction v.
+  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
+    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
+  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
+    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
+  - intros p valid_p. inversion valid_p; subst.
+    + cbn in *.
+      intros G%H_implies_P. rewrite G in decide_is_true. inversion decide_is_true.
+    + destruct i.
+      * cbn in *; subst. apply IHv. eapply andb_prop, decide_is_true.
+        inversion H0. auto.
+      * simpl in H0. rewrite nth_error_nil in H0; discriminate.
+  - intros p valid_p. inversion valid_p; subst.
+    + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
+    + cbn in *. rewrite nth_error_nil in * |-. discriminate.
+  - intros p valid_p. inversion valid_p.
+    + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
+    + destruct i.
+      * cbn in *. apply IHv1. 
+Qed.
+
+Corollary decide_not_contains_bot v (H : decide_not_value_contains decide_is_bot v = true) :
+  not_contains_bot v.
+Proof. eapply decide_not_value_contains_correct; try exact H. intros ? ->. reflexivity. Qed.
+
+Definition decide_not_state_contains (P : HLPL_nodes -> bool) (S : HLPL_state) :=
+  map_fold (fun k v b => decide_not_value_contains P v && b) true (get_map S).
+
+Lemma decide_state_contains_correct H P S (H_implies_P : forall v, H v -> P v = true) :
+  decide_not_state_contains P S = true -> not_state_contains H S.
+Proof.
+  intros G p. unfold sget. intros (v & getval_S & ?). rewrite getval_S.
+  intros H_in_v.
+  unfold decide_not_state_contains in G.
+  erewrite map_fold_delete_L in G; [ | intros; ring | eassumption].
+  destruct (decide_not_value_contains P v) eqn:EQN.
+  - eapply decide_not_value_contains_correct in EQN; [ | eassumption].
+    eapply EQN; eassumption.
+  - rewrite andb_false_l in G. discriminate.
+Qed.
+
+Corollary decide_is_fresh S l (H : decide_not_state_contains (decide_is_loan_id l) S = true) :
+  is_fresh l S.
+Proof.
+  eapply decide_state_contains_correct; try eassumption.
+  intros c G. destruct c; inversion G; apply Nat.eqb_refl.
+Qed.
+
+Notation x := 1%positive.
+Notation y := 2%positive.
+Notation z := 3%positive.
+
+Definition prog :=
+  (ASSIGN (x, nil) <- Just TInt (INT 3) ;;
+   (ASSIGN (y, nil) <- &mut (1%positive, nil) : TRef TInt)).
+
 Section SemTest.
+  Variable l : loan_id.
+  Variable a1 : positive.
+  Variable a2 : positive.
+
+  Local Open Scope positive.
+  Local Open Scope stdpp.
+
   Hint Rewrite (@alter_insert _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
   Hint Rewrite (@alter_insert_ne _ _ _ _ _ _ _ _ _ _ Pmap_finmap) using discriminate : core.
   Hint Rewrite (@alter_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
+  Lemma insert_empty_is_singleton `{FinMap K M} {V} k v : insert (M := M V) k v empty = {[k := v]}.
+  Proof. reflexivity. Qed.
+  Hint Rewrite (@insert_empty_is_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
 
-  Local Open Scope positive.
-
-  Notation x := 1%positive.
-  Notation y := 2%positive.
-  Notation z := 3%positive.
-
-  Definition prog :=
-    (ASSIGN (x, nil) <- Just TInt (INT 3) ;;
-     (ASSIGN (y, nil) <- &mut (1, nil) : TRef TInt)).
-
-  Variable l : loan_id.
-  Variable a1 a2 : anon.
-  Definition ea1 := encode_anon a1.
-  Definition ea2 := encode_anon a2.
-  
-  Local Open Scope stdpp.
+  Ltac simpl_state :=
+    (* We can actually perform vm_compute on sget, because the result is a value and not a state. *)
+    repeat (remember (sget _ _ ) eqn:EQN; vm_compute in EQN; subst);
+    compute - [insert alter empty singleton];
+    autorewrite with core.
 
   Definition empty_state : HLPL_state :=
     {| vars := {[ x := HLPL_int 0 ]} ; anons := PEmpty |}.
@@ -394,7 +468,7 @@ Section SemTest.
     |}.
   Definition final_state : HLPL_state :=
     {|
-      vars := {[ ea1 := (HLPL_loc l (HLPL_int 3)) ; ea2 := (HLPL_ptr l) ]} ;
+      vars := {[ a1 := (HLPL_loc l (HLPL_int 3)) ; a2 := (HLPL_ptr l) ]} ;
       anons := PEmpty
     |}.
 
@@ -409,15 +483,15 @@ Section SemTest.
              *** apply valid_nil.
           ** constructor.
         * easy.
-    - simpl. eapply Eval_assign.
+    - simpl_state. eapply Eval_assign.
       + apply Eval_pointer_no_loc.
         * split.
           ** simpl. eexists. split; simpl.
-             *** unfold encode_var. rewrite alter_singleton, sum_maps_lookup_l.
+             *** unfold encode_var. rewrite sum_maps_lookup_l.
                  easy.
              *** apply valid_nil.
           **  apply Eval_nil.
-        * intros p [v H].
+        * intros p [v [H H0] ]. simpl in H.  Search (_ !! _).
   Admitted.
 End SemTest.
 
