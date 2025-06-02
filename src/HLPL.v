@@ -397,11 +397,19 @@ Proof.
   - intros p valid_p. inversion valid_p; subst.
     + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
     + cbn in *. rewrite nth_error_nil in * |-. discriminate.
-  - intros p valid_p. inversion valid_p.
+  - intros p valid_p. inversion valid_p; subst.
     + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
-    + destruct i.
-      * cbn in *. apply IHv1. 
+    + cbn in *;
+      destruct (andb_prop _ _ decide_is_true);
+      destruct (andb_prop _ _ H3).
+      destruct i.
+      * cbn in *. apply IHv1. auto. congruence. 
+      * destruct i.
+        ** cbn in *. apply IHv2. auto. congruence.
+        ** cbn in *. rewrite nth_error_nil in H0. discriminate.
 Qed.
+
+Definition decide_is_bot v := match v with botC => true | _ => false end.
 
 Corollary decide_not_contains_bot v (H : decide_not_value_contains decide_is_bot v = true) :
   not_contains_bot v.
@@ -421,13 +429,6 @@ Proof.
   - eapply decide_not_value_contains_correct in EQN; [ | eassumption].
     eapply EQN; eassumption.
   - rewrite andb_false_l in G. discriminate.
-Qed.
-
-Corollary decide_is_fresh S l (H : decide_not_state_contains (decide_is_loan_id l) S = true) :
-  is_fresh l S.
-Proof.
-  eapply decide_state_contains_correct; try eassumption.
-  intros c G. destruct c; inversion G; apply Nat.eqb_refl.
 Qed.
 
 Notation x := 1%positive.
@@ -491,7 +492,7 @@ Section SemTest.
                  easy.
              *** apply valid_nil.
           **  apply Eval_nil.
-        * intros p [v [H H0] ]. simpl in H.  Search (_ !! _).
+        * intros p [v [H H0] ]. simpl in H. cbn. not_contains.
   Admitted.
 End SemTest.
 
