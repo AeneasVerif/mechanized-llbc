@@ -431,18 +431,34 @@ Proof.
   - rewrite andb_false_l in G. discriminate.
 Qed.
 
+Definition decide_is_loc v := match v with loc(l, _) => true | _ => false end.
+Definition decide_is_loc_id l v :=
+  match v with
+  | locC(l') | ptrC(l') => l =? l'
+  | _ => false
+  end.
+
+
+Lemma decide_is_fresh S l (H : decide_not_state_contains (decide_is_loc_id l) S = true) :
+  is_fresh l S.
+  Proof.
+    eapply decide_state_contains_correct; try eassumption.
+    intros c G. destruct c; inversion G; apply Nat.eqb_refl.
+  Qed.
+
+
 Notation x := 1%positive.
 Notation y := 2%positive.
 Notation z := 3%positive.
+Notation a1 := 1%positive.
+Notation a2 := 2%positive.
+Notation l := 0%nat.
 
 Definition prog :=
   (ASSIGN (x, nil) <- Just TInt (INT 3) ;;
    (ASSIGN (y, nil) <- &mut (1%positive, nil) : TRef TInt)).
 
 Section SemTest.
-  Variable l : loan_id.
-  Variable a1 : positive.
-  Variable a2 : positive.
 
   Local Open Scope positive.
   Local Open Scope stdpp.
@@ -461,7 +477,7 @@ Section SemTest.
     autorewrite with core.
 
   Definition empty_state : HLPL_state :=
-    {| vars := {[ x := HLPL_int 0 ]} ; anons := PEmpty |}.
+    {| vars := {[ x := HLPL_int 0; y := HLPL_int 0 ]} ; anons := PEmpty |}.
   Definition inter_state : HLPL_state :=
     {|
       vars := {[ x := (HLPL_loc l (HLPL_int 3)) ]} ;
@@ -473,27 +489,37 @@ Section SemTest.
       anons := PEmpty
     |}.
 
-  Goal empty_state |-{stmt} prog => rUnit, final_state. 
+
+
+(* When meeting the goal S |-{p} P[x] =>^{k} pi, this tactics:
+   - Compute the spath pi0 corresponding to the variable x
+   - Leaves the evaluation of pi0 under the path P[] as a goal. *)
+  Ltac eval_var :=
+    split; [eexists; split; [reflexivity | constructor] | ].
+
+  Goal exists final_state, empty_state |-{stmt} prog => rUnit, final_state. 
+    eexists.
     eapply Eval_seq_unit.
-    - apply Eval_assign with (vS' := (HLPL_int 3, empty_state)).
-      + apply Eval_just, Eval_IntConst.
+    {
+      apply Eval_assign with (vS' := (HLPL_int 3, empty_state)).
+      + repeat constructor.
       + apply Store with (a := a1).
-        * split.
-          ** eexists. simpl. split.
-             *** unfold encode_var. rewrite sum_maps_lookup_l. easy.
-             *** apply valid_nil.
-          ** constructor.
-        * easy.
-    - simpl_state. eapply Eval_assign.
-      + apply Eval_pointer_no_loc.
-        * split.
-          ** simpl. eexists. split; simpl.
-             *** unfold encode_var. rewrite sum_maps_lookup_l.
-                 easy.
-             *** apply valid_nil.
-          **  apply Eval_nil.
-        * intros p [v [H H0] ]. simpl in H. cbn. not_contains.
-  Admitted.
+        * eval_var; constructor.
+        * reflexivity.
+    }
+    {
+      eapply Eval_assign.
+      + apply Eval_pointer_no_loc with (l := l) (pi := (encode_var x, [])).
+        * eval_var; constructor.
+        * not_contains.
+          { apply decide_is_fresh. easy. }
+          unfold empty_state, encode_var, sget. simpl.
+          not_contains.
+      + apply Store with (a := a2).
+        * eval_var; constructor. 
+        * reflexivity. 
+    }
+  Qed.
 End SemTest.
 
 
