@@ -2,6 +2,7 @@ Require Import RelationClasses.
 Require Import PathToSubtree.
 From Stdlib Require Import Arith.
 From Stdlib Require Import Relations.
+From Stdlib Require Import Lia.
 
 Arguments clos_refl_trans {_}.
 
@@ -25,6 +26,56 @@ Proof. intros ?. apply rt_refl. Qed.
 
 Global Instance clos_refl_trans_trans A (R : relation A) : Transitive R^*.
 Proof. intros ?. apply rt_trans. Qed.
+
+Inductive measured_closure {A : Type} (R : nat -> A -> A -> Prop) : nat -> A -> A -> Prop :=
+  | MC_base n x y : R n x y -> measured_closure R n x y
+  | MC_refl n x : measured_closure R n x x
+  | MC_trans m n x y z :
+      measured_closure R m x y -> measured_closure R n y z -> measured_closure R (m + n) x z
+.
+
+Notation "R ^{ n }" := (measured_closure R n).
+
+Global Instance measured_closure_refl A R n : Reflexive (@measured_closure A R n).
+Proof. intros ?. apply MC_refl. Qed.
+
+Lemma measured_closure_over_approx {A} R m n x y :
+  m <= n -> R^{m} x y -> (@measured_closure A R n x y).
+Proof.
+  intros ? ?. replace n with (m + (n - m)); [ | lia]. eapply MC_trans.
+  - eassumption.
+  - reflexivity.
+Qed.
+
+Lemma measured_closure_equiv A R Rn (H : forall x y : A, R x y <-> exists n, Rn n x y) :
+  forall x y, R^* x y <-> exists n, measured_closure Rn n x y.
+Proof.
+  intros x y. split.
+  - induction 1 as [x y | | x y z ? IH0 ? IH1].
+    + destruct (H x y) as ((n & ?) & _); [assumption | ]. exists n. constructor. assumption.
+    + exists 0. reflexivity.
+    + destruct IH0 as (m & ?). destruct IH1 as (n & ?). exists (m + n).
+      eapply MC_trans; eassumption.
+  - intros (n & G). induction G.
+    + constructor. firstorder.
+    + reflexivity.
+    + etransitivity; eassumption.
+Qed.
+
+(* TODO: name *)
+Lemma measure_closure_cases {A} (R : nat -> A -> A -> Prop) n x z :
+  R^{n} x z -> x = z \/ exists p q y, R^{p} x y /\ R q y z /\ p + q <= n.
+Proof.
+  induction 1 as [n x z | | m n x y z ? IH0 ? IH1].
+  - right. exists 0, n, x. auto using MC_refl.
+  - auto.
+  - destruct IH1 as [-> | (p & q & y' & ? & ? & ?)].
+    + destruct IH0 as [ | (p & q & y & ? & ? & ?)]; [auto | ].
+      right. exists p, q, y. repeat split; try assumption. lia.
+    + right. eexists _, _, y'. repeat split; [ | eassumption | ].
+      * eapply MC_trans; eassumption.
+      * lia.
+Qed.
 
 (* The general definition of forward simulation. That means that for all a >= b (with
    a : A and b : B) and a -> c (with c : C), then there exists d : D that completes
@@ -270,7 +321,6 @@ Section WellFormedSimulations.
    * However, this proof scheme is wrong in general. Our strategy is to exhibit a measure |.| from
    * states to a well-founded order, that is decreasing by applications of < and reorg.
    *)
-  (* Note: for the moment, we just use natural measures. *)
   Lemma preservation_reorg_r (reorg : state -> state -> Prop)
     (measure : state -> nat)
     (leq_decreasing : forall a b, leq_base a b -> measure a < measure b)
@@ -306,7 +356,45 @@ Section WellFormedSimulations.
     eexists. split; eapply rt_trans; eassumption.
   Qed.
 
-  Lemma preservation_reorg_l (reorg : state -> state -> Prop)
+  Lemma preservation_reorg_l
+    (reorg : state -> state -> Prop) (leq_base_n : nat -> state -> state -> Prop)
+    (measure : state -> nat)
+    (leq_decreasing : forall n a b, leq_base_n n a b -> measure a < measure b + n)
+    (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
+    (H : forall n, forward_simulation (leq_base_n n) (measured_closure leq_base_n n) reorg reorg^*) :
+    forall n, forward_simulation (measured_closure leq_base_n n) (measured_closure leq_base_n n) reorg^* reorg^*.
+  Proof.
+    assert (leq_clos_decreasing : forall S S', reorg^* S S' -> measure S' <= measure S).
+    { intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. }
+    intros n Sr.
+    remember (measure Sr + n) as N eqn:EQN.
+    revert n Sr EQN. induction N as [? IH] using lt_wf_ind.
+    intros n Sr -> S''r reorg_Sr_S''r Sl leq_Sl_Sr.
+    destruct reorg_Sr_S''r as [ | Sr S'r S''r reorg_Sr_S'r ? _] using clos_refl_trans_ind_right'.
+    { eexists. split; [exact leq_Sl_Sr | reflexivity]. }
+    apply measure_closure_cases in leq_Sl_Sr.
+    destruct leq_Sl_Sr as [ | (p & q & Sm & leq_Sl_Sm & leq_Sm_Sr & ?)].
+    { subst. exists S''r. split; [reflexivity | ]. transitivity S'r; [constructor | ]; assumption. }
+    specialize (H q _ _ reorg_Sr_S'r _ leq_Sm_Sr). destruct H as (S'm & leq_S'm_S'r & reorg_Sm_S'm).
+    specialize (leq_decreasing _ _ _ leq_Sm_Sr).
+    edestruct IH with (Sr := Sm) as (S'l & ? & ?);
+      [ | reflexivity | eassumption.. | ];
+      [lia | ].
+    specialize (reorg_decreasing _ _ reorg_Sr_S'r).
+    edestruct IH with (Sr := S'r) as (S''m & ? & ?);
+      [ | reflexivity | eassumption.. | ];
+      [lia | ].
+    specialize (leq_clos_decreasing _ _ reorg_Sm_S'm).
+    edestruct IH with (Sr := S'm) as (S''l & ? & ?);
+      [ | reflexivity | eassumption.. | ]. lia.
+    exists S''l. split.
+    - eapply measured_closure_over_approx; [eassumption | ].
+      apply MC_trans with (y := S''m); assumption.
+    - transitivity S'l; assumption.
+  Qed.
+
+  (* TODO: reformulate this theorem for the measured relation. *)
+  Lemma _preservation_reorg_l (reorg : state -> state -> Prop)
     (measure : state -> nat)
     (leq_decreasing : forall a b, leq_base a b -> measure a < measure b)
     (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
