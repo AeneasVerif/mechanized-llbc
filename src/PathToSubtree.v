@@ -779,17 +779,17 @@ Section GetSetPath.
     - rewrite nth_error_cons, nth_error_nil in *. simplify_option.
   Qed.
 
-  Notation size v := (vweight (fun _ => 1) v).
-  Lemma size_decreasing (v w : V) i : nth_error (children v) i = Some w -> size w < size v.
+  Definition vsize := vweight (fun _ => 1).
+  Lemma vsize_decreasing (v w : V) i : nth_error (children v) i = Some w -> vsize w < vsize v.
   Proof.
-    intro ith_child. rewrite (vweight_prop _ v).
+    unfold vsize. intro ith_child. rewrite (vweight_prop _ v).
     apply map_nth_error with (f := vweight (fun _ => 1)) in ith_child.
     apply sum_ge_element in ith_child. lia.
   Qed.
 
   Lemma value_get_node_ext v w : (forall p, get_node (v.[[p]]) = get_node (w.[[p]])) -> v = w.
   Proof.
-    remember (size v) as n eqn:Heqn. revert v w Heqn.
+    remember (vsize v) as n eqn:Heqn. revert v w Heqn.
     induction n as [n IH] using lt_wf_ind. intros v w -> eq_vget.
     assert (get_node v = get_node w) by (apply (eq_vget [])).
     assert (eq_length : length (children v) = length (children w)).
@@ -801,7 +801,7 @@ Section GetSetPath.
       + destruct (nth_error_Some' (children w) i) as (? & ith_w).
         { rewrite <-eq_length, <-nth_error_Some. congruence. }
         rewrite ith_w. f_equal. eapply IH.
-        * eapply size_decreasing. exact ith_v.
+        * eapply vsize_decreasing. exact ith_v.
         * reflexivity.
         * intros p. specialize (eq_vget (i :: p)). cbn in eq_vget.
           rewrite ith_v, ith_w in eq_vget. assumption.
@@ -1306,7 +1306,7 @@ Section GetSetPath.
   Lemma weight_non_zero v :
     vweight_ v > 0 -> exists p, valid_vpath v p /\ weight (get_node (v.[[p]])) > 0.
   Proof.
-    remember (size v) as n eqn:Heqn. revert v Heqn.
+    remember (vsize v) as n eqn:Heqn. revert v Heqn.
     induction n as [n IH] using lt_wf_ind. intros v -> weight_non_zero.
     rewrite vweight_prop in weight_non_zero.
     destruct (weight (get_node v)) eqn:?.
@@ -1315,7 +1315,7 @@ Section GetSetPath.
       destruct (nth_error (children v) i) as [w | ] eqn:G; [ | discriminate].
       injection ith_child as ?.
       edestruct IH as (p & ? & ?).
-      + eapply size_decreasing. eassumption.
+      + eapply vsize_decreasing. eassumption.
       + reflexivity.
       + lia.
       + exists (i :: p). split.
@@ -1400,7 +1400,7 @@ Section GetSetPath.
     (weight_le_1 : forall c, weight c <= 1) :
     value_at_most_one (fun c => weight c > 0) v -> vweight_ v <= 1.
   Proof.
-    remember (size v) as n eqn:Heqn. revert v Heqn.
+    remember (vsize v) as n eqn:Heqn. revert v Heqn.
     induction n as [n IH] using lt_wf_ind. intros v -> at_most_one.
     rewrite vweight_prop.
     pose proof (weight_le_1 (get_node v)) as [-> | weight_node]%Nat.le_1_r.
@@ -1409,7 +1409,7 @@ Section GetSetPath.
         destruct (nth_error (children v) i) as [w | ] eqn:Hw; [ | discriminate].
         injection weight_ith as <-.
         eapply IH.
-        * eapply size_decreasing. exact Hw.
+        * eapply vsize_decreasing. exact Hw.
         * reflexivity.
         * intros p q valid_p valid_q Hp Hq.
           injection (at_most_one (i :: p) (i :: q)).
