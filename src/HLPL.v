@@ -431,7 +431,7 @@ Proof.
   - rewrite andb_false_l in G. discriminate.
 Qed.
 
-Definition decide_is_loc v := match v with loc(l, _) => true | _ => false end.
+Definition decide_is_loc v := match v with locC(l) => true | _ => false end.
 Definition decide_is_loc_id l v :=
   match v with
   | locC(l') | ptrC(l') => l =? l'
@@ -450,13 +450,39 @@ Lemma decide_is_fresh S l (H : decide_not_state_contains (decide_is_loc_id l) S 
 Notation x := 1%positive.
 Notation y := 2%positive.
 Notation z := 3%positive.
+Notation a := 1%positive.
+Notation b := 2%positive.
+Notation c := 3%positive.
+Notation d := 4%positive.
 Notation a1 := 1%positive.
 Notation a2 := 2%positive.
-Notation l := 0%nat.
+Notation a3 := 3%positive.
+Notation a4 := 4%positive.
+Notation a5 := 5%positive.
+Notation a6 := 6%positive.
+Notation l1 := 0%nat.
+Notation l2 := 1%nat.
 
 Definition prog :=
-  (ASSIGN (x, nil) <- Just TInt (INT 3) ;;
-   (ASSIGN (y, nil) <- &mut (1%positive, nil) : TRef TInt)).
+  ASSIGN (x, nil) <- Just TInt (INT 3) ;;
+  ASSIGN (y, nil) <- &mut (1%positive, nil) : TRef TInt.
+
+Definition main : statement :=
+  ASSIGN (a, []) <- Just TInt (INT 1983) ;;
+  ASSIGN (b, []) <- Just TInt (INT 1986) ;;
+  ASSIGN (c, []) <- &mut (a, []) : TRef TInt ;;
+  ASSIGN (d, []) <- &mut (c, [Deref]) : TRef TInt ;;
+  ASSIGN (c, []) <- &mut (b, []) : TRef TInt ;;
+  ASSIGN (d, [Deref]) <- Just TInt (INT 58) ;;
+  Nop
+.
+
+Definition main_pair : statement :=
+  ASSIGN (a, []) <- Pair (TPair TInt TInt) (INT 667) (INT 1986) ;;
+  ASSIGN (b, []) <- Just TInt (Move TInt (a, [ Field (First)] )) ;;
+  ASSIGN (c, []) <- &mut (a, [Field (Second)]) : TRef TInt  ;;
+  Nop
+.
 
 Section SemTest.
 
@@ -478,17 +504,11 @@ Section SemTest.
 
   Definition empty_state : HLPL_state :=
     {| vars := {[ x := HLPL_int 0; y := HLPL_int 0 ]} ; anons := PEmpty |}.
-  Definition inter_state : HLPL_state :=
+  Definition empty_state' : HLPL_state :=
     {|
-      vars := {[ x := (HLPL_loc l (HLPL_int 3)) ]} ;
+      vars := {[ a := HLPL_bot; b := HLPL_bot; c := HLPL_bot; d := HLPL_bot ]} ;
       anons := PEmpty
     |}.
-  Definition final_state : HLPL_state :=
-    {|
-      vars := {[ a1 := (HLPL_loc l (HLPL_int 3)) ; a2 := (HLPL_ptr l) ]} ;
-      anons := PEmpty
-    |}.
-
 
 
 (* When meeting the goal S |-{p} P[x] =>^{k} pi, this tactics:
@@ -497,11 +517,12 @@ Section SemTest.
   Ltac eval_var :=
     split; [eexists; split; [reflexivity | constructor] | ].
 
+
   Goal exists final_state, empty_state |-{stmt} prog => rUnit, final_state. 
     eexists.
     eapply Eval_seq_unit.
     {
-      apply Eval_assign with (vS' := (HLPL_int 3, empty_state)).
+      eapply Eval_assign.
       + repeat constructor.
       + apply Store with (a := a1).
         * eval_var; constructor.
@@ -509,7 +530,7 @@ Section SemTest.
     }
     {
       eapply Eval_assign.
-      + apply Eval_pointer_no_loc with (l := l) (pi := (encode_var x, [])).
+      + apply Eval_pointer_no_loc with (l := l1) (pi := (encode_var x, [])).
         * eval_var; constructor.
         * not_contains.
           { apply decide_is_fresh. easy. }
@@ -520,6 +541,113 @@ Section SemTest.
         * reflexivity. 
     }
   Qed.
+
+  Goal exists final_state, empty_state' |-{stmt} main => rUnit, final_state.
+    eexists.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - repeat constructor.
+      - apply Store with (a := a1).
+        * eval_var; constructor.
+        * reflexivity.
+    }
+    simpl_state.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - repeat constructor.
+      - apply Store with (a := a2).
+        * eval_var; constructor.
+        * reflexivity.
+    }
+    simpl_state.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - apply Eval_pointer_no_loc with (l := l1); repeat constructor.
+        * eexists ; split; constructor; easy. (* TODO: why validity does not solve this goal? *)
+        * apply decide_is_fresh. easy.
+      - apply Store with (a := a3).
+        * eval_var; constructor.
+        * reflexivity.
+    }
+    simpl_state.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - apply Eval_pointer_loc with (pi := (encode_var 1, [])).
+        * repeat econstructor; try easy.
+        * reflexivity.
+      - apply Store with (a := a4).
+        * eval_var; constructor.
+        * reflexivity.
+    }
+    simpl_state.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - apply Eval_pointer_no_loc with (l := l2); repeat constructor.
+        * eexists ; split; constructor; easy. (* TODO: why validity does not solve this goal? *)
+        * apply decide_is_fresh. easy.
+      - apply Store with (a := a5).
+        * eval_var; constructor.
+        * reflexivity.
+    }
+    simpl_state.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - repeat constructor.
+      - apply Store with (a := a6).
+        * repeat constructor.
+          ** eexists; split; constructor.
+          ** simpl. apply Eval_cons with (q := (encode_var 1, []));
+             repeat econstructor; easy.
+        * reflexivity.
+    }
+    apply Eval_nop.
+    Qed.
+
+  Goal exists final_state, empty_state' |-{stmt} main_pair => rUnit, final_state.
+    eexists.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - repeat econstructor.
+      - apply Store with (a := a1); repeat constructor.
+        validity.
+        * simpl. eexists; split; constructor.
+        * reflexivity.
+    }
+    simpl_state.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - repeat econstructor. 
+        * apply decide_not_value_contains_correct with (P := decide_is_loc).
+          ** intros. inversion H; subst; reflexivity.
+          ** reflexivity.
+        * apply decide_not_contains_bot; reflexivity.
+      - apply Store with (a := a2); repeat constructor.
+        validity.
+        * simpl. eexists; split; constructor.
+        * reflexivity.
+    }
+    simpl_state.
+    eapply Eval_seq_unit.
+    {
+      eapply Eval_assign.
+      - apply Eval_pointer_no_loc with (l := l1).
+        * repeat econstructor.
+        * apply decide_is_fresh; reflexivity.
+      - apply Store with (a := a3); repeat constructor.
+        validity.
+        * simpl. eexists; split; constructor.
+        * reflexivity.
+    }
+    apply Eval_nop.
+    Qed.
 End SemTest.
 
 
