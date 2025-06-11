@@ -245,6 +245,9 @@ Proof.
   - intro. right. auto.
 Qed.
 
+Lemma disj_diff_fst a p q : fst p <> a -> disj p (a, q).
+Proof. left. assumption. Qed.
+
 Lemma not_vprefix_implies_not_vstrict_prefix p q : ~vprefix p q -> ~vstrict_prefix p q.
 Proof. intros ? ?%vstrict_prefix_is_vprefix. auto. Qed.
 
@@ -374,6 +377,7 @@ Hint Resolve strict_prefix_is_prefix : spath.
 Hint Resolve-> disj_common_prefix : spath.
 Hint Resolve<- disj_common_prefix : spath.
 Hint Resolve<- disj_common_index : spath.
+Hint Resolve disj_diff_fst : spath.
 Hint Immediate vstrict_prefix_is_vprefix : spath.
 Hint Immediate not_vprefix_left_vstrict_prefix_right : spath.
 Hint Resolve strict_prefix_irrefl : spath.
@@ -1244,6 +1248,10 @@ Section GetSetPath.
     fresh_anon S a -> valid_spath S p -> fst p <> anon_accessor a.
   Proof. intros ? (? & ? & _). congruence. Qed.
 
+  Lemma valid_spath_diff_fresh_anon' S a b p :
+    fresh_anon S a -> valid_spath S (anon_accessor b, p) -> b <> a.
+  Proof. intros ? (? & G & _). cbn in G. congruence. Qed.
+
   Lemma get_nil_prefix_right S p q :
   arity (get_node (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
   Proof.
@@ -1727,6 +1735,7 @@ Hint Resolve-> fresh_anon_sset : spath weight.
 (* Resolving goals of the form "fst p <> anon_accessor a".
  * They are used to solve the conditions of the rewrite lemmas sget_add_anon and sset_add_anon. *)
 Hint Resolve valid_spath_diff_fresh_anon : spath.
+Hint Resolve valid_spath_diff_fresh_anon' : spath.
 Lemma diff_fist_app_spath_vpath p q x : fst p <> x -> fst (p +++ q) <> x.
 Proof. easy. Qed.
 Hint Resolve diff_fist_app_spath_vpath : spath.

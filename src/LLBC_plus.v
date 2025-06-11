@@ -802,16 +802,17 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
  * to a symbolic value for the moment. *)
 | Leq_ToSymbolic S sp n :
     get_node (S.[sp]) = LLBC_plus_intC n -> leq_state_base S (S.[sp <- LLBC_plus_symbolic])
-| Leq_ToAbs S a v i A
-    (get_a : get_at_accessor S (anon_accessor a) = Some v)
+| Leq_ToAbs S a i A
+    (a_valid : valid_spath S (anon_accessor a, []))
     (fresh_i : fresh_abstraction S i)
-    (Hto_abs : to_abs v A) :
+    (Hto_abs : to_abs (S.[(anon_accessor a, [])]) A) :
     leq_state_base S ((remove_anon a S),,, i |-> A)
 (* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
  * contain any loan or borrow, no region abstraction is created. *)
-| Leq_RemoveAnon S a v
-    (get_a : get_at_accessor S (anon_accessor a) = Some v)
-    (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
+| Leq_RemoveAnon S a
+    (a_valid : valid_spath S (anon_accessor a, []))
+    (no_loan : not_contains_loan (S.[(anon_accessor a, [])]))
+    (no_borrow : not_contains_borrow (S.[(anon_accessor a, [])])) :
     leq_state_base S (remove_anon a S)
 | Leq_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
@@ -858,9 +859,9 @@ Proof.
   { constructor. apply Leq_Reborrow_MutBorrow; eassumption. }
   etransitivity.
   { constructor. eapply Leq_ToAbs with (a := a).
-    - rewrite get_map_add_anon. simpl_map. reflexivity.
+    - validity. constructor. (* TODO: add this case in the validity tactic? *)
     - repeat apply fresh_abstraction_sset. eassumption.
-    - constructor. }
+    - autorewrite with spath. constructor. }
   rewrite remove_anon_add_anon by auto with spath. reflexivity.
 Qed.
 
@@ -881,9 +882,9 @@ Proof.
     - autorewrite with spath. apply not_value_contains_zeroary; auto. }
   etransitivity.
   { constructor. eapply Leq_ToAbs with (a := a) (i := i).
-    - rewrite get_map_add_anon. simpl_map. autorewrite with spath. reflexivity.
+    - validity. constructor.
     - repeat apply fresh_abstraction_sset. assumption.
-    - constructor. }
+    - autorewrite with spath. constructor. }
   autorewrite with spath. rewrite remove_anon_add_anon by auto with spath. reflexivity.
 Qed.
 
@@ -958,6 +959,7 @@ Hint Rewrite abstraction_sum_singleton : weight.
 Global Instance LLBC_plus_WellFormed : WellFormed LLBC_plus_state :=
 { well_formed := LLBC_plus_well_formed }.
 
+(*
 Lemma leq_base_preserves_wf_l Sl Sr : well_formed Sl -> leq_base Sl Sr -> well_formed Sr.
 Proof.
   rewrite !well_formedness_equiv.
@@ -1003,6 +1005,7 @@ Proof.
   - admit.
   - destruct H; split; weight_inequality.
 Admitted.
+ *)
 
 (* Simulation proofs. *)
 Lemma eval_path_preservation Sl Sr perm p R :
@@ -1096,10 +1099,10 @@ Definition rel_ToAbs a i p q := p = q /\ not_in_abstraction i p /\ fst p <> anon
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
 (* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
  * borrows. *)
-Lemma eval_place_ToAbs S a v i A p perm
-  (get_a : get_at_accessor S (anon_accessor a) = Some v)
+Lemma eval_place_ToAbs S a i A p perm
+  (get_a : valid_spath S (anon_accessor a, []))
   (fresh_i : fresh_abstraction S i)
-  (Hto_abs : to_abs v A) :
+  (Hto_abs : to_abs (S.[(anon_accessor a, [])]) A) :
   forall pi_r, ((remove_anon a S),,, i |-> A) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_ToAbs a i pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
@@ -1129,9 +1132,9 @@ Definition rel_change_anon_not_in_spath sp a pi_l pi_r :=
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
 (* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
  * borrows. *)
-Lemma eval_place_RemoveAnon S perm a v p
-  (get_a : get_at_accessor S (anon_accessor a) = Some v)
-  (no_loan : not_contains_loan v) :
+Lemma eval_place_RemoveAnon S perm a p
+  (a_valid : valid_spath S (anon_accessor a, []))
+  (no_loan : not_contains_loan (S.[(anon_accessor a, [])])) :
   forall pi_r, remove_anon a S |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
@@ -1389,28 +1392,28 @@ Ltac eval_place_preservation :=
     H : (?S.[?sp <- LLBC_plus_symbolic]) |-{p} ?p =>^{?perm} ?pi |- _ =>
         apply (eval_place_ToSymbolic _ _ _ _ _ _ get_integer) in H;
         destruct H as (eval_p_in_Sl & ?)
-  | get_a : get_at_accessor ?S (anon_accessor ?a) = Some ?v,
+  | a_valid : valid_spath ?S (anon_accessor ?a, _),
     fresh_i : fresh_abstraction ?S ?i,
     Hto_abs : to_abs ?v ?A,
-    H : ((remove_anon ?a ?S),,, ?i |-> ?A) |-{p} ?p =>^{?perm} ?pi |- _ =>
+    Heval : ((remove_anon ?a ?S),,, ?i |-> ?A) |-{p} ?p =>^{?perm} ?pi |- _ =>
         let _valid_pi := fresh "_valid_pi" in
         let valid_pi := fresh "valid_pi" in
         let pi_not_in_a := fresh "pi_not_in_a" in
         (* Proving that pi is a valid spath of (remove_anon a S),,, i |-> A *)
-        pose proof (eval_place_valid _ _ _ _ H) as _valid_pi;
-        apply (eval_place_ToAbs _ _ _ _ _ _ _ get_a fresh_i Hto_abs) in H;
-        destruct H as (? & (-> & pi_not_in_abstraction & pi_not_in_a) & eval_p_in_Sl);
+        pose proof (eval_place_valid _ _ _ _ Heval) as _valid_pi;
+        apply (eval_place_ToAbs _ _ _ _ _ _ a_valid fresh_i Hto_abs) in Heval;
+        destruct Heval as (? & (-> & pi_not_in_abstraction & pi_not_in_a) & eval_p_in_Sl);
         (* We can then prove that pi is a valid spath of (remove_anon a S) *)
         pose proof (valid_spath_add_abstraction _ _ _ _ _valid_pi pi_not_in_abstraction) as valid_pi;
         clear _valid_pi
-  | get_a : get_at_accessor ?S (anon_accessor ?a) = Some ?v,
-    no_loan : not_contains_loan ?v,
-    H : (remove_anon ?a ?S) |-{p} ?p =>^{?perm} ?pi |- _ =>
+  | a_valid : valid_spath ?S (anon_accessor ?a, _),
+    no_loan : not_contains_loan (?S.[(anon_accessor ?a, _)]),
+    Heval : (remove_anon ?a ?S) |-{p} ?p =>^{?perm} ?pi |- _ =>
         let valid_pi := fresh "valid_pi" in
         let pi_not_in_a := fresh "pi_not_in_a" in
-        pose proof (eval_place_valid _ _ _ _ H) as valid_pi;
-        apply (eval_place_RemoveAnon _ _ _ _ _ get_a no_loan) in H;
-        destruct H as (? & (-> & pi_not_a) & eval_p_in_Sl)
+        pose proof (eval_place_valid _ _ _ _ Heval) as valid_pi;
+        apply (eval_place_RemoveAnon _ _ _ _ a_valid no_loan) in Heval;
+        destruct Heval as (? & (-> & pi_not_a) & eval_p_in_Sl)
   (* Case MoveValue *)
   (* Preservation of place evaluation with permission Imm. *)
   | no_outer_loan : not_contains_outer_loan (?S.[?sp]),
@@ -1487,15 +1490,15 @@ Proof.
     + eapply complete_square_diagram'.
       * constructor.
       * leq_val_state_step.
-        { apply Leq_ToAbs with (a := a) (v := v) (i := i) (A := A).
-          all: autorewrite with spath; assumption. }
+        { apply Leq_ToAbs with (a := a) (i := i) (A := A).
+          all: autorewrite with spath; try assumption; validity. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * reflexivity.
     + eapply complete_square_diagram'.
       * constructor.
       * leq_val_state_step.
-        { apply Leq_RemoveAnon with (v := v) (a := a); autorewrite with spath; assumption. }
+        { apply Leq_RemoveAnon with (a := a); autorewrite with spath; try assumption; validity. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * reflexivity.
@@ -1588,8 +1591,8 @@ Proof.
       eapply complete_square_diagram'.
       * apply Eval_move; eassumption.
       * leq_val_state_step.
-        { apply Leq_ToAbs with (a := a) (i := i) (v := v).
-          autorewrite with spath. assumption. auto with spath. eassumption. }
+        { apply Leq_ToAbs with (a := a) (i := i); try validity.
+          autorewrite with spath. assumption. autorewrite with spath. eassumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * autorewrite with spath. reflexivity.
@@ -1598,8 +1601,7 @@ Proof.
       eapply complete_square_diagram'.
       * apply Eval_move; eassumption.
       * leq_val_state_step.
-        { apply Leq_RemoveAnon with (a := a) (v := v).
-          all: autorewrite with spath; assumption. }
+        { apply Leq_RemoveAnon with (a := a). validity. all: autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
       * autorewrite with spath. reflexivity.
@@ -1908,7 +1910,8 @@ Section Eval_LLBC_plus_program.
       { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_RemoveAnon with (a := 1%positive); compute_done. }
+      { eapply Leq_RemoveAnon with (a := 1%positive).
+        econstructor; split; [reflexivity | constructor]. all: compute_done. }
       simpl_state. reflexivity.
     - split; [ | split]; try reflexivity.
       apply map_Forall2_singleton.
@@ -1946,7 +1949,8 @@ Section Eval_LLBC_plus_program.
       { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_RemoveAnon with (a := 1%positive); compute_done. }
+      { eapply Leq_RemoveAnon with (a := 1%positive).
+        econstructor. split; [reflexivity | constructor]. all: compute_done. }
       simpl_state. reflexivity.
     - split; [ | split]; try reflexivity.
       apply map_Forall2_singleton.
