@@ -1560,14 +1560,10 @@ Proof.
            (* TODO: automatize *)
            eapply not_value_contains_vset_rev with (p := q).
            autorewrite with spath.
-           eapply not_value_contains_zeroary.
-           rewrite <-length_zero_iff_nil, length_children_is_arity, H. reflexivity.
-           rewrite H. easy. eassumption.
+           eapply not_value_contains_zeroary; rewrite H. reflexivity. easy. eassumption.
            eapply not_value_contains_vset_rev with (p := q).
            autorewrite with spath.
-           eapply not_value_contains_zeroary.
-           rewrite <-length_zero_iff_nil, length_children_is_arity, H. reflexivity.
-           rewrite H. discriminate. eassumption.
+           eapply not_value_contains_zeroary; rewrite H. reflexivity. discriminate. eassumption.
         -- leq_val_state_step.
            { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
              all: autorewrite with spath; assumption. }

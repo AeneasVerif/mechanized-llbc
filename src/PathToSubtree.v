@@ -1491,6 +1491,16 @@ Section GetSetPath.
       apply valid_spath_app in valid_pr as (_ & ?). assumption.
   Qed.
 
+  Lemma not_value_contains_sset_rev P S v p q
+    (not_in_Sp : not_value_contains P (S.[q <- v].[p]))
+    (not_in_v : not_value_contains P (S.[q]))
+    (valid_p : valid_spath S p) :
+    not_value_contains P (S.[p]).
+  Proof.
+    rewrite <-(sset_same S q),  <-(sset_twice_equal S q v) in valid_p |- *.
+    apply not_value_contains_sset; assumption.
+  Qed.
+
   Lemma not_value_contains_sset_disj P (S : state) v p q
     (Hdisj : disj q p)
     (not_in_Sp : not_value_contains P (S.[p])) :
@@ -1502,9 +1512,10 @@ Section GetSetPath.
   Qed.
 
   Lemma not_value_contains_zeroary P v :
-    children v = [] -> ~P (get_node v) -> not_value_contains P v.
+    arity (get_node v) = 0 -> ~P (get_node v) -> not_value_contains P v.
   Proof.
-    intros no_child ? p valid_p. destruct valid_p; [assumption | ].
+    rewrite <-length_children_is_arity.
+    intros no_child%length_zero_iff_nil ? p valid_p. destruct valid_p; [assumption | ].
     rewrite no_child, nth_error_nil in * |-. discriminate.
   Qed.
 
@@ -1998,6 +2009,7 @@ Hint Extern 3 (~prefix ?p ?q) =>
 
 (* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
    This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
+(* TODO: this should not be a tactic, this should be solved with auto/eauto *)
 Ltac not_contains0 :=
   try assumption;
   match goal with
