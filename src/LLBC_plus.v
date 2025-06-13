@@ -387,7 +387,7 @@ Variant is_integer : LLBC_plus_val -> Prop :=
   | Symbolic_is_integer : is_integer LLBC_plus_symbolic
   | Integer_is_integer n : is_integer (LLBC_plus_int n).
 
-Inductive reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
+Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Ends a borrow when it's not in an abstraction: *)
 | Reorg_end_borrow_m S (p q : spath) l :
     disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
@@ -1694,6 +1694,120 @@ Proof.
       * reflexivity.
 Abort.
 
+Definition measure S := sweight (fun _ => 1) S + size (abstractions S).
+Notation abs_measure S := (map_sum vsize S).
+
+(* TODO: meaningful comment *)
+Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
+| Leq_ToSymbolic_n S sp x :
+    get_node (S.[sp]) = LLBC_plus_intC x -> leq_state_base_n 1 S (S.[sp <- LLBC_plus_symbolic])
+| Leq_ToAbs_n S a i A
+    (a_valid : valid_spath S (anon_accessor a, []))
+    (fresh_i : fresh_abstraction S i)
+    (Hto_abs : to_abs (S.[(anon_accessor a, [])]) A) :
+    leq_state_base_n 0 S ((remove_anon a S),,, i |-> A)
+(* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
+ * contain any loan or borrow, no region abstraction is created. *)
+| Leq_RemoveAnon_n S a
+    (a_valid : valid_spath S (anon_accessor a, []))
+    (no_loan : not_contains_loan (S.[(anon_accessor a, [])]))
+    (no_borrow : not_contains_borrow (S.[(anon_accessor a, [])])) :
+    leq_state_base_n (1 + vsize (S.[(anon_accessor a, [])])) S (remove_anon a S)
+| Leq_MoveValue_n S sp a
+    (no_outer_loan : not_contains_outer_loan (S.[sp]))
+    (fresh_a : fresh_anon S a)
+    (valid_sp : valid_spath S sp)
+    (not_in_abstraction : ~in_abstraction sp) n :
+    leq_state_base_n n S (S.[sp <- bot],, a |-> S.[sp])
+| Leq_MergeAbs_n S i j A B C
+    (get_A : lookup i (abstractions S) = Some A) (get_B : lookup j (abstractions S) = Some B)
+    (Hmerge : merge_abstractions A B C) :
+    i <> j ->
+    leq_state_base_n (abs_measure A + abs_measure B - abs_measure C + 2)
+      S (remove_abstraction i (remove_abstraction j S),,, i |-> C)
+| Leq_Fresh_MutLoan_n S sp l a
+    (fresh_l1 : is_fresh l S)
+    (fresh_a : fresh_anon S a)
+    (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
+       I am going a step further: there should not be bottoms in borrowed values. *)
+    (no_bot : not_contains_bot (S.[sp])) n :
+    leq_state_base_n n S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
+| Leq_Reborrow_MutBorrow_n (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
+    (fresh_l1 : is_fresh l1 S)
+    (fresh_a : fresh_anon S a)
+    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
+    leq_state_base_n 0 S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(l1)))
+| Leq_Abs_ClearValue_n S i j v :
+    abstraction_contains_value S i j v -> not_contains_loan v -> not_contains_borrow v ->
+    leq_state_base_n 1 S (remove_abstraction_value S i j)
+| Leq_AnonValue_n S a (is_fresh : fresh_anon S a) :
+    leq_state_base_n 0 S (S,, a |-> bot)
+.
+
+Lemma size_abstractions_sset S p v : size (abstractions (S.[p <- v])) = size (abstractions S).
+Proof.
+  unfold sset, alter_at_accessor. cbn. repeat autodestruct. cbn.
+  rewrite<- !size_dom, dom_alter_L. reflexivity.
+Qed.
+
+Lemma size_abstraction_add_anon S a v :
+  size (abstractions (S,, a |-> v)) = size (abstractions S).
+Proof. reflexivity. Qed.
+
+Lemma abstractions_remove_anon S a : abstractions (remove_anon a S) = abstractions S.
+Proof. reflexivity. Qed.
+
+Lemma size_abstraction_add_abstraction S i A (H : fresh_abstraction S i) :
+  size (abstractions (S,,, i |-> A)) = 1 + size (abstractions S).
+Proof. cbn. rewrite map_size_insert, H. reflexivity. Qed.
+
+Lemma size_abstraction_remove_abstraction S i (H : is_Some (lookup i (abstractions S))) :
+  (size (abstractions (remove_abstraction i S)))%Z = size (abstractions S) - 1.
+Proof. cbn. rewrite map_size_delete. destruct H as (? & ->). lia. Qed.
+
+Hint Rewrite size_abstractions_sset : weight.
+Hint Rewrite size_abstraction_add_anon : weight.
+Hint Rewrite abstractions_remove_anon : weight.
+Hint Rewrite size_abstraction_add_abstraction using assumption : weight.
+
+(* TODO: move up *)
+Lemma sweight_remove_anon f a S (H : valid_spath S (anon_accessor a, [])) :
+  (sweight f (remove_anon a S))%Z = sweight f S - vweight f (S.[(anon_accessor a, [])]).
+Proof.
+  unfold sget. destruct H as (? & H & _). rewrite H.
+  erewrite <-(add_anon_remove_anon S) at 2 by eassumption. autorewrite with weight. cbn. lia.
+Qed.
+Hint Rewrite sweight_remove_anon using assumption : weight.
+
+Lemma sweight_remove_abstraction f i S A (H : lookup i (abstractions S) = Some A) :
+  (sweight f (remove_abstraction i S))%Z = sweight f S - map_sum (vweight f) A.
+Proof. erewrite <-(add_remove_abstraction _ _ S) at 2 by exact H. autorewrite with weight. lia. Qed.
+
+Lemma leq_state_base_n_decreases n Sl Sr (H : leq_state_base_n n Sl Sr) :
+  measure Sl < measure Sr + n.
+Proof.
+  unfold measure. destruct H.
+  - autorewrite with weight. weight_given_node. lia.
+  - autorewrite with weight. destruct Hto_abs.
+    + autorewrite with weight. lia.
+    + autorewrite with weight. destruct Hv; cbn; lia.
+  - autorewrite with weight. cbn. lia.
+  - autorewrite with weight. lia.
+  - autorewrite with weight. erewrite !sweight_remove_abstraction.
+    2: eassumption. 2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
+    rewrite size_abstraction_add_abstraction.
+    2: unfold remove_abstraction; cbn; simpl_map; reflexivity.
+    autorewrite with weight.
+    rewrite size_abstraction_remove_abstraction.
+    2: { eexists. unfold remove_abstraction. cbn. simpl_map. reflexivity. }
+    rewrite size_abstraction_remove_abstraction.
+    2: eexists; eassumption. unfold vsize. lia.
+  - autorewrite with weight. lia.
+  - weight_inequality.
+    (* I don't want to prove that. *)
+  - admit.
+  - weight_inequality.
+Admitted.
 Local Open Scope option_monad_scope.
 (*
 fn main() {

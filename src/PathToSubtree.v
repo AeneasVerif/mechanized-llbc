@@ -2068,7 +2068,8 @@ Ltac weight_given_node :=
     pose proof (G := H);
     apply (f_equal arity) in G;
     (eapply weight_arity_0 in G || eapply weight_arity_1 in G);
-    rewrite G, H;
+    (* Why do I rewrite H? *)
+    rewrite G, ?H;
     clear G
   | H : get_node (?S.[?p]) = _, K : context [vweight _ (?S.[?p])] |- _ =>
     let G := fresh in
