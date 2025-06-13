@@ -360,8 +360,7 @@ Variant eval_rvalue : rvalue -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_st
       S |-{rv} (&mut p) => (borrow^m(l, S.[pi]), S.[pi <- loan^m(l)])
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
-Definition not_in_borrow (S : LLBC_plus_state) p :=
-  forall q, prefix q p -> is_mut_borrow (get_node (S.[q])) -> q = p.
+Notation not_in_borrow := (no_ancestor is_mut_borrow).
 
 Variant in_abstraction : spath -> Prop :=
   | InRegion i r q :
@@ -1985,7 +1984,7 @@ Section Eval_LLBC_plus_program.
         - reflexivity.
         - reflexivity.
         - constructor.
-        - intros ? ->%prefix_nil. reflexivity.
+        - intros ? ?. apply not_strict_prefix_nil.
         - intros H. inversion H. discriminate. }
       simpl_state. etransitivity.
       (* ... so that we could end the region abstraction ... *)
@@ -2005,7 +2004,7 @@ Section Eval_LLBC_plus_program.
         - reflexivity.
         - reflexivity.
         - compute_done.
-        - intros ? ->%prefix_nil. reflexivity.
+        - intros ? ?. apply not_strict_prefix_nil.
         - intros H. inversion H. discriminate.
         - intros H. inversion H. discriminate. }
     }

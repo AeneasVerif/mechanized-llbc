@@ -277,17 +277,9 @@ Variant is_mut_borrow : HLPL_plus_nodes -> Prop :=
 Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 Notation not_contains_outer_loc := (not_contains_outer is_mut_borrow is_loc).
 
-Definition not_in_borrow S (p : spath) :=
-  forall q, is_mut_borrow (get_node (S.[q])) -> ~strict_prefix q p.
-
-Lemma not_in_borrow_sset S p q v : not_in_borrow S p -> ~strict_prefix q p ->
-  not_in_borrow (S.[q <- v]) p.
-Proof.
-  intros H ? r G ?.
-  assert (~prefix q r) by eauto with spath.
-  autorewrite with spath in G. eapply H; eassumption.
-Qed.
-Hint Resolve not_in_borrow_sset : spath.
+Notation not_in_borrow := (no_ancestor is_mut_borrow).
+(* TODO: move in PathToSubtree.v? *)
+Hint Resolve no_ancestor_sset : spath.
 
 Lemma loc_is_not_bot x : is_loc x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
 Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.

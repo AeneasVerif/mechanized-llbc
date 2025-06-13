@@ -1645,6 +1645,26 @@ Section GetSetPath.
     - apply (f_equal (fun S => S.[(anon_accessor a, [])])) in eq_add_anon.
       rewrite !sget_anon in eq_add_anon by reflexivity. exact eq_add_anon.
   Qed.
+
+  (* no_ancestor P S p : none of nodes preceding p in the tree satisfy the predicate P.
+   * This is used to define properties like "p is not in a mutable borrow" or "p is not in a shared
+   * loan". *)
+  Definition no_ancestor (P : nodes -> Prop) S p :=
+    forall q, P (get_node (S.[q])) -> ~strict_prefix q p.
+
+  Lemma no_ancestor_sset P S p q v : no_ancestor P S p -> ~strict_prefix q p ->
+    no_ancestor P (S.[q <- v]) p.
+  Proof.
+    intros G ? r K ?. rewrite get_node_sset_sget_not_prefix in K by eauto with spath.
+    eapply G; eassumption.
+  Qed.
+
+  Lemma no_ancestor_sset_rev P S p q v : no_ancestor P (S.[q <- v]) p -> ~strict_prefix q p ->
+    no_ancestor P S p.
+  Proof.
+    intros G ? r K ?. eapply G; [ | eassumption].
+    rewrite get_node_sset_sget_not_prefix; eauto with spath.
+  Qed.
 End GetSetPath.
 
 Section StateUniqueConstructor.
