@@ -1808,6 +1808,103 @@ Proof.
   - admit.
   - weight_inequality.
 Admitted.
+
+Hint Resolve no_ancestor_sset_rev : spath.
+
+Lemma is_integer_valid S p : is_integer (S.[p]) -> valid_spath S p.
+Proof. intros H. apply valid_get_node_sget_not_bot. inversion H; easy. Qed.
+Hint Resolve is_integer_valid : spath.
+
+Lemma reorg_local_preservation n :
+  forward_simulation (leq_state_base_n n) (measured_closure leq_state_base_n n) reorg reorg^*.
+Proof.
+  intros ? ? Hreorg. destruct Hreorg.
+  (* Case Reorg_end_borrow_m: *)
+  - intros ? Hleq. destruct Hleq.
+    + assert (disj sp p). reduce_comp. (* TODO: TOO LONG *)
+      autorewrite with spath in *.
+      destruct (decidable_prefix q sp) as [(r & <-) | ].
+      * admit.
+      * assert (disj sp q). reduce_comp.
+        eapply complete_square_diagram'.
+        -- constructor. eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
+           eapply not_value_contains_sset_rev. eassumption.
+           apply not_value_contains_zeroary; rewrite H6. reflexivity. easy. validity.
+           eauto with spath.
+        -- constructor. eapply Leq_ToSymbolic_n with (sp := sp).
+           autorewrite with spath. eassumption.
+        -- states_eq.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+  (* Case Reorg_end_borrow_m_in_abstraction: *)
+  - intros ? Hleq. destruct Hleq.
+    + admit.
+    (* Case Leq_ToAbs_n: *)
+    + (* TODO: lemma *) 
+      assert (not_in_abstraction i0 q).
+      { intros ?. cbn. intros ?. eapply H4. destruct q. cbn in H5.
+        unfold encode_abstraction in H5.
+        econstructor. rewrite H5. rewrite decode'_encode. reflexivity. }
+      (* TODO: automatize *)
+      assert (fst q <> anon_accessor a).
+      { eapply valid_spath_diff_fresh_anon with (S := remove_anon a S,,, i0 |-> A).
+        unfold fresh_anon. rewrite get_at_anon. unfold remove_anon, add_abstraction. cbn. simpl_map. reflexivity. validity. }
+      assert (disj q (anon_accessor a, [])).
+      { reduce_comp. intros G. rewrite G in H6. contradiction. }
+      autorewrite with spath in H1.
+      autorewrite with spath in H2.
+      remember (S.[(anon_accessor a, [])]) as v. destruct Hto_abs.
+      * (* TODO: don't have twice i as a name. *)
+        destruct (decide (i = i0)) as [<- | ].
+        -- rewrite get_at_abstraction in H0. cbn in H0. rewrite lookup_insert in H0. cbn in H0.
+           assert (j = 2%positive /\ l = l1) as (-> & <-).
+           { apply lookup_insert_Some in H0. destruct H0 as [ | (_ & H0)]; [easy | ].
+             rewrite lookup_singleton_Some in H0. destruct H0 as (<- & H0).
+             inversion H0. auto. }
+           eapply complete_square_diagram'.
+           ++ constructor. 
+              eapply Reorg_end_borrow_m with (p := (anon_accessor a, []) +++ [0]) (q := q).
+              left. cbn. admit. (* TODO *)
+              rewrite sget_app, <-Heqv. reflexivity. assumption.
+              inversion H2; unfold not_contains_loan; not_contains.
+              eauto with spath.
+              intros q0. admit. (* TODO: automatize not_in_borrow *)
+              admit. (* bad definition. *)
+              admit. (* bad definition. *)
+           ++ constructor. apply Leq_ToAbs_n with (i := i) (a := a).
+              validity. eauto with spath.
+              rewrite sset_sget_disj. autorewrite with spath.
+              rewrite<-Heqv. cbn. constructor. assumption. assumption.
+           ++ (* TODO: lemma about remove_abstraction_value *) admit.
+        -- admit.
+      * admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+  - intros ? Hleq. destruct Hleq.
+    + admit.
+      (* TODO: don't have twice i as a name. *)
+    + destruct (decide (i = i0)) as [<- | ].
+      * cbn in H. rewrite lookup_insert in H. inversion H. subst.
+        destruct Hto_abs.
+        -- exfalso. rewrite map_Forall_lookup in H1. 
+           eapply H1 with (i := 2%positive).
+           simpl_map. reflexivity.
+           constructor.
+           constructor.
+        -- admit. (* We need the equivalence relation. *)
+Abort.
+
 Local Open Scope option_monad_scope.
 (*
 fn main() {
