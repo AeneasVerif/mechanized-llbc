@@ -282,7 +282,9 @@ Hint Extern 0 (get_loc_id _ <> Some ?l) =>
 Inductive copy_val : HLPL_val -> HLPL_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_int n) (HLPL_int n)
 | Copy_ptr l : copy_val (ptr(l)) (ptr(l))
-| Copy_loc l v w : copy_val v w -> copy_val (loc(l, v)) w.
+| Copy_loc l v w : copy_val v w -> copy_val (loc(l, v)) w
+| Copy_pair v1 v1' v2 v2' (H1 : copy_val v1 v1') (H2 : copy_val v2 v2') :
+  copy_val (HLPL_pair v1 v2) (HLPL_pair v1' v2').
 
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
