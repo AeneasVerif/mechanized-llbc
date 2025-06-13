@@ -442,11 +442,11 @@ where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
  * Consequently, a single region abstraction is created.
  *)
 Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
-| ToAbs_MutBorrow l :
-    to_abs (borrow^m(l, LLBC_plus_symbolic)) ({[1%positive := (borrow^m(l, LLBC_plus_symbolic))]})%stdpp
 | ToAbs_MutReborrow l0 l1:
     to_abs (borrow^m(l0, loan^m(l1)))
            ({[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]})%stdpp
+| ToAbs_MutBorrow l v (Hv : is_integer v):
+    to_abs (borrow^m(l, v)) ({[1%positive := (borrow^m(l, LLBC_plus_symbolic))]})%stdpp
 .
 
 Inductive merge_abstractions :
@@ -883,7 +883,7 @@ Proof.
   { constructor. eapply Leq_ToAbs with (a := a) (i := i).
     - validity. constructor.
     - repeat apply fresh_abstraction_sset. assumption.
-    - autorewrite with spath. constructor. }
+    - autorewrite with spath. constructor. constructor. }
   autorewrite with spath. rewrite remove_anon_add_anon by auto with spath. reflexivity.
 Qed.
 
