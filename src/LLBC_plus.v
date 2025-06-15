@@ -1829,6 +1829,23 @@ Lemma is_integer_valid S p : is_integer (S.[p]) -> valid_spath S p.
 Proof. intros H. apply valid_get_node_sget_not_bot. inversion H; easy. Qed.
 Hint Resolve is_integer_valid : spath.
 
+(* TODO: move *)
+Lemma remove_abstraction_value_add_abstraction S i j A :
+  remove_abstraction_value (S,,, i |-> A) i j = S,,, i |-> (delete j A).
+Proof.
+  apply state_eq_ext.
+  - rewrite get_map_remove_abstraction_value.
+    apply map_eq. intros x.
+    destruct (decide (encode_abstraction (i, j) = x)) as [<- | H].
+    + rewrite lookup_delete, get_at_accessor_add_abstraction, lookup_delete. reflexivity.
+    + rewrite lookup_delete_ne by assumption.
+      destruct (decide (in_abstraction i x)) as [(k & ->) | ].
+      * rewrite !get_at_accessor_add_abstraction.
+        symmetry. apply lookup_delete_ne. intros ->. auto.
+      * rewrite !get_at_accessor_add_abstraction_notin by assumption. reflexivity.
+  - rewrite get_extra_remove_abstraction_value, !get_extra_add_abstraction. reflexivity.
+Qed.
+
 Lemma reorg_local_preservation n :
   forward_simulation (leq_state_base_n n) (measured_closure leq_state_base_n n) reorg reorg^*.
 Proof.
@@ -1890,7 +1907,9 @@ Proof.
               validity. eauto with spath.
               rewrite sset_sget_disj. autorewrite with spath.
               rewrite<-Heqv. cbn. constructor. assumption. assumption.
-           ++ (* TODO: lemma about remove_abstraction_value *) admit.
+           ++ rewrite remove_abstraction_value_add_abstraction.
+              rewrite delete_insert_ne, delete_singleton by congruence.
+              admit.
         -- admit.
       * admit.
     + admit.
