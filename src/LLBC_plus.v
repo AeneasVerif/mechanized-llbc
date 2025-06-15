@@ -568,30 +568,43 @@ Proof.
     rewrite get_map_add_anon. simpl_map. reflexivity.
 Qed.
 
-(* TODO: change the hypotheses to fst sp <> anon_accessor a? *)
 Lemma sget_remove_anon S a sp :
-  valid_spath (remove_anon a S) sp -> (remove_anon a S).[sp] = S.[sp].
+  fst sp <> anon_accessor a -> (remove_anon a S).[sp] = S.[sp].
 Proof.
-  intros (? & H & _). unfold sget.
-  rewrite get_map_remove_anon, lookup_delete_ne; [reflexivity | ].
-  intros G. rewrite<- G, remove_anon_is_fresh in H. discriminate.
+  unfold sget. intros ?. rewrite get_map_remove_anon, lookup_delete_ne by auto. reflexivity.
 Qed.
-Hint Rewrite sget_remove_anon using validity : spath.
+Hint Rewrite sget_remove_anon using auto with spath : spath.
 
-(* TODO: change the hypotheses to fst sp <> anon_accessor a? *)
 Lemma sset_remove_anon S a sp v :
-  valid_spath (remove_anon a S) sp -> (remove_anon a S).[sp <- v] = remove_anon a (S.[sp <- v]).
+  fst sp = anon_accessor a -> remove_anon a (S.[sp <- v]) = remove_anon a S.
 Proof.
-  intros valid_sp. destruct (valid_sp) as (w & ? & _).
+  intros ?.
+  destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
+  - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 1.
+    rewrite sset_anon by assumption.
+    apply remove_anon_add_anon. apply remove_anon_is_fresh.
+  - rewrite sset_invalid; [reflexivity | ]. intros (? & ? & _). congruence.
+Qed.
+
+Corollary sset_remove_anon_2 S a p q v w :
+  fst p = anon_accessor a -> disj p q ->
+  remove_anon a (S.[p <- v].[q <- w]) = remove_anon a (S.[q <- w]).
+Proof.
+  intros. rewrite sset_twice_disj_commute, sset_remove_anon by assumption. reflexivity.
+Qed.
+
+Lemma sset_remove_anon_ne S a sp v :
+  fst sp <> anon_accessor a -> (remove_anon a S).[sp <- v] = remove_anon a (S.[sp <- v]).
+Proof.
+  intros ?.
   destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
   - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 2.
-    rewrite sset_add_anon.
+    rewrite sset_add_anon by assumption.
     + symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
-    + eapply valid_spath_diff_fresh_anon; [ | eassumption].
-      apply remove_anon_is_fresh.
   - rewrite !remove_anon_fresh by auto with spath. reflexivity.
 Qed.
-Hint Rewrite sset_remove_anon using validity : spath.
+Hint Rewrite sset_remove_anon_ne using auto with spath : spath.
+Hint Rewrite sset_remove_anon_2 using auto with spath : spath.
 
 Definition remove_abstraction i S :=
   {|vars := vars S; anons := anons S; abstractions := delete i (abstractions S)|}.
@@ -732,7 +745,7 @@ Lemma sget_remove_abstraction S i p : ~in_abstraction i (fst p) -> (remove_abstr
 Proof. intros H. unfold sget. rewrite get_at_accessor_remove_abstraction; auto. Qed.
 
 Hint Rewrite sget_add_abstraction using auto; fail : spath.
-Hint Rewrite sset_add_abstraction using assumption : spath.
+Hint Rewrite sset_add_abstraction using auto with spath; fail : spath.
 Hint Rewrite sget_remove_abstraction using assumption : spath.
 Hint Rewrite sset_remove_abstraction using assumption : spath.
 
@@ -1156,7 +1169,7 @@ Proof.
   - reflexivity.
   - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
-    + rewrite sget_remove_anon in get_q by validity.
+    + autorewrite with spath in get_q.
       repeat split; try assumption. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
@@ -1909,7 +1922,7 @@ Proof.
               rewrite<-Heqv. cbn. constructor. assumption. assumption.
            ++ rewrite remove_abstraction_value_add_abstraction.
               rewrite delete_insert_ne, delete_singleton by congruence.
-              admit.
+              autorewrite with spath. reflexivity.
         -- admit.
       * admit.
     + admit.
