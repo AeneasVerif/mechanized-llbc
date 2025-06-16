@@ -28,6 +28,8 @@ Inductive PL_val :=
 | PL_address : address -> PL_val
 .
 
+Definition pl_val := list PL_val.
+
 Variant PL_nodes :=
 | PL_botC : PL_nodes
 | PL_intC : nat -> PL_nodes
@@ -119,7 +121,7 @@ Definition encode_block_id (bi : block_id) := encode (A := var + block_id) (inr 
 
 Record PL_state := {
   env : Pmap block_id;
-  heap : Pmap (list PL_val)
+  heap : Pmap pl_val
 }.
 
 Fixpoint sizeof (tau : type) : nat :=
@@ -157,17 +159,57 @@ Inductive copy_val : PL_val -> PL_val -> Prop :=
 | Copy_pair v1 v1' v2 v2' (H1 : copy_val v1 v1') (H2 : copy_val v2 v2') :
   copy_val (PL_pair v1 v2) (PL_pair v1' v2').
 
+(* Functions to lookup and update PL states *)
 Definition lookup_env (S : PL_state) (x : var) : option block_id :=
   lookup (encode_var x) (env S).
 
 Definition lookup_heap (S : PL_state) (bi : block_id) : option (list PL_val) :=
   lookup (encode_block_id bi) (heap S).
 
-Inductive read_address (S : PL_state) (p : place) (t : type) : address -> Prop :=
-| Read_Addr_Var bi x (Hp : snd p = []) (HS : lookup_env S x = Some bi) :
+Definition update_env (S : PL_state) (e : Pmap block_id) :=
+  {|env := e ; heap := heap S |}.
+
+Definition update_heap (S : PL_state) (h : Pmap pl_val) :=
+  {|env := env S ; heap := h |}.
+  
+
+Inductive read_address (S : PL_state) : place -> type -> address -> Prop :=
+| Read_Addr_Var p t bi x (Hp : snd p = []) (HS : lookup_env S x = Some bi) :
   read_address S p t (bi, 0)
-| Read_Addr_Deref bi n bi' n' vl
+| Read_Addr_Deref p t bi n bi' n' vl
     (Hp : read_address S p t (bi, n))
     (Hheap : (lookup_heap S bi = Some vl))
     (Hvl : List.nth_error vl n  = Some (PL_address (bi', n'))) :
-  read_address S p t (bi', n').
+  read_address S p t (bi', n')
+| Read_Addr_ProjPairLeft x path t0 t1 bi n
+  (H : read_address S (x, path) (TPair t0 t1) (bi, n)) :
+    read_address S (x, (Field First) :: path) t0 (bi, n)
+| Read_Addr_ProjPairRight x path t0 t1 bi n
+  (H : read_address S (x, path) (TPair t0 t1) (bi, n + sizeof t0)) :
+  read_address S (x, (Field Second) :: path) t0 (bi, n).
+
+Variant read (S : PL_state) (p : place) (t : type) (vl : pl_val) : Prop :=
+  | Read bi n vl'
+      (Haddr : read_address S p t (bi, n))
+      (Hsub : vl = firstn (sizeof t) (skipn n vl')) :
+    read S p t vl.
+
+Variant write (S : PL_state) (p : place) (t : type) (vl : pl_val)
+  : PL_state -> Prop :=
+  | Write bi n vl' vl'' h
+      (Haddr : read_address S p t (bi, n))
+      (Hlu : Some vl' = lookup_heap S bi)
+      (Hcut : vl'' = (firstn n vl') ++ vl ++ (skipn (n + sizeof t) vl'))
+      (Hheap : h = alter (fun _ => vl'') bi (heap S)) :
+      write S p t vl (update_heap S h).
+
+
+Notation x := 1%positive.
+Definition empty : PL_state := {| env := {[ x := 1%positive ]}; heap := PEmpty |}.
+
+Goal exists S, write empty (1%positive, []) TInt [PL_int 0] S.
+Proof.
+  eexists. eapply Write.
+
+Definition test1 : PL_state := write empty (1%positive, []) TInt [PL_int 0].
+
