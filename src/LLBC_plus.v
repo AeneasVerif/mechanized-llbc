@@ -1859,6 +1859,31 @@ Proof.
   - rewrite get_extra_remove_abstraction_value, !get_extra_add_abstraction. reflexivity.
 Qed.
 
+(* TODO: move *)
+Lemma not_in_borrow_add_abstraction S i A sp (H : ~in_abstraction i (fst sp)) :
+  not_in_borrow (S,,, i |-> A) sp <-> not_in_borrow S sp.
+Proof.
+  split.
+  - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
+    rewrite sget_add_abstraction; assumption.
+  - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
+    rewrite sget_add_abstraction in *; assumption.
+Qed.
+
+(* TODO: similar lemma for add_anon *)
+Lemma not_in_borrow_remove_anon S a sp (H : fst sp <> anon_accessor a) :
+  not_in_borrow (remove_anon a S) sp <-> not_in_borrow S sp.
+Proof.
+  split.
+  - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
+    autorewrite with spath. assumption.
+  - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
+    autorewrite with spath in *. assumption.
+Qed.
+
+Hint Resolve-> not_in_borrow_add_abstraction : spath.
+Hint Resolve-> not_in_borrow_remove_anon : spath.
+
 Lemma reorg_local_preservation n :
   forward_simulation (leq_state_base_n n) (measured_closure leq_state_base_n n) reorg reorg^*.
 Proof.
@@ -1894,14 +1919,12 @@ Proof.
       assert (fst q <> anon_accessor a).
       { eapply valid_spath_diff_fresh_anon with (S := remove_anon a S,,, i0 |-> A).
         unfold fresh_anon. rewrite get_at_anon. unfold remove_anon, add_abstraction. cbn. simpl_map. reflexivity. validity. }
-      assert (disj q (anon_accessor a, [])).
-      { reduce_comp. intros G. rewrite G in H5. contradiction. }
-      autorewrite with spath in H1.
-      autorewrite with spath in H2.
+      autorewrite with spath in *.
       remember (S.[(anon_accessor a, [])]) as v. destruct Hto_abs.
       * (* TODO: don't have twice i as a name. *)
         destruct (decide (i = i0)) as [<- | ].
-        -- rewrite get_at_abstraction in H0. cbn in H0. rewrite lookup_insert in H0. cbn in H0.
+        -- (* The loan that we remove can only be the one at position 2 in A, with identifier l1. *)
+           rewrite get_at_abstraction in H0. cbn in H0. simpl_map. cbn in H0.
            assert (j = 2%positive /\ l = l1) as (-> & <-).
            { apply lookup_insert_Some in H0. destruct H0 as [ | (_ & H0)]; [easy | ].
              rewrite lookup_singleton_Some in H0. destruct H0 as (<- & H0).
@@ -1909,20 +1932,19 @@ Proof.
            eapply complete_square_diagram'.
            ++ constructor.
               eapply Reorg_end_borrow_m with (p := (anon_accessor a, []) +++ [0]) (q := q).
-              left. cbn. admit. (* TODO *)
+              left. cbn. auto.
               rewrite sget_app, <-Heqv. reflexivity. assumption.
               inversion H2; unfold not_contains_loan; not_contains.
-              eauto with spath.
-              intros q0. admit. (* TODO: automatize not_in_borrow *)
+              (* Note: this takes time. It could be more effective to perform rewrites in H3. *)
+              debug eauto with spath.
               eapply anon_not_in_abstraction. reflexivity.
               assumption.
            ++ constructor. apply Leq_ToAbs_n with (i := i) (a := a).
               validity. eauto with spath.
-              rewrite sset_sget_disj. autorewrite with spath.
-              rewrite<-Heqv. cbn. constructor. assumption. assumption.
+              autorewrite with spath. rewrite <-Heqv. cbn. constructor. assumption.
            ++ rewrite remove_abstraction_value_add_abstraction.
               rewrite delete_insert_ne, delete_singleton by congruence.
-              autorewrite with spath. reflexivity.
+              autorewrite with spath. reflexivity. admit.
         -- admit.
       * admit.
     + admit.
@@ -2093,7 +2115,6 @@ Defined.
 (* TODO: move in PathToSubtree.v? *)
 Lemma prefix_nil p i : prefix p (i, []) -> p = (i, []).
 Proof.
-  destruct p as (j & q). intros (r & H). unfold app_spath_vpath in H. cbn in H.
   apply pair_equal_spec in H. destruct H as (-> & H).
   apply app_eq_nil in H. destruct H as (-> & _). reflexivity.
 Qed.
