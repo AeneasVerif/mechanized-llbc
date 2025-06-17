@@ -2112,15 +2112,7 @@ Proof.
     rewrite <-not_state_contains_map_Forall in * |-; [left | right]; assumption.
 Defined.
 
-(* TODO: move in PathToSubtree.v? *)
-Lemma prefix_nil p i : prefix p (i, []) -> p = (i, []).
-Proof.
-  apply pair_equal_spec in H. destruct H as (-> & H).
-  apply app_eq_nil in H. destruct H as (-> & _). reflexivity.
-Qed.
-
 (* Note: an alternative to using tactics is to define functions, and prove their correction. *)
-
 (* When meeting the goal S |-{p} P[x] =>^{k} pi, this tactics:
    - Compute the spath pi0 corresponding to the variable x
    - Leaves the evaluation of pi0 under the path P[] as a goal. *)

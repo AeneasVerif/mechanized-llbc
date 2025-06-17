@@ -422,14 +422,6 @@ Proof.
   intros c G. destruct c; inversion G; apply Nat.eqb_refl.
 Qed.
 
-(* TODO: move in PathToSubtree.v? *)
-Lemma prefix_nil p i : prefix p (i, []) -> p = (i, []).
-Proof.
-  destruct p as (j & q). intros (r & H). unfold app_spath_vpath in H. cbn in H.
-  apply pair_equal_spec in H. destruct H as (-> & H).
-  apply app_eq_nil in H. destruct H as (-> & _). reflexivity.
-Qed.
-
 (* Note: an alternative to using tactics is to define functions, and prove their correction. *)
 
 (* When meeting the goal S |-{p} P[x] =>^{k} pi, this tactics:

@@ -371,6 +371,13 @@ Proof.
   eapply not_prefix_disj; [symmetry | ]; eassumption.
 Qed.
 
+Lemma prefix_nil p i : prefix p (i, []) -> p = (i, []).
+Proof.
+  destruct p as (j & q). intros (r & H). unfold app_spath_vpath in H. cbn in H.
+  apply pair_equal_spec in H. destruct H as (-> & H).
+  apply app_eq_nil in H. destruct H as (-> & _). reflexivity.
+Qed.
+
 (* Automatically solving a comparison C p q using the hypotheses. *)
 Hint Immediate vdisj_symmetric : spath.
 Hint Resolve strict_prefix_is_prefix : spath.
