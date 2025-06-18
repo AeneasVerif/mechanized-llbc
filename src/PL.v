@@ -10,9 +10,6 @@ From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
 
 Require Import PathToSubtree.
-Require Import OptionMonad.
-Local Open Scope option_monad_scope.
-Require Import SimulationUtils.
 
 
 Definition block_id := positive.
@@ -23,105 +20,10 @@ Inductive PL_val :=
 | PL_bot : PL_val
 | PL_poison : PL_val
 | PL_int : nat -> PL_val 
-| PL_loc : loan_id -> PL_val -> PL_val
-| PL_ptr : loan_id -> PL_val
-| PL_pair : PL_val -> PL_val -> PL_val
 | PL_address : address -> PL_val
 .
 
 Definition pl_val := list PL_val.
-
-Variant PL_nodes :=
-| PL_botC : PL_nodes
-| PL_poisonC: PL_nodes
-| PL_intC : nat -> PL_nodes
-| PL_locC : loan_id -> PL_nodes
-| PL_ptrC : loan_id -> PL_nodes
-| PL_pairC : PL_nodes
-| PL_addressC : address -> PL_nodes
-.
-
-Instance EqDec_PL_nodes : EqDecision PL_nodes.
-Proof. unfold EqDecision, Decision. repeat decide equality. Qed.
-
-Definition PL_arity c := match c with
-| PL_botC => 0
-| PL_poisonC => 0
-| PL_intC _ => 0
-| PL_locC _ => 1
-| PL_ptrC _ => 0
-| PL_pairC => 2
-| PL_addressC _ => 0
-end.
-
-Definition PL_get_node v := match v with
-| PL_bot => PL_botC
-| PL_poison => PL_poisonC
-| PL_int n => PL_intC n
-| PL_loc l _ => PL_locC l
-| PL_ptr l => PL_ptrC l
-| PL_pair _ _ => PL_pairC
-| PL_address addr => PL_addressC addr
-end.
-
-Definition PL_children v := match v with
-| PL_bot => []
-| PL_poison => []
-| PL_int _ => []
-| PL_loc _ v => [v]
-| PL_ptr l => []
-| PL_pair fst snd => [fst ; snd]
-| PL_address addr => []
-end.
-
-Definition PL_fold c vs := match c, vs with
-| PL_botC, _ => PL_bot
-| PL_poisonC, _ => PL_poison
-| PL_intC n, [] => PL_int n
-| PL_locC l, [v] => PL_loc l v
-| PL_ptrC l, [] => PL_ptr l
-| PL_pairC, [fst; snd] => PL_pair fst snd
-| PL_addressC addr, [] => PL_address addr
-| _, _ => PL_bot
-end.
-
-Fixpoint PL_weight node_weight v :=
-  match v with
-  | PL_loc l v => node_weight (PL_locC l) + PL_weight node_weight v
-  | PL_pair fst snd =>
-      node_weight (PL_pairC) +
-        PL_weight node_weight fst + PL_weight node_weight snd
-  | v => node_weight (PL_get_node v)
-end.
-
-Program Instance ValuePL : Value PL_val PL_nodes := {
-  arity := PL_arity;
-  get_node := PL_get_node;
-  children := PL_children;
-  fold_value := PL_fold;
-  vweight := PL_weight;
-  bot := PL_bot;
-}.
-Next Obligation. destruct v; reflexivity. Qed.
-Next Obligation.
-  intros [] [] eq_node eq_children; inversion eq_node; inversion eq_children; reflexivity.
-Qed.
-Next Obligation.
-  intros [] ? H;
-  first [ rewrite length_zero_iff_nil in H; rewrite H
-        | destruct (length_1_is_singleton H) as [? ->]
-        | destruct (length_2_is_pair H) as [fst [snd ->] ] ];
-  reflexivity.
-Qed.
-Next Obligation.
- intros [] ? H;
-  first [rewrite length_zero_iff_nil in H; rewrite H
-        | destruct (length_1_is_singleton H) as [? ->] 
-        | destruct (length_2_is_pair H) as [fst [snd ->] ] ];
-  reflexivity.
-Qed.
-Next Obligation. reflexivity. Qed.
-Next Obligation. intros ? []; unfold PL_children; cbn; lia. Qed.
 
 Record PL_state := {
   env : Pmap (block_id * type);
@@ -145,23 +47,11 @@ Reserved Notation "'botC'" (at level 0).
 Reserved Notation "'locC' ( l , )" (at level 0, l at next level).
 Reserved Notation "'ptrC' ( l )" (at level 0).
 
-(* Notation "'bot'" := PL_bot: pl_scope. *)
-Notation "'loc' ( l , v )" := (PL_loc l v) : pl_scope.
-Notation "'ptr' ( l )" := (PL_ptr l) : pl_scope.
-
-Notation "'botC'" := PL_botC: pl_scope.
-Notation "'locC' ( l )" := (PL_locC l) : pl_scope.
-Notation "'ptrC' ( l )" := (PL_ptrC l) : pl_scope.
-
 (* Bind Scope pl_scope with PL_val. *)
 Open Scope pl_scope.
 
 Inductive copy_val : PL_val -> PL_val -> Prop :=
-| Copy_val_int (n : nat) : copy_val (PL_int n) (PL_int n)
-| Copy_ptr l : copy_val (ptr(l)) (ptr(l))
-| Copy_loc l v w : copy_val v w -> copy_val (loc(l, v)) w
-| Copy_pair v1 v1' v2 v2' (H1 : copy_val v1 v1') (H2 : copy_val v2 v2') :
-  copy_val (PL_pair v1 v2) (PL_pair v1' v2').
+| Copy_val_int (n : nat) : copy_val (PL_int n) (PL_int n).
 
 (* Functions to lookup and update PL states *)
 Definition lookup_block_and_type_env (x : var) (S : PL_state)
@@ -197,8 +87,6 @@ Definition update_env (S : PL_state) (e : Pmap (block_id * type)) :=
 Definition update_heap (S : PL_state) (h : Pmap pl_val) :=
   {|env := env S ; heap := h |}.
   
-Open Scope stdpp_scope.
-
 Inductive read_address (S : PL_state) : place -> type -> address -> Prop :=
 | Read_Addr_Var x t bi
     (HS : lookup_block_and_type_env x S = Some (bi, t)) :
@@ -231,80 +119,198 @@ Variant write (S : PL_state) (p : place) (t : type) (vl : pl_val)
       (Hheap : h = alter (fun _ => vl'') bi (heap S)) :
       write S p t vl (update_heap S h).
 
-Section TestReadWrite.
-Local Open Scope stdpp_scope.
 
-Notation x := 1%positive.
-Notation y := 2%positive.
-Notation b1 := 1%positive.
-Notation b2 := 2%positive.
-Notation b3 := 3%positive.
-Definition pl_state_1 : PL_state :=
-  {|
-    env := {[ x := (b1, TInt) ]};
-    heap := {[ b1 := [PL_poison] ]}
-  |}.
-Definition pl_state_2 : PL_state :=
-  {|
-    env := {[ x := (b1, TPair TInt TInt) ]};
-    heap := {[ b1 := [PL_poison; PL_poison] ]}
-  |}.
-Definition pl_state_3 : PL_state :=
-  {|
-    env := {[ x := (b1, TPair (TRef TInt) TInt) ]};
-    heap := {[ b1 := [PL_address (b1, 1); PL_int 0] ]}
-  |}.
-Definition pl_state_4 : PL_state :=
-  {|
-    env := {[ x := (b1, TRef (TRef TInt)) ]};
-    heap :=
-      {[
-          b1 := [PL_address (b2, 1)] ;
-          b2 := [PL_int 3 ; PL_address (b2, 0)]
-      ]}
-  |}.
-Definition pl_state_5 : PL_state :=
-  {|
-    env := {[ x := (b1, TRef (TRef TInt)) ]};
-    heap :=
-      {[
-          b1 := [PL_address (b2, 1)] ;
-          b2 := [PL_poison ; PL_address (b2, 0)]
-      ]}
-  |}.
+(* Evaluation of Expressions in PL *)
+Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
+Variant eval_operand : operand -> PL_state -> pl_val -> Prop :=
+| Eval_IntConst S t n :
+  S |-{op} IntConst t n => [PL_int n]
+| Eval_copy S t p vl
+    (Hread : read S p t vl) :
+  S |-{op} Copy t p => vl
+| Eval_move S t p vl
+    (Hread : read S p t vl) :
+  S |-{op} Move t p => vl
+where "S |-{op} op => r" := (eval_operand op S r).
 
-Goal exists S, write pl_state_1 (1%positive, []) TInt [PL_int 0] S.
-Proof.
-  repeat econstructor.
-Qed.
+Local Reserved Notation "S  |-{rv}  rv =>  r" (at level 60).
+Variant eval_rvalue: rvalue -> PL_state -> pl_val -> Prop :=
+| Eval_just S t op vl
+  (Hop : S |-{op} op => vl) :
+  S |-{rv} Just t op => vl
+| Eval_bin_op S t op_l n_l op_r n_r
+    (Hl : S |-{op} op_l => [PL_int n_l])
+    (Hr : S |-{op} op_r => [PL_int n_r]) :
+  S |-{rv} BinOp t op_l op_r => [PL_int (n_l + n_r)]
+| Eval_ptr S t p addr
+    (Haddr : read_address S p t addr) :
+  S |-{rv} &mut p : (TRef t) => [PL_address addr]
+| Eval_pair S t op_l vl_l op_r vl_r
+    (Hl : S |-{op} op_l => vl_l)
+    (Hr : S |-{op} op_r => vl_r) :
+  S |-{rv} Pair t op_l op_r =>  (vl_l ++ vl_r)
+where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
-Goal exists S, write pl_state_2 (1%positive, [Field(First)]) TInt [PL_int 0] S.
-Proof.
-  repeat econstructor.
-Qed.
+Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
 
-Goal exists S, write pl_state_2 (1%positive, [Field(Second)]) TInt [PL_int 0] S.
-Proof.
-  repeat econstructor.
-Qed.
+Inductive eval_stmt : statement -> statement_result -> PL_state -> PL_state -> Prop :=
+| Eval_nop S : S |-{stmt} Nop => rUnit, S
+| Eval_seq_unit S0 S1 S2 stmt_l stmt_r r
+    (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
+    (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :
+  S0 |-{stmt} stmt_l ;; stmt_r => r, S2
+| Eval_seq_panic S0 S1 stmt_l stmt_r
+    (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
+  S0 |-{stmt} stmt_l ;; stmt_r => rPanic, S1
+| Eval_assign S vl S' p rv t
+    (eval_rv : S |-{rv} rv => vl)
+    (Hwrite : write S p t vl S'):
+  S |-{stmt} ASSIGN p <- rv => rUnit, S'
+where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
-Goal read pl_state_3 (x, Deref :: [Field(First)]) TInt [PL_int 0].
-Proof.
-  repeat econstructor.
-Qed.
 
-Goal read pl_state_3 (x, [Field(Second)]) TInt [PL_int 0].
-Proof.
-  repeat econstructor.
-Qed.
+Section Tests.
+  Notation x := 1%positive.
+  Notation y := 2%positive.
+  Notation b1 := 1%positive.
+  Notation b2 := 2%positive.
+  Notation b3 := 3%positive.
 
-Goal read pl_state_4 (x, [Deref ; Deref]) TInt [PL_int 3].
-Proof.
-  repeat econstructor.
-Qed.
+  Local Open Scope stdpp_scope.
 
-Goal write pl_state_5 (x, [Deref ; Deref]) TInt [PL_int 3] pl_state_4.
-Proof.
-  repeat econstructor.
-Qed.
-End TestReadWrite.
+  Definition pl_state_1 : PL_state :=
+    {|
+      env := {[ x := (b1, TInt) ]};
+      heap := {[ b1 := [PL_poison] ]}
+    |}.
+  Definition pl_state_2 : PL_state :=
+    {|
+      env := {[ x := (b1, TPair TInt TInt) ]};
+      heap := {[ b1 := [PL_poison; PL_poison] ]}
+    |}.
+  Definition pl_state_3 : PL_state :=
+    {|
+      env := {[ x := (b1, TPair (TRef TInt) TInt) ]};
+      heap := {[ b1 := [PL_address (b1, 1); PL_int 0] ]}
+    |}.
+  Definition pl_state_4 : PL_state :=
+    {|
+      env := {[ x := (b1, TRef (TRef TInt)) ]};
+      heap :=
+        {[
+            b1 := [PL_address (b2, 1)] ;
+            b2 := [PL_int 3 ; PL_address (b2, 0)]
+        ]}
+    |}.
+  Definition pl_state_5 : PL_state :=
+    {|
+      env := {[ x := (b1, TRef (TRef TInt)) ]};
+      heap :=
+        {[
+            b1 := [PL_address (b2, 1)] ;
+            b2 := [PL_poison ; PL_address (b2, 0)]
+        ]}
+    |}.
+  Definition pl_state_6 : PL_state :=
+    {|
+      env :=
+        {[
+            x := (b1, TPair TInt (TPair TInt TInt))
+        ]};
+      heap :=
+        {[
+            b1 := [PL_int 0 ; PL_int 1 ; PL_int 7]
+        ]}
+    |}.
+  Definition pl_state_7 : PL_state :=
+    {|
+      env := {[ x := (b1, TInt) ]};
+      heap := {[ b1 := [PL_int 3] ]}
+    |}.
+  Definition pl_state_8 : PL_state :=
+    {|
+      env := {[ x := (b1, TInt) ; y := (b2, TInt) ]};
+      heap := {[ b1 := [PL_poison] ; b2 := [PL_poison] ]}
+    |}.
+  Definition pl_state_9 : PL_state :=
+    {|
+      env := {[ x := (b1, TInt) ; y := (b2, TInt) ]};
+      heap := {[ b1 := [PL_int 3] ; b2 := [PL_int 7] ]}
+    |}.
+
+  Local Close Scope stdpp_scope.
+
+  (** READ AND WRITES TESTS **)
+
+  Goal exists S, write pl_state_1 (1%positive, []) TInt [PL_int 0] S.
+  Proof. repeat econstructor. Qed.
+
+  Goal exists S, write pl_state_2 (1%positive, [Field(First)]) TInt [PL_int 0] S.
+  Proof. repeat econstructor. Qed.
+
+  Goal exists S, write pl_state_2 (1%positive, [Field(Second)]) TInt [PL_int 0] S.
+  Proof. repeat econstructor. Qed.
+
+  Goal read pl_state_3 (x, Deref :: [Field(First)]) TInt [PL_int 0].
+  Proof. repeat econstructor. Qed.
+
+  Goal read pl_state_3 (x, [Field(Second)]) TInt [PL_int 0].
+  Proof. repeat econstructor. Qed.
+
+  Goal read pl_state_4 (x, [Deref ; Deref]) TInt [PL_int 3].
+  Proof. repeat econstructor. Qed.
+
+  Goal write pl_state_5 (x, [Deref ; Deref]) TInt [PL_int 3] pl_state_4.
+  Proof. repeat econstructor. Qed.
+
+  (** EXPRESSION EVALUATION TESTS **)
+
+  Goal pl_state_1 |-{op} IntConst TInt 3 => [PL_int 3].
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_2 |-{op} Copy (TPair TInt TInt) (x, []) => [PL_poison ; PL_poison].
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_2 |-{op} Move (TPair TInt TInt) (x, []) => [PL_poison ; PL_poison].
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_2 |-{rv} Just (TPair TInt TInt) (Copy (TPair TInt TInt) (x, [])) =>
+         [PL_poison ; PL_poison].
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_1 |-{rv} BinOp TInt (INT 1) (INT 4) => [PL_int (1 + 4)].
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_6 |-{rv} BinOp TInt (Move TInt (x, [Field(Second) ; Field(Second)])) (INT 4) =>
+         [PL_int (7 + 4)].
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_1 |-{rv} &mut (x, []) : (TRef TInt) => [PL_address (b1, 0)].
+  Proof. repeat econstructor.  Qed.
+
+  Goal pl_state_1 |-{rv} Pair (TPair TInt TInt) (IntConst TInt 0) (IntConst TInt 1)
+       => ([PL_int 0] ++ [PL_int 1]).
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_1 |-{rv} Pair (TPair TInt TInt) (IntConst TInt 0) (Move TInt (x, []))
+       => ([PL_int 0] ++ [PL_poison]).
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_1 |-{stmt} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_7.
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_1 |-{stmt} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_1.
+  Proof. repeat econstructor. Fail reflexivity. Abort.
+
+  Goal pl_state_8 |-{stmt}
+                     ASSIGN (x, []) <- Just TInt (INT 3) ;;
+                     ASSIGN (y, []) <- Just TInt (INT 7)
+       => rUnit, pl_state_9.
+  Proof. repeat econstructor. Qed.
+
+  Goal pl_state_8 |-{stmt}
+                     ASSIGN (x, []) <- Just TInt (INT 3) ;;
+                     ASSIGN (y, []) <- Just TInt (INT 7)
+       => rUnit, pl_state_8.
+  Proof. repeat econstructor. Fail reflexivity. Abort.
+End Tests.
