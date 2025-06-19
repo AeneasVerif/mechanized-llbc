@@ -397,6 +397,13 @@ Proof.
   rewrite G in H. inversion H.
 Qed.
 
+Definition add_abstraction S i A :=
+  {|vars := vars S; anons := anons S; abstractions := insert i A (abstractions S)|}.
+
+Notation "S ,,, i |-> A" := (add_abstraction S i A) (at level 50, left associativity).
+
+Notation fresh_abstraction S i := (lookup i (abstractions S) = None).
+
 (* The property merge_maps A B C is true if the map C contains all of the pairs (key, element) of
  * A, and all the elements of B with possibly different keys.
 
@@ -410,204 +417,15 @@ Inductive merge_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
 Notation abstraction_contains_value S i j v :=
   (get_at_accessor S (encode_abstraction (i, j)) = Some v).
 
-(* Remove the value at j in the region abstraction at i, if this value exists. *)
-Definition remove_abstraction_value S i j :=
-  {|vars := vars S; anons := anons S; abstractions := alter (delete j) i (abstractions S)|}.
-
-Variant is_integer : LLBC_plus_val -> Prop :=
-  | Symbolic_is_integer : is_integer LLBC_plus_symbolic
-  | Integer_is_integer n : is_integer (LLBC_plus_int n).
-
-Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
-(* Ends a borrow when it's not in an abstraction: *)
-| Reorg_end_borrow_m S (p q : spath) l :
-    disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
-    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
-    not_in_abstraction p -> not_in_abstraction q ->
-    reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
-(* Ends a borrow when it's in an abstraction: *)
-(* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
-| Reorg_end_borrow_m_in_abstraction S q i j l :
-    fst q <> encode_abstraction (i, j) -> abstraction_contains_value S i j loan^m(l) ->
-    get_node (S.[q]) = borrowC^m(l) -> is_integer (S.[q +++ [0] ]) ->
-    not_in_borrow S q -> not_in_abstraction q ->
-    reorg S ((remove_abstraction_value S i j).[q <- bot])
-(* q refers to a path in abstraction A, at index j. *)
-| Reorg_end_abstraction S i A anons' :
-    lookup i (abstractions S) = Some A ->
-    merge_maps (anons S) A anons' ->
-    (* No value in A contains a loan: *)
-    map_Forall (fun _ => not_contains_loan) A ->
-    reorg S {|vars := vars S; anons := anons'; abstractions := delete i (abstractions S)|}.
-
-(* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
- * evaluated to a pair (v, S). *)
-Variant store (p : place) : LLBC_plus_val * LLBC_plus_state -> LLBC_plus_state -> Prop :=
-| Store v S (sp : spath) (a : anon)
-  (eval_p : (S,, a |-> v) |-{p} p =>^{Mut} sp)
-  (no_outer_loan : not_contains_outer_loan (S.[sp])) :
-  fresh_anon S a -> store p (v, S) (S.[sp <- v],, a |-> S.[sp])
-.
-
-(* When introducing non-terminating features (loops or recursivity), the signature of the relation
-   is going to be:
-   LLBC_plus_state -> statement -> nat -> Option (statement_result * LLBC_plus_state) -> Prop
-*)
-Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
-Inductive eval_stmt : statement -> statement_result -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
-  | Eval_nop S : S |-{stmt} Nop => rUnit, S
-  | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
-      (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
-  | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
-      S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
-  | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
-      S |-{stmt} ASSIGN p <- rv => rUnit, S''
-  | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
-      S0 |-{stmt} stmt => r, S2
-where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
-
-(* A version of to-abs that is limited compared to the paper. Currently, we can only turn into a
- * region abstraction a value of the form:
- * - borrow^m l σ (with σ a symbolic value)
- * - borrow^m l0 (loan^m l1)
- * Consequently, a single region abstraction is created.
- *)
-Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
-| ToAbs_MutReborrow l0 l1:
-    to_abs (borrow^m(l0, loan^m(l1)))
-           ({[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]})%stdpp
-| ToAbs_MutBorrow l v (Hv : is_integer v):
-    to_abs (borrow^m(l, v)) ({[1%positive := (borrow^m(l, LLBC_plus_symbolic))]})%stdpp
-.
-
-Inductive merge_abstractions :
-  Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
-  | MergeAbsEmpty A : merge_abstractions A empty A
-  | MergeAbsInsert A B C i j x :
-      lookup i A = None -> lookup j B = None ->
-      merge_abstractions (insert i x A) B C -> merge_abstractions A (insert j x B) C
-  | MergeAbs_Mut A B C i j l (H : merge_abstractions A B C) :
-      lookup i A = None -> lookup j B = None ->
-      merge_abstractions (insert i (loan^m(l)) A) (insert j (borrow^m(l, LLBC_plus_symbolic)) B) C
-.
-
-Definition add_abstraction S i A :=
-  {|vars := vars S; anons := anons S; abstractions := insert i A (abstractions S)|}.
-
-Notation "S ,,, i |-> A" := (add_abstraction S i A) (at level 50, left associativity).
-
-Notation fresh_abstraction S i := (lookup i (abstractions S) = None).
-
-Lemma sweight_add_abstraction S weight i A :
-  fresh_abstraction S i ->
-  sweight weight (S,,, i |-> A) = sweight weight S + map_sum (vweight weight) A.
-Proof.
-  intros ?. unfold sweight, get_map. cbn. rewrite flatten_insert' by assumption.
-  rewrite sum_maps_union. rewrite map_sum_union. rewrite !map_sum_kmap by typeclasses eauto.
-  reflexivity.
-  apply map_disjoint_spec. intros j ? ? lookup_l.
-  intros ((? & ?) & ? & (? & (? & ?)%pair_eq & ?)%lookup_kmap_Some)%lookup_kmap_Some.
-  subst. rewrite sum_maps_lookup_r, lookup_None_flatten in lookup_l by assumption.
-  discriminate. all: typeclasses eauto.
-Qed.
-Hint Rewrite sweight_add_abstraction using cbn; simpl_map; auto : weight.
-
 Definition remove_anon a S :=
   {| vars := vars S; anons := delete a (anons S); abstractions := abstractions S|}.
 
-Lemma add_anon_remove_anon S a v :
-  lookup (anon_accessor a) (get_map S) = Some v -> (remove_anon a S),, a |-> v = S.
-Proof.
-  intros ?. destruct S. unfold add_anon, remove_anon. cbn. f_equal.
-  apply insert_delete. revert H.
-  cbn. unfold encode_anon. rewrite sum_maps_lookup_l, sum_maps_lookup_r. auto.
-Qed.
-
-(* Note: this is a general lemma on states, that could be moved into PathToSubtree.v *)
-Lemma add_anons_states_eq S S' a v w
-  (fresh_a_S : fresh_anon S a) (fresh_a_S' : fresh_anon S' a)
-  (H : S,, a |-> v = S',, a |-> w) : S = S'.
-Proof.
-  apply state_eq_ext.
-  - apply (f_equal get_map) in H. rewrite !get_map_add_anon in H.
-    apply (f_equal (delete (anon_accessor a))) in H.
-    rewrite !delete_insert in H by assumption. exact H.
-  - apply (f_equal get_extra) in H. rewrite !get_extra_add_anon in H. exact H.
-Qed.
-
-Lemma remove_anon_is_fresh S a : fresh_anon (remove_anon a S) a.
-Proof.
-  unfold fresh_anon, remove_anon, get_map. cbn. unfold encode_anon.
-  rewrite sum_maps_lookup_l, sum_maps_lookup_r. apply lookup_delete.
-Qed.
-Hint Resolve remove_anon_is_fresh : weight.
-Hint Rewrite @sweight_add_anon using auto with weight : weight.
-
-Lemma remove_anon_fresh S a : fresh_anon S a -> remove_anon a S = S.
-Proof.
-  unfold fresh_anon, remove_anon. intros H. rewrite delete_notin.
-  - destruct S. cbn. reflexivity.
-  - unfold get_map, encode_anon in H. cbn in H. unfold encode_anon in H.
-    rewrite sum_maps_lookup_l, sum_maps_lookup_r in H. exact H.
-Qed.
-
-Lemma get_map_remove_anon S a : get_map (remove_anon a S) = delete (encode_anon a) (get_map S).
-Proof.
-  destruct (lookup (anon_accessor a) (get_map S)) eqn:EQN.
-  - apply add_anon_remove_anon in EQN. rewrite<- EQN at 2.
-    rewrite get_map_add_anon. symmetry. apply delete_insert, remove_anon_is_fresh.
-  - rewrite delete_notin by assumption. f_equal. apply remove_anon_fresh. assumption.
-Qed.
-
-Lemma remove_anon_add_anon S a v : fresh_anon S a -> remove_anon a (S,, a |-> v) = S.
-Proof.
-  intros H. apply add_anons_states_eq with (a := a) (v := v) (w := v).
-  - apply remove_anon_is_fresh.
-  - assumption.
-  - rewrite add_anon_remove_anon; [reflexivity | ].
-    rewrite get_map_add_anon. simpl_map. reflexivity.
-Qed.
-
-Lemma sget_remove_anon S a sp :
-  fst sp <> anon_accessor a -> (remove_anon a S).[sp] = S.[sp].
-Proof.
-  unfold sget. intros ?. rewrite get_map_remove_anon, lookup_delete_ne by auto. reflexivity.
-Qed.
-Hint Rewrite sget_remove_anon using auto with spath : spath.
-
-Lemma sset_remove_anon S a sp v :
-  fst sp = anon_accessor a -> remove_anon a (S.[sp <- v]) = remove_anon a S.
-Proof.
-  intros ?.
-  destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
-  - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 1.
-    rewrite sset_anon by assumption.
-    apply remove_anon_add_anon. apply remove_anon_is_fresh.
-  - rewrite sset_invalid; [reflexivity | ]. intros (? & ? & _). congruence.
-Qed.
-
-Corollary sset_remove_anon_2 S a p q v w :
-  fst p = anon_accessor a -> disj p q ->
-  remove_anon a (S.[p <- v].[q <- w]) = remove_anon a (S.[q <- w]).
-Proof.
-  intros. rewrite sset_twice_disj_commute, sset_remove_anon by assumption. reflexivity.
-Qed.
-
-Lemma sset_remove_anon_ne S a sp v :
-  fst sp <> anon_accessor a -> (remove_anon a S).[sp <- v] = remove_anon a (S.[sp <- v]).
-Proof.
-  intros ?.
-  destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
-  - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 2.
-    rewrite sset_add_anon by assumption.
-    + symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
-  - rewrite !remove_anon_fresh by auto with spath. reflexivity.
-Qed.
-Hint Rewrite sset_remove_anon_ne using auto with spath : spath.
-Hint Rewrite sset_remove_anon_2 using auto with spath : spath.
-
 Definition remove_abstraction i S :=
   {|vars := vars S; anons := anons S; abstractions := delete i (abstractions S)|}.
+
+(* Remove the value at j in the region abstraction at i, if this value exists. *)
+Definition remove_abstraction_value S i j :=
+  {|vars := vars S; anons := anons S; abstractions := alter (delete j) i (abstractions S)|}.
 
 Lemma add_remove_abstraction i A S (H : lookup i (abstractions S) = Some A) :
   (remove_abstraction i S),,, i |-> A = S.
@@ -822,6 +640,189 @@ Hint Rewrite remvoe_abstraction_value_add_anon : spath.
 
 (* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
 Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
+
+Variant is_integer : LLBC_plus_val -> Prop :=
+  | Symbolic_is_integer : is_integer LLBC_plus_symbolic
+  | Integer_is_integer n : is_integer (LLBC_plus_int n).
+
+Variant add_anons : LLBC_plus_state -> Pmap LLBC_plus_val -> LLBC_plus_state -> Prop :=
+  | AddAnons S A anons' : merge_maps (anons S) A anons' ->
+      add_anons S A {|vars := vars S; anons := anons'; abstractions := abstractions S|}.
+
+Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
+(* Ends a borrow when it's not in an abstraction: *)
+| Reorg_end_borrow_m S (p q : spath) l :
+    disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
+    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
+    not_in_abstraction p -> not_in_abstraction q ->
+    reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
+(* Ends a borrow when it's in an abstraction: *)
+(* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
+| Reorg_end_borrow_m_in_abstraction S q i j l :
+    fst q <> encode_abstraction (i, j) -> abstraction_contains_value S i j loan^m(l) ->
+    get_node (S.[q]) = borrowC^m(l) -> is_integer (S.[q +++ [0] ]) ->
+    not_in_borrow S q -> not_in_abstraction q ->
+    reorg S ((remove_abstraction_value S i j).[q <- bot])
+(* q refers to a path in abstraction A, at index j. *)
+| Reorg_end_abstraction S i A S' :
+    lookup i (abstractions S) = Some A -> map_Forall (fun _ => not_contains_loan) A ->
+    add_anons (remove_abstraction i S) A S' -> reorg S S'.
+
+(* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
+ * evaluated to a pair (v, S). *)
+Variant store (p : place) : LLBC_plus_val * LLBC_plus_state -> LLBC_plus_state -> Prop :=
+| Store v S (sp : spath) (a : anon)
+  (eval_p : (S,, a |-> v) |-{p} p =>^{Mut} sp)
+  (no_outer_loan : not_contains_outer_loan (S.[sp])) :
+  fresh_anon S a -> store p (v, S) (S.[sp <- v],, a |-> S.[sp])
+.
+
+(* When introducing non-terminating features (loops or recursivity), the signature of the relation
+   is going to be:
+   LLBC_plus_state -> statement -> nat -> Option (statement_result * LLBC_plus_state) -> Prop
+*)
+Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
+Inductive eval_stmt : statement -> statement_result -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
+  | Eval_nop S : S |-{stmt} Nop => rUnit, S
+  | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
+      (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
+  | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
+      S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
+  | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
+      S |-{stmt} ASSIGN p <- rv => rUnit, S''
+  | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
+      S0 |-{stmt} stmt => r, S2
+where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
+
+(* A version of to-abs that is limited compared to the paper. Currently, we can only turn into a
+ * region abstraction a value of the form:
+ * - borrow^m l σ (with σ a symbolic value)
+ * - borrow^m l0 (loan^m l1)
+ * Consequently, a single region abstraction is created.
+ *)
+Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
+| ToAbs_MutReborrow l0 l1:
+    to_abs (borrow^m(l0, loan^m(l1)))
+           ({[1%positive := (borrow^m(l0, LLBC_plus_symbolic)); 2%positive := loan^m(l1)]})%stdpp
+| ToAbs_MutBorrow l v (Hv : is_integer v):
+    to_abs (borrow^m(l, v)) ({[1%positive := (borrow^m(l, LLBC_plus_symbolic))]})%stdpp
+.
+
+Inductive merge_abstractions :
+  Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
+  | MergeAbsEmpty A : merge_abstractions A empty A
+  | MergeAbsInsert A B C i j x :
+      lookup i A = None -> lookup j B = None ->
+      merge_abstractions (insert i x A) B C -> merge_abstractions A (insert j x B) C
+  | MergeAbs_Mut A B C i j l (H : merge_abstractions A B C) :
+      lookup i A = None -> lookup j B = None ->
+      merge_abstractions (insert i (loan^m(l)) A) (insert j (borrow^m(l, LLBC_plus_symbolic)) B) C
+.
+
+Lemma sweight_add_abstraction S weight i A :
+  fresh_abstraction S i ->
+  sweight weight (S,,, i |-> A) = sweight weight S + map_sum (vweight weight) A.
+Proof.
+  intros ?. unfold sweight, get_map. cbn. rewrite flatten_insert' by assumption.
+  rewrite sum_maps_union. rewrite map_sum_union. rewrite !map_sum_kmap by typeclasses eauto.
+  reflexivity.
+  apply map_disjoint_spec. intros j ? ? lookup_l.
+  intros ((? & ?) & ? & (? & (? & ?)%pair_eq & ?)%lookup_kmap_Some)%lookup_kmap_Some.
+  subst. rewrite sum_maps_lookup_r, lookup_None_flatten in lookup_l by assumption.
+  discriminate. all: typeclasses eauto.
+Qed.
+Hint Rewrite sweight_add_abstraction using cbn; simpl_map; auto : weight.
+
+Lemma add_anon_remove_anon S a v :
+  lookup (anon_accessor a) (get_map S) = Some v -> (remove_anon a S),, a |-> v = S.
+Proof.
+  intros ?. destruct S. unfold add_anon, remove_anon. cbn. f_equal.
+  apply insert_delete. revert H.
+  cbn. unfold encode_anon. rewrite sum_maps_lookup_l, sum_maps_lookup_r. auto.
+Qed.
+
+(* Note: this is a general lemma on states, that could be moved into PathToSubtree.v *)
+Lemma add_anons_states_eq S S' a v w
+  (fresh_a_S : fresh_anon S a) (fresh_a_S' : fresh_anon S' a)
+  (H : S,, a |-> v = S',, a |-> w) : S = S'.
+Proof.
+  apply state_eq_ext.
+  - apply (f_equal get_map) in H. rewrite !get_map_add_anon in H.
+    apply (f_equal (delete (anon_accessor a))) in H.
+    rewrite !delete_insert in H by assumption. exact H.
+  - apply (f_equal get_extra) in H. rewrite !get_extra_add_anon in H. exact H.
+Qed.
+
+Lemma remove_anon_is_fresh S a : fresh_anon (remove_anon a S) a.
+Proof.
+  unfold fresh_anon, remove_anon, get_map. cbn. unfold encode_anon.
+  rewrite sum_maps_lookup_l, sum_maps_lookup_r. apply lookup_delete.
+Qed.
+Hint Resolve remove_anon_is_fresh : weight.
+Hint Rewrite @sweight_add_anon using auto with weight : weight.
+
+Lemma remove_anon_fresh S a : fresh_anon S a -> remove_anon a S = S.
+Proof.
+  unfold fresh_anon, remove_anon. intros H. rewrite delete_notin.
+  - destruct S. cbn. reflexivity.
+  - unfold get_map, encode_anon in H. cbn in H. unfold encode_anon in H.
+    rewrite sum_maps_lookup_l, sum_maps_lookup_r in H. exact H.
+Qed.
+
+Lemma get_map_remove_anon S a : get_map (remove_anon a S) = delete (encode_anon a) (get_map S).
+Proof.
+  destruct (lookup (anon_accessor a) (get_map S)) eqn:EQN.
+  - apply add_anon_remove_anon in EQN. rewrite<- EQN at 2.
+    rewrite get_map_add_anon. symmetry. apply delete_insert, remove_anon_is_fresh.
+  - rewrite delete_notin by assumption. f_equal. apply remove_anon_fresh. assumption.
+Qed.
+
+Lemma remove_anon_add_anon S a v : fresh_anon S a -> remove_anon a (S,, a |-> v) = S.
+Proof.
+  intros H. apply add_anons_states_eq with (a := a) (v := v) (w := v).
+  - apply remove_anon_is_fresh.
+  - assumption.
+  - rewrite add_anon_remove_anon; [reflexivity | ].
+    rewrite get_map_add_anon. simpl_map. reflexivity.
+Qed.
+
+Lemma sget_remove_anon S a sp :
+  fst sp <> anon_accessor a -> (remove_anon a S).[sp] = S.[sp].
+Proof.
+  unfold sget. intros ?. rewrite get_map_remove_anon, lookup_delete_ne by auto. reflexivity.
+Qed.
+Hint Rewrite sget_remove_anon using auto with spath : spath.
+
+Lemma sset_remove_anon S a sp v :
+  fst sp = anon_accessor a -> remove_anon a (S.[sp <- v]) = remove_anon a S.
+Proof.
+  intros ?.
+  destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
+  - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 1.
+    rewrite sset_anon by assumption.
+    apply remove_anon_add_anon. apply remove_anon_is_fresh.
+  - rewrite sset_invalid; [reflexivity | ]. intros (? & ? & _). congruence.
+Qed.
+
+Corollary sset_remove_anon_2 S a p q v w :
+  fst p = anon_accessor a -> disj p q ->
+  remove_anon a (S.[p <- v].[q <- w]) = remove_anon a (S.[q <- w]).
+Proof.
+  intros. rewrite sset_twice_disj_commute, sset_remove_anon by assumption. reflexivity.
+Qed.
+
+Lemma sset_remove_anon_ne S a sp v :
+  fst sp <> anon_accessor a -> (remove_anon a S).[sp <- v] = remove_anon a (S.[sp <- v]).
+Proof.
+  intros ?.
+  destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
+  - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 2.
+    rewrite sset_add_anon by assumption.
+    + symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
+  - rewrite !remove_anon_fresh by auto with spath. reflexivity.
+Qed.
+Hint Rewrite sset_remove_anon_ne using auto with spath : spath.
+Hint Rewrite sset_remove_anon_2 using auto with spath : spath.
 
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Contrary to the article, symbolic values should be typed. Thus, only an integer can be converted
@@ -1960,8 +1961,8 @@ Proof.
     + destruct (decide (i = i0)) as [<- | ].
       * cbn in H. rewrite lookup_insert in H. inversion H. subst.
         destruct Hto_abs.
-        -- exfalso. rewrite map_Forall_lookup in H1.
-           eapply H1 with (i := 2%positive).
+        -- exfalso. rewrite map_Forall_lookup in H0.
+           eapply H0 with (i := 2%positive).
            simpl_map. reflexivity.
            constructor.
            constructor.
@@ -2251,10 +2252,10 @@ Section Eval_LLBC_plus_program.
       (* ... so that we could end the region abstraction ... *)
       { constructor. eapply Reorg_end_abstraction with (i := 1%positive).
         - reflexivity.
-        - cbn. apply MergeInsert with (j := 2%positive); [reflexivity | ].
+        - compute_done.
+        - constructor. cbn. apply MergeInsert with (j := 2%positive); [reflexivity | ].
           apply MergeInsert with (j := 3%positive); [reflexivity | ].
           apply MergeEmpty.
-        - compute_done.
       }
       simpl_state.
       (* ... so that we could end the loan lx. *)
