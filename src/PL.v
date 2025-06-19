@@ -10,6 +10,7 @@ From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
 
 Require Import PathToSubtree.
+Require Import HLPL.
 
 
 Definition block_id := positive.
@@ -121,53 +122,81 @@ Variant write (S : PL_state) (p : place) (t : type) (vl : pl_val)
 
 
 (* Evaluation of Expressions in PL *)
-Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
+Local Reserved Notation "S  |-{op-pl}  op  =>  r" (at level 60).
 Variant eval_operand : operand -> PL_state -> pl_val -> Prop :=
 | Eval_IntConst S t n :
-  S |-{op} IntConst t n => [PL_int n]
+  S |-{op-pl} IntConst t n => [PL_int n]
 | Eval_copy S t p vl
     (Hread : read S p t vl) :
-  S |-{op} Copy t p => vl
+  S |-{op-pl} Copy t p => vl
 | Eval_move S t p vl
     (Hread : read S p t vl) :
-  S |-{op} Move t p => vl
-where "S |-{op} op => r" := (eval_operand op S r).
+  S |-{op-pl} Move t p => vl
+where "S |-{op-pl} op => r" := (eval_operand op S r).
 
-Local Reserved Notation "S  |-{rv}  rv =>  r" (at level 60).
+Local Reserved Notation "S  |-{rv-pl}  rv =>  r" (at level 60).
 Variant eval_rvalue: rvalue -> PL_state -> pl_val -> Prop :=
 | Eval_just S t op vl
-  (Hop : S |-{op} op => vl) :
-  S |-{rv} Just t op => vl
+  (Hop : S |-{op-pl} op => vl) :
+  S |-{rv-pl} Just t op => vl
 | Eval_bin_op S t op_l n_l op_r n_r
-    (Hl : S |-{op} op_l => [PL_int n_l])
-    (Hr : S |-{op} op_r => [PL_int n_r]) :
-  S |-{rv} BinOp t op_l op_r => [PL_int (n_l + n_r)]
+    (Hl : S |-{op-pl} op_l => [PL_int n_l])
+    (Hr : S |-{op-pl} op_r => [PL_int n_r]) :
+  S |-{rv-pl} BinOp t op_l op_r => [PL_int (n_l + n_r)]
 | Eval_ptr S t p addr
     (Haddr : read_address S p t addr) :
-  S |-{rv} &mut p : (TRef t) => [PL_address addr]
+  S |-{rv-pl} &mut p : (TRef t) => [PL_address addr]
 | Eval_pair S t op_l vl_l op_r vl_r
-    (Hl : S |-{op} op_l => vl_l)
-    (Hr : S |-{op} op_r => vl_r) :
-  S |-{rv} Pair t op_l op_r =>  (vl_l ++ vl_r)
-where "S |-{rv} rv => r" := (eval_rvalue rv S r).
+    (Hl : S |-{op-pl} op_l => vl_l)
+    (Hr : S |-{op-pl} op_r => vl_r) :
+  S |-{rv-pl} Pair t op_l op_r =>  (vl_l ++ vl_r)
+where "S |-{rv-pl} rv => r" := (eval_rvalue rv S r).
 
-Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
+Reserved Notation "S  |-{stmt-pl}  stmt  =>  r , S'" (at level 50).
 
 Inductive eval_stmt : statement -> statement_result -> PL_state -> PL_state -> Prop :=
-| Eval_nop S : S |-{stmt} Nop => rUnit, S
+| Eval_nop S : S |-{stmt-pl} Nop => rUnit, S
 | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r
-    (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
-    (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :
-  S0 |-{stmt} stmt_l ;; stmt_r => r, S2
+    (eval_stmt_l : S0 |-{stmt-pl} stmt_l => rUnit, S1)
+    (eval_stmt_r : S1 |-{stmt-pl} stmt_r => r, S2) :
+  S0 |-{stmt-pl} stmt_l ;; stmt_r => r, S2
 | Eval_seq_panic S0 S1 stmt_l stmt_r
-    (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
-  S0 |-{stmt} stmt_l ;; stmt_r => rPanic, S1
+    (eval_stmt_l : S0 |-{stmt-pl} stmt_l => rPanic, S1) :
+  S0 |-{stmt-pl} stmt_l ;; stmt_r => rPanic, S1
 | Eval_assign S vl S' p rv t
-    (eval_rv : S |-{rv} rv => vl)
+    (eval_rv : S |-{rv-pl} rv => vl)
     (Hwrite : write S p t vl S'):
-  S |-{stmt} ASSIGN p <- rv => rUnit, S'
-where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
+  S |-{stmt-pl} ASSIGN p <- rv => rUnit, S'
+where "S |-{stmt-pl} stmt => r , S'" := (eval_stmt stmt r S S').
 
+(* Concretization of HLPL values to PL values *)
+
+Section Concretization.
+  Variable blockof : var -> option (block_id * type).
+  Variable addrof : loan_id -> option address.
+
+  Definition HLPL_lit_to_PL_lit (v : HLPL_val) : PL_val :=
+    match v with
+    | HLPL_int n => PL_int n
+    | _ => PL_bot
+    end.
+
+  Inductive concr_val_hlpl : HLPL_val -> type -> pl_val -> Prop :=
+  | Concr_lit (v : HLPL_val) t : concr_val_hlpl v t [HLPL_lit_to_PL_lit v]
+  | Concr_bot s t (Hs : s = ListDef.repeat PL_poison (sizeof t)) : 
+    concr_val_hlpl HLPL_bot t s
+  | Concr_pair v0 t0 vl0 v1 t1 vl1
+      (H0 : concr_val_hlpl v0 t0 vl0)
+      (H1 : concr_val_hlpl v1 t1 vl1) :
+    concr_val_hlpl (HLPL_pair v0 v1) (TPair t0 t1) (vl0 ++ vl1)
+  | Concr_loc l v t vl
+      (Hv : concr_val_hlpl v t vl) :
+    concr_val_hlpl (HLPL_loc l v) t vl
+  | Concr_ptr_loc l addr t
+      (Haddr : addrof l = Some addr) :
+    concr_val_hlpl (HLPL_ptr l) (TRef t) [PL_address addr]
+  .
+End Concretization.
 
 Section Tests.
   Notation x := 1%positive.
@@ -175,6 +204,8 @@ Section Tests.
   Notation b1 := 1%positive.
   Notation b2 := 2%positive.
   Notation b3 := 3%positive.
+  Notation l1 := 0%nat.
+  Notation l2 := 1%nat.
 
   Local Open Scope stdpp_scope.
 
@@ -265,52 +296,83 @@ Section Tests.
 
   (** EXPRESSION EVALUATION TESTS **)
 
-  Goal pl_state_1 |-{op} IntConst TInt 3 => [PL_int 3].
+  Goal pl_state_1 |-{op-pl} IntConst TInt 3 => [PL_int 3].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_2 |-{op} Copy (TPair TInt TInt) (x, []) => [PL_poison ; PL_poison].
+  Goal pl_state_2 |-{op-pl} Copy (TPair TInt TInt) (x, []) => [PL_poison ; PL_poison].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_2 |-{op} Move (TPair TInt TInt) (x, []) => [PL_poison ; PL_poison].
+  Goal pl_state_2 |-{op-pl} Move (TPair TInt TInt) (x, []) => [PL_poison ; PL_poison].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_2 |-{rv} Just (TPair TInt TInt) (Copy (TPair TInt TInt) (x, [])) =>
+  Goal pl_state_2 |-{rv-pl} Just (TPair TInt TInt) (Copy (TPair TInt TInt) (x, [])) =>
          [PL_poison ; PL_poison].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv} BinOp TInt (INT 1) (INT 4) => [PL_int (1 + 4)].
+  Goal pl_state_1 |-{rv-pl} BinOp TInt (INT 1) (INT 4) => [PL_int (1 + 4)].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_6 |-{rv} BinOp TInt (Move TInt (x, [Field(Second) ; Field(Second)])) (INT 4) =>
+  Goal pl_state_6 |-{rv-pl} BinOp TInt (Move TInt (x, [Field(Second) ; Field(Second)])) (INT 4) =>
          [PL_int (7 + 4)].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv} &mut (x, []) : (TRef TInt) => [PL_address (b1, 0)].
+  Goal pl_state_1 |-{rv-pl} &mut (x, []) : (TRef TInt) => [PL_address (b1, 0)].
   Proof. repeat econstructor.  Qed.
 
-  Goal pl_state_1 |-{rv} Pair (TPair TInt TInt) (IntConst TInt 0) (IntConst TInt 1)
+  Goal pl_state_1 |-{rv-pl} Pair (TPair TInt TInt) (IntConst TInt 0) (IntConst TInt 1)
        => ([PL_int 0] ++ [PL_int 1]).
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv} Pair (TPair TInt TInt) (IntConst TInt 0) (Move TInt (x, []))
+  Goal pl_state_1 |-{rv-pl} Pair (TPair TInt TInt) (IntConst TInt 0) (Move TInt (x, []))
        => ([PL_int 0] ++ [PL_poison]).
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{stmt} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_7.
+  Goal pl_state_1 |-{stmt-pl} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_7.
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{stmt} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_1.
+  Goal pl_state_1 |-{stmt-pl} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_1.
   Proof. repeat econstructor. Fail reflexivity. Abort.
 
-  Goal pl_state_8 |-{stmt}
+  Goal pl_state_8 |-{stmt-pl}
                      ASSIGN (x, []) <- Just TInt (INT 3) ;;
                      ASSIGN (y, []) <- Just TInt (INT 7)
        => rUnit, pl_state_9.
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_8 |-{stmt}
+  Goal pl_state_8 |-{stmt-pl}
                      ASSIGN (x, []) <- Just TInt (INT 3) ;;
                      ASSIGN (y, []) <- Just TInt (INT 7)
        => rUnit, pl_state_8.
   Proof. repeat econstructor. Fail reflexivity. Abort.
+
+  (** CONCRETIZATION TESTS **)
+
+  Definition addroff := (fun l => if l =? l1 then Some (b1, 1) else None).
+
+  Goal concr_val_hlpl addroff (HLPL_int 3) TInt [PL_int 3].
+  Proof. repeat econstructor. Qed.
+
+  Goal concr_val_hlpl addroff (loc (l1, (HLPL_int 3))) TInt [PL_int 3].
+  Proof. repeat econstructor. Qed.
+
+  Goal concr_val_hlpl addroff HLPL_bot (TPair TInt TInt) [PL_poison ; PL_poison].
+  Proof. repeat econstructor. Qed.
+
+  Goal concr_val_hlpl addroff
+    HLPL_bot (TPair (TPair TInt TInt) TInt) [PL_poison ; PL_poison ; PL_poison].
+  Proof. repeat econstructor. Qed.
+
+  Goal concr_val_hlpl addroff
+    (HLPL_pair (HLPL_int 3) (HLPL_int 4)) (TPair TInt TInt)
+    ([PL_int 3] ++ [PL_int 4]).
+  Proof. repeat econstructor. Qed.
+
+  Goal concr_val_hlpl addroff
+    (HLPL_pair (HLPL_int 3) (HLPL_pair (HLPL_int 7) (HLPL_int 11))) (TPair TInt (TPair TInt TInt))
+    ([PL_int 3] ++ ([PL_int 7] ++ [PL_int 11])).
+  Proof. repeat econstructor. Qed.
+
+  Goal concr_val_hlpl addroff
+    (ptr (l1)) (TRef TInt) [PL_address (b1, 1)].
+  Proof. repeat econstructor. Qed.
 End Tests.
