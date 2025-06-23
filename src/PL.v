@@ -173,16 +173,11 @@ where "S |-{stmt-pl} stmt => r , S'" := (eval_stmt stmt r S S').
 
 Section Concretization.
   Variable blockof : var -> option (block_id * type).
+  Variable blockofinv : block_id * type -> option var.
   Variable addrof : loan_id -> option address.
 
-  Definition HLPL_lit_to_PL_lit (v : HLPL_val) : PL_val :=
-    match v with
-    | HLPL_int n => PL_int n
-    | _ => PL_bot
-    end.
-
   Inductive concr_val_hlpl : HLPL_val -> type -> pl_val -> Prop :=
-  | Concr_lit (v : HLPL_val) t : concr_val_hlpl v t [HLPL_lit_to_PL_lit v]
+  | Concr_lit n : concr_val_hlpl (HLPL_int n) TInt [PL_int n]
   | Concr_bot s t (Hs : s = ListDef.repeat PL_poison (sizeof t)) : 
     concr_val_hlpl HLPL_bot t s
   | Concr_pair v0 t0 vl0 v1 t1 vl1
@@ -196,6 +191,53 @@ Section Concretization.
       (Haddr : addrof l = Some addr) :
     concr_val_hlpl (HLPL_ptr l) (TRef t) [PL_address addr]
   .
+
+  Fixpoint concr_val_hlpl_comp (v : HLPL_val) (t : type) :=
+    match v, t with
+    | HLPL_int n, TInt =>
+        [ PL_int n ]
+    | HLPL_bot, _ =>
+        ListDef.repeat PL_poison (sizeof t)
+    | HLPL_pair v0 v1, TPair t0 t1 =>
+        concr_val_hlpl_comp v0 t0 ++ concr_val_hlpl_comp v1 t1
+    | HLPL_loc l v, t =>
+        concr_val_hlpl_comp v t
+    | HLPL_ptr l, TRef t =>
+        match addrof l with
+        | Some addr => [PL_address addr]
+        | _ => []
+        end
+    | _, _ => []
+   end. 
+
+  Lemma concr_val_hlpl_comp_prop : forall v t vl,
+      vl <> [] -> concr_val_hlpl_comp v t = vl -> concr_val_hlpl v t vl.
+  Proof.
+    intros v t vl Heq H; induction v ; subst.
+    * destruct t; simpl in *; intros; constructor; easy.
+    * destruct t; simpl in * ; try constructor; contradiction.
+    * constructor; auto.
+    * admit.
+    * destruct t; try apply Concr_pair.
+
+
+  Local Open Scope stdpp_scope.
+
+  Definition concr_state_hlpl (S : HLPL_state) :=
+    {|
+      env := set_fold
+               (fun pos (env : Pmap (block_id * type)) =>
+                  match decode' (A := var + anon) pos, blockof x with
+                  | Some (inl x), Some (bi, t) =>
+                      <[ (encode (A := var) x) := (bi, t) ]> env
+                  | _, _ => env
+                  end
+               )
+               Pmap_empty
+               (Pmap_dom (vars S)) ;
+
+      heap := Pmap_empty
+    |}.
 End Concretization.
 
 Section Tests.
