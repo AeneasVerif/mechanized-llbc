@@ -175,6 +175,7 @@ Section Concretization.
   Variable blockof : var -> option (block_id * type).
   Variable blockofinv : block_id * type -> option var.
   Variable addrof : loan_id -> option address.
+  Variable imageof : list (block_id * type).
 
   Inductive concr_val_hlpl : HLPL_val -> type -> pl_val -> Prop :=
   | Concr_lit n : concr_val_hlpl (HLPL_int n) TInt [PL_int n]
@@ -195,48 +196,94 @@ Section Concretization.
   Fixpoint concr_val_hlpl_comp (v : HLPL_val) (t : type) :=
     match v, t with
     | HLPL_int n, TInt =>
-        [ PL_int n ]
+        Some [ PL_int n ]
     | HLPL_bot, _ =>
-        ListDef.repeat PL_poison (sizeof t)
+        Some (ListDef.repeat PL_poison (sizeof t))
     | HLPL_pair v0 v1, TPair t0 t1 =>
-        concr_val_hlpl_comp v0 t0 ++ concr_val_hlpl_comp v1 t1
+        match concr_val_hlpl_comp v0 t0, concr_val_hlpl_comp v1 t1 with
+        | Some vl0, Some vl1 => Some (vl0 ++ vl1)
+        | _, _ => None
+        end
     | HLPL_loc l v, t =>
         concr_val_hlpl_comp v t
     | HLPL_ptr l, TRef t =>
         match addrof l with
-        | Some addr => [PL_address addr]
-        | _ => []
+        | Some addr => Some [PL_address addr]
+        | _ => None
         end
-    | _, _ => []
+    | _, _ => None
    end. 
 
-  Lemma concr_val_hlpl_comp_prop : forall v t vl,
-      vl <> [] -> concr_val_hlpl_comp v t = vl -> concr_val_hlpl v t vl.
+  Lemma concr_val_comp_implies_concr_val: forall v t vl,
+       concr_val_hlpl_comp v t = Some vl -> concr_val_hlpl v t vl.
   Proof.
-    intros v t vl Heq H; induction v ; subst.
-    * destruct t; simpl in *; intros; constructor; easy.
-    * destruct t; simpl in * ; try constructor; contradiction.
-    * constructor; auto.
-    * admit.
-    * destruct t; try apply Concr_pair.
+    intros v ; induction v; intros t vl H ; subst.
+    - destruct t; simpl in * ;
+        injection H ; intros ; constructor; easy.
+    - destruct t; simpl in * ;
+        try injection H as H; subst ; try constructor ; discriminate.
+    - constructor; auto.
+    - destruct t ; simpl in * ; try discriminate.
+      destruct (addrof l) eqn:Haddr.
+      * injection H as H ; subst ; constructor. assumption.
+      * discriminate.
+    - destruct t; try discriminate ; simpl in *.
+      remember (concr_val_hlpl_comp v1 t1) as concr1.
+      remember (concr_val_hlpl_comp v2 t2) as concr2.
+      destruct concr1, concr2; try (subst ; discriminate). 
+      injection H as H ; rewrite <- H. constructor ; auto.
+Qed.  
 
+  Lemma concr_val_implies_concr_val_comp : forall v t vl,
+       concr_val_hlpl v t vl -> concr_val_hlpl_comp v t = Some vl.
+  Proof.
+    intros v t vl H ; induction H; subst ; simpl ; try easy.
+    - rewrite IHconcr_val_hlpl1, IHconcr_val_hlpl2; reflexivity.
+    - rewrite Haddr ; easy.
+  Qed.
+
+  Lemma concr_val_eq_concr_val_comp : forall v t vl,
+      concr_val_hlpl v t vl <-> concr_val_hlpl_comp v t = Some vl.
+  Proof.
+    split.
+    apply concr_val_implies_concr_val_comp. apply concr_val_comp_implies_concr_val.
+  Qed.
 
   Local Open Scope stdpp_scope.
 
   Definition concr_state_hlpl (S : HLPL_state) :=
     {|
-      env := set_fold
-               (fun pos (env : Pmap (block_id * type)) =>
-                  match decode' (A := var + anon) pos, blockof x with
-                  | Some (inl x), Some (bi, t) =>
-                      <[ (encode (A := var) x) := (bi, t) ]> env
-                  | _, _ => env
-                  end
-               )
-               Pmap_empty
-               (Pmap_dom (vars S)) ;
+      env :=
+        set_fold
+          (fun pos (env : Pmap (block_id * type)) =>
+             match decode' (A := var + anon) pos, blockof x with
+             | Some (inl x), Some (bi, t) =>
+                 <[ (encode (A := var) x) := (bi, t) ]> env
+             | _, _ => env
+             end
+          )
+          Pmap_empty
+          (Pmap_dom (vars S)) ;
 
-      heap := Pmap_empty
+      heap :=
+        fold_right
+          (fun (tbi : block_id * type) (heap : Pmap (list PL_val)) =>
+             match blockofinv tbi with
+             | Some var =>
+                 match lookup var (vars S) with
+                 | Some v =>
+                     match concr_val_hlpl_comp v (snd tbi) with
+                     | Some vl =>
+                         <[ encode (A := block_id) tbi.1 := vl ]> heap
+                     | None => heap
+                     end
+                 | None => heap
+                 end
+             | None => heap
+             end
+          )
+          Pmap_empty
+          imageof
     |}.
 End Concretization.
 
