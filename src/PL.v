@@ -177,35 +177,37 @@ Section Concretization.
   Variable addrof : loan_id -> option address.
   Variable imageof : list (block_id * type).
 
-  Inductive concr_val_hlpl : HLPL_val -> type -> pl_val -> Prop :=
-  | Concr_lit n : concr_val_hlpl (HLPL_int n) TInt [PL_int n]
+  Local Open Scope stdpp_scope.
+
+  Inductive concr_hlpl_val : HLPL_val -> type -> pl_val -> Prop :=
+  | Concr_lit n : concr_hlpl_val (HLPL_int n) TInt [PL_int n]
   | Concr_bot s t (Hs : s = ListDef.repeat PL_poison (sizeof t)) : 
-    concr_val_hlpl HLPL_bot t s
+    concr_hlpl_val HLPL_bot t s
   | Concr_pair v0 t0 vl0 v1 t1 vl1
-      (H0 : concr_val_hlpl v0 t0 vl0)
-      (H1 : concr_val_hlpl v1 t1 vl1) :
-    concr_val_hlpl (HLPL_pair v0 v1) (TPair t0 t1) (vl0 ++ vl1)
+      (H0 : concr_hlpl_val v0 t0 vl0)
+      (H1 : concr_hlpl_val v1 t1 vl1) :
+    concr_hlpl_val (HLPL_pair v0 v1) (TPair t0 t1) (vl0 ++ vl1)
   | Concr_loc l v t vl
-      (Hv : concr_val_hlpl v t vl) :
-    concr_val_hlpl (HLPL_loc l v) t vl
+      (Hv : concr_hlpl_val v t vl) :
+    concr_hlpl_val (HLPL_loc l v) t vl
   | Concr_ptr_loc l addr t
       (Haddr : addrof l = Some addr) :
-    concr_val_hlpl (HLPL_ptr l) (TRef t) [PL_address addr]
+    concr_hlpl_val (HLPL_ptr l) (TRef t) [PL_address addr]
   .
 
-  Fixpoint concr_val_hlpl_comp (v : HLPL_val) (t : type) :=
+  Fixpoint concr_hlpl_val_comp (v : HLPL_val) (t : type) :=
     match v, t with
     | HLPL_int n, TInt =>
         Some [ PL_int n ]
     | HLPL_bot, _ =>
         Some (ListDef.repeat PL_poison (sizeof t))
     | HLPL_pair v0 v1, TPair t0 t1 =>
-        match concr_val_hlpl_comp v0 t0, concr_val_hlpl_comp v1 t1 with
+        match concr_hlpl_val_comp v0 t0, concr_hlpl_val_comp v1 t1 with
         | Some vl0, Some vl1 => Some (vl0 ++ vl1)
         | _, _ => None
         end
     | HLPL_loc l v, t =>
-        concr_val_hlpl_comp v t
+        concr_hlpl_val_comp v t
     | HLPL_ptr l, TRef t =>
         match addrof l with
         | Some addr => Some [PL_address addr]
@@ -215,7 +217,7 @@ Section Concretization.
    end. 
 
   Lemma concr_val_comp_implies_concr_val: forall v t vl,
-       concr_val_hlpl_comp v t = Some vl -> concr_val_hlpl v t vl.
+       concr_hlpl_val_comp v t = Some vl -> concr_hlpl_val v t vl.
   Proof.
     intros v ; induction v; intros t vl H ; subst.
     - destruct t; simpl in * ;
@@ -228,30 +230,35 @@ Section Concretization.
       * injection H as H ; subst ; constructor. assumption.
       * discriminate.
     - destruct t; try discriminate ; simpl in *.
-      remember (concr_val_hlpl_comp v1 t1) as concr1.
-      remember (concr_val_hlpl_comp v2 t2) as concr2.
+      remember (concr_hlpl_val_comp v1 t1) as concr1.
+      remember (concr_hlpl_val_comp v2 t2) as concr2.
       destruct concr1, concr2; try (subst ; discriminate). 
       injection H as H ; rewrite <- H. constructor ; auto.
-Qed.  
+  Qed.  
 
   Lemma concr_val_implies_concr_val_comp : forall v t vl,
-       concr_val_hlpl v t vl -> concr_val_hlpl_comp v t = Some vl.
+       concr_hlpl_val v t vl -> concr_hlpl_val_comp v t = Some vl.
   Proof.
     intros v t vl H ; induction H; subst ; simpl ; try easy.
-    - rewrite IHconcr_val_hlpl1, IHconcr_val_hlpl2; reflexivity.
+    - rewrite IHconcr_hlpl_val1, IHconcr_hlpl_val2; reflexivity.
     - rewrite Haddr ; easy.
   Qed.
 
   Lemma concr_val_eq_concr_val_comp : forall v t vl,
-      concr_val_hlpl v t vl <-> concr_val_hlpl_comp v t = Some vl.
+      concr_hlpl_val v t vl <-> concr_hlpl_val_comp v t = Some vl.
   Proof.
     split.
     apply concr_val_implies_concr_val_comp. apply concr_val_comp_implies_concr_val.
   Qed.
 
-  Local Open Scope stdpp_scope.
+  Definition concr_hlpl_heap (S : HLPL_state) (h : Pmap pl_val) : Prop :=
+    forall x, exists v t, (vars S) !! (encode_var x) = Some v -> 
+                exists vl, concr_hlpl_val v t vl.
 
-  Definition concr_state_hlpl (S : HLPL_state) :=
+  Definition concr_hlpl_env (S : HLPL_state) (env : Pmap (block_id * type)) : Prop :=
+    forall x bi t, blockof x = Some (bi, t) -> env !! (encode_var x) = Some (bi, t).
+
+  Definition concr_state_hlpl_comp (S : HLPL_state) :=
     {|
       env :=
         set_fold
@@ -272,7 +279,7 @@ Qed.
              | Some var =>
                  match lookup var (vars S) with
                  | Some v =>
-                     match concr_val_hlpl_comp v (snd tbi) with
+                     match concr_hlpl_val_comp v (snd tbi) with
                      | Some vl =>
                          <[ encode (A := block_id) tbi.1 := vl ]> heap
                      | None => heap
@@ -285,7 +292,29 @@ Qed.
           Pmap_empty
           imageof
     |}.
+
+  Inductive HLPL_read_offset : HLPL_val -> type -> nat -> HLPL_val -> type -> Prop :=
+  | Read_zero v t : HLPL_read_offset v t 0 v t
+  | Read_pair_left v0 t0 v1 t1 n v t
+      (Hn : n < sizeof t0)
+      (Hrec : HLPL_read_offset v0 t0 n v t) :
+    HLPL_read_offset (HLPL_pair v0 v1) (TPair t0 t1) n v t
+  | Read_pair_right v0 t0 v1 t1 n v t
+      (Hn : n >= sizeof t0)
+      (Hrec : HLPL_read_offset v1 t1 (n - sizeof t0) v t) :
+    HLPL_read_offset (HLPL_pair v0 v1) (TPair t0 t1) n v t
+  | Read_offset_loc v t n l v' t'
+      (Hrec : HLPL_read_offset v t n v' t') :
+    HLPL_read_offset (HLPL_loc l v) t n v' t'.
+
+  Inductive HLPL_read_address : HLPL_state -> (block_id * type) -> HLPL_val -> type -> Prop :=
+  | Read_address S bi t n v v' x
+      (Hbinv : blockofinv (bi, t) = Some x)
+      (Henv : lookup x (vars S) = Some v)
+      (Hoff : HLPL_read_offset v t n v' t) :
+    HLPL_read_address S (bi, t) v' t.
 End Concretization.
+
 
 Section Tests.
   Notation x := 1%positive.
@@ -438,30 +467,30 @@ Section Tests.
 
   Definition addroff := (fun l => if l =? l1 then Some (b1, 1) else None).
 
-  Goal concr_val_hlpl addroff (HLPL_int 3) TInt [PL_int 3].
+  Goal concr_hlpl_val addroff (HLPL_int 3) TInt [PL_int 3].
   Proof. repeat econstructor. Qed.
 
-  Goal concr_val_hlpl addroff (loc (l1, (HLPL_int 3))) TInt [PL_int 3].
+  Goal concr_hlpl_val addroff (loc (l1, (HLPL_int 3))) TInt [PL_int 3].
   Proof. repeat econstructor. Qed.
 
-  Goal concr_val_hlpl addroff HLPL_bot (TPair TInt TInt) [PL_poison ; PL_poison].
+  Goal concr_hlpl_val addroff HLPL_bot (TPair TInt TInt) [PL_poison ; PL_poison].
   Proof. repeat econstructor. Qed.
 
-  Goal concr_val_hlpl addroff
+  Goal concr_hlpl_val addroff
     HLPL_bot (TPair (TPair TInt TInt) TInt) [PL_poison ; PL_poison ; PL_poison].
   Proof. repeat econstructor. Qed.
 
-  Goal concr_val_hlpl addroff
+  Goal concr_hlpl_val addroff
     (HLPL_pair (HLPL_int 3) (HLPL_int 4)) (TPair TInt TInt)
     ([PL_int 3] ++ [PL_int 4]).
   Proof. repeat econstructor. Qed.
 
-  Goal concr_val_hlpl addroff
+  Goal concr_hlpl_val addroff
     (HLPL_pair (HLPL_int 3) (HLPL_pair (HLPL_int 7) (HLPL_int 11))) (TPair TInt (TPair TInt TInt))
     ([PL_int 3] ++ ([PL_int 7] ++ [PL_int 11])).
   Proof. repeat econstructor. Qed.
 
-  Goal concr_val_hlpl addroff
+  Goal concr_hlpl_val addroff
     (ptr (l1)) (TRef TInt) [PL_address (b1, 1)].
   Proof. repeat econstructor. Qed.
 End Tests.
