@@ -252,46 +252,12 @@ Section Concretization.
   Qed.
 
   Definition concr_hlpl_heap (S : HLPL_state) (h : Pmap pl_val) : Prop :=
-    forall x, exists v t, (vars S) !! (encode_var x) = Some v -> 
-                exists vl, concr_hlpl_val v t vl.
+    forall x v bi t, (vars S) !! (encode_var x) = Some v -> 
+             blockof x = Some (bi, t) ->
+             exists vl, concr_hlpl_val v t vl.
 
   Definition concr_hlpl_env (S : HLPL_state) (env : Pmap (block_id * type)) : Prop :=
     forall x bi t, blockof x = Some (bi, t) -> env !! (encode_var x) = Some (bi, t).
-
-  Definition concr_state_hlpl_comp (S : HLPL_state) :=
-    {|
-      env :=
-        set_fold
-          (fun pos (env : Pmap (block_id * type)) =>
-             match decode' (A := var + anon) pos, blockof x with
-             | Some (inl x), Some (bi, t) =>
-                 <[ (encode (A := var) x) := (bi, t) ]> env
-             | _, _ => env
-             end
-          )
-          Pmap_empty
-          (Pmap_dom (vars S)) ;
-
-      heap :=
-        fold_right
-          (fun (tbi : block_id * type) (heap : Pmap (list PL_val)) =>
-             match blockofinv tbi with
-             | Some var =>
-                 match lookup var (vars S) with
-                 | Some v =>
-                     match concr_hlpl_val_comp v (snd tbi) with
-                     | Some vl =>
-                         <[ encode (A := block_id) tbi.1 := vl ]> heap
-                     | None => heap
-                     end
-                 | None => heap
-                 end
-             | None => heap
-             end
-          )
-          Pmap_empty
-          imageof
-    |}.
 
   Inductive HLPL_read_offset : HLPL_val -> type -> nat -> HLPL_val -> type -> Prop :=
   | Read_zero v t : HLPL_read_offset v t 0 v t
@@ -313,6 +279,68 @@ Section Concretization.
       (Henv : lookup x (vars S) = Some v)
       (Hoff : HLPL_read_offset v t n v' t) :
     HLPL_read_address S (bi, t) v' t.
+
+  Inductive spath_offset : vpath -> type -> nat -> Prop :=
+  | Spath_off_int :
+    spath_offset [] TInt 0
+  | Spath_off_pair_left t0 t1 p n
+      (H : spath_offset p t0 n) :
+      spath_offset (0 :: p) (TPair t0 t1) n
+  | Spath_off_pair_right t0 t1 p n
+      (H : spath_offset p t1 n) :
+      spath_offset (1 :: p) (TPair t0 t1) (sizeof t0 + n).
+
+  Inductive read_val (S : HLPL_state) : type -> vpath -> address -> address -> Prop :=
+  | Read_val_int addr t: read_val S t [] addr addr
+  | Read_val_pair_left t0 t1 p bi off bi' off'
+      (Hr : read_val S t0 p (bi, off) (bi', off')) :
+    read_val S (TPair t0 t1) (0 :: p) (bi, off) (bi', off')
+  | Read_val_pair_right t0 t1 p bi off bi' off'
+      (Hr : read_val S t1 p (bi, off + sizeof t0) (bi', off')) :
+    read_val S (TPair t0 t1) (1 :: p) (bi, off) (bi', off')
+  | Read_val_loc t p bi off bi' off'
+    (Hr : read_val S t p (bi, off) (bi', off')) :
+    read_val S t p (bi, off) (bi', off').
+
+  Inductive read_state (S : HLPL_state) : spath -> address -> Prop :=
+  | Read_state p v bi bi' off t
+      (Hv : (vars S) !! p.1 = Some v)
+      (Hb : blockof p.1 = Some (bi, t))
+      (H : read_val S t p.2 (bi, 0) (bi', off)) :
+    read_state S p (bi', off).
+
+  Record Compatible (S : HLPL_state) : Prop :=
+    mkCompatible
+      { block_dom :
+        forall (x : var), exists v1 v2,
+          (vars S) !! (encode_var x) = Some v1 -> blockof x = Some v2
+      ; correct_addrof :
+        forall (sp : spath) (addr : address) l v,
+          read_state S sp addr -> S.[sp] = loc (l, v) -> addrof l = Some addr
+      ; reachable_loc :
+        forall l sp v,
+          valid_spath  S sp -> S.[sp] = loc (l, v) ->
+          exists addr, read_state S sp addr
+      }.
+
+  Inductive le_val : PL_val -> PL_val -> Prop :=
+  | lev_refl v : le_val v v
+  | lev_poison v : le_val PL_poison v.
+
+  Search (?A -> Prop) (list ?A).
+
+  Definition le_block (b1 b2 : pl_val) :=
+    Forall2 le_val b1 b2.
+
+  Inductive le_heap: Pmap pl_val -> Pmap pl_val -> Prop :=
+  | lem h1 h2 b1 b2
+      (H : forall bi, h1 !! bi = Some b1 -> h2 !! bi = Some b2 /\ le_block b1 b2) :
+    le_heap h1 h2.
+
+  Inductive le_state : PL_state -> PL_state -> Prop :=
+  | les S1 S2 (He : env S1 = env S2) (Hmem : le_heap (heap S1) (heap S2)) :
+    le_state S1 S2.
+  
 End Concretization.
 
 
