@@ -177,6 +177,38 @@ Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
 Proof. reflexivity. Qed.
 Hint Rewrite sget_loc' : spath.
 
+(* structural definition of not_value_contains *)
+Lemma valid_vpath_pair (vp : vpath) (v1 v2 : HLPL_val) : 
+  valid_vpath (HLPL_pair v1 v2) vp ->
+  (vp = []) \/ (exists vp', vp = 0 :: vp' ) \/ (exists vp', vp = 1 :: vp').
+Proof.
+  intros Hvp. destruct vp as [ _ | [ | [ | n ] ] vp' ].
+  - left; reflexivity.
+  - right ; left. exists vp'; reflexivity.
+  - right ; right. exists vp'; reflexivity.
+  - inversion Hvp ; subst. simpl in *. rewrite nth_error_nil in H2. easy.
+Qed.
+
+Lemma not_value_contains_struct (v1 v2 : HLPL_val) (f : HLPL_nodes -> Prop) :
+  not_value_contains f (HLPL_pair v1 v2)
+  <-> not_value_contains f v1 /\ not_value_contains f v2 /\ ~ f HLPL_pairC.
+Proof.
+  split.
+  {
+    intros H. split ; [ idtac | split].
+    - intros p Hvp. apply (H (0 :: p)). eapply valid_cons ; auto.
+    - intros p Hvp. apply (H (1 :: p)). eapply valid_cons ; auto.
+    - apply (H []). apply valid_nil.
+  }
+  {
+    intros [H1 [ H2 Hp] ] p Hvp.
+    destruct (valid_vpath_pair p v1 v2 Hvp) as [ Hempty | [[vp' H] | [vp' H ] ] ] ;
+      subst ; simpl.
+    - assumption.
+    - apply H1. inversion Hvp; subst. injection H4 as Eq. congruence.
+    - apply H2. inversion Hvp; subst. injection H4 as Eq. congruence.
+  }
+Qed.
 
 (* This property represents the application of a projection p (such as a pointer dereference or a
  * field access) on spath pi0, on a state S and given a permission perm.
@@ -324,6 +356,26 @@ Variant eval_rvalue : rvalue -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
     eval_rvalue (Pair (TPair t1 t2) fst_op snd_op) S ((HLPL_pair v1 v2), S'')
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 (* TODO: add rule for pairs *)
+
+Lemma HLPL_Operand_NoLoc (S: HLPL_state) (op : operand) (vS : HLPL_val * HLPL_state) :
+  S |-{op} op => vS -> not_contains_loc vS.1 .
+Proof.
+  intros [ | | ]; simpl ; try (unfold not_contains_loc ; not_contains).
+  induction Hcopy_val ; not_contains.
+  apply not_value_contains_struct ; repeat split ; auto.
+  intros H ; inversion H.
+Qed.
+
+Lemma HLPL_Rvalue_NoLoc (S: HLPL_state) (rv : rvalue) (vS : HLPL_val * HLPL_state) :
+  S |-{rv} rv => vS -> not_contains_loc vS.1.
+Proof.
+  intros Hrv ; induction Hrv ; try (unfold not_contains_loc ; not_contains).
+  - eapply HLPL_Operand_NoLoc, Heval_op.
+  - apply not_value_contains_struct.
+    apply HLPL_Operand_NoLoc in Heval_first, Heval_first0; simpl in *.
+    repeat split ; auto.
+    intros H ; inversion H.
+Qed.
 
 Inductive reorg : HLPL_state -> HLPL_state -> Prop :=
 | Reorg_end_ptr S (p : spath) l :

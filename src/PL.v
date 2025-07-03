@@ -259,6 +259,9 @@ Section Concretization.
   Definition concr_hlpl_env (S : HLPL_state) (env : Pmap (block_id * type)) : Prop :=
     forall x bi t, blockof x = Some (bi, t) -> env !! (encode_var x) = Some (bi, t).
 
+  Definition concr_hlpl (S : HLPL_state) (Spl : PL_state) : Prop :=
+    concr_hlpl_heap S (heap Spl) /\ concr_hlpl_env S (env Spl).
+
   Inductive HLPL_read_offset : HLPL_val -> type -> nat -> HLPL_val -> type -> Prop :=
   | Read_zero v t : HLPL_read_offset v t 0 v t
   | Read_pair_left v0 t0 v1 t1 n v t
@@ -327,8 +330,6 @@ Section Concretization.
   | lev_refl v : le_val v v
   | lev_poison v : le_val PL_poison v.
 
-  Search (?A -> Prop) (list ?A).
-
   Definition le_block (b1 b2 : pl_val) :=
     Forall2 le_val b1 b2.
 
@@ -340,7 +341,18 @@ Section Concretization.
   Inductive le_state : PL_state -> PL_state -> Prop :=
   | les S1 S2 (He : env S1 = env S2) (Hmem : le_heap (heap S1) (heap S2)) :
     le_state S1 S2.
-  
+
+  Infix "<={pl}" := le_state (at level 70).
+
+  Lemma HLPL_PL_Read : forall S Spl Spl' t,
+      Compatible S ->
+      concr_hlpl S Spl' ->
+      Spl <={pl} Spl' ->
+      forall x p perm v pi, eval_place S perm (x, p) pi -> S.[pi] = v ->
+      exists vl, read Spl (x, p) t vl.
+  Proof.
+    intros S Spl Spl' t Hcomp Hconcr Hle x p perm v pi sp Hevp.
+  Admitted.
 End Concretization.
 
 
