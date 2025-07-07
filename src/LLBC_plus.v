@@ -404,15 +404,47 @@ Notation "S ,,, i |-> A" := (add_abstraction S i A) (at level 50, left associati
 
 Notation fresh_abstraction S i := (lookup i (abstractions S) = None).
 
-(* The property merge_maps A B C is true if the map C contains all of the pairs (key, element) of
+(* The property union_maps A B C is true if the map C contains all of the pairs (key, element) of
  * A, and all the elements of B with possibly different keys.
 
- * Example: let's take A = {[1 := x; 2 := y|} and B = {[1 := z]}. Then merge A B C is true for any
- * map C = {[ 1 := x; 2 := y; i := z]} for any i different from 1 or 2. *)
-Inductive merge_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
-  | MergeEmpty A : merge_maps A empty A
-  | MergeInsert A B C i j x :
-      lookup j A = None -> merge_maps (insert j x A) B C -> merge_maps A (insert i x B) C.
+ * Example: let's take A = {[1 := x; 2 := y|} and B = {[1 := z]}. Then union_maps A B C is true for
+   any map C = {[ 1 := x; 2 := y; i := z]} for any i different from 1 or 2. *)
+Inductive union_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
+  | UnionEmpty A : union_maps A empty A
+  | UnionInsert A B C i j x :
+      lookup j A = None -> lookup i B = None ->
+      union_maps (insert j x A) B C -> union_maps A (insert i x B) C.
+
+(* TODO: delete? *)
+Lemma union_contains {V} (A B C : Pmap V) i x (Hunion : union_maps A B C) :
+  lookup i C = Some x -> lookup i A = Some x \/ exists j, lookup j B = Some x.
+Proof.
+  intros H. induction Hunion as [ | A B C i' j' ? ? ? ? IH H].
+  - auto.
+  - destruct (IH H) as [ | (j & ?)].
+    + destruct (decide (i = j')) as [<- | ].
+      * right. exists i'. simpl_map. auto.
+      * simpl_map. auto.
+    + right. exists j. assert (i' <> j) by congruence. simpl_map. reflexivity.
+Qed.
+
+Lemma union_contains_left {V} (A B C : Pmap V) i x (Hunion : union_maps A B C) :
+  lookup i A = Some x -> lookup i C = Some x.
+Proof.
+  induction Hunion as [ | A B C i' j' ? ? ? ? IH].
+  - auto.
+  - intros ?. assert (i <> j') by congruence. simpl_map. auto.
+Qed.
+
+Lemma union_contains_right {V} (A B C : Pmap V) i x (Hunion : union_maps A B C) :
+  lookup i B = Some x -> exists j, lookup j C = Some x.
+Proof.
+  induction Hunion as [ | A B C i' j' ? ? ? ? IH].
+  - simpl_map. discriminate.
+  - intros ?. destruct (decide (i = i')) as [<- | ].
+    + exists j'. eapply union_contains_left; [eassumption | ]. simpl_map. auto.
+    + simpl_map. auto.
+Qed.
 
 Notation abstraction_contains_value S i j v :=
   (get_at_accessor S (encode_abstraction (i, j)) = Some v).
@@ -646,7 +678,7 @@ Variant is_integer : LLBC_plus_val -> Prop :=
   | Integer_is_integer n : is_integer (LLBC_plus_int n).
 
 Variant add_anons : LLBC_plus_state -> Pmap LLBC_plus_val -> LLBC_plus_state -> Prop :=
-  | AddAnons S A anons' : merge_maps (anons S) A anons' ->
+  | AddAnons S A anons' : union_maps (anons S) A anons' ->
       add_anons S A {|vars := vars S; anons := anons'; abstractions := abstractions S|}.
 
 Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
@@ -708,16 +740,15 @@ Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
     to_abs (borrow^m(l, v)) ({[1%positive := (borrow^m(l, LLBC_plus_symbolic))]})%stdpp
 .
 
-Inductive merge_abstractions :
-  Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
-  | MergeAbsEmpty A : merge_abstractions A empty A
-  | MergeAbsInsert A B C i j x :
+Inductive remove_loans :
+  Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Pmap LLBC_plus_val -> Pmap LLBC_plus_val-> Prop :=
+  | Remove_nothing A0 B0 : remove_loans A0 B0 A0 B0
+  | Remove_MutLoan A B A0 B0 i j l (H : remove_loans A B A0 B0) :
       lookup i A = None -> lookup j B = None ->
-      merge_abstractions (insert i x A) B C -> merge_abstractions A (insert j x B) C
-  | MergeAbs_Mut A B C i j l (H : merge_abstractions A B C) :
-      lookup i A = None -> lookup j B = None ->
-      merge_abstractions (insert i (loan^m(l)) A) (insert j (borrow^m(l, LLBC_plus_symbolic)) B) C
+      remove_loans (insert i (loan^m(l)) A) (insert j (borrow^m(l, LLBC_plus_symbolic)) B) A0 B0
 .
+
+Definition merge_abstractions A B C := exists A0 B0, remove_loans A B A0 B0 /\ union_maps A0 B0 C.
 
 Lemma sweight_add_abstraction S weight i A :
   fresh_abstraction S i ->
@@ -1885,6 +1916,20 @@ Qed.
 Hint Resolve-> not_in_borrow_add_abstraction : spath.
 Hint Resolve-> not_in_borrow_remove_anon : spath.
 
+Lemma merge_no_loan A B C :
+  merge_abstractions A B C -> map_Forall (fun _ => not_contains_loan) C ->
+  map_Forall (fun _ => not_contains_loan) B.
+Proof.
+  intros (A0 & B0 & H & ?).
+  induction H.
+  - intros G i v v_in_B0. eapply union_contains_right in v_in_B0; [ | eassumption].
+    destruct v_in_B0. eauto.
+  - intros ?.
+    intros k v v_at_k. destruct (decide (j = k)) as [<- | ]; simpl_map.
+    + inversion v_at_k. unfold not_contains_loan. not_contains.
+    + unfold map_Forall in *. eauto.
+Qed.
+
 Lemma reorg_local_preservation n :
   forward_simulation (leq_state_base_n n) (measured_closure leq_state_base_n n) reorg reorg^*.
 Proof.
@@ -2163,9 +2208,9 @@ Section Eval_LLBC_plus_program.
           [compute_done.. | reflexivity]. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
-        eapply MergeAbsInsert with (i := 3%positive); [reflexivity.. | ].
-        apply MergeAbsEmpty. }
+      { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate]. econstructor. eexists. split. constructor.
+        eapply UnionInsert with (j := 3%positive); [reflexivity.. | ].
+        apply UnionEmpty. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
@@ -2203,8 +2248,9 @@ Section Eval_LLBC_plus_program.
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
-        eapply MergeAbsInsert with (i := 3%positive); [reflexivity.. | ].
-        apply MergeAbsEmpty. }
+        econstructor. eexists. split. constructor.
+        eapply UnionInsert with (j := 3%positive); [reflexivity.. | ].
+        apply UnionEmpty. }
       simpl_state.
       etransitivity; [constructor | ].
       { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
@@ -2253,9 +2299,9 @@ Section Eval_LLBC_plus_program.
       { constructor. eapply Reorg_end_abstraction with (i := 1%positive).
         - reflexivity.
         - compute_done.
-        - constructor. cbn. apply MergeInsert with (j := 2%positive); [reflexivity | ].
-          apply MergeInsert with (j := 3%positive); [reflexivity | ].
-          apply MergeEmpty.
+        - constructor. cbn. apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
+         apply UnionInsert with (j := 3%positive); [reflexivity.. | ].
+          apply UnionEmpty.
       }
       simpl_state.
       (* ... so that we could end the loan lx. *)
