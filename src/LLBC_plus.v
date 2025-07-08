@@ -2220,7 +2220,7 @@ Section Eval_LLBC_plus_program.
         econstructor; split; [reflexivity | constructor]. all: compute_done. }
       simpl_state. reflexivity.
     - split; [ | split]; try reflexivity.
-      apply map_Forall2_singleton.
+      apply map_Forall2_singleton. rewrite equiv_map_alt.
       exists {[1%positive := 1%positive; 2%positive := 3%positive; 3%positive := 2%positive]}.
       repeat split; compute_done.
   Qed.
@@ -2260,7 +2260,7 @@ Section Eval_LLBC_plus_program.
         econstructor. split; [reflexivity | constructor]. all: compute_done. }
       simpl_state. reflexivity.
     - split; [ | split]; try reflexivity.
-      apply map_Forall2_singleton.
+      apply map_Forall2_singleton. rewrite equiv_map_alt.
       exists {[1%positive := 2%positive; 2%positive := 3%positive; 3%positive := 1%positive]}.
       repeat split; compute_done.
   Qed.
