@@ -340,6 +340,17 @@ Proof.
   destruct (decide (k = k')) as [<- | ]; simplify_map_eq; reflexivity.
 Qed.
 
+Lemma size_kmap `{FinMap K1 M1} `{FinMap K2 M2} {A} f (m : M1 A) :
+  Inj eq eq f -> size (kmap (M2 := M2) f m) = size m.
+Proof.
+  intros ?. induction m as [ | k x m ? ? IHm] using map_first_key_ind.
+  - rewrite kmap_empty, !map_size_empty. reflexivity.
+  - rewrite kmap_insert by assumption. rewrite !map_size_insert_None.
+    + congruence.
+    + assumption.
+    + now rewrite lookup_kmap.
+Qed.
+
 (* TODO: name similar to "sum_map", could be confusing *)
 Section SumMaps.
   Context {V K0 K1 : Type}.
@@ -454,6 +465,15 @@ Section SumMaps.
     unfold sum_maps. rewrite delete_union. f_equal.
     - apply delete_notin. autorewrite with core. reflexivity.
     - symmetry. apply kmap_delete. typeclasses eauto.
+  Qed.
+
+  Lemma size_sum_maps m0 m1 : size (sum_maps m0 m1) = size m0 + size m1.
+  Proof.
+    unfold sum_maps. rewrite map_size_disj_union.
+    - rewrite !size_kmap by typeclasses eauto. reflexivity.
+    - rewrite map_disjoint_spec.
+      intros ? ? ? (? & -> & _)%lookup_kmap_Some; [ | typeclasses eauto].
+      rewrite lookup_inl_kmap_inr. easy.
   Qed.
 End SumMaps.
 
