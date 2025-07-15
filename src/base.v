@@ -527,14 +527,17 @@ Section Flatten.
     lookup i Ms = Some m -> lookup (i, j) (flatten Ms) = lookup j m.
   Proof. intros H. rewrite lookup_flatten, H. reflexivity. Qed.
 
+  Lemma disj_kmap_flatten Ms i (m : Pmap V) :
+    lookup i Ms = None -> map_disjoint (kmap (fun j => (i, j)) m) (flatten Ms).
+  Proof.
+    intros ?. apply map_disjoint_spec. intros ? ? ? (? & -> & ?)%lookup_kmap_Some.
+    - rewrite lookup_None_flatten by assumption. discriminate.
+    - typeclasses eauto.
+  Qed.
+
   Lemma flatten_insert' Ms i m (G : lookup i Ms = None) :
     flatten (insert i m Ms) = union (flatten Ms) (kmap (fun j => (i, j)) m).
-  Proof.
-    rewrite flatten_insert by assumption. apply map_union_comm.
-    apply map_disjoint_spec.
-    intros ? ? ? (? & ? & _)%lookup_kmap_Some. subst. rewrite lookup_None_flatten; congruence.
-    all: typeclasses eauto.
-  Qed.
+  Proof. rewrite flatten_insert by assumption. apply map_union_comm, disj_kmap_flatten, G. Qed.
 
   Lemma alter_flatten f i j Ms :
     alter f (i, j) (flatten Ms) = flatten (alter (alter f j) i Ms).
@@ -554,6 +557,19 @@ Section Flatten.
         * reflexivity.
         * rewrite eq_None_not_Some.
           intros (? & ? & _)%lookup_kmap_is_Some; [congruence | typeclasses eauto].
+  Qed.
+
+  Lemma size_flatten M M' :
+    map_Forall2 (fun _ m m' => size m = size m') M M' -> size (flatten M) = size (flatten M').
+  Proof.
+    revert M'. induction M as [ | k x M H _ IHM] using map_first_key_ind.
+    - intros ? ->%map_Forall2_empty_inv_l. reflexivity.
+    - intros _M' G. apply map_Forall2_insert_inv_l in G; [ | assumption].
+      destruct G as (p & M' & -> & ? & ? & ?).
+      rewrite !flatten_insert by assumption.
+      rewrite !map_size_disj_union by now apply disj_kmap_flatten.
+      rewrite !size_kmap by typeclasses eauto.
+      erewrite IHM by eassumption. lia.
   Qed.
 End Flatten.
 
@@ -703,6 +719,14 @@ Qed.
 
 Definition is_permutation {A} (p : Pmap positive) (m : Pmap A) := map_inj p /\ dom p = dom m.
 
+Lemma permutation_is_equivalence {A} p m :
+  @is_permutation A p m -> is_equivalence (fun i => lookup i p) m.
+Proof.
+  intros (inj_p & dom_p). split.
+  - rewrite <-map_inj_equiv. assumption.
+  - intros ?. rewrite <-!elem_of_dom, dom_p. auto.
+Qed.
+
 Lemma equiv_map_alt {A} (m0 m1 : Pmap A) :
   equiv_map m0 m1 <-> exists p, is_permutation p m0 /\ m1 = pkmap (fun i => lookup i p) m0.
 Proof.
@@ -723,9 +747,5 @@ Proof.
       * intros i j. rewrite map_lookup_imap. intros (k & G & ?)%bind_Some. rewrite G.
         erewrite lookup_pkmap; [ | apply equiv_f | eassumption]. auto.
       * symmetry. apply size_pkmap. assumption.
-  - intros (p & (inj_p & dom_p) & ->). exists (fun i => lookup i p).
-    split; [split | ].
-    + rewrite <-map_inj_equiv. assumption.
-    + intros ?. rewrite <-!elem_of_dom, dom_p. auto.
-    + reflexivity.
+  - intros (p & H%permutation_is_equivalence & ->). eexists. split; [exact H | reflexivity].
 Qed.
