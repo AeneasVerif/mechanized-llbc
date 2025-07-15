@@ -423,7 +423,7 @@ Inductive union_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
 Lemma union_contains {V} (A B C : Pmap V) i x (Hunion : union_maps A B C) :
   lookup i C = Some x -> lookup i A = Some x \/ exists j, lookup j B = Some x.
 Proof.
-  intros H. induction Hunion as [ | A B C i' j' ? ? ? ? IH H].
+  intros H. induction Hunion as [ | A B C i' j' ? ? ? ? IH].
   - auto.
   - destruct (IH H) as [ | (j & ?)].
     + destruct (decide (i = j')) as [<- | ].
@@ -1106,6 +1106,31 @@ Proof.
     intros i. rewrite map_lookup_imap. specialize (Habs_perm i). destruct Habs_perm.
     + constructor. symmetry. apply size_pkmap, permutation_is_equivalence. assumption.
     + constructor.
+Qed.
+
+Corollary get_at_accessor_state_permutation perm S i (H : is_state_equivalence perm S) :
+  is_Some (get_at_accessor S i) ->
+  exists j, permutation_accessor perm i = Some j /\
+  get_at_accessor (apply_state_permutation perm S) j = get_at_accessor S i.
+Proof.
+  intros G. rewrite get_map_state_permutation by assumption.
+  apply permutation_accessor_is_equivalence in H.
+  destruct H as (inj_perm & H). edestruct H; [exact G | ].
+  eexists. split; [eassumption | ]. apply lookup_pkmap; assumption.
+Qed.
+
+Definition permutation_spath (perm : state_perm) (sp : spath) : spath :=
+  match permutation_accessor perm (fst sp) with
+  | Some j => (j, snd sp)
+  | None => sp
+  end.
+
+Lemma permutation_sget S (perm : state_perm) (H : is_state_equivalence perm S)
+  sp (valid_sp : valid_spath S sp) :
+  (apply_state_permutation perm S).[permutation_spath perm sp] = S.[sp].
+Proof.
+  destruct valid_sp as (v & get_at_sp & _). unfold permutation_spath, sget.
+  edestruct get_at_accessor_state_permutation as (? & -> & <-); [eassumption | auto | reflexivity].
 Qed.
 
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
