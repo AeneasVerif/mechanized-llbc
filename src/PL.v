@@ -74,12 +74,13 @@ Definition lookup_type_env (x : var) (S : PL_state) : option type :=
 Definition lookup_heap (bi : block_id) (S : PL_state) : option (list PL_val) :=
   lookup bi (heap S).
 
-Definition lookup_heap_at_addr (S : PL_state) (addr : address) : option PL_val :=
+Definition lookup_heap_at_addr (addr : address) (t : type) (S : PL_state) : pl_val :=
+  let size := sizeof t in
   let (bi, off) := addr in
   match lookup bi (heap S) with
-  | None => None
+  | None => []
   | Some vl =>
-      List.nth_error vl off
+      firstn size (skipn off vl)
   end.
 
 Definition update_env (S : PL_state) (e : Pmap (block_id * type)) :=
@@ -252,9 +253,10 @@ Section Concretization.
   Qed.
 
   Definition concr_hlpl_heap (S : HLPL_state) (h : Pmap pl_val) : Prop :=
-    forall x v bi t, (vars S) !! x = Some v -> 
-             blockof x = (bi, t) ->
-             exists vl, concr_hlpl_val v t vl /\ h !! bi = Some vl .
+    forall x v bi t,
+      (vars S) !! x = Some v -> 
+      blockof x = (bi, t) ->
+      exists vl, concr_hlpl_val v t vl /\ h !! bi = Some vl .
 
   Definition concr_hlpl_env (S : HLPL_state) (env : Pmap (block_id * type)) : Prop :=
     forall x bi t v,
@@ -265,6 +267,7 @@ Section Concretization.
   Definition concr_hlpl (S : HLPL_state) (Spl : PL_state) : Prop :=
     concr_hlpl_heap S (heap Spl) /\ concr_hlpl_env S (env Spl).
 
+  (** Reading in HLPL state with addresses, as done in the PhD of Son *)
   Inductive HLPL_read_offset : HLPL_val -> type -> nat -> HLPL_val -> type -> Prop :=
   | Read_zero v t : HLPL_read_offset v t 0 v t
   | Read_pair_left v0 t0 v1 t1 n v t
@@ -286,7 +289,7 @@ Section Concretization.
       (Hoff : HLPL_read_offset v t n v' t) :
     HLPL_read_address S (bi, t) v' t.
 
-  (** [spath_offset vp t n] is true when following a vpath [vp] in a value of type [t] is equivalent to taking the subvalue found at offset [n] *)
+  (** [spath_offset vp t n] is inhabited when following a vpath [vp] in a value of type [t] is equivalent to taking the subvalue found at offset [n] *)
   Inductive spath_offset : vpath -> type -> nat -> Prop :=
   | Spath_off_int :
     spath_offset [] TInt 0
@@ -297,6 +300,7 @@ Section Concretization.
       (H : spath_offset p t1 n) :
       spath_offset (1 :: p) (TPair t0 t1) (sizeof t0 + n).
 
+  (** TODO: delete? *)
   Variant follow_path : nat -> address * type -> address * type -> Prop :=
   | Follow_left bi off t0 t1 :
     follow_path 0 ((bi, off), TPair t0 t1) ((bi, off), t0)
@@ -305,44 +309,35 @@ Section Concretization.
   | Follow_loc bi off t :
     follow_path 0 ((bi, off), t) ((bi, off), t).
 
-  Inductive read_val : vpath -> (address * type) -> (address * type) -> Prop :=
-  | Read_val_lit addr t : read_val [] (addr, t) (addr, t)
-  | Read_val_pair_left t0 t1 p bi off bi' off'
-      (Hr : read_val p ((bi, off), TPair t0 t1) ((bi', off'), t0)) :
-    read_val (p ++ [0]) ((bi, off, TPair t0 t1) (bi', off')
-  | Read_val_pair_right t0 t1 p bi off bi' off'
-      (Hr : read_val (TPair t0 t1) p (bi, off + sizeof t0) (bi', off')) :
-    read_val t1 (p ++ [1]) (bi, off) (bi', off')
-  | Read_val_loc t p bi off bi' off'
-    (Hr : read_val t p (bi, off) (bi', off')) :
-    read_val t p (bi, off) (bi', off').
+  (** [add_spath_equiv S Spl addr sp] is inhabited when reading in S.[p] corresponds dto reading in Spl.heap(addr) *)
+  Inductive addr_spath_equiv (S : HLPL_state) :
+    address * type -> spath -> Prop :=
+  | Addr_spath_base bi t x
+      (H : blockof x = (bi, t)) :
+    addr_spath_equiv S ((bi, 0), t) (x, [])
+  | Addr_spath_pointer bi bi' off off' t x y vp vp' l
+      (Hloc : get_node (S.[(x, vp)]) = HLPL_locC l)
+      (Hptr : get_node (S.[(y, vp')]) = HLPL_ptrC l)
+      (Hrec : addr_spath_equiv S ((bi', off'), TRef t) (y, vp'))
+      (Haddr : addrof l = Some (bi, off)) :
+    addr_spath_equiv S ((bi, off), t) (x, vp)
+  | Addr_spath_pair_first bi off x pi t0 t1
+      (Hrec : addr_spath_equiv S ((bi, off), TPair t0 t1) (x, pi)) :
+    addr_spath_equiv S ((bi, off), t0) (x, pi ++ [0])
+  | Addr_spath_pair_second bi off x pi t0 t1
+      (Hrec : addr_spath_equiv S ((bi, off), TPair t0 t1) (x, pi)) :
+    addr_spath_equiv S ((bi, off + sizeof t0), t1) (x, pi ++ [1]).
 
-  Inductive addr_spath_equiv (S : HLPL_state) : address -> spath -> Prop :=
-  | Read_state p v bi bi' off t
-      (Hv : (vars S) !! p.1 = Some v)
-      (Hb : blockof p.1 = (bi, t))
-      (H : read_val t p.2 (bi, 0) (bi', off)) :
-    addr_spath_equiv S (bi', off) p.
-
-  Variant eval_proj_addr : proj -> (address * type) -> (address * type) -> Prop :=
-  | Proj_addr_first t0 t1 bi off :
-    eval_proj_addr (Field First) ((bi, off), TPair t0 t1) ((bi, off), t0)
-  | Proj_addr_second t0 t1 bi off :
-    eval_proj_addr (Field Second) ((bi, off), TPair t0 t1) ((bi, off + sizeof t0), t1).
-
-  Inductive eval_path_addr : type -> path -> address -> address -> Prop :=
-  | Path_addr_nil t addr :
-    eval_path_addr t [] addr addr
-  | Path_addr_cons t proj p addr addr' t' addr''
-      (Hproj : eval_proj_addr proj (addr, t) (addr', t'))
-      (Hrec : eval_path_addr t' p addr' addr'') :
-    eval_path_addr t (proj :: p) addr addr''.
-
-  Variant eval_place_addr : place -> address -> Prop :=
-  | Spath_addr bi p t addr
-      (Hb : blockof p.1 = (bi, t))
-      (Hpath : eval_path_addr t p.2 (bi, 0) addr) :
-      eval_place_addr p addr.
+  (** [addr_proj proj (addr, t) (addr', t')] when the projection [proj] of the value at address [addr] of type [t] gives the value at address [addr'] of type [t'] *)
+  Inductive eval_proj_addr : PL_state -> proj -> address * type -> address * type -> Prop :=
+  | Addr_first S bi off t0 t1 :
+    eval_proj_addr S (Field First) ((bi, off), TPair t0 t1) ((bi, off), t0)
+  | Addr_second S bi off t0 t1 :
+    eval_proj_addr S (Field Second) ((bi, off), TPair t0 t1) ((bi, off + sizeof t0), t1)
+  | Addr_deref S bi off bi' off' t pl 
+      (Haddr : heap S !! bi = Some pl)
+      (Hoff : List.nth_error pl off = Some (PL_address (bi', off'))) :
+    eval_proj_addr S Deref ((bi, off), TRef t) ((bi', off'), t).
 
   Record Compatible (S : HLPL_state) : Prop :=
     mkCompatible
@@ -350,45 +345,16 @@ Section Concretization.
         forall (x : var), exists v1 v2,
           (vars S) !! x = Some v1 -> blockof x = v2
       ; correct_addrof :
-        forall (sp : spath) (addr : address) l v,
-          addr_spath_equiv S addr sp -> S.[sp] = loc (l, v) -> addrof l = Some addr
+        forall (sp : spath) (addr : address) t l,
+          addr_spath_equiv S (addr, t) sp ->
+          get_node (S.[sp]) = HLPL_locC l ->
+          addrof l = Some addr
       ; reachable_loc :
-        forall l sp v,
-          valid_spath  S sp -> S.[sp] = loc (l, v) ->
+        forall l sp,
+          valid_spath  S sp ->
+          get_node (S.[sp]) = HLPL_locC l ->
           exists addr, addr_spath_equiv S addr sp
       }.
-
-  Lemma addr_proj_forward_simu_field (S : HLPL_state) :
-    forall bi off pi pi' perm f t0 t1,
-      addr_spath_equiv S (bi, off) pi -> eval_proj S perm (Field f) pi pi' ->
-      exists t' addr',
-        addr_spath_equiv S addr' pi' /\
-          eval_proj_addr (Field f) ((bi, off), (TPair t0 t1)) (addr', t').
-  Proof.
-    intros bi off pi pi' perm [ | ] t0 t1 Hequiv Hproj.
-    - exists t0, (bi, off). split.
-      * inversion Hproj ; inversion Hequiv ; subst.
-        econstructor; eauto.
-        + simpl. econstructor.
-      * constructor.
-    - exists t1, (bi, off + sizeof t0). split.
-      * admit.
-      * constructor.
-
-  Lemma spath_addr_equiv : forall S Spl perm t x p vp addr,
-      Compatible S ->
-      concr_hlpl S Spl ->
-      eval_place S perm (x, p) (encode_var x, vp) ->
-      read_address Spl (x, p) t addr ->
-      read_state S (encode_var x, vp) addr.
-  Proof.
-    intros S Spl perm t x p pi addr
-      Hcompat [Hcheap Hcenv] [[v [Haccess Hvvp] ] Hpath] Haddr ; simpl in *.
-    induction Haddr.
-    - inversion Hpath ; subst.
-      * econstructor; simpl.
-        + unfold encode_var in Haccess. rewrite sum_maps_lookup_l in Haccess.
-          apply Haccess.
 
   Inductive le_val : PL_val -> PL_val -> Prop :=
   | lev_refl v : le_val v v
@@ -397,28 +363,64 @@ Section Concretization.
   Definition le_block (b1 b2 : pl_val) :=
     Forall2 le_val b1 b2.
 
-  Inductive le_heap: Pmap pl_val -> Pmap pl_val -> Prop :=
-  | lem h1 h2 b1 b2
-      (H : forall bi, h1 !! bi = Some b1 -> h2 !! bi = Some b2 /\ le_block b1 b2) :
-    le_heap h1 h2.
+  Definition le_heap (h1 h2: Pmap pl_val) : Prop :=
+    forall bi b1 b2, h1 !! bi = Some b2 -> h2 !! bi = Some b2 -> le_block b1 b2.
 
-  Inductive le_state : PL_state -> PL_state -> Prop :=
-  | les S1 S2 (He : env S1 = env S2) (Hmem : le_heap (heap S1) (heap S2)) :
-    le_state S1 S2.
+  Definition le_state (Spl1 Spl2 : PL_state) : Prop :=
+    env Spl1 = env Spl2 /\ le_heap (heap Spl1) (heap Spl2).
 
   Infix "<={pl}" := le_state (at level 70).
 
-  Lemma HLPL_PL_Read : forall S Spl Spl',
-      Compatible S ->
-      concr_hlpl S Spl' ->
-      Spl <={pl} Spl' ->
-      forall x p perm v pi t, eval_place S perm (x, p) pi -> S.[pi] = v ->
-      exists vl, read Spl (x, p) t vl.
+  Definition le_pl_hlpl (Spl : PL_state) (S : HLPL_state) : Prop :=
+    exists Spl', Compatible S /\ concr_hlpl S Spl' /\ Spl <={pl} Spl'.
+
+  (** Commutation Diagram to read in states *)
+  Lemma addr_spath_pair_proj (S : HLPL_state) (Spl : PL_state) :
+    forall f bi off bi' off' x pi y pi' t0 t1 t perm,
+      addr_spath_equiv S ((bi, off), TPair t0 t1) (x, pi) ->
+      eval_proj S perm (Field f) (x, pi) (y, pi') ->
+      eval_proj_addr Spl (Field f) ((bi, off), TPair t0 t1) ((bi', off'), t) ->
+      addr_spath_equiv S ((bi', off'), t) (y, pi').
   Proof.
-    intros S Spl Spl' [? ? ?] [Hheap Henv] Hle x p perm v pi t Hsp Hevp.
-    induction p ; inversion Hsp ; simpl in *.
-    - destruct H as [v0 [? ?] ].
-      unfold get_at_accessor, concr_hlpl_env, concr_hlpl_heap in *.
+    intros f bi off bi' off' x pi y pi' t0 t1 t perm Hequiv Hproj Hprojaddr.
+    inversion Hproj ; subst ; inversion Hprojaddr; subst.
+    * apply Addr_spath_pair_first with (t1 := t1).
+      assumption.
+    * apply Addr_spath_pair_second. 
+      assumption.
+  Qed.
+
+  Lemma concr_state_implies_concr_val :
+    forall S Spl v vl bi off t x pi,
+      concr_hlpl S Spl ->
+      S.[(x, pi)] = v ->
+      lookup_heap_at_addr (bi, off) t Spl = vl ->
+      addr_spath_equiv S (bi, off, t) (x, pi) ->
+      concr_hlpl_val v t vl.
+  Proof.
+    intros S Spl v vl bi off t x pi [Hconcr_heap _] HS HSpl Hequiv.
+    remember (bi, off, t) as t_addr. remember (x, pi) as p.
+    induction Hequiv. injection Heqt_addr ; injection Heqp ; intros ; subst.
+  Abort.
+
+  Lemma addr_spath_deref_proj (S : HLPL_state) (Spl : PL_state) :
+    forall bi bi' off off' x y pi pi' t perm,
+      le_pl_hlpl Spl S ->
+      addr_spath_equiv S ((bi, off), TRef t) (x, pi) ->
+      eval_proj S perm Deref (x, pi) (y, pi') ->
+      eval_proj_addr Spl Deref ((bi, off), TRef t) ((bi', off'), t) ->
+      addr_spath_equiv S ((bi', off'), t) (y, pi').
+  Proof.
+    intros ? ? ? ? ? ? ? ? ? ?
+      [ Spl' [ [Hdom Haddr Hreach ] [[ Hconcr_heap Hconcr_env] Hle] ] ]
+      Hequi Hproj Hprojaddr.
+    inversion Hproj ; subst. eapply Addr_spath_pointer.
+    - apply get_q'.
+    - apply get_q.
+    - apply Hequi. 
+    - inversion Hprojaddr ; subst.
+  Abort.
+      
 End Concretization.
 
 
@@ -571,32 +573,32 @@ Section Tests.
 
   (** CONCRETIZATION TESTS **)
 
-  Definition addroff := (fun l => if l =? l1 then Some (b1, 1) else None).
+  Definition addrof := (fun l => if l =? l1 then Some (b1, 1) else None).
 
-  Goal concr_hlpl_val addroff (HLPL_int 3) TInt [PL_int 3].
+  Goal concr_hlpl_val addrof (HLPL_int 3) TInt [PL_int 3].
   Proof. repeat econstructor. Qed.
 
-  Goal concr_hlpl_val addroff (loc (l1, (HLPL_int 3))) TInt [PL_int 3].
+  Goal concr_hlpl_val addrof (loc (l1, (HLPL_int 3))) TInt [PL_int 3].
   Proof. repeat econstructor. Qed.
 
-  Goal concr_hlpl_val addroff HLPL_bot (TPair TInt TInt) [PL_poison ; PL_poison].
+  Goal concr_hlpl_val addrof HLPL_bot (TPair TInt TInt) [PL_poison ; PL_poison].
   Proof. repeat econstructor. Qed.
 
-  Goal concr_hlpl_val addroff
+  Goal concr_hlpl_val addrof
     HLPL_bot (TPair (TPair TInt TInt) TInt) [PL_poison ; PL_poison ; PL_poison].
   Proof. repeat econstructor. Qed.
 
-  Goal concr_hlpl_val addroff
+  Goal concr_hlpl_val addrof
     (HLPL_pair (HLPL_int 3) (HLPL_int 4)) (TPair TInt TInt)
     ([PL_int 3] ++ [PL_int 4]).
   Proof. repeat econstructor. Qed.
 
-  Goal concr_hlpl_val addroff
+  Goal concr_hlpl_val addrof
     (HLPL_pair (HLPL_int 3) (HLPL_pair (HLPL_int 7) (HLPL_int 11))) (TPair TInt (TPair TInt TInt))
     ([PL_int 3] ++ ([PL_int 7] ++ [PL_int 11])).
   Proof. repeat econstructor. Qed.
 
-  Goal concr_hlpl_val addroff
+  Goal concr_hlpl_val addrof
     (ptr (l1)) (TRef TInt) [PL_address (b1, 1)].
   Proof. repeat econstructor. Qed.
 End Tests.
