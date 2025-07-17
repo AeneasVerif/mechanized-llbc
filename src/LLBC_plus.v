@@ -112,7 +112,11 @@ Definition encode_anon (a : anon) :=
   encode (A := _ + positive * positive) (inl (encode (A := var + _) (inr a))).
 Definition encode_abstraction (x : positive * positive) := encode (A := positive + _) (inr x).
 
-(* Note: unused. Use it or delete it? *)
+Lemma encode_anon_inj : Inj eq eq encode_anon.
+Proof.
+  unfold encode_anon. intros ? ? H%encode_inj. inversion H. apply encode_inj. congruence.
+Qed.
+
 Instance encode_abstraction_inj : Inj eq eq encode_abstraction.
 Proof.
   unfold encode_abstraction. intros x y H. eapply (f_equal decode') in H.
@@ -950,6 +954,123 @@ Definition equiv_states (S0 S1 : LLBC_plus_state) :=
   vars S0 = vars S1 /\
   equiv_map (anons S0) (anons S1) /\
   map_Forall2 (fun _ => equiv_map) (abstractions S0) (abstractions S1).
+(* We are going to give an alternative definition of map equivalence that is computable.
+ * Hence, two states S0 and S1 are equivalent if one is a permutation of the other:
+ * S0 == S1 iff exists P, S0 = P(S1)
+ * An interesting thing is that the permutation P can be applied to spaths, and it commutes with
+ * common operations.
+ * For example: P(S.[sp <- v]) = P(S).[P(sp) <- v]
+ * This is going to be useful to prove the equivalence of states that are modified with common
+ * operations.
+ *)
+
+(* A state permutation is a permutation of the anonymous variables and the elemnts of each regions.
+ * It does not affect the variables. *)
+Record state_perm := {
+  anons_perm : Pmap positive;
+  abstractions_perm : Pmap (Pmap positive);
+}.
+
+Definition is_state_equivalence perm S :=
+  is_permutation (anons_perm perm) (anons S) /\
+  map_Forall2 (fun k => is_permutation) (abstractions_perm perm) (abstractions S).
+
+Notation apply_permutation p := (pkmap (fun i => lookup i p)).
+
+Program Definition apply_state_permutation perm S := {|
+  vars := vars S;
+  anons := apply_permutation (anons_perm perm) (anons S);
+  abstractions := map_imap
+    (fun i A => option_map (fun p => apply_permutation p A) (lookup i (abstractions_perm perm)))
+    (abstractions S)
+|}.
+
+Lemma get_extra_state_permutation perm S :
+  is_state_equivalence perm S -> get_extra (apply_state_permutation perm S) = get_extra S.
+Proof.
+  intros (_ & Habstractions_equiv). unfold get_extra. cbn.
+  rewrite set_eq_subseteq. split.
+  - apply dom_imap_subseteq.
+  - intros i. rewrite !elem_of_dom, map_lookup_imap. specialize (Habstractions_equiv i).
+    intros (v & H). rewrite H in *. inversion Habstractions_equiv. auto.
+Qed.
+
+(* Applying a permutation to an accessor. *)
+Definition permutation_accessor (perm : state_perm) acc : option positive :=
+  match decode' (A := positive + positive * positive) acc with
+  | Some (inl i) =>
+      match decode' (A := var + anon) i with
+      | Some (inl _) => Some acc
+      | Some (inr a) => option_map anon_accessor (lookup a (anons_perm perm))
+      | None => None
+      end
+  | Some (inr (i, j)) =>
+      option_map (fun k => encode_abstraction (i, k)) (mbind (lookup j) (lookup i (abstractions_perm perm)))
+  | None => None
+  end.
+
+(* In order to show that permutation_accessor is injective, we are going to give a caracteziration
+ * of it as a relation. *)
+Variant permutation_accessor_rel perm : positive -> positive -> Prop :=
+  | PA_Var x : permutation_accessor_rel perm (encode_var x) (encode_var x)
+  | PA_Anon a b (get_a : lookup a (anons_perm perm) = Some b) :
+      permutation_accessor_rel perm (encode_anon a) (encode_anon b)
+  | PA_Abstraction i j A j' (get_i : lookup i (abstractions_perm perm) = Some A)
+      (get_j : lookup j A = Some j') :
+      permutation_accessor_rel perm (encode_abstraction (i, j)) (encode_abstraction (i, j'))
+.
+
+Lemma permutation_accessor_is_Some perm acc acc' :
+  permutation_accessor perm acc = Some acc' -> permutation_accessor_rel perm acc acc'.
+Proof.
+  unfold permutation_accessor. intros H.
+    destruct (decode' acc) as [i | ] eqn:EQN; [ | discriminate].
+    rewrite decode'_is_Some in EQN. subst.
+    destruct i as [i | (i & j)].
+    - destruct (decode' i) as [i' | ] eqn:EQN; [ | discriminate].
+      rewrite decode'_is_Some in EQN. subst.
+      destruct i'.
+      + inversion H. constructor.
+      + destruct (lookup a (anons_perm perm)) eqn:?; [ | discriminate].
+        inversion H. constructor. assumption.
+    - destruct (lookup i (abstractions_perm perm)) as [A | ] eqn:?; [ | discriminate]. cbn in H.
+      destruct (lookup j A) as [j' | ] eqn:?; [ | discriminate]. cbn in H. inversion H.
+      econstructor; eassumption.
+Qed.
+
+Lemma permutation_accessor_is_equivalence S perm :
+  is_state_equivalence perm S -> is_equivalence (permutation_accessor perm) (get_map S).
+Proof.
+  intros ((inj_anons_perm & dom_anons_perm) & inj_abstractions_perm). split.
+  - intros i Some_i j Hij. pose proof Some_i as Some_j. rewrite Hij in Some_j.
+    destruct Some_i as (i' & Some_i). destruct Some_j as (j' & Some_j).
+    rewrite Some_i, Some_j in Hij. inversion Hij; subst.
+    apply permutation_accessor_is_Some in Some_i, Some_j.
+    destruct Some_i.
+    + inversion Some_j. f_equal. eapply encode_inj. congruence.
+    + inversion Some_j. f_equal. eapply inj_anons_perm; [eassumption.. | ].
+      eapply encode_inj. auto.
+    + specialize (inj_abstractions_perm i).
+      inversion inj_abstractions_perm as [A' p (inj_A & _) | ]; [ | congruence].
+      replace A' with A in * by congruence.
+      inversion Some_j as [| | i'' ? A'' ? get_i'' ? _H eq_encode].
+      f_equal. apply encode_inj in eq_encode. inversion eq_encode. subst. f_equal.
+      rewrite get_i in get_i''. replace A'' with A in * by congruence.
+      eapply inj_A; [eassumption.. | congruence].
+  - unfold get_map, permutation_accessor. cbn. intros i.
+    intros [(i' & -> & Hi') | ((i' & j') & -> & Hij')]%sum_maps_is_Some.
+    + rewrite decode'_encode.
+      apply sum_maps_is_Some in Hi'.
+      destruct Hi' as [(? & -> & _) | (? & -> & G)]; rewrite decode'_encode.
+      * auto.
+      * rewrite <-elem_of_dom, <-dom_anons_perm, elem_of_dom in G.
+        destruct G as (? & G). setoid_rewrite G. auto.
+    + rewrite decode'_encode. revert Hij'. rewrite lookup_flatten.
+      specialize (inj_abstractions_perm i').
+      inversion inj_abstractions_perm as [? A (_ & dom_A) | ];
+          [ | intros (? & ?); discriminate].
+      cbn. rewrite <-elem_of_dom, <-dom_A, elem_of_dom. intros (? & ->). auto.
+Qed.
 
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.

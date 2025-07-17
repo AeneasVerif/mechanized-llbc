@@ -475,6 +475,19 @@ Section SumMaps.
       intros ? ? ? (? & -> & _)%lookup_kmap_Some; [ | typeclasses eauto].
       rewrite lookup_inl_kmap_inr. easy.
   Qed.
+
+  Lemma sum_maps_is_Some m0 m1 k : is_Some (lookup k (sum_maps m0 m1)) ->
+    (exists i, k = encode_inl i /\ is_Some (lookup i m0)) \/
+    (exists i, k = encode_inr i /\ is_Some (lookup i m1)).
+  Proof.
+    intros get_k. destruct (decode' (A := K0 + K1) k) as [decode_k | ] eqn:EQN.
+    - apply decode'_is_Some in EQN. rewrite <-!EQN in *. destruct decode_k as [i | i].
+      + left. exists i. replace (encode (inl i)) with (encode_inl i) in * by reflexivity.
+        rewrite sum_maps_lookup_l in get_k. auto.
+      + right. exists i. replace (encode (inr i)) with (encode_inr i) in * by reflexivity.
+        rewrite sum_maps_lookup_r in get_k. auto.
+    - rewrite sum_maps_lookup_None in get_k by assumption. inversion get_k. discriminate.
+  Qed.
 End SumMaps.
 
 (* Collapse the 2-dimensional map of regions into a 1-dimensional map. *)
