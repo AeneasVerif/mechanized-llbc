@@ -210,6 +210,10 @@ Proof.
   unfold get_map, encode_abstraction. cbn. rewrite sum_maps_lookup_r. apply lookup_flatten.
 Qed.
 
+Lemma get_at_abstraction' S i j A (H : lookup i (abstractions S) = Some A) :
+  get_at_accessor S (encode_abstraction (i, j)) = lookup j A.
+Proof. rewrite get_at_abstraction, H. reflexivity. Qed.
+
 Declare Scope llbc_plus_scope.
 Delimit Scope llbc_plus_scope with llbc.
 
@@ -1072,6 +1076,27 @@ Proof.
       cbn. rewrite <-elem_of_dom, <-dom_A, elem_of_dom. intros (? & ->). auto.
 Qed.
 
+Lemma perm_at_anon perm a :
+  permutation_accessor perm (anon_accessor a) =
+  option_map anon_accessor (lookup a (anons_perm perm)).
+Proof.
+  unfold permutation_accessor, anon_accessor. cbn. unfold encode_anon.
+  rewrite !decode'_encode. reflexivity.
+Qed.
+
+Lemma permutation_accessor_is_equivalence_rev S perm :
+  is_equivalence (permutation_accessor perm) (get_map S) -> is_state_equivalence perm S.
+Proof.
+  intros (inj_perm & dom_perm). split.
+  - split.
+    + intros a b Ha a' ? Ha' <-.
+      assert (anon_accessor a = anon_accessor a') as G.
+      { eapply inj_perm; rewrite !perm_at_anon; setoid_rewrite Ha; [auto | ].
+        setoid_rewrite Ha'. reflexivity. }
+      apply (f_equal accessor_anon) in G. rewrite !anon_accessor_inj in G. congruence.
+    + apply set_eq. intros a.
+Admitted.
+
 Lemma abstraction_apply_state_permutation perm S i p A :
   lookup i (abstractions_perm perm) = Some p ->
   lookup i (abstractions S) = Some A ->
@@ -1131,6 +1156,64 @@ Lemma permutation_sget S (perm : state_perm) (H : is_state_equivalence perm S)
 Proof.
   destruct valid_sp as (v & get_at_sp & _). unfold permutation_spath, sget.
   edestruct get_at_accessor_state_permutation as (? & -> & <-); [eassumption | auto | reflexivity].
+Qed.
+
+Lemma sset_abstractions_dom S sp v :
+  map_Forall2 (fun _ A A' => dom A = dom A') (abstractions S) (abstractions (S.[sp <- v])).
+Proof.
+  intros i.
+  assert (is_Some (lookup i (abstractions S)) <-> is_Some (lookup i (abstractions (S.[sp <- v])))).
+  { rewrite <-!elem_of_dom.
+    replace (dom (abstractions S)) with (get_extra S) by reflexivity.
+    replace (dom (abstractions (S .[sp <- v]))) with (get_extra (S.[sp <- v])) by reflexivity.
+    unfold sset. rewrite get_extra_alter. reflexivity. }
+  destruct (lookup i (abstractions S)) eqn:?;
+  destruct (lookup i (abstractions (S.[sp <- v]))) eqn:?.
+  - constructor. apply set_eq. intros j. rewrite !elem_of_dom.
+    erewrite <-get_at_abstraction' by eassumption.
+    symmetry. erewrite <-get_at_abstraction' by eassumption.
+    unfold sset. rewrite get_map_alter. apply lookup_alter_is_Some.
+  - destruct H as (H & _). destruct H; easy.
+  - destruct H as (_ & H). destruct H; easy.
+  - constructor.
+Qed.
+
+Lemma is_state_equivalence_sset perm S sp v :
+  is_state_equivalence perm S -> is_state_equivalence perm (S.[sp <- v]).
+Proof.
+  intros ((? & H) & G). split. split.
+  - assumption.
+  - rewrite H. apply set_eq. intros a. rewrite !elem_of_dom.
+    rewrite <-!get_at_anon. rewrite <-!elem_of_dom. unfold sset. rewrite get_map_alter, dom_alter.
+    reflexivity.
+  - intros i. specialize (G i).
+    remember (lookup i (abstractions S)) as A eqn:EQN_A.
+    remember (lookup i (abstractions_perm perm)) as perm_A.
+    destruct G.
+    + pose proof (sset_abstractions_dom S sp v i) as dom_abs.
+      rewrite <-EQN_A in dom_abs.
+      remember (lookup i (abstractions (S.[sp <- v]))).
+      inversion dom_abs; subst. constructor.
+      unfold is_permutation. destruct H1. split; [assumption | congruence].
+    + symmetry in EQN_A. rewrite fresh_abstraction_sset in EQN_A. rewrite EQN_A. constructor.
+Qed.
+
+Lemma permutation_sset S (perm : state_perm) v (H : is_state_equivalence perm S)
+  sp (valid_sp : valid_spath S sp) :
+  (apply_state_permutation perm (S.[sp <- v])) = (apply_state_permutation perm S).[permutation_spath perm sp <- v].
+Proof.
+  destruct valid_sp as (w & G & _). apply state_eq_ext.
+  - rewrite get_map_state_permutation by now apply is_state_equivalence_sset.
+    unfold sset. rewrite !get_map_alter.
+    rewrite get_map_state_permutation by assumption.
+    unfold permutation_spath.
+    edestruct get_at_accessor_state_permutation as (? & uwu & ?); [eassumption | auto | ].
+    rewrite !uwu.
+    apply alter_pkmap.
+    now apply permutation_accessor_is_equivalence. assumption.
+  - rewrite get_extra_state_permutation by now apply is_state_equivalence_sset.
+    unfold sset. rewrite get_extra_alter.
+    rewrite get_extra_alter. symmetry. apply get_extra_state_permutation. assumption.
 Qed.
 
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=

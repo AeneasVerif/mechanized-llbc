@@ -664,6 +664,20 @@ Proof.
   - rewrite size_pkmap by assumption. rewrite size_eq. reflexivity.
 Qed.
 
+Lemma alter_pkmap {A} f g i j (m : Pmap A) (H : is_equivalence f m) (G : f i = Some j) :
+  pkmap f (alter g i m) = alter g j (pkmap f m).
+Proof.
+  destruct H as (inj_f & H). apply pkmap_eq.
+  - split; [assumption | ]. intros ?. rewrite lookup_alter_is_Some. auto.
+  - intros i' j' G'. destruct (decide (i = i')) as [<- | n].
+    + replace j' with j in * by congruence. simpl_map.
+      symmetry. f_equal. apply lookup_pkmap; assumption.
+    + simpl_map. rewrite lookup_alter_ne.
+      * symmetry. apply lookup_pkmap; assumption.
+      * intros <-. apply n. apply inj_f. auto. congruence.
+  - rewrite <-!size_dom, !dom_alter, !size_dom. symmetry. apply size_pkmap. split; assumption.
+Qed.
+
 Definition equiv_map {A} (m0 m1 : Pmap A) :=
   exists f, is_equivalence f m0 /\ m1 = pkmap f m0.
 
