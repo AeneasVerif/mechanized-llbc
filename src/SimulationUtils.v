@@ -139,18 +139,19 @@ Proof. intros ? ? <-. exists d. auto. Qed.
 (* Generally, to prove preservation when the relation is a reflexive transitive closure, it
  * suffices to prove it for the base cases. *)
 Lemma preservation_by_base_case {A B : Type}
-  (LeqA : relation A) (LeqB : relation B) (Red : A -> B -> Prop) :
-  forward_simulation LeqA LeqB^* Red Red ->
-  forward_simulation LeqA^* LeqB^* Red Red.
+  {LeqA : relation A} {LeqB : relation B} `{Reflexive _ LeqB} `{Transitive _ LeqB}
+  {Red : A -> B -> Prop} :
+  forward_simulation LeqA LeqB Red Red ->
+  forward_simulation LeqA^* LeqB Red Red.
 Proof.
-  intros H a b red_ab a' Leq_a_a'. revert b red_ab.
+  intros Hloc a b red_ab a' Leq_a_a'. revert b red_ab.
   induction Leq_a_a' as [ | | a2 a1 a0 _ IH0 _ IH1].
-  - intros. eapply H; eassumption.
-  - intros. eexists. split; [apply rt_refl | eassumption].
+  - intros. eapply Hloc; eassumption.
+  - intros. eexists. split; [reflexivity | eassumption].
   - intros b0 Red_a0_b0.
     destruct (IH1 _ Red_a0_b0) as (b1 & ? & Red_a1_b1).
     destruct (IH0 _ Red_a1_b1) as (b2 & ? & Red_a2_b2).
-    exists b2. split; [ | assumption]. apply rt_trans with (y := b1); assumption.
+    exists b2. split; [ | assumption]. transitivity b1; assumption.
 Qed.
 
 (* Relations are generally defined for types of states, for any semantics between LLBC# and
