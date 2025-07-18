@@ -958,6 +958,7 @@ Definition equiv_states (S0 S1 : LLBC_plus_state) :=
   vars S0 = vars S1 /\
   equiv_map (anons S0) (anons S1) /\
   map_Forall2 (fun _ => equiv_map) (abstractions S0) (abstractions S1).
+
 (* We are going to give an alternative definition of map equivalence that is computable.
  * Hence, two states S0 and S1 are equivalent if one is a permutation of the other:
  * S0 == S1 iff exists P, S0 = P(S1)
@@ -1219,8 +1220,29 @@ Qed.
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
 
-Definition leq S0 S1 :=
-  exists S1', leq_base^* S0 S1' /\ equiv_states S1' S1.
+Definition leq := chain leq_state_base^* equiv_states.
+
+(* TODO: should it be the main definition instead of a characterization? *)
+Definition equiv_states' S0 S1 :=
+  exists perm, is_state_equivalence perm S1 /\ S0 = apply_state_permutation perm S1.
+
+Lemma equiv_states_perm S0 S1 :
+  equiv_states S0 S1 <-> equiv_states' S0 S1.
+Admitted.
+
+Lemma leq_equiv_states_commute :
+  forward_simulation equiv_states equiv_states leq_state_base leq_state_base.
+Proof.
+  intros Sl Sr Hleq.
+  setoid_rewrite equiv_states_perm.
+  intros ? (perm & valid_perm & ->). destruct Hleq.
+  (* TODO: automatization *)
+  - eexists. rewrite Logic.and_comm. split.
+    + eapply Leq_ToSymbolic.
+      rewrite permutation_sget. eassumption. assumption. validity.
+    + eexists. rewrite permutation_sset by eauto with spath.
+      split; [ | reflexivity]. apply is_state_equivalence_sset. assumption.
+Admitted.
 
 Record LLBC_plus_well_formed (S : LLBC_plus_state) : Prop := {
   at_most_one_borrow_mut l : at_most_one_node (borrowC^m(l)) S;
