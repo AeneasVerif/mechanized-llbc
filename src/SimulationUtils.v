@@ -34,6 +34,8 @@ Inductive measured_closure {A : Type} (R : nat -> A -> A -> Prop) : nat -> A -> 
       measured_closure R m x y -> measured_closure R n y z -> measured_closure R (m + n) x z
 .
 
+(* Now let's assume that a relation <_n is equipped with an integer measure.
+ * We can define a reflexive-transitive closure that takes the measure into account. *)
 Notation "R ^{ n }" := (measured_closure R n).
 
 Global Instance measured_closure_refl A R n : Reflexive (@measured_closure A R n).
@@ -76,6 +78,10 @@ Proof.
       * eapply MC_trans; eassumption.
       * lia.
 Qed.
+
+(* Chaining two relations. *)
+Definition chain {A B C} (RAB : A -> B -> Prop) (RBC : B -> C -> Prop) a c :=
+  exists b, RAB a b /\ RBC b c.
 
 (* The general definition of forward simulation. That means that for all a >= b (with
    a : A and b : B) and a -> c (with c : C), then there exists d : D that completes
@@ -152,6 +158,34 @@ Proof.
     destruct (IH1 _ Red_a0_b0) as (b1 & ? & Red_a1_b1).
     destruct (IH0 _ Red_a1_b1) as (b2 & ? & Red_a2_b2).
     exists b2. split; [ | assumption]. transitivity b1; assumption.
+Qed.
+
+Lemma preservation_by_base_case' {A B : Type}
+  {LeqA : relation A} {LeqB : relation B} {Red : B -> A -> Prop} :
+  forward_simulation Red Red LeqA LeqB ->
+  forward_simulation Red Red LeqA^* LeqB^*.
+Proof.
+  intros Hloc a a' Leq_a_a'.
+  induction Leq_a_a' as [? ? Hleq | | a0 a1 a2 _ IH0 _ IH1].
+  - intros ? Hred. specialize (Hloc _ _ Hleq _ Hred). destruct Hloc as (? & ? & ?).
+    eexists. split; [ | constructor]; eassumption.
+  - intros. eexists. split; [eassumption | reflexivity].
+  - intros b0 Red_b0_a0.
+    destruct (IH0 _ Red_b0_a0) as (b1 & Red_b1_a1 & ?).
+    destruct (IH1 _ Red_b1_a1) as (b2 & Red_b2_a2 & ?).
+    exists b2. split; [assumption | ]. transitivity b1; assumption.
+Qed.
+
+(* TODO: define an equivalence between relations? *)
+Lemma forward_simulation_chain {S0 S1} (R0l R0r : S0 -> S0 -> Prop) (R1l R1r : S1 -> S1 -> Prop)
+  (red : S0 -> S1 -> Prop) :
+  forward_simulation R0l R1l red red -> forward_simulation R0r R1r red red ->
+  forward_simulation (chain R0l R0r) (chain R1l R1r) red red.
+Proof.
+  intros Sim_l Sim_r Sr S'r red_Sr_S'r Sl (Sm & R_Sl_Sm & R_Sm_Sr).
+  specialize (Sim_r _ _ red_Sr_S'r _ R_Sm_Sr). destruct Sim_r as (S'm & R_S'm_S'r & red_Sm_S'm).
+  specialize (Sim_l _ _ red_Sm_S'm _ R_Sl_Sm). destruct Sim_l as (S'l & R_S'l_S'm & red_Sl_S'l).
+  exists S'l. split; [ | assumption]. exists S'm. split; assumption.
 Qed.
 
 (* Relations are generally defined for types of states, for any semantics between LLBC# and
@@ -275,6 +309,29 @@ Ltac leq_val_state_add_anon :=
          intros a ? ? ?; eexists; split |
         ]
   end.
+
+Section Leq.
+  Context `{LeqBase state}.
+  Context {equiv : state -> state -> Prop}.
+  Context `{Reflexive _ equiv}.
+  Context `{Transitive _ equiv}.
+  Context (sim_equiv_leq_base : forward_simulation equiv equiv leq_base leq_base).
+
+  Definition leq := chain leq_base^* equiv.
+
+  Global Instance reflexive_leq : Reflexive leq.
+  Proof. intros x. exists x. split; reflexivity. Qed.
+
+  Global Instance transitive_leq : Transitive leq.
+  Proof.
+    intros x y z (y' & ? & equiv_y'_y) (z' & leq_y_z' & ?).
+    apply preservation_by_base_case' in sim_equiv_leq_base.
+    specialize (sim_equiv_leq_base _ _ leq_y_z' _ equiv_y'_y).
+    destruct sim_equiv_leq_base as (z'' & ? & ?). exists z''. split.
+    - transitivity y'; assumption.
+    - transitivity z'; assumption.
+  Qed.
+End Leq.
 
 Section WellFormedSimulations.
   Context `{LB : LeqBase state}.
