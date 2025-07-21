@@ -1112,20 +1112,6 @@ Lemma perm_at_abstraction perm i j :
   option_map (fun j' => encode_abstraction (i, j')) (mbind (lookup j) (lookup i (abstractions_perm perm))).
 Proof. unfold permutation_accessor, encode_abstraction. rewrite decode'_encode. reflexivity. Qed.
 
-(* TODO: delete *)
-Lemma permutation_accessor_is_equivalence_rev S perm :
-  is_equivalence (permutation_accessor perm) (get_map S) -> is_state_equivalence perm S.
-Proof.
-  intros (inj_perm & dom_perm). split.
-  - split.
-    + intros a b Ha a' ? Ha' <-.
-      assert (anon_accessor a = anon_accessor a') as G.
-      { eapply inj_perm; rewrite !perm_at_anon; setoid_rewrite Ha; [auto | ].
-        setoid_rewrite Ha'. reflexivity. }
-      apply (f_equal accessor_anon) in G. rewrite !anon_accessor_inj in G. congruence.
-    + apply set_eq. intros a.
-Admitted.
-
 Lemma abstraction_apply_state_permutation perm S i p A :
   lookup i (abstractions_perm perm) = Some p ->
   lookup i (abstractions S) = Some A ->
@@ -1271,21 +1257,6 @@ Proof.
     + rewrite !dom_insert_L, eq_dom. reflexivity.
   - exact Habstractions_perm.
 Qed.
-
-(*
-Lemma pkmap_add_anon_perm perm S a b (H : is_state_equivalence perm S) :
-  fresh_anon S a -> fresh_anon (apply_state_permutation perm S) b ->
-  pkmap (permutation_accessor (add_anon_perm perm a b)) (get_map S) =
-  pkmap (permutation_accessor perm) (get_map S).
-Proof.
-  intros fresh_a fresh_b. apply pkmap_eq.
-  - eapply add_anon_perm_equivalence in H; [ | eassumption..].
-    apply permutation_accessor_is_equivalence in H.
-    rewrite get_map_add_anon in H.
-    split. cbn.
-  - admit.
-  - symmetry. apply size_pkmap, permutation_accessor_is_equivalence, H.
- *)
 
 Lemma permutation_add_anon S perm a b v :
   is_state_equivalence perm S ->
