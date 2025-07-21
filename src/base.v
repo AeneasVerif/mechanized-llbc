@@ -664,6 +664,19 @@ Proof.
   - rewrite size_pkmap by assumption. rewrite size_eq. reflexivity.
 Qed.
 
+(* When the functions f and g are equal on the domain of m, we can prove equality without any
+ * injectivity hypothesis. *)
+Lemma pkmap_fun_eq {A} f g (m : Pmap A) (H : forall i, elem_of i (dom m) -> f i = g i) :
+  pkmap f m = pkmap g m.
+Proof.
+  unfold pkmap. induction m as [ | k x m ? ? IHm] using map_first_key_ind.
+  - reflexivity.
+  - rewrite !map_fold_insert_first_key by assumption.
+    rewrite IHm.
+    + unfold insert_permuted_key. rewrite H; [reflexivity | ]. set_solver.
+    + intros i ?. apply H. set_solver.
+Qed.
+
 Lemma alter_pkmap {A} f g i j (m : Pmap A) (H : is_equivalence f m) (G : f i = Some j) :
   pkmap f (alter g i m) = alter g j (pkmap f m).
 Proof.
@@ -755,11 +768,16 @@ Proof.
     exists (map_imap (fun i _ => f i) m0). split; [split | ].
     + assumption.
     + destruct equiv_f as (_ & ?). apply dom_imap_L. intros i. rewrite elem_of_dom. firstorder.
-    + symmetry. apply pkmap_eq.
-      * split. { rewrite <-map_inj_equiv. assumption. }
-        intros i. rewrite map_lookup_imap. intros (? & G). rewrite G. apply equiv_f. auto.
-      * intros i j. rewrite map_lookup_imap. intros (k & G & ?)%bind_Some. rewrite G.
-        erewrite lookup_pkmap; [ | apply equiv_f | eassumption]. auto.
-      * symmetry. apply size_pkmap. assumption.
+    + apply pkmap_fun_eq. setoid_rewrite map_lookup_imap. intros i (? & ->)%elem_of_dom. reflexivity.
   - intros (p & H%permutation_is_equivalence & ->). eexists. split; [exact H | reflexivity].
+Qed.
+
+Lemma map_inj_insert {A} p x (y : A) (H : forall i, lookup i p <> Some y) :
+  map_inj p -> map_inj (insert x y p).
+Proof.
+  intros inj_p i j. destruct (decide (i = x)) as [-> | ]; simpl_map.
+  - intros [=<-]. intros ? ? ? <-. apply dec_stable. intros ?. simpl_map. eapply H. eassumption.
+  - intros ? i' ? ? ?.
+    assert (i' <> x). { intros <-. simpl_map. congruence. }
+    simpl_map. eapply inj_p; eassumption.
 Qed.

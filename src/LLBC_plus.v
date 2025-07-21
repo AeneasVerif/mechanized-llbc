@@ -214,6 +214,25 @@ Lemma get_at_abstraction' S i j A (H : lookup i (abstractions S) = Some A) :
   get_at_accessor S (encode_abstraction (i, j)) = lookup j A.
 Proof. rewrite get_at_abstraction, H. reflexivity. Qed.
 
+Variant get_at_accessor_rel S : positive -> Prop :=
+  | GetAtVar x v : lookup x (vars S) = Some v -> get_at_accessor_rel S (encode_var x)
+  | GetAtAnon a v : lookup a (anons S) = Some v -> get_at_accessor_rel S (encode_anon a)
+  | GetAtAbstraction i j A v : lookup i (abstractions S) = Some A -> lookup j A = Some v ->
+      get_at_accessor_rel S (encode_abstraction (i, j))
+.
+
+(* TODO: redo proofs with this lemma. *)
+Lemma get_at_accesor_is_Some S acc :
+  is_Some (get_at_accessor S acc) -> get_at_accessor_rel S acc.
+Proof.
+  intros [(i & -> & H) | ((i & j) & -> & (? & H))]%sum_maps_is_Some.
+  - apply sum_maps_is_Some in H. destruct H as [(x & -> & (? & ?)) | (a & -> & (? & ?))].
+    + eapply GetAtVar. eassumption.
+    + eapply GetAtAnon. eassumption.
+  - rewrite lookup_flatten, bind_Some in H. destruct H as (A & ? & ?).
+    eapply GetAtAbstraction with (A := A); eauto.
+Qed.
+
 Declare Scope llbc_plus_scope.
 Delimit Scope llbc_plus_scope with llbc.
 
@@ -1077,6 +1096,9 @@ Proof.
       cbn. rewrite <-elem_of_dom, <-dom_A, elem_of_dom. intros (? & ->). auto.
 Qed.
 
+Lemma perm_at_var perm v : permutation_accessor perm (encode_var v) = Some (encode_var v).
+Proof. unfold permutation_accessor, encode_var. rewrite !decode'_encode. reflexivity. Qed.
+
 Lemma perm_at_anon perm a :
   permutation_accessor perm (anon_accessor a) =
   option_map anon_accessor (lookup a (anons_perm perm)).
@@ -1085,6 +1107,12 @@ Proof.
   rewrite !decode'_encode. reflexivity.
 Qed.
 
+Lemma perm_at_abstraction perm i j :
+  permutation_accessor perm (encode_abstraction (i, j)) =
+  option_map (fun j' => encode_abstraction (i, j')) (mbind (lookup j) (lookup i (abstractions_perm perm))).
+Proof. unfold permutation_accessor, encode_abstraction. rewrite decode'_encode. reflexivity. Qed.
+
+(* TODO: delete *)
 Lemma permutation_accessor_is_equivalence_rev S perm :
   is_equivalence (permutation_accessor perm) (get_map S) -> is_state_equivalence perm S.
 Proof.
@@ -1150,6 +1178,13 @@ Definition permutation_spath (perm : state_perm) (sp : spath) : spath :=
   | Some j => (j, snd sp)
   | None => sp
   end.
+
+Lemma permutation_valid_spath S sp perm (H : is_state_equivalence perm S) :
+  valid_spath S sp -> valid_spath (apply_state_permutation perm S) (permutation_spath perm sp).
+Proof.
+  intros (v & ? & ?). exists v. unfold permutation_spath.
+  edestruct get_at_accessor_state_permutation as (? & -> & ->); auto.
+Qed.
 
 Lemma permutation_sget S (perm : state_perm) (H : is_state_equivalence perm S)
   sp (valid_sp : valid_spath S sp) :
@@ -1217,6 +1252,72 @@ Proof.
     rewrite get_extra_alter. symmetry. apply get_extra_state_permutation. assumption.
 Qed.
 
+Definition add_anon_perm perm a b := {|
+  anons_perm := insert a b (anons_perm perm);
+  abstractions_perm := abstractions_perm perm;
+|}.
+
+Lemma add_anon_perm_equivalence perm S a b v :
+  fresh_anon S a -> fresh_anon (apply_state_permutation perm S) b ->
+  is_state_equivalence perm S -> is_state_equivalence (add_anon_perm perm a b) (S,, a |-> v).
+Proof.
+  intros fresh_a fresh_b p_is_state_equiv.
+  unfold fresh_anon in fresh_b. rewrite get_at_anon in fresh_b. cbn in fresh_b.
+  destruct p_is_state_equiv as ((? & eq_dom) & Habstractions_perm). split.
+  - cbn. split.
+    + apply map_inj_insert; [ | assumption]. intros ? ?.
+      erewrite lookup_pkmap in fresh_b; [ | now apply map_inj_equiv | eassumption].
+      rewrite <-not_elem_of_dom, <-eq_dom, not_elem_of_dom in fresh_b. congruence.
+    + rewrite !dom_insert_L, eq_dom. reflexivity.
+  - exact Habstractions_perm.
+Qed.
+
+(*
+Lemma pkmap_add_anon_perm perm S a b (H : is_state_equivalence perm S) :
+  fresh_anon S a -> fresh_anon (apply_state_permutation perm S) b ->
+  pkmap (permutation_accessor (add_anon_perm perm a b)) (get_map S) =
+  pkmap (permutation_accessor perm) (get_map S).
+Proof.
+  intros fresh_a fresh_b. apply pkmap_eq.
+  - eapply add_anon_perm_equivalence in H; [ | eassumption..].
+    apply permutation_accessor_is_equivalence in H.
+    rewrite get_map_add_anon in H.
+    split. cbn.
+  - admit.
+  - symmetry. apply size_pkmap, permutation_accessor_is_equivalence, H.
+ *)
+
+Lemma permutation_add_anon S perm a b v :
+  is_state_equivalence perm S ->
+  fresh_anon S a -> fresh_anon (apply_state_permutation perm S) b ->
+  apply_state_permutation (add_anon_perm perm a b) (S,, a |-> v) =
+      (apply_state_permutation perm S),, b |-> v.
+Proof.
+  intros ? fresh_a fresh_b.
+  apply state_eq_ext.
+  - assert (is_state_equivalence (add_anon_perm perm a b) (S,, a |-> v)) as G
+      by now apply add_anon_perm_equivalence.
+    rewrite get_map_state_permutation by assumption.
+    rewrite !get_map_add_anon.
+    rewrite get_map_state_permutation by assumption.
+    apply permutation_accessor_is_equivalence in G.
+    rewrite pkmap_insert; [ | apply G | exact fresh_a].
+    unfold insert_permuted_key. rewrite perm_at_anon.
+    (* A trick to perform a cbn only in the term `option_map _ _` *)
+    remember (option_map _ _) eqn:EQN. cbn in EQN. simpl_map. cbn in EQN. subst.
+    f_equal. apply pkmap_fun_eq.
+    intros i get_rel%elem_of_dom%get_at_accesor_is_Some.
+    destruct get_rel as [ | a' ? get_a' | ].
+    + rewrite !perm_at_var. reflexivity.
+    + rewrite !perm_at_anon. unfold add_anon_perm. cbn.
+      rewrite lookup_insert_ne by (rewrite <-get_at_anon in get_a'; congruence).
+      reflexivity.
+    + erewrite !perm_at_abstraction. reflexivity.
+  - rewrite get_extra_state_permutation by now apply add_anon_perm_equivalence.
+    rewrite !get_extra_add_anon.
+    symmetry. apply get_extra_state_permutation. assumption.
+Qed.
+
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
 
@@ -1242,6 +1343,24 @@ Proof.
       rewrite permutation_sget. eassumption. assumption. validity.
     + eexists. rewrite permutation_sset by eauto with spath.
       split; [ | reflexivity]. apply is_state_equivalence_sset. assumption.
+  - admit.
+  - admit.
+  - destruct (exists_fresh_anon (apply_state_permutation perm S)) as (b & fresh_b).
+    eexists. rewrite Logic.and_comm. split.
+    + apply Leq_MoveValue.
+      rewrite permutation_sget by eauto. assumption.
+      exact fresh_b. now apply permutation_valid_spath. admit.
+    + eexists.
+      rewrite permutation_add_anon.
+      2: { apply is_state_equivalence_sset. eassumption. }
+      2: { eauto with spath. }
+      2: { rewrite permutation_sset by auto with spath. eauto with spath. }
+      rewrite permutation_sset by auto with spath.
+      rewrite permutation_sget by auto with spath.
+      split; [ | reflexivity].
+      apply add_anon_perm_equivalence. auto with spath.
+      rewrite permutation_sset by auto with spath. auto with spath.
+      apply is_state_equivalence_sset. assumption.
 Admitted.
 
 Record LLBC_plus_well_formed (S : LLBC_plus_state) : Prop := {
