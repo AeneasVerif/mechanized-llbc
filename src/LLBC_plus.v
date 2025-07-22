@@ -216,13 +216,13 @@ Proof. rewrite get_at_abstraction, H. reflexivity. Qed.
 
 Variant get_at_accessor_rel S : positive -> Prop :=
   | GetAtVar x v : lookup x (vars S) = Some v -> get_at_accessor_rel S (encode_var x)
-  | GetAtAnon a v : lookup a (anons S) = Some v -> get_at_accessor_rel S (encode_anon a)
+  | GetAtAnon a v : lookup a (anons S) = Some v -> get_at_accessor_rel S (anon_accessor a)
   | GetAtAbstraction i j A v : lookup i (abstractions S) = Some A -> lookup j A = Some v ->
       get_at_accessor_rel S (encode_abstraction (i, j))
 .
 
 (* TODO: redo proofs with this lemma. *)
-Lemma get_at_accesor_is_Some S acc :
+Lemma get_at_accessor_is_Some S acc :
   is_Some (get_at_accessor S acc) -> get_at_accessor_rel S acc.
 Proof.
   intros [(i & -> & H) | ((i & j) & -> & (? & H))]%sum_maps_is_Some.
@@ -1300,7 +1300,7 @@ Proof.
     (* A trick to perform a cbn only in the term `option_map _ _` *)
     remember (option_map _ _) eqn:EQN. cbn in EQN. simpl_map. cbn in EQN. subst.
     f_equal. apply pkmap_fun_eq.
-    intros i get_rel%elem_of_dom%get_at_accesor_is_Some.
+    intros i get_rel%elem_of_dom%get_at_accessor_is_Some.
     destruct get_rel as [ | a' ? get_a' | ].
     + rewrite !perm_at_var. reflexivity.
     + rewrite !perm_at_anon. unfold add_anon_perm. cbn.
@@ -1309,6 +1309,52 @@ Proof.
     + erewrite !perm_at_abstraction. reflexivity.
   - rewrite get_extra_state_permutation by now apply add_anon_perm_equivalence.
     rewrite !get_extra_add_anon.
+    symmetry. apply get_extra_state_permutation. assumption.
+Qed.
+
+Definition remove_anon_perm perm a := {|
+  anons_perm := delete a (anons_perm perm);
+  abstractions_perm := abstractions_perm perm;
+|}.
+
+Lemma remove_anon_perm_equivalence perm S a :
+  is_state_equivalence perm S -> is_state_equivalence (remove_anon_perm perm a) (remove_anon a S).
+Proof.
+  intros p_is_state_equiv.
+  destruct p_is_state_equiv as ((anons_perm_inj & eq_dom) & Habstractions_perm). split.
+  - cbn. split.
+    + intros ? ? (_ & ?)%lookup_delete_Some ? ? (_ & ?)%lookup_delete_Some ?.
+      eapply anons_perm_inj; eassumption.
+    + rewrite !dom_delete_L, eq_dom. reflexivity.
+  - exact Habstractions_perm.
+Qed.
+
+Lemma get_extra_remove_anon a S : get_extra (remove_anon a S) = get_extra S.
+Proof. reflexivity. Qed.
+
+Lemma permutation_remove_anon S perm a b :
+  is_state_equivalence perm S -> lookup a (anons_perm perm) = Some b ->
+  apply_state_permutation (remove_anon_perm perm a) (remove_anon a S) =
+      remove_anon b (apply_state_permutation perm S).
+Proof.
+  intros ? get_at_a.
+  assert (is_state_equivalence (remove_anon_perm perm a) (remove_anon a S)) as G
+      by now apply remove_anon_perm_equivalence.
+  apply state_eq_ext.
+  - rewrite get_map_state_permutation by assumption.
+    rewrite !get_map_remove_anon.
+    rewrite get_map_state_permutation by assumption.
+    apply permutation_accessor_is_equivalence in H.
+    erewrite <-pkmap_delete;
+      [ | apply H | rewrite perm_at_anon; setoid_rewrite get_at_a; reflexivity].
+    apply pkmap_fun_eq.
+    intros i (? & get_rel)%elem_of_dom%lookup_delete_is_Some.
+    apply get_at_accessor_is_Some in get_rel. destruct get_rel.
+    + rewrite !perm_at_var. reflexivity.
+    + rewrite !perm_at_anon. cbn. rewrite lookup_delete_ne by congruence. reflexivity.
+    + rewrite !perm_at_abstraction. reflexivity.
+  - rewrite get_extra_state_permutation by assumption.
+    rewrite !get_extra_remove_anon.
     symmetry. apply get_extra_state_permutation. assumption.
 Qed.
 
@@ -1338,7 +1384,13 @@ Proof.
     + eexists. rewrite permutation_sset by eauto with spath.
       split; [ | reflexivity]. apply is_state_equivalence_sset. assumption.
   - admit.
-  - admit.
+  - edestruct permutation_valid_anon as (a' & H & ?); [exact valid_perm | exact a_valid | ].
+    eexists. rewrite Logic.and_comm. split.
+    + apply Leq_RemoveAnon. eassumption.
+      erewrite <-perm_at_anon', permutation_sget; eassumption.
+      erewrite <-perm_at_anon', permutation_sget; eassumption.
+    + eexists. erewrite permutation_remove_anon by eassumption. split; [ | reflexivity].
+      apply remove_anon_perm_equivalence. assumption.
   - destruct (exists_fresh_anon (apply_state_permutation perm S)) as (b & fresh_b).
     eexists. rewrite Logic.and_comm. split.
     + apply Leq_MoveValue.

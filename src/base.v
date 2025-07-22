@@ -619,6 +619,17 @@ Proof.
       * exact IHm.
 Qed.
 
+Lemma pkmap_delete {A} f i j (m : Pmap A) :
+  partial_inj f -> f i = Some j -> pkmap f (delete i m) = delete j (pkmap f m).
+Proof.
+  intros H G. destruct (lookup i m) as [x | ] eqn:EQN.
+  - apply insert_delete in EQN. rewrite <-EQN at 2. rewrite pkmap_insert by now simpl_map.
+    unfold insert_permuted_key. rewrite G. symmetry. apply delete_insert.
+    erewrite lookup_pkmap by eassumption. simpl_map. reflexivity.
+  - rewrite delete_notin by assumption. symmetry. apply delete_notin.
+    erewrite lookup_pkmap; eassumption.
+Qed.
+
 Lemma lookup_pkmap_rev {A} f j (m : Pmap A) :
   partial_inj f -> is_Some (lookup j (pkmap f m)) -> exists i, f i = Some j.
 Proof.
