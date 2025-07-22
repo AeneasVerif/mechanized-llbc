@@ -1172,6 +1172,29 @@ Proof.
   edestruct get_at_accessor_state_permutation as (? & -> & ->); auto.
 Qed.
 
+Corollary permutation_valid_anon S a q perm (H : is_state_equivalence perm S) :
+  valid_spath S (encode_anon a, q) ->
+  exists a', lookup a (anons_perm perm) = Some a' /\
+             valid_spath (apply_state_permutation perm S) (anon_accessor a', q).
+Proof.
+  intros (v & ? & ?). unfold permutation_spath. cbn. (*rewrite perm_at_anon.*)
+  edestruct get_at_accessor_state_permutation as (? & perm_a & ?); [eauto.. | ].
+  cbn in perm_a. rewrite perm_at_anon in perm_a.
+  destruct (lookup a (anons_perm perm)) as [a' | ]; [ | discriminate].
+  inversion perm_a; subst. exists a'. split; [reflexivity | ].
+  exists v. split.
+  - cbn in *. congruence.
+  - assumption.
+Qed.
+
+(* TODO: name *)
+Lemma perm_at_anon' perm a a' q (H : lookup a (anons_perm perm) = Some a') :
+  permutation_spath perm (anon_accessor a, q) = (anon_accessor a', q).
+Proof.
+  unfold permutation_spath. replace (fst _) with (anon_accessor a) by reflexivity.
+  rewrite perm_at_anon. setoid_rewrite H. reflexivity.
+Qed.
+
 Lemma permutation_sget S (perm : state_perm) (H : is_state_equivalence perm S)
   sp (valid_sp : valid_spath S sp) :
   (apply_state_permutation perm S).[permutation_spath perm sp] = S.[sp].
