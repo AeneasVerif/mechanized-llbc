@@ -765,8 +765,10 @@ Proof.
   - intros ?. rewrite <-!elem_of_dom, dom_p. auto.
 Qed.
 
+Global Notation apply_permutation p := (pkmap (fun i => lookup i p)).
+
 Lemma equiv_map_alt {A} (m0 m1 : Pmap A) :
-  equiv_map m0 m1 <-> exists p, is_permutation p m0 /\ m1 = pkmap (fun i => lookup i p) m0.
+  equiv_map m0 m1 <-> exists p, is_permutation p m0 /\ m1 = apply_permutation p m0.
 Proof.
   split.
   - intros (f & equiv_f & ->).
@@ -791,4 +793,33 @@ Proof.
   - intros ? i' ? ? ?.
     assert (i' <> x). { intros <-. simpl_map. congruence. }
     simpl_map. eapply inj_p; eassumption.
+Qed.
+
+Definition id_permutation {A} (m : Pmap A) : Pmap positive := map_imap (fun k _ => Some k) m.
+
+Lemma lookup_id_permutation {A} (m : Pmap A) i :
+  is_Some (lookup i m) -> lookup i (id_permutation m) = Some i.
+Proof. unfold id_permutation. rewrite map_lookup_imap. intros (? & ->). reflexivity. Qed.
+
+Lemma lookup_id_permutation_is_Some {A} (m : Pmap A) i j :
+  lookup i (id_permutation m) = Some j -> i = j.
+Proof.
+  intros H. destruct (lookup i m) eqn:EQN.
+  - rewrite lookup_id_permutation in H by auto. congruence.
+  - unfold id_permutation in H. rewrite map_lookup_imap, EQN in H. discriminate.
+Qed.
+
+Lemma id_permutation_is_permutation {A} m : @is_permutation A (id_permutation m) m.
+Proof.
+  split.
+  - intros ? ? H ? ? G <-. apply lookup_id_permutation_is_Some in H, G. congruence.
+  - apply dom_imap_L. intros ?. rewrite elem_of_dom. firstorder.
+Qed.
+
+Lemma apply_id_permutation {A} (m : Pmap A) : apply_permutation (id_permutation m) m = m.
+Proof.
+  apply pkmap_eq.
+  - apply permutation_is_equivalence, id_permutation_is_permutation.
+  - intros ? ? ?%lookup_id_permutation_is_Some. congruence.
+  - reflexivity.
 Qed.

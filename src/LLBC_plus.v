@@ -999,8 +999,6 @@ Definition is_state_equivalence perm S :=
   is_permutation (anons_perm perm) (anons S) /\
   map_Forall2 (fun k => is_permutation) (abstractions_perm perm) (abstractions S).
 
-Notation apply_permutation p := (pkmap (fun i => lookup i p)).
-
 Program Definition apply_state_permutation perm S := {|
   vars := vars S;
   anons := apply_permutation (anons_perm perm) (anons S);
@@ -1358,6 +1356,65 @@ Proof.
     symmetry. apply get_extra_state_permutation. assumption.
 Qed.
 
+Lemma permutation_fresh_abstraction S p i :
+  fresh_abstraction S i -> fresh_abstraction (apply_state_permutation p S) i.
+Proof. cbn. rewrite map_lookup_imap. intros ->. reflexivity. Qed.
+
+Definition add_abstraction_perm perm i p := {|
+  anons_perm := anons_perm perm;
+  abstractions_perm := insert i p (abstractions_perm perm);
+|}.
+
+Lemma add_abstraction_perm_equivalence perm S i A p :
+  is_state_equivalence perm S -> is_permutation p A ->
+  is_state_equivalence (add_abstraction_perm perm i p) (S,,, i |-> A).
+Proof.
+  intros (? & ?) ?. split.
+  - assumption.
+  - apply map_Forall2_insert_2; assumption.
+Qed.
+
+Lemma permutation_add_abstraction S perm p i A :
+  fresh_abstraction S i -> is_state_equivalence perm S -> is_permutation p A ->
+  apply_state_permutation (add_abstraction_perm perm i p) (S,,, i |-> A) =
+  apply_state_permutation perm S,,, i |-> apply_permutation p A.
+Proof.
+  intros fresh_A Hstate_perm p_is_perm.
+  assert (is_state_equivalence (add_abstraction_perm perm i p) (S,,, i |-> A)) as G
+      by now apply add_abstraction_perm_equivalence.
+  apply state_eq_ext.
+  - rewrite get_map_state_permutation by assumption.
+    apply pkmap_eq.
+    + apply permutation_accessor_is_equivalence. assumption.
+    + intros ? ? perm_rel%permutation_accessor_is_Some.
+      destruct perm_rel as [ | | i' ? ? ? perm_at_i].
+      * rewrite !get_at_var. reflexivity.
+      * rewrite !get_at_anon. cbn. erewrite lookup_pkmap;
+          [reflexivity | apply map_inj_equiv, G | assumption].
+      * erewrite !get_at_abstraction.
+        destruct (decide (i = i')) as [<- | ].
+        -- cbn in *. simpl_map. inversion perm_at_i; subst. symmetry.
+           apply lookup_pkmap; [apply map_inj_equiv, p_is_perm | assumption].
+        -- cbn in *. simpl_map. rewrite map_lookup_imap, perm_at_i. cbn.
+           destruct Hstate_perm as (_ & Habstractions_perm).
+           specialize (Habstractions_perm i'). rewrite perm_at_i in Habstractions_perm.
+           inversion Habstractions_perm as [? B (? & _) | ].
+           cbn. symmetry. apply lookup_pkmap; [apply map_inj_equiv | ]; assumption.
+    + cbn. rewrite !size_sum_maps. rewrite !flatten_insert by now rewrite ?map_lookup_imap, fresh_A.
+      rewrite !map_size_disj_union
+        by (apply disj_kmap_flatten; now rewrite ?map_lookup_imap, fresh_A).
+        rewrite !size_kmap by typeclasses eauto.
+        destruct Hstate_perm as (? & Habstractions_perm).
+        rewrite !size_pkmap by now apply permutation_is_equivalence.
+        f_equal. f_equal. apply size_flatten.
+        intros i'. rewrite map_lookup_imap. specialize (Habstractions_perm i').
+        destruct (lookup i' (abstractions S)); [ | constructor].
+        inversion Habstractions_perm. constructor. symmetry. apply size_pkmap.
+        apply permutation_is_equivalence. assumption.
+  - rewrite get_extra_add_abstraction, !get_extra_state_permutation by assumption.
+    rewrite get_extra_add_abstraction. reflexivity.
+Qed.
+
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
 
@@ -1383,7 +1440,19 @@ Proof.
       rewrite permutation_sget. eassumption. assumption. validity.
     + eexists. rewrite permutation_sset by eauto with spath.
       split; [ | reflexivity]. apply is_state_equivalence_sset. assumption.
-  - admit.
+  - edestruct permutation_valid_anon as (a' & H & ?); [exact valid_perm | exact a_valid | ].
+    eexists. rewrite Logic.and_comm. split.
+    + apply Leq_ToAbs with (i := i). eassumption.
+      apply permutation_fresh_abstraction; assumption.
+      erewrite <-perm_at_anon', permutation_sget; eassumption.
+    + eexists. erewrite permutation_add_abstraction with (p := id_permutation A);
+        [ | auto
+          | apply remove_anon_perm_equivalence; eassumption 
+          | apply id_permutation_is_permutation].
+      rewrite apply_id_permutation. erewrite permutation_remove_anon by eassumption.
+      split; [ | reflexivity].
+      apply add_abstraction_perm_equivalence; [ | apply id_permutation_is_permutation].
+      apply remove_anon_perm_equivalence. assumption.
   - edestruct permutation_valid_anon as (a' & H & ?); [exact valid_perm | exact a_valid | ].
     eexists. rewrite Logic.and_comm. split.
     + apply Leq_RemoveAnon. eassumption.
