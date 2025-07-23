@@ -925,8 +925,9 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     leq_state_base S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(l1)))
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
-| Leq_Abs_ClearValue S i j v :
-    abstraction_contains_value S i j v -> not_contains_loan v -> not_contains_borrow v ->
+| Leq_Abs_ClearValue S i j v
+    (get_at_i_j : abstraction_contains_value S i j v)
+    (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
     leq_state_base S (remove_abstraction_value S i j)
 | Leq_AnonValue S a (is_fresh : fresh_anon S a) : leq_state_base S (S,, a |-> bot)
 .
@@ -1415,6 +1416,66 @@ Proof.
     rewrite get_extra_add_abstraction. reflexivity.
 Qed.
 
+Definition remove_abstraction_value_perm perm i j := {|
+  anons_perm := anons_perm perm;
+  abstractions_perm := alter (delete j) i (abstractions_perm perm);
+|}.
+
+Lemma remove_abstraction_value_perm_equivalence perm S i j :
+  is_state_equivalence perm S ->
+  is_state_equivalence (remove_abstraction_value_perm perm i j) (remove_abstraction_value S i j).
+Proof.
+  intros (? & H). split.
+  - assumption.
+  - cbn. intros i'. destruct (decide (i = i')) as [<- | ]; simpl_map.
+    + destruct (H i) as [p ? (p_inj & ?) | ]; constructor. split.
+      * intros ? ? (_ & ?)%lookup_delete_Some ? ? (_ & ?)%lookup_delete_Some.
+        apply p_inj; assumption.
+      * rewrite !dom_delete_L. congruence.
+    + apply H.
+Qed.
+
+Lemma permutation_abstraction_element perm S i j v :
+  is_state_equivalence perm S -> abstraction_contains_value S i j v -> exists j',
+    permutation_accessor perm (encode_abstraction (i, j)) = Some (encode_abstraction (i, j')).
+Proof.
+  intros (_ & equiv_abs) H%mk_is_Some%get_at_accessor_is_Some.
+  inversion H as [ | | ? ? A ? get_A get_at_j eq_encode].
+  apply encode_inj in eq_encode. inversion eq_encode; subst.
+  specialize (equiv_abs i). rewrite get_A in equiv_abs.
+  inversion equiv_abs as [p ? (_ & eq_dom) | ]; subst.
+  apply mk_is_Some in get_at_j. rewrite <-elem_of_dom, <-eq_dom, elem_of_dom in get_at_j.
+  destruct get_at_j as (j' & ?).
+  exists j'. rewrite perm_at_abstraction. simpl_map. cbn. simpl_map. reflexivity.
+Qed.
+
+Lemma permutation_remove_abstraction_value S perm i j j' :
+  is_state_equivalence perm S ->
+  permutation_accessor perm (encode_abstraction (i, j)) = Some (encode_abstraction (i, j')) ->
+  apply_state_permutation (remove_abstraction_value_perm perm i j) (remove_abstraction_value S i j) =
+  remove_abstraction_value (apply_state_permutation perm S) i j'.
+Proof.
+  intros H ?. pose proof (remove_abstraction_value_perm_equivalence _ _ i j H) as G.
+  pose proof (permutation_accessor_is_equivalence _ _ H) as K.
+  apply state_eq_ext.
+  - rewrite get_map_remove_abstraction_value.
+    rewrite !get_map_state_permutation by assumption.
+    rewrite get_map_remove_abstraction_value.
+    erewrite <-pkmap_delete; [ | apply K | eassumption].
+    apply pkmap_fun_eq.
+    intros ? (? & get_rel)%elem_of_dom%lookup_delete_is_Some.
+    apply get_at_accessor_is_Some in get_rel. destruct get_rel as [ | | i' j''].
+    + rewrite !perm_at_var. reflexivity.
+    + rewrite !perm_at_anon. reflexivity.
+    + rewrite !perm_at_abstraction. cbn.
+      destruct (decide (i = i')) as [<- | ]; simpl_map; [ | reflexivity].
+      assert (j <> j'') by congruence.
+      destruct (lookup i (abstractions_perm perm)); [ | reflexivity].
+      cbn. simpl_map. reflexivity.
+  - rewrite get_extra_remove_abstraction_value.
+    rewrite !get_extra_state_permutation by assumption. apply get_extra_remove_abstraction_value.
+Qed.
+
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
 
@@ -1447,7 +1508,7 @@ Proof.
       erewrite <-perm_at_anon', permutation_sget; eassumption.
     + eexists. erewrite permutation_add_abstraction with (p := id_permutation A);
         [ | auto
-          | apply remove_anon_perm_equivalence; eassumption 
+          | apply remove_anon_perm_equivalence; eassumption
           | apply id_permutation_is_permutation].
       rewrite apply_id_permutation. erewrite permutation_remove_anon by eassumption.
       split; [ | reflexivity].
@@ -1476,6 +1537,21 @@ Proof.
       apply add_anon_perm_equivalence. auto with spath.
       rewrite permutation_sset by auto with spath. auto with spath.
       apply is_state_equivalence_sset. assumption.
+  - admit.
+  - admit.
+  - admit.
+  - pose proof get_at_i_j as _get_at_i_j.
+    (* TODO: pose this for the whole proof? *)
+    pose proof (permutation_accessor_is_equivalence _ _ valid_perm) as perm_equivalence.
+    apply (permutation_abstraction_element perm) in _get_at_i_j; [ | assumption].
+    destruct _get_at_i_j as (j' & perm_abs_val).
+    eexists. rewrite Logic.and_comm. split.
+    + apply Leq_Abs_ClearValue with (i := i) (j := j') (v := v).
+      rewrite get_map_state_permutation by assumption.
+      erewrite lookup_pkmap; [eassumption | apply perm_equivalence | eassumption].
+      assumption. assumption.
+    + eexists. erewrite permutation_remove_abstraction_value by eassumption.
+      split; [now apply remove_abstraction_value_perm_equivalence | reflexivity].
 Admitted.
 
 Record LLBC_plus_well_formed (S : LLBC_plus_state) : Prop := {
