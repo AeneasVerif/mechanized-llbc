@@ -619,6 +619,17 @@ Proof.
       * exact IHm.
 Qed.
 
+Lemma lookup_pkmap_None {A} f j (m : Pmap A) :
+  (forall i, f i <> Some j) -> lookup j (pkmap f m) = None.
+Proof.
+  intros H. unfold pkmap. induction m as [ | k x m ? ? IHm] using map_first_key_ind.
+  - reflexivity.
+  - rewrite map_fold_insert_first_key by assumption.
+    unfold insert_permuted_key at 1. destruct (f k) as [j' | ] eqn:EQN.
+    + rewrite lookup_insert_ne by congruence. exact IHm.
+    + exact IHm.
+Qed.
+
 Lemma pkmap_delete {A} f i j (m : Pmap A) :
   partial_inj f -> f i = Some j -> pkmap f (delete i m) = delete j (pkmap f m).
 Proof.
@@ -703,7 +714,7 @@ Proof.
 Qed.
 
 Definition equiv_map {A} (m0 m1 : Pmap A) :=
-  exists f, is_equivalence f m0 /\ m1 = pkmap f m0.
+  exists f, is_equivalence f m1 /\ m0 = pkmap f m1.
 
 Global Instance reflexive_equiv_map A : Reflexive (@equiv_map A).
 Proof.
@@ -729,13 +740,13 @@ Qed.
 
 Global Instance transitive_equiv_map A : Transitive (@equiv_map A).
 Proof.
-  intros m ? ? (g & ((inj_g & dom_g) & ->)) (f & ((inj_f & dom_f) & ->)).
-  assert (is_equivalence (partial_compose f g) m).
+  intros ? ? m (g & ((inj_g & dom_g) & ->)) (f & ((inj_f & dom_f) & ->)).
+  assert (is_equivalence (partial_compose g f) m).
   { split.
     - apply injective_compose; assumption.
-    - intros i H. unfold partial_compose. specialize (dom_g i H). destruct dom_g as (v & Hv).
-      rewrite Hv. apply dom_f. erewrite lookup_pkmap; eassumption. }
-  exists (partial_compose f g). split; [assumption | ].
+    - intros i H. unfold partial_compose. specialize (dom_f i H). destruct dom_f as (v & Hv).
+      rewrite Hv. apply dom_g. erewrite lookup_pkmap; eassumption. }
+  exists (partial_compose g f). split; [assumption | ].
   symmetry. apply pkmap_eq.
   - assumption.
   - unfold partial_compose. intros i j (k & ? & ?)%bind_Some.
@@ -767,18 +778,32 @@ Qed.
 
 Global Notation apply_permutation p := (pkmap (fun i => lookup i p)).
 
+Lemma lookup_apply_permutation {A} p i j (m : Pmap A) :
+  map_inj p -> lookup i p = Some j -> apply_permutation p m !! j = m !! i.
+Proof. intros ?%map_inj_equiv ?. apply lookup_pkmap; assumption. Qed.
+
+Lemma apply_permutation_insert {A} (p : Pmap positive) i j (a : A) m :
+  map_inj p -> lookup i m = None -> lookup i p = Some j ->
+  apply_permutation p (insert i a m) = insert j a (apply_permutation (delete i p) m).
+Proof.
+  intros. rewrite pkmap_insert; [ | now apply map_inj_equiv | assumption].
+  unfold insert_permuted_key. simpl_map. f_equal.
+  apply pkmap_fun_eq. intros i' (? & ?)%elem_of_dom.
+  symmetry. apply lookup_delete_ne. congruence.
+Qed.
+
 Lemma equiv_map_alt {A} (m0 m1 : Pmap A) :
-  equiv_map m0 m1 <-> exists p, is_permutation p m0 /\ m1 = apply_permutation p m0.
+  equiv_map m0 m1 <-> exists p, is_permutation p m1 /\ m0 = apply_permutation p m1.
 Proof.
   split.
   - intros (f & equiv_f & ->).
-    assert (map_inj (map_imap (fun i _ => f i) m0)). {
+    assert (map_inj (map_imap (fun i _ => f i) m1)). {
       destruct equiv_f as (inj_f & _).
       rewrite map_inj_equiv. intros i Hi j G. rewrite !map_lookup_imap in *.
-      destruct (lookup i m0) eqn:eqn_i; cbn in *. 2: { inversion Hi. discriminate. }
-      destruct (lookup j m0) eqn:eqn_j; cbn in *. 2: { rewrite G in Hi. inversion Hi. discriminate. }
+      destruct (lookup i m1) eqn:eqn_i; cbn in *. 2: { inversion Hi. discriminate. }
+      destruct (lookup j m1) eqn:eqn_j; cbn in *. 2: { rewrite G in Hi. inversion Hi. discriminate. }
       apply inj_f; assumption. }
-    exists (map_imap (fun i _ => f i) m0). split; [split | ].
+    exists (map_imap (fun i _ => f i) m1). split; [split | ].
     + assumption.
     + destruct equiv_f as (_ & ?). apply dom_imap_L. intros i. rewrite elem_of_dom. firstorder.
     + apply pkmap_fun_eq. setoid_rewrite map_lookup_imap. intros i (? & ->)%elem_of_dom. reflexivity.
@@ -823,3 +848,99 @@ Proof.
   - intros ? ? ?%lookup_id_permutation_is_Some. congruence.
   - reflexivity.
 Qed.
+
+Lemma is_permutation_insert {A} p i (a : A) m (H : lookup i m = None) :
+  is_permutation p (insert i a m) ->
+  exists i', lookup i p = Some i' /\ (forall j, lookup j (delete i p) <> Some i') /\
+             is_permutation (delete i p) m.
+Proof.
+  intros (inj_p & dom_p). destruct (lookup i p) as [i' | ] eqn:EQN.
+  - exists i'. split; [reflexivity | ]. split; [ | split].
+    + intros j Hj. replace j with i in Hj; [simpl_map; discriminate | ].
+      eapply inj_p; [eassumption | eapply lookup_delete_Some; eassumption | reflexivity].
+    + intros ? ? (_ & ?)%lookup_delete_Some ? ? (_ & ?)%lookup_delete_Some.
+      apply inj_p; assumption.
+    + rewrite dom_insert_L in dom_p. rewrite <-not_elem_of_dom in H. set_solver.
+  - rewrite <-not_elem_of_dom, dom_p in EQN. set_solver.
+Qed.
+
+Section UnionMaps.
+  Context {V : Type}.
+
+  (* The property union_maps A B C is true if the map C contains all of the pairs (key, element) of
+   * A, and all the elements of B with possibly different keys.
+
+   * Example: let's take A = {[1 := x; 2 := y|} and B = {[1 := z]}. Then union_maps A B C is true for
+     any map C = {[ 1 := x; 2 := y; i := z]} for any i different from 1 or 2. *)
+  Inductive union_maps : Pmap V -> Pmap V -> Pmap V -> Prop :=
+    | UnionEmpty A : union_maps A empty A
+    | UnionInsert A B C i j x :
+        lookup j A = None -> lookup i B = None ->
+        union_maps (insert j x A) B C -> union_maps A (insert i x B) C.
+
+  (* TODO: delete? *)
+  Lemma union_contains A B C i x (Hunion : union_maps A B C) :
+    lookup i C = Some x -> lookup i A = Some x \/ exists j, lookup j B = Some x.
+  Proof.
+    intros H. induction Hunion as [ | A B C i' j' ? ? ? ? IH].
+    - auto.
+    - destruct (IH H) as [ | (j & ?)].
+      + destruct (decide (i = j')) as [<- | ].
+        * right. exists i'. simpl_map. auto.
+        * simpl_map. auto.
+      + right. exists j. assert (i' <> j) by congruence. simpl_map. reflexivity.
+  Qed.
+
+  Lemma union_contains_left A B C i x (Hunion : union_maps A B C) :
+    lookup i A = Some x -> lookup i C = Some x.
+  Proof.
+    induction Hunion as [ | A B C i' j' ? ? ? ? IH].
+    - auto.
+    - intros ?. assert (i <> j') by congruence. simpl_map. auto.
+  Qed.
+
+  Lemma union_contains_right A B C i x (Hunion : union_maps A B C) :
+    lookup i B = Some x -> exists j, lookup j C = Some x.
+  Proof.
+    induction Hunion as [ | A B C i' j' ? ? ? ? IH].
+    - simpl_map. discriminate.
+    - intros ?. destruct (decide (i = i')) as [<- | ].
+      + exists j'. eapply union_contains_left; [eassumption | ]. simpl_map. auto.
+      + simpl_map. auto.
+  Qed.
+
+  Variable (A B : Pmap V).
+  Variable (pA pB : Pmap positive).
+  Hypothesis (HA : is_permutation pA A).
+  Hypothesis (HB : is_permutation pB B).
+  Let A' := apply_permutation pA A. Let B' := apply_permutation pB B.
+
+  Lemma union_maps_equiv C (H : union_maps A B C) :
+    exists pC, is_permutation pC C /\ union_maps A' B' (apply_permutation pC C).
+  Proof.
+    revert pA pB HA HB A' B'.
+    induction H as [ | A B heure i j v cigales i_notin sera IH].
+    - eexists. split; [eassumption | constructor].
+    - intros pA pB (? & dom_A) equiv_B' A' B'.
+      assert (map_inj pB) by apply equiv_B'.
+      apply is_permutation_insert in equiv_B'.
+      destruct equiv_B' as (i' & HpB & ? & equiv_B).
+      destruct (exist_fresh (dom A')) as (j' & Hj'%not_elem_of_dom).
+      specialize (IH (insert j j' pA) (delete i pB)).
+      assert (lookup j pA = None).
+      { rewrite <-not_elem_of_dom, dom_A, not_elem_of_dom. assumption. }
+      assert (map_inj (insert j j' pA)). {
+        apply map_inj_insert; [ | assumption]. intros k Hk.
+        unfold A' in Hj'. erewrite lookup_apply_permutation in Hj' by eassumption.
+        rewrite <-not_elem_of_dom, <-dom_A, not_elem_of_dom in Hj'. congruence. }
+      destruct IH as (pC & ? & IHunion).
+      + split; [assumption | ]. rewrite !dom_insert_L. congruence.
+      + exact equiv_B.
+      + exists pC. split; [assumption | ]. unfold A', B' in *.
+        erewrite apply_permutation_insert by eassumption.
+        rewrite apply_permutation_insert with (j := j') in IHunion by now simpl_map.
+        rewrite delete_insert in IHunion by assumption.
+        apply UnionInsert with (j := j'); [ | now apply lookup_pkmap_None | ]; assumption.
+      + assumption.
+  Qed.
+End UnionMaps.

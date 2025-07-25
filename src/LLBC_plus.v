@@ -431,48 +431,6 @@ Notation "S ,,, i |-> A" := (add_abstraction S i A) (at level 50, left associati
 
 Notation fresh_abstraction S i := (lookup i (abstractions S) = None).
 
-(* The property union_maps A B C is true if the map C contains all of the pairs (key, element) of
- * A, and all the elements of B with possibly different keys.
-
- * Example: let's take A = {[1 := x; 2 := y|} and B = {[1 := z]}. Then union_maps A B C is true for
-   any map C = {[ 1 := x; 2 := y; i := z]} for any i different from 1 or 2. *)
-Inductive union_maps {V : Type} : Pmap V -> Pmap V -> Pmap V -> Prop :=
-  | UnionEmpty A : union_maps A empty A
-  | UnionInsert A B C i j x :
-      lookup j A = None -> lookup i B = None ->
-      union_maps (insert j x A) B C -> union_maps A (insert i x B) C.
-
-(* TODO: delete? *)
-Lemma union_contains {V} (A B C : Pmap V) i x (Hunion : union_maps A B C) :
-  lookup i C = Some x -> lookup i A = Some x \/ exists j, lookup j B = Some x.
-Proof.
-  intros H. induction Hunion as [ | A B C i' j' ? ? ? ? IH].
-  - auto.
-  - destruct (IH H) as [ | (j & ?)].
-    + destruct (decide (i = j')) as [<- | ].
-      * right. exists i'. simpl_map. auto.
-      * simpl_map. auto.
-    + right. exists j. assert (i' <> j) by congruence. simpl_map. reflexivity.
-Qed.
-
-Lemma union_contains_left {V} (A B C : Pmap V) i x (Hunion : union_maps A B C) :
-  lookup i A = Some x -> lookup i C = Some x.
-Proof.
-  induction Hunion as [ | A B C i' j' ? ? ? ? IH].
-  - auto.
-  - intros ?. assert (i <> j') by congruence. simpl_map. auto.
-Qed.
-
-Lemma union_contains_right {V} (A B C : Pmap V) i x (Hunion : union_maps A B C) :
-  lookup i B = Some x -> exists j, lookup j C = Some x.
-Proof.
-  induction Hunion as [ | A B C i' j' ? ? ? ? IH].
-  - simpl_map. discriminate.
-  - intros ?. destruct (decide (i = i')) as [<- | ].
-    + exists j'. eapply union_contains_left; [eassumption | ]. simpl_map. auto.
-    + simpl_map. auto.
-Qed.
-
 Notation abstraction_contains_value S i j v :=
   (get_at_accessor S (encode_abstraction (i, j)) = Some v).
 
@@ -1476,6 +1434,36 @@ Proof.
     rewrite !get_extra_state_permutation by assumption. apply get_extra_remove_abstraction_value.
 Qed.
 
+Lemma remove_loans_equiv A B A' B' (H : remove_loans A B A' B') :
+  forall pA pB, is_permutation pA A -> is_permutation pB B ->
+    exists pA' pB', is_permutation pA' A' /\ is_permutation pB' B' /\
+      remove_loans (apply_permutation pA A) (apply_permutation pB B)
+                   (apply_permutation pA' A') (apply_permutation pB' B').
+Proof.
+  induction H as [ | ? ? ? ? ? ? ? ? IH]; intros pA pB perm_A perm_B.
+  - exists pA, pB. split; [assumption | ]. split; [assumption | ]. constructor.
+  - pose proof perm_A as perm_del_A. pose proof perm_B as perm_del_B.
+    apply is_permutation_insert in perm_del_A, perm_del_B; [ | assumption..].
+    destruct perm_del_A as (i' & get_i' & i'_notin & perm_del_A).
+    destruct perm_del_B as (j' & get_j' & j'_notin & perm_del_B).
+    destruct (IH _ _ perm_del_A perm_del_B) as (pA' & pB' & perm_A' & perm_B' & ?).
+    exists pA', pB'. split; [assumption | ]. split; [assumption | ].
+    destruct perm_A, perm_B. erewrite !apply_permutation_insert by eassumption.
+    constructor; [ | apply lookup_pkmap_None..]; assumption.
+Qed.
+
+Lemma merge_abstractions_equiv A B C pA pB :
+  is_permutation pA A -> is_permutation pB B -> merge_abstractions A B C ->
+  exists pC, is_permutation pC C /\
+    merge_abstractions (apply_permutation pA A) (apply_permutation pB B) (apply_permutation pC C).
+Proof.
+  intros perm_A perm_B (A' & B' & Hremove & union_A'_B').
+  edestruct remove_loans_equiv as (pA' & pB' & ? & ? & BATORA); [eassumption.. | ].
+  eapply union_maps_equiv in union_A'_B'; [ | eassumption..].
+  destruct union_A'_B' as (pC & ? & ?).
+  exists pC. split; [assumption | ]. eexists _, _. split; eassumption.
+Qed.
+
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
 
@@ -1537,7 +1525,22 @@ Proof.
       apply add_anon_perm_equivalence. auto with spath.
       rewrite permutation_sset by auto with spath. auto with spath.
       apply is_state_equivalence_sset. assumption.
-  - admit.
+  - pose proof valid_perm as _valid_perm.
+    destruct _valid_perm as (_ & Habs_perm).
+    pose proof (Habs_perm i) as Hi. rewrite get_A in Hi.
+    inversion Hi as [p ? p_perm get_p | ]; subst.
+    pose proof (Habs_perm j) as Hj. rewrite get_B in Hj.
+    inversion Hj as [q ? q_perm get_q | ]; subst.
+    eapply merge_abstractions_equiv in Hmerge; [ | eassumption..].
+    destruct Hmerge as (r & perm_r & Hmerge).
+    set (A' := apply_permutation p A). set (B' := apply_permutation q B).
+    eexists. rewrite Logic.and_comm. split.
+    + apply Leq_MergeAbs with (A := A') (B := B').
+      * cbn. rewrite map_lookup_imap, get_A, <-get_p. reflexivity.
+      * cbn. rewrite map_lookup_imap, get_B, <-get_q. reflexivity.
+      * eassumption.
+      * assumption.
+    + admit.
   - admit.
   - admit.
   - pose proof get_at_i_j as _get_at_i_j.
@@ -2858,7 +2861,7 @@ Section Eval_LLBC_plus_program.
       simpl_state. reflexivity.
     - split; [ | split]; try reflexivity.
       apply map_Forall2_singleton. rewrite equiv_map_alt.
-      exists {[1%positive := 2%positive; 2%positive := 3%positive; 3%positive := 1%positive]}.
+      exists {[2%positive := 1%positive; 3%positive := 2%positive; 1%positive := 3%positive]}.
       repeat split; compute_done.
   Qed.
 
