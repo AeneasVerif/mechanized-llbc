@@ -1555,6 +1555,19 @@ Proof.
       split; [ | reflexivity]. apply permutation_is_equivalence. assumption.
 Qed.
 
+Instance equiv_states_reflexive : Reflexive equiv_states.
+Proof.  intros ?. apply equiv_states_perm. repeat split; repeat intro; reflexivity. Qed.
+
+Instance equiv_states_transitive : Transitive equiv_states.
+Proof.
+  intros S0 S1 S2. rewrite <-!equiv_states_perm. intros (? & ? & H) (? & ? & G).
+  split; [ | split].
+  - congruence.
+  - transitivity (anons S1); assumption.
+  - intros i. specialize (G i). destruct (H i); [ | assumption].
+    inversion G; subst. constructor. etransitivity; eassumption.
+Qed.
+
 Lemma leq_equiv_states_commute :
   forward_simulation equiv_states equiv_states leq_state_base leq_state_base.
 Proof.
