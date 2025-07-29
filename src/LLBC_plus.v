@@ -965,19 +965,15 @@ Definition is_state_equivalence perm S :=
 Program Definition apply_state_permutation perm S := {|
   vars := vars S;
   anons := apply_permutation (anons_perm perm) (anons S);
-  abstractions := map_imap
-    (fun i A => option_map (fun p => apply_permutation p A) (lookup i (abstractions_perm perm)))
-    (abstractions S)
+  abstractions :=
+    map_zip_with (fun p A => apply_permutation p A) (abstractions_perm perm) (abstractions S);
 |}.
 
 Lemma get_extra_state_permutation perm S :
   is_state_equivalence perm S -> get_extra (apply_state_permutation perm S) = get_extra S.
 Proof.
-  intros (_ & Habstractions_equiv). unfold get_extra. cbn.
-  rewrite set_eq_subseteq. split.
-  - apply dom_imap_subseteq.
-  - intros i. rewrite !elem_of_dom, map_lookup_imap. specialize (Habstractions_equiv i).
-    intros (v & H). rewrite H in *. inversion Habstractions_equiv. auto.
+  intros (_ & Habstractions_equiv). unfold get_extra. cbn. rewrite dom_map_zip_with_L.
+  apply map_Forall2_dom_L in Habstractions_equiv. rewrite Habstractions_equiv. set_solver.
 Qed.
 
 (* Applying a permutation to an accessor. *)
@@ -1080,7 +1076,7 @@ Lemma abstraction_apply_state_permutation perm S i p A :
     Some (apply_permutation p A).
 Proof.
   intros H G.  unfold apply_state_permutation. cbn.
-  rewrite map_lookup_imap, G, H. reflexivity.
+  apply map_lookup_zip_with_Some. eexists _, _. eauto.
 Qed.
 
 (* The main property of apply_state_permutation. *)
@@ -1104,7 +1100,7 @@ Proof.
     unfold get_map. cbn. rewrite !size_sum_maps.
     rewrite size_pkmap by now apply permutation_is_equivalence. f_equal.
     apply size_flatten.
-    intros i. rewrite map_lookup_imap. specialize (Habs_perm i). destruct Habs_perm.
+    intros i. rewrite map_lookup_zip_with. specialize (Habs_perm i). destruct Habs_perm.
     + constructor. symmetry. apply size_pkmap, permutation_is_equivalence. assumption.
     + constructor.
 Qed.
@@ -1321,7 +1317,7 @@ Qed.
 
 Lemma permutation_fresh_abstraction S p i :
   fresh_abstraction S i -> fresh_abstraction (apply_state_permutation p S) i.
-Proof. cbn. rewrite map_lookup_imap. intros ->. reflexivity. Qed.
+Proof. cbn. rewrite map_lookup_zip_with_None. auto. Qed.
 
 Definition add_abstraction_perm perm i p := {|
   anons_perm := anons_perm perm;
@@ -1358,23 +1354,23 @@ Proof.
         destruct (decide (i = i')) as [<- | ].
         -- cbn in *. simpl_map. inversion perm_at_i; subst. symmetry.
            apply lookup_pkmap; [apply map_inj_equiv, p_is_perm | assumption].
-        -- cbn in *. simpl_map. rewrite map_lookup_imap, perm_at_i. cbn.
+        -- cbn in *. simpl_map. rewrite map_lookup_zip_with, perm_at_i. cbn.
            destruct Hstate_perm as (_ & Habstractions_perm).
            specialize (Habstractions_perm i'). rewrite perm_at_i in Habstractions_perm.
            inversion Habstractions_perm as [? B (? & _) | ].
            cbn. symmetry. apply lookup_pkmap; [apply map_inj_equiv | ]; assumption.
     + cbn. rewrite !size_sum_maps.
-      rewrite !flatten_insert by now rewrite ?map_lookup_imap, fresh_A.
-      rewrite !map_size_disj_union
-        by (apply disj_kmap_flatten; now rewrite ?map_lookup_imap, fresh_A).
+      rewrite flatten_insert by now rewrite fresh_A.
+      rewrite flatten_insert by (apply map_lookup_zip_with_None; auto).
+      rewrite !map_size_disj_union by
+        (apply disj_kmap_flatten; rewrite ?map_lookup_zip_with_None; auto).
       rewrite !size_kmap by typeclasses eauto.
       destruct Hstate_perm as (? & Habstractions_perm).
       rewrite !size_pkmap by now apply permutation_is_equivalence.
       f_equal. f_equal. apply size_flatten.
-      intros i'. rewrite map_lookup_imap. specialize (Habstractions_perm i').
-      destruct (lookup i' (abstractions S)); [ | constructor].
-      inversion Habstractions_perm. constructor. symmetry. apply size_pkmap.
-      apply permutation_is_equivalence. assumption.
+      intros i'. rewrite map_lookup_zip_with.
+      specialize (Habstractions_perm i'). destruct Habstractions_perm; constructor.
+      symmetry. apply size_pkmap, permutation_is_equivalence. assumption.
   - rewrite get_extra_add_abstraction, !get_extra_state_permutation by assumption.
     rewrite get_extra_add_abstraction. reflexivity.
 Qed.
@@ -1410,14 +1406,14 @@ Proof.
       * erewrite !get_at_abstraction.
         cbn in perm_at_i. apply lookup_delete_Some in perm_at_i.
         destruct perm_at_i as (? & perm_at_i).
-        cbn. simpl_map. rewrite map_lookup_imap, perm_at_i.
+        cbn. simpl_map. rewrite map_lookup_zip_with, perm_at_i.
         specialize (abs_perm i'). rewrite perm_at_i in abs_perm.
         inversion abs_perm as [? ? (? & _) | ]; subst. cbn.
         symmetry. apply lookup_apply_permutation; assumption.
     + cbn. rewrite !size_sum_maps.
       rewrite !size_pkmap by now apply permutation_is_equivalence.
       f_equal. apply size_flatten. apply map_Forall2_delete.
-      intros i'. rewrite map_lookup_imap.
+      intros i'. rewrite map_lookup_zip_with.
       specialize (abs_perm i'). destruct abs_perm; constructor.
       symmetry. apply size_pkmap, permutation_is_equivalence. assumption.
   - rewrite get_extra_remove_abstraction, !get_extra_state_permutation by assumption.
@@ -1586,8 +1582,8 @@ Proof.
     set (A' := apply_permutation p A). set (B' := apply_permutation q B).
     eexists. rewrite Logic.and_comm. split.
     + apply Leq_MergeAbs with (A := A') (B := B').
-      * cbn. rewrite map_lookup_imap, get_A, <-get_p. reflexivity.
-      * cbn. rewrite map_lookup_imap, get_B, <-get_q. reflexivity.
+      * apply map_lookup_zip_with_Some. exists p, A. eauto.
+      * apply map_lookup_zip_with_Some. exists q, B. eauto.
       * eassumption.
       * assumption.
     + eexists.
