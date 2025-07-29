@@ -936,11 +936,6 @@ Proof.
   autorewrite with spath. rewrite remove_anon_add_anon by auto with spath. reflexivity.
 Qed.
 
-Definition equiv_states (S0 S1 : LLBC_plus_state) :=
-  vars S0 = vars S1 /\
-  equiv_map (anons S0) (anons S1) /\
-  map_Forall2 (fun _ => equiv_map) (abstractions S0) (abstractions S1).
-
 (* We are going to give an alternative definition of map equivalence that is computable.
  * Hence, two states S0 and S1 are equivalent if one is a permutation of the other:
  * S0 == S1 iff exists P, S0 = P(S1)
@@ -1513,19 +1508,23 @@ Qed.
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
 
-Definition leq := chain leq_state_base^* equiv_states.
-
 (* TODO: should it be the main definition instead of a characterization? *)
-Definition equiv_states' S0 S1 :=
+Definition equiv_states S0 S1 :=
   exists perm, is_state_equivalence perm S1 /\ S0 = apply_state_permutation perm S1.
 
-Lemma equiv_states_perm S0 S1 :
-  equiv_states S0 S1 <-> equiv_states' S0 S1.
+(* An alternative definition. *)
+Definition equiv_states' (S0 S1 : LLBC_plus_state) :=
+  vars S0 = vars S1 /\
+  equiv_map (anons S0) (anons S1) /\
+  map_Forall2 (fun _ => equiv_map) (abstractions S0) (abstractions S1).
+
+Definition leq := chain leq_state_base^* equiv_states.
+
+Lemma equiv_states_perm S0 S1 : equiv_states' S0 S1 <-> equiv_states S0 S1.
 Proof.
   split.
   - intros (eq_vars & H%equiv_map_alt & abstractions_equiv). 
     destruct H as (anons_perm & ? & ?).
-    (* TODO: make a lemma out of it? *)
     assert (exists M,
       map_Forall2 (fun _ => is_permutation) M (abstractions S1) /\
       abstractions S0 = map_zip_with (fun p A => apply_permutation p A) M (abstractions S1))
@@ -1560,7 +1559,6 @@ Lemma leq_equiv_states_commute :
   forward_simulation equiv_states equiv_states leq_state_base leq_state_base.
 Proof.
   intros Sl Sr Hleq.
-  setoid_rewrite equiv_states_perm.
   intros ? (perm & valid_perm & ->). destruct Hleq.
   (* TODO: automatization *)
   - eexists. rewrite Logic.and_comm. split.
@@ -2907,7 +2905,7 @@ Section Eval_LLBC_plus_program.
       { eapply Leq_RemoveAnon with (a := 1%positive).
         econstructor; split; [reflexivity | constructor]. all: compute_done. }
       simpl_state. reflexivity.
-    - split; [ | split]; try reflexivity.
+    - apply equiv_states_perm. split; [ | split]; try reflexivity.
       apply map_Forall2_singleton. rewrite equiv_map_alt.
       exists {[1%positive := 1%positive; 2%positive := 3%positive; 3%positive := 2%positive]}.
       repeat split; compute_done.
@@ -2947,7 +2945,7 @@ Section Eval_LLBC_plus_program.
       { eapply Leq_RemoveAnon with (a := 1%positive).
         econstructor. split; [reflexivity | constructor]. all: compute_done. }
       simpl_state. reflexivity.
-    - split; [ | split]; try reflexivity.
+    - apply equiv_states_perm. split; [ | split]; try reflexivity.
       apply map_Forall2_singleton. rewrite equiv_map_alt.
       exists {[2%positive := 1%positive; 3%positive := 2%positive; 1%positive := 3%positive]}.
       repeat split; compute_done.
