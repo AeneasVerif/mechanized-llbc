@@ -1521,7 +1521,40 @@ Definition equiv_states' S0 S1 :=
 
 Lemma equiv_states_perm S0 S1 :
   equiv_states S0 S1 <-> equiv_states' S0 S1.
-Admitted.
+Proof.
+  split.
+  - intros (eq_vars & H%equiv_map_alt & abstractions_equiv). 
+    destruct H as (anons_perm & ? & ?).
+    (* TODO: make a lemma out of it? *)
+    assert (exists M,
+      map_Forall2 (fun _ => is_permutation) M (abstractions S1) /\
+      abstractions S0 = map_zip_with (fun p A => apply_permutation p A) M (abstractions S1))
+      as (M & G & ?).
+    { remember (abstractions S0) as As0 eqn:EQN. clear EQN.
+      remember (abstractions S1) as As1 eqn:EQN. clear EQN.
+      revert As1 abstractions_equiv.
+      induction As0 as [ | i A As0 ? ? IH] using map_first_key_ind.
+      - intros ? ->%map_Forall2_empty_inv_l.
+        exists empty. split; [apply map_Forall2_empty | reflexivity].
+      - intros _As1 G. apply map_Forall2_insert_inv_l in G; [ | assumption].
+        destruct G as (B & As1 & -> & ? & (p & ? & ->)%equiv_map_alt & G).
+        specialize (IH _ G). destruct IH as (M & ? & ->).
+        exists (insert i p M). split.
+        + apply map_Forall2_insert_2; assumption.
+        + rewrite<- map_insert_zip_with. reflexivity. }
+    exists {|anons_perm := anons_perm; abstractions_perm := M|}.
+    split; [split | ].
+    + assumption.
+    + cbn. intros i. specialize (G i). destruct G; constructor. assumption.
+    + unfold apply_state_permutation. destruct S0, S1. cbn in *. congruence.
+  - intros ((anons_perm0 & abs_perm0) & (? & Habs_perm) & ->). cbn in *.
+    split; [ | split].
+    + reflexivity.
+    + cbn. eexists. split; [ | reflexivity]. apply permutation_is_equivalence. assumption.
+    + cbn. intros i. specialize (Habs_perm i). rewrite map_lookup_zip_with.
+      destruct Habs_perm; constructor. eexists.
+      split; [ | reflexivity]. apply permutation_is_equivalence. assumption.
+Qed.
 
 Lemma leq_equiv_states_commute :
   forward_simulation equiv_states equiv_states leq_state_base leq_state_base.
