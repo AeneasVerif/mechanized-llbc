@@ -685,9 +685,11 @@ Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     not_in_borrow S q -> not_in_abstraction q ->
     reorg S ((remove_abstraction_value S i j).[q <- bot])
 (* q refers to a path in abstraction A, at index j. *)
-| Reorg_end_abstraction S i A S' :
-    lookup i (abstractions S) = Some A -> map_Forall (fun _ => not_contains_loan) A ->
-    add_anons (remove_abstraction i S) A S' -> reorg S S'.
+| Reorg_end_abstraction S i A S'
+    (get_A : lookup i (abstractions S) = Some A)
+    (A_no_loans : map_Forall (fun _ => not_contains_loan) A)
+    (Hadd_anons : add_anons (remove_abstraction i S) A S') : reorg S S'
+.
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
@@ -841,7 +843,9 @@ Proof.
     + symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
   - rewrite !remove_anon_fresh by auto with spath. reflexivity.
 Qed.
+
 Hint Rewrite sset_remove_anon_ne using auto with spath : spath.
+Hint Rewrite sset_remove_anon using reflexivity : spath.
 Hint Rewrite sset_remove_anon_2 using auto with spath : spath.
 
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
@@ -1523,7 +1527,7 @@ Definition leq := chain leq_state_base^* equiv_states.
 Lemma equiv_states_perm S0 S1 : equiv_states' S0 S1 <-> equiv_states S0 S1.
 Proof.
   split.
-  - intros (eq_vars & H%equiv_map_alt & abstractions_equiv). 
+  - intros (eq_vars & H%equiv_map_alt & abstractions_equiv).
     destruct H as (anons_perm & ? & ?).
     assert (exists M,
       map_Forall2 (fun _ => is_permutation) M (abstractions S1) /\
@@ -2452,13 +2456,18 @@ Proof.
       * reflexivity.
 Abort.
 
-Definition measure S := sweight (fun _ => 1) S + size (abstractions S).
-Notation abs_measure S := (map_sum vsize S).
+Notation node_measure n :=
+  match n with
+  | LLBC_plus_symbolicC => 2
+  | _ => 1
+  end.
+Definition measure S := sweight (fun c => node_measure c) S + size (abstractions S).
+Notation abs_measure S := (map_sum (vweight (fun c => node_measure c)) S).
 
 (* TODO: meaningful comment *)
 Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToSymbolic_n S sp x :
-    get_node (S.[sp]) = LLBC_plus_intC x -> leq_state_base_n 1 S (S.[sp <- LLBC_plus_symbolic])
+    get_node (S.[sp]) = LLBC_plus_intC x -> leq_state_base_n 0 S (S.[sp <- LLBC_plus_symbolic])
 | Leq_ToAbs_n S a i A
     (a_valid : valid_spath S (anon_accessor a, []))
     (fresh_i : fresh_abstraction S i)
@@ -2470,7 +2479,7 @@ Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (a_valid : valid_spath S (anon_accessor a, []))
     (no_loan : not_contains_loan (S.[(anon_accessor a, [])]))
     (no_borrow : not_contains_borrow (S.[(anon_accessor a, [])])) :
-    leq_state_base_n (1 + vsize (S.[(anon_accessor a, [])])) S (remove_anon a S)
+    leq_state_base_n (1 + vweight (fun c => node_measure c) (S.[(anon_accessor a, [])])) S (remove_anon a S)
 | Leq_MoveValue_n S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
@@ -2629,8 +2638,58 @@ Proof.
     + unfold map_Forall in *. eauto.
 Qed.
 
+Definition leq_n (n : nat) := chain (measured_closure leq_state_base_n n) equiv_states.
+
+Lemma leq_n_step m n Sl Sm Sr :
+  leq_state_base_n m Sl Sm -> m <= n -> leq_n (n - m) Sm Sr -> leq_n n Sl Sr.
+Proof.
+  intros ? ? (Sr' & ? & ?). replace n with (m + (n - m)) by lia.
+  exists Sr'. split.
+  - eapply MC_trans.
+    + constructor. eassumption.
+    + assumption.
+  - assumption.
+Qed.
+
+Lemma add_anons_singleton S i v S' : add_anons S (singletonM i v) S' ->
+  exists a, fresh_anon S a /\ S' = S,, a |-> v.
+Proof.
+  intros H. inversion H as [? ? ? Hunion]; subst.
+  rewrite <-insert_empty in Hunion.
+  inversion Hunion as [ | ? A' ? i' a ? ? ? Hunions' _anons G]; subst.
+  rewrite insert_empty in G. rewrite insert_union_singleton_l in G.
+  assert (A' = empty).
+  { apply map_size_empty_inv. apply (f_equal size) in G.
+    rewrite map_size_disj_union in G by now apply map_disjoint_singleton_l_2.
+    rewrite !map_size_singleton in G. lia. }
+  subst. rewrite map_union_empty in G. apply map_singleton_inj in G. destruct G. subst.
+  inversion Hunions'.
+  - subst. exists a. split.
+    + unfold fresh_anon. rewrite get_at_anon. assumption.
+    + reflexivity.
+  -  exfalso. eapply insert_non_empty. eassumption.
+Qed.
+
+Lemma leq_n_by_equivalence n S S' : equiv_states S S' -> leq_n n S S'.
+Proof. intros ?. exists S. split; [reflexivity | assumption]. Qed.
+
+(* TODO: move in src/base.v *)
+Lemma fst_pair {A B} (a : A) (b : B) : fst (a, b) = a. Proof. reflexivity. Qed.
+
+Lemma rename_anon_equivalence S a p b :
+  valid_spath S (anon_accessor a, p) -> fresh_anon (remove_anon a S) b ->
+  equiv_states S (remove_anon a S,, b |-> S.[(anon_accessor a, [])]).
+Proof.
+  intros (v & H & _) fresh_b. rewrite fst_pair in H. apply equiv_states_perm. split; [ | split].
+  - reflexivity.
+  - unfold sget. rewrite fst_pair, H. apply equiv_map_rename_index.
+    + unfold fresh_anon in fresh_b. rewrite get_at_anon in fresh_b. exact fresh_b.
+    + rewrite get_at_anon in H. exact H.
+  - intros ?. reflexivity.
+Qed.
+
 Lemma reorg_local_preservation n :
-  forward_simulation (leq_state_base_n n) (measured_closure leq_state_base_n n) reorg reorg^*.
+  forward_simulation (leq_state_base_n n) (leq_n n) reorg reorg^*.
 Proof.
   intros ? ? Hreorg. destruct Hreorg.
   (* Case Reorg_end_borrow_m: *)
@@ -2644,9 +2703,11 @@ Proof.
         -- constructor. eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
            eapply not_value_contains_sset_rev. eassumption.
            apply not_value_contains_zeroary; rewrite H6. reflexivity. easy. validity.
-           eauto with spath.
-        -- constructor. eapply Leq_ToSymbolic_n with (sp := sp).
-           autorewrite with spath. eassumption.
+           eauto with spath. (* TODO: takes a lot of time *)
+        -- eapply leq_n_step.
+           { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
+           { auto. }
+           reflexivity.
         -- states_eq.
     + admit.
     + admit.
@@ -2656,6 +2717,7 @@ Proof.
     + admit.
     + admit.
     + admit.
+
   (* Case Reorg_end_borrow_m_in_abstraction: *)
   - intros ? Hleq. destruct Hleq.
     + admit.
@@ -2684,12 +2746,14 @@ Proof.
               debug eauto with spath.
               eapply anon_not_in_abstraction. reflexivity.
               assumption.
-           ++ constructor. apply Leq_ToAbs_n with (i := i) (a := a).
-              validity. eauto with spath.
-              autorewrite with spath. rewrite <-Heqv. cbn. constructor. assumption.
+           ++ eapply leq_n_step.
+              { apply Leq_ToAbs_n with (i := i) (a := a). validity. eauto with spath.
+                autorewrite with spath. rewrite <-Heqv. cbn. constructor. assumption. }
+              { easy. }
+              reflexivity.
            ++ rewrite remove_abstraction_value_add_abstraction.
               rewrite delete_insert_ne, delete_singleton by congruence.
-              autorewrite with spath. reflexivity. admit.
+              autorewrite with spath. reflexivity.
         -- admit.
       * admit.
     + admit.
@@ -2699,18 +2763,54 @@ Proof.
     + admit.
     + admit.
     + admit.
+
+  (* Case Reorg_end_abstraction: *)
   - intros ? Hleq. destruct Hleq.
+    (* Case Leq_ToSymbolic *)
     + admit.
       (* TODO: don't have twice i as a name. *)
+    (* Case Leq_ToAbs *)
     + destruct (decide (i = i0)) as [<- | ].
-      * cbn in H. rewrite lookup_insert in H. inversion H. subst.
-        destruct Hto_abs.
-        -- exfalso. rewrite map_Forall_lookup in H0.
-           eapply H0 with (i := 2%positive).
-           simpl_map. reflexivity.
-           constructor.
-           constructor.
-        -- admit. (* We need the equivalence relation. *)
+      * cbn in get_A. simpl_map. inversion get_A. subst.
+        remember (S .[ (anon_accessor a, [])]) as v eqn: Heqv. destruct Hto_abs.
+        (* First case: a reborrow is turned into a region. But we can't end a region that
+         * contains a loan. We eliminate this case by contradiction. *)
+        -- exfalso. rewrite map_Forall_lookup in A_no_loans.
+           eapply A_no_loans with (i := 2%positive).
+           simpl_map. reflexivity. constructor. constructor.
+       (* On one side we turn the anonymous binding *)
+        -- apply add_anons_singleton in Hadd_anons. destruct Hadd_anons as (b & _fresh_b & ->).
+           (* TODO: make a lemma or automatize this reasonning. *)
+           assert (fresh_b : fresh_anon (remove_anon a S) b).
+           { unfold fresh_anon in *. rewrite get_at_anon in *. exact _fresh_b. }
+           (* If v is an integer, we must perform an extra relation step to turn it into a
+            * symbolic value. Because when we end the region A, the anonymous binding introduced
+            * is a symbolic value. *)
+           destruct Hv.
+           ++ eapply complete_square_diagram'.
+              ** reflexivity.
+              (* After reorganization, the borrow is introduced in an anonymous variable `b` that
+               * can be different than the anonymous variable `a` that were turned into a
+               * region. However, the states when we add a borrow in a and b are equivalent. *)
+              ** apply leq_n_by_equivalence.
+                 eapply rename_anon_equivalence with (b := b); eassumption.
+              ** rewrite remove_add_abstraction by assumption.
+                 rewrite Heqv. reflexivity.
+           ++ eapply complete_square_diagram'.
+              ** reflexivity.
+              ** eapply leq_n_step.
+                 { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
+                   rewrite sget_app, <-Heqv. reflexivity. }
+                 { easy. }
+                 eapply leq_n_by_equivalence.
+                 eapply rename_anon_equivalence with (b := b).
+                 validity. autorewrite with spath. assumption.
+              ** rewrite remove_add_abstraction by assumption.
+                 autorewrite with spath. (* TODO: LONG *)
+                 rewrite <-Heqv. reflexivity.
+      * admit. (* separation *)
+    + admit.
+    + admit.
 Abort.
 
 Local Open Scope option_monad_scope.

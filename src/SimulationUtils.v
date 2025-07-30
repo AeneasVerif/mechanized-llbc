@@ -83,6 +83,10 @@ Qed.
 Definition chain {A B C} (RAB : A -> B -> Prop) (RBC : B -> C -> Prop) a c :=
   exists b, RAB a b /\ RBC b c.
 
+Global Instance reflexive_chain {A} (R S : relation A) `{Reflexive A R} `{Reflexive A S} :
+  Reflexive (chain R S).
+Proof. intros x. exists x. split; reflexivity. Qed.
+
 (* The general definition of forward simulation. That means that for all a >= b (with
    a : A and b : B) and a -> c (with c : C), then there exists d : D that completes
    the following square diagram:

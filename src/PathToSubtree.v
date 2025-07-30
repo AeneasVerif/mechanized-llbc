@@ -248,6 +248,9 @@ Qed.
 Lemma disj_diff_fst a p q : fst p <> a -> disj p (a, q).
 Proof. left. assumption. Qed.
 
+Lemma disj_diff_fst' a p q : fst p <> a -> disj (a, q) p.
+Proof. left. symmetry. assumption. Qed.
+
 Lemma not_vprefix_implies_not_vstrict_prefix p q : ~vprefix p q -> ~vstrict_prefix p q.
 Proof. intros ? ?%vstrict_prefix_is_vprefix. auto. Qed.
 
@@ -385,6 +388,7 @@ Hint Resolve-> disj_common_prefix : spath.
 Hint Resolve<- disj_common_prefix : spath.
 Hint Resolve<- disj_common_index : spath.
 Hint Resolve disj_diff_fst : spath.
+Hint Resolve disj_diff_fst' : spath.
 Hint Immediate vstrict_prefix_is_vprefix : spath.
 Hint Immediate not_vprefix_left_vstrict_prefix_right : spath.
 Hint Resolve strict_prefix_irrefl : spath.

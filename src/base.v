@@ -864,6 +864,32 @@ Proof.
   - rewrite <-not_elem_of_dom, dom_p in EQN. set_solver.
 Qed.
 
+Lemma equiv_map_insert {A} m0 m1 i j (a : A) :
+  equiv_map m0 m1 -> lookup i m0 = None -> lookup j m1 = None ->
+  equiv_map (insert i a m0) (insert j a m1).
+Proof.
+  rewrite !equiv_map_alt. intros (p & (? & eq_dom) & ->) i_not_in_dom ?.
+  assert (map_inj (insert j i p)). {
+    apply map_inj_insert; [ | assumption]. intros ? G.
+    erewrite lookup_apply_permutation in i_not_in_dom by eassumption.
+    rewrite <-not_elem_of_dom, <-eq_dom, not_elem_of_dom in i_not_in_dom. congruence. }
+  exists (insert j i p). split; [split | ].
+  - assumption.
+  - rewrite !dom_insert_L. congruence.
+  - erewrite apply_permutation_insert by now simpl_map. rewrite delete_insert; [reflexivity | ].
+    rewrite <-not_elem_of_dom, eq_dom, not_elem_of_dom. assumption.
+Qed.
+
+Corollary equiv_map_rename_index {A} m i j (a : A) (H : lookup j (delete i m) = None)
+  (G : lookup i m = Some a) : equiv_map m (insert j a (delete i m)).
+Proof.
+  apply insert_delete in G. rewrite <-G.
+  apply equiv_map_insert.
+  - rewrite delete_insert by now simpl_map. reflexivity.
+  - simpl_map. reflexivity.
+  - rewrite delete_insert by now simpl_map. assumption.
+Qed.
+
 Section UnionMaps.
   Context {V : Type}.
 
