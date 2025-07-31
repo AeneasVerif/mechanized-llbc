@@ -670,6 +670,9 @@ Variant add_anons : LLBC_plus_state -> Pmap LLBC_plus_val -> LLBC_plus_state -> 
   | AddAnons S A anons' : union_maps (anons S) A anons' ->
       add_anons S A {|vars := vars S; anons := anons'; abstractions := abstractions S|}.
 
+(* Note: we use the variable names i' and j' instead of i and j that are used for leq_state_base.
+ * We are also using the name C instead of A or B for the region abstraction.
+ *)
 Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Ends a borrow when it's not in an abstraction: *)
 | Reorg_end_borrow_m S (p q : spath) l :
@@ -679,16 +682,16 @@ Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
 (* Ends a borrow when it's in an abstraction: *)
 (* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
-| Reorg_end_borrow_m_in_abstraction S q i j l :
-    fst q <> encode_abstraction (i, j) -> abstraction_contains_value S i j loan^m(l) ->
+| Reorg_end_borrow_m_in_abstraction S q i' j' l :
+    fst q <> encode_abstraction (i', j') -> abstraction_contains_value S i' j' loan^m(l) ->
     get_node (S.[q]) = borrowC^m(l) -> is_integer (S.[q +++ [0] ]) ->
     not_in_borrow S q -> not_in_abstraction q ->
-    reorg S ((remove_abstraction_value S i j).[q <- bot])
+    reorg S ((remove_abstraction_value S i' j').[q <- bot])
 (* q refers to a path in abstraction A, at index j. *)
-| Reorg_end_abstraction S i A S'
-    (get_A : lookup i (abstractions S) = Some A)
-    (A_no_loans : map_Forall (fun _ => not_contains_loan) A)
-    (Hadd_anons : add_anons (remove_abstraction i S) A S') : reorg S S'
+| Reorg_end_abstraction S i' C S'
+    (get_C : lookup i' (abstractions S) = Some C)
+    (A_no_loans : map_Forall (fun _ => not_contains_loan) C)
+    (Hadd_anons : add_anons (remove_abstraction i' S) C S') : reorg S S'
 .
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
@@ -2724,15 +2727,14 @@ Proof.
     (* Case Leq_ToAbs_n: *)
     + (* TODO: automatize *)
       assert (fst q <> anon_accessor a).
-      { eapply valid_spath_diff_fresh_anon with (S := remove_anon a S,,, i0 |-> A).
+      { eapply valid_spath_diff_fresh_anon with (S := remove_anon a S,,, i |-> A).
         unfold fresh_anon. rewrite get_at_anon. unfold remove_anon, add_abstraction. cbn. simpl_map. reflexivity. validity. }
       autorewrite with spath in *.
       remember (S.[(anon_accessor a, [])]) as v. destruct Hto_abs.
-      * (* TODO: don't have twice i as a name. *)
-        destruct (decide (i = i0)) as [<- | ].
+        destruct (decide (i' = i)) as [<- | ].
         -- (* The loan that we remove can only be the one at position 2 in A, with identifier l1. *)
            rewrite get_at_abstraction in H0. cbn in H0. simpl_map. cbn in H0.
-           assert (j = 2%positive /\ l = l1) as (-> & <-).
+           assert (j' = 2%positive /\ l = l1) as (-> & <-).
            { apply lookup_insert_Some in H0. destruct H0 as [ | (_ & H0)]; [easy | ].
              rewrite lookup_singleton_Some in H0. destruct H0 as (<- & H0).
              inversion H0. auto. }
@@ -2747,7 +2749,7 @@ Proof.
               eapply anon_not_in_abstraction. reflexivity.
               assumption.
            ++ eapply leq_n_step.
-              { apply Leq_ToAbs_n with (i := i) (a := a). validity. eauto with spath.
+              { apply Leq_ToAbs_n with (i := i') (a := a). validity. eauto with spath.
                 autorewrite with spath. rewrite <-Heqv. cbn. constructor. assumption. }
               { easy. }
               reflexivity.
@@ -2768,9 +2770,8 @@ Proof.
   - intros ? Hleq. destruct Hleq.
     (* Case Leq_ToSymbolic *)
     + admit.
-      (* TODO: don't have twice i as a name. *)
     (* Case Leq_ToAbs *)
-    + destruct (decide (i = i0)) as [<- | ].
+    + destruct (decide (i' = i)) as [<- | ].
       * cbn in get_A. simpl_map. inversion get_A. subst.
         remember (S .[ (anon_accessor a, [])]) as v eqn: Heqv. destruct Hto_abs.
         (* First case: a reborrow is turned into a region. But we can't end a region that
@@ -3086,7 +3087,7 @@ Section Eval_LLBC_plus_program.
       (* Ending the loan lz ... *)
       { constructor.
         eapply Reorg_end_borrow_m_in_abstraction
-          with (i := 1%positive) (j := 3%positive) (q := (encode_var 3%positive, [])).
+          with (i' := 1%positive) (j' := 3%positive) (q := (encode_var 3%positive, [])).
         - discriminate.
         - reflexivity.
         - reflexivity.
@@ -3095,7 +3096,7 @@ Section Eval_LLBC_plus_program.
         - eapply var_not_in_abstraction. reflexivity. }
       simpl_state. etransitivity.
       (* ... so that we could end the region abstraction ... *)
-      { constructor. eapply Reorg_end_abstraction with (i := 1%positive).
+      { constructor. eapply Reorg_end_abstraction with (i' := 1%positive).
         - reflexivity.
         - compute_done.
         - constructor. cbn. apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
