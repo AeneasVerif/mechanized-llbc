@@ -1841,6 +1841,7 @@ Ltac validity0 :=
       simple apply valid_vpath_app_last_get_node_not_zeroary;
       rewrite H;
       constructor
+  | |- valid_vpath _ [] => constructor
   | H : ?v.[[?p]] = _ |- valid_vpath ?v ?p =>
       apply (valid_get_node_vget_not_bot v p);
       rewrite H;
