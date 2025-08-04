@@ -552,9 +552,11 @@ Proof.
   - rewrite get_extra_alter, !get_extra_add_abstraction, get_extra_alter. reflexivity.
 Qed.
 
-(* TODO: Hint? *)
 Lemma fresh_anon_add_abstraction S a i A : fresh_anon (S,,, i |-> A) a <-> fresh_anon S a.
 Proof. unfold fresh_anon. rewrite !get_at_anon. reflexivity. Qed.
+
+Hint Resolve<- fresh_anon_add_abstraction : spath.
+(* Hint Rewrite fresh_anon_add_abstraction : spath. *)
 
 (* TODO: Hint? *)
 Lemma fresh_anon_remove_abstraction_value S a i j :
@@ -775,6 +777,7 @@ Proof.
 Qed.
 
 (* Note: this is a general lemma on states, that could be moved into PathToSubtree.v *)
+(* TODO: change the name to add_anon_states_eq, to avoid confusion with add_anons *)
 Lemma add_anons_states_eq S S' a v w
   (fresh_a_S : fresh_anon S a) (fresh_a_S' : fresh_anon S' a)
   (H : S,, a |-> v = S',, a |-> w) : S = S'.
@@ -2322,6 +2325,19 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma add_anons_add_abstraction S A B S' i :
+  add_anons (S,,, i |-> B) A S' ->
+      exists S'', S' = S'',,, i |-> B /\ add_anons S A S''.
+Proof.
+  setoid_rewrite add_anons_alt.
+  remember (S,,, i |-> B) eqn:EQN. intros H. revert S EQN. induction H; intros ? ->.
+  - eexists. split; [reflexivity | constructor].
+  - edestruct IHadd_anons' as (S'' & ? & ?).
+    { rewrite <-add_abstraction_add_anon. reflexivity. }
+    rewrite fresh_anon_add_abstraction in * |-.
+    eexists.  split; [eassumption | ]. econstructor; eassumption.
+Qed.
+
 Lemma add_anons_remove_abstraction_value S A S' i j :
   add_anons S A S' ->
   add_anons (remove_abstraction_value S i j) A (remove_abstraction_value S' i j).
@@ -2330,6 +2346,14 @@ Proof.
   - constructor.
   - autorewrite with spath in * |-. econstructor; [assumption | | eassumption].
     apply fresh_anon_remove_abstraction_value. assumption.
+Qed.
+
+Lemma add_anons_fresh_abstraction S A S' i :
+  add_anons S A S' -> fresh_abstraction S i -> fresh_abstraction S' i.
+Proof.
+  rewrite add_anons_alt. induction 1.
+  - auto.
+  - rewrite <-fresh_abstraction_add_anon in * |-. assumption.
 Qed.
 
 (* Note: this could be made into a tactic. *)
@@ -2346,6 +2370,21 @@ Proof.
   rewrite get_map_remove_abstraction_value. simpl_map. reflexivity.
 Qed.
 Hint Resolve valid_spath_remove_abstraction_value : spath.
+
+Lemma add_anons_assoc S0 S1 S2 S'2 A B C :
+  union_maps A B C -> add_anons S0 B S1 -> add_anons S1 A S2 -> add_anons S0 C S'2 ->
+  equiv_states S2 S'2.
+Proof.
+  intros ? H G K.
+  (* The variables and abstractions of states S0, S1, S2 and S'2 are the same. *)
+  (* We just need to prove that the anonymous variables are equivalent. We need a little bit of
+   * boilerplate tactics to inverse everything and use the lemma union_maps_assoc. *)
+  inversion G; subst. inversion H; subst. inversion K; subst. cbn in *.
+  rewrite <-equiv_states_perm. split; [ | split].
+  - reflexivity.
+  - cbn. eapply union_maps_assoc; [ | | eassumption..]; eassumption.
+  - intros ?. reflexivity.
+Qed.
 
 (*
 Ltac prove_add_anons :=
@@ -2819,6 +2858,10 @@ Inductive add_anonymous_bots : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop
       add_anonymous_bots n S S' -> fresh_anon S' a ->
       add_anonymous_bots (1 + n) S (S',, a |-> bot).
 
+Lemma add_anonymous_bots_fresh_abstraction n S S' i :
+  add_anonymous_bots n S S' -> fresh_abstraction S i -> fresh_abstraction S' i.
+Proof. induction 1; eauto with spath. Qed.
+
 Lemma abs_measure_remove_loans A B A' B' :
   remove_loans A B A' B' -> abs_measure A' <= abs_measure A /\ abs_measure B' <= abs_measure B.
 Proof.
@@ -2842,7 +2885,7 @@ Lemma end_removed_loans S0 S0_anons i A B A' B'
   add_anons S0 B S0_anons ->
   exists n S1,
     add_anonymous_bots n (remove_abstraction i S0) S1 /\
-    n <= abs_measure A + abs_measure B - abs_measure A' - abs_measure B' /\
+    2 * n <= abs_measure A + abs_measure B - abs_measure A' - abs_measure B' /\
     exists S1_anons, reorg^* S0_anons S1_anons /\
                      add_anons (S1,,, i |-> A') B' S1_anons.
 Proof.
@@ -2862,6 +2905,7 @@ Proof.
     { econstructor; eassumption. }
     split.
     { apply (map_sum_delete (vweight (fun c => node_measure c))) in HA', HB'.
+      remember (vweight _ _) eqn:EQN. cbn in EQN. subst.
       remember (vweight _ _) eqn:EQN. cbn in EQN. subst.
       apply abs_measure_remove_loans in Hremove_loans. lia. }
     eexists. split.
@@ -2886,6 +2930,47 @@ Proof.
     { apply add_anons_sset. apply add_anons_remove_abstraction_value. eassumption.
       eauto with spath. }
     { autorewrite with spath. reflexivity. }
+Qed.
+
+(* TODO: move *)
+Lemma add_anon_add_anons' S A a v S' :
+  add_anons' (S,, a |-> v) A S' -> fresh_anon S a ->
+      exists S'', S' = S'',, a |-> v /\ add_anons' S A S'' /\ fresh_anon S'' a.
+Proof.
+  intros H. remember (S,, a |-> v) as _S eqn:EQN. revert S EQN.
+  induction H as [ | without love it cannot be seen on H ninth IH]; intros ? ->.
+  - eexists. repeat split; [constructor | assumption].
+  - intros G. apply fresh_anon_add_anon in H. destruct H.
+    edestruct IH as (? & ? & ? & ?).
+    { rewrite add_anon_commute by congruence. reflexivity. }
+    { rewrite fresh_anon_add_anon. auto. }
+    eexists. split; [eassumption | ]. split; [ | assumption]. eauto using AddAnons_insert.
+Qed.
+
+Lemma commute_add_anonymous_bots_anons S0 S1 S2 n A :
+  add_anonymous_bots n S0 S1 -> add_anons S1 A S2 ->
+  exists S'1, add_anons S0 A S'1 /\ add_anonymous_bots n S'1 S2.
+Proof.
+  setoid_rewrite add_anons_alt. intros H. revert S2. induction H.
+  - eexists. split; [eassumption | constructor].
+  - intros S2 G.
+    apply add_anon_add_anons' in G; [ | assumption]. destruct G as (? & -> & ? & ?).
+    edestruct IHadd_anonymous_bots as (S'1 & ? & ?); [eassumption | ].
+    exists S'1. split; [assumption | ]. constructor; assumption.
+Qed.
+
+Lemma leq_n_add_anonymous_bots S S' n :
+  add_anonymous_bots n S S' -> forall m, 2 * n <= m -> leq_state_base_n^{m} S' S.
+Proof.
+  induction 1 as [ | ? ? ? S'].
+  - reflexivity.
+  - intros m ?. replace m with (2 + (m - 2)) by lia. eapply MC_trans.
+    + constructor.
+      (* When I finally get rid of remove_anon this horrible line is going to disappear. *)
+      replace 2 with (1 + vweight (fun c => node_measure c) ((S',, a |-> bot).[(anon_accessor a, [])])) by now autorewrite with spath.
+      apply Leq_RemoveAnon_n; autorewrite with spath.
+      validity. unfold not_contains_loan. not_contains. unfold not_contains_borrow. not_contains.
+    + rewrite remove_anon_add_anon by assumption. apply IHadd_anonymous_bots. lia.
 Qed.
 
 Lemma reorg_local_preservation n :
@@ -2942,7 +3027,7 @@ Proof.
               rewrite sget_app, <-Heqv. reflexivity. assumption.
               inversion H2; unfold not_contains_loan; not_contains.
               (* Note: this takes time. It could be more effective to perform rewrites in H3. *)
-              debug eauto with spath.
+              eauto with spath.
               eapply anon_not_in_abstraction. reflexivity.
               assumption.
            ++ eapply leq_n_step.
@@ -3012,7 +3097,6 @@ Proof.
     + destruct (decide (i' = i)) as [-> | ].
       * unfold add_abstraction in get_A'. cbn in get_A'. simpl_map.
         replace A' with C in * by congruence. clear A' get_A'.
-        destruct S' in Hadd_anons. inversion Hadd_anons. subst. cbn in H3. (* TODO: name *)
         assert (map_Forall (λ _ : positive, not_contains_loan) B) by eauto using merge_no_loan.
         destruct Hmerge as (A' & B' & Hremove_loans & union_A'_B').
         destruct (exists_add_anon (remove_abstraction j S) B) as (Sl1 & HSl1).
@@ -3020,14 +3104,34 @@ Proof.
           [ | | exact HSl1].
         (* TODO: lemma *)
         2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
-        destruct Hremove_loans as (n & Sbots & Hadd_bots & Hn & Sl2 & reorg_Sl2 & Hadd_anons_Sl2).
+        destruct Hremove_loans as (n & Sbots & Hadd_bots & Hn & _Sl2 & reorg_Sl2 & Hadd_anons_Sl2).
+        apply add_anons_add_abstraction in Hadd_anons_Sl2.
+        destruct Hadd_anons_Sl2 as (Sl2 & -> & Hadd_anons_Sl2).
+        destruct (exists_add_anon Sl2 A') as (Sl3 & HSl3).
+        edestruct commute_add_anonymous_bots_anons as (Sl1' & Hadd_anons_Sl1' & Hadd_bots_Sl2);
+          [exact Hadd_bots | exact Hadd_anons_Sl2 | ].
+        edestruct commute_add_anonymous_bots_anons as (Sl2' & Hadd_anons_Sl2' & Hadd_bots_Sl3);
+          [exact Hadd_bots_Sl2 | exact HSl3 | ].
+        rewrite remove_add_abstraction in Hadd_anons.
+        2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
         eapply complete_square_diagram'.
         -- etransitivity; [constructor | ].
            { eapply Reorg_end_abstraction. exact get_B. assumption. exact HSl1. }
            etransitivity; [exact reorg_Sl2 | ].
            constructor. eapply Reorg_end_abstraction with (i' := i) (A' := A').
-           (* TODO: commutation between add_anons and add_abstraction *)
-Abort.
+           unfold add_abstraction. cbn. simpl_map. reflexivity.
+           (* TODO: lemma *)
+           intros ? ? G. eapply union_contains_left in G; [ | exact union_A'_B'].
+           eapply A_no_loans. eassumption.
+           rewrite remove_add_abstraction. exact HSl3.
+           eapply add_anons_fresh_abstraction; [eassumption | ].
+           eapply add_anonymous_bots_fresh_abstraction; [eassumption | ].
+           unfold remove_abstraction. cbn. simpl_map. reflexivity.
+        -- exists Sl2'. split.
+           { eapply leq_n_add_anonymous_bots; [eassumption | ].
+             eapply map_sum_union_maps in union_A'_B'. rewrite union_A'_B'. lia. }
+           eapply add_anons_assoc; eassumption.
+Admitted.
 
 Local Open Scope option_monad_scope.
 (*

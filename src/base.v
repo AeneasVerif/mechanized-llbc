@@ -1018,6 +1018,9 @@ Section UnionMaps.
       exists m2. econstructor; eassumption.
   Qed.
 
+  Lemma union_maps_empty X Y : union_maps X empty Y -> X = Y.
+  Proof. inversion 1; [reflexivity | ]. exfalso. eapply insert_non_empty. eassumption. Qed.
+
   Lemma union_maps_insert_r_l (m0 m1 m2 : Pmap V) i x :
     union_maps m0 (insert i x m1) m2 -> lookup i m1 = None ->
     exists j, union_maps (insert j x m0) m1 m2 /\ lookup j m0 = None.
@@ -1045,4 +1048,65 @@ Section UnionMaps.
           econstructor; [ | | exact union_ind]; now simpl_map.
         * simpl_map. assumption.
   Qed.
+
+  Lemma map_sum_union_maps f m0 m1 m2 :
+    union_maps m0 m1 m2 -> map_sum f m2 = map_sum f m0 + map_sum f m1.
+  Proof.
+    induction 1.
+    - rewrite map_sum_empty. lia.
+    - rewrite map_sum_insert in * by assumption. lia.
+  Qed.
+
+  Lemma union_maps_delete_l X Y Z k v (H : union_maps (insert k v X) Y Z) :
+    lookup k X = None -> union_maps X Y (delete k Z).
+  Proof.
+    remember (insert k v X) as X' eqn:EQN. revert X k v EQN.
+    induction H; intros X k v ->.
+    - intros ?. rewrite delete_insert by assumption. constructor.
+    - intros ?.
+      assert (k <> j). { intros <-. simpl_map. discriminate. }
+      simpl_map.
+      eapply UnionInsert with (j := j); [assumption.. | ].
+      eapply IHunion_maps.
+      + rewrite insert_commute by congruence. reflexivity.
+      + simpl_map. assumption.
+  Qed.
 End UnionMaps.
+
+Lemma _union_maps_equiv {V} (A B A' B' C' : Pmap V) :
+  union_maps A' B' C' -> equiv_map A A' -> equiv_map B B' ->
+  exists C, union_maps A B C /\ equiv_map C C'.
+Proof.
+  setoid_rewrite equiv_map_alt.
+  intros H (pA & ? & ->) (pB & ? & ->). eapply union_maps_equiv in H; [ | eassumption..].
+  destruct H as (pC & ? & ?). eexists. split; [eassumption | ]. exists pC. auto.
+Qed.
+
+Lemma union_maps_unique {V} (X Y Z Z' : Pmap V) :
+  union_maps X Y Z -> union_maps X Y Z' -> equiv_map Z Z'.
+Proof.
+  intros H. revert Z'. induction H as [ | ? ? ? ? ? ? ? ? H IH].
+  - intros ? ->%union_maps_empty. reflexivity.
+  - intros Z' G. apply union_maps_insert_r_l in G; [ | assumption].
+    destruct G as (k & G & ?).
+    eapply _union_maps_equiv in G; [ | | reflexivity].
+    2: { apply equiv_map_insert with (i := j); [reflexivity | assumption..]. }
+    destruct G as (Z'' & ? & ?). transitivity Z''; auto.
+Qed.
+
+Lemma union_maps_assoc {V} (s0 s1 s2 s'2 A B C : Pmap V) :
+  union_maps A B C -> union_maps s0 B s1 -> union_maps s1 A s2 -> union_maps s0 C s'2 ->
+  equiv_map s2 s'2.
+Proof.
+  intros H. revert s0 s1 s2 s'2. induction H; intros s0 s1 s2 s'2.
+  - intros ->%union_maps_empty. apply union_maps_unique.
+  - intros (k & G & get_s0_k)%union_maps_insert_r_l; [ | assumption].
+    assert (lookup k s1 = Some x).
+    { eapply union_contains_left; [eassumption | ]. simpl_map. reflexivity. }
+    apply union_maps_delete_l in G; [ | assumption].
+    intros. eapply IHunion_maps.
+    + eassumption.
+    + apply UnionInsert with (j := k); simpl_map; [easy.. | ].
+      rewrite insert_delete; assumption.
+    + assumption.
+Qed.
