@@ -1672,27 +1672,6 @@ Proof.
       split; [now apply remove_abstraction_value_perm_equivalence | reflexivity].
 Admitted.
 
-Record LLBC_plus_well_formed (S : LLBC_plus_state) : Prop := {
-  at_most_one_borrow_mut l : at_most_one_node (borrowC^m(l)) S;
-  at_most_one_loan_mut l : at_most_one_node (loanC^m(l)) S;
-}.
-
-Record LLBC_plus_well_formed_alt (S : LLBC_plus_state) l : Prop := {
-  at_most_one_borrow_mut_alt : sweight (indicator borrowC^m(l)) S <= 1;
-  no_mut_loan_loc_alt : sweight (indicator loanC^m(l)) S <= 1;
-}.
-
-Lemma well_formedness_equiv S : LLBC_plus_well_formed S <-> forall l, LLBC_plus_well_formed_alt S l.
-Proof.
-  split.
-  - intros WF l. destruct WF. split.
-    + rewrite<- decide_at_most_one_node; easy.
-    + rewrite<- decide_at_most_one_node; easy.
-  - intros WF. split; intros l; destruct (WF l).
-    + apply decide_at_most_one_node; [discriminate | ]. assumption.
-    + apply decide_at_most_one_node; [discriminate | ]. assumption.
-Qed.
-
 Lemma vweight_bot weight : vweight weight bot = weight botC.
 Proof. reflexivity. Qed.
 Hint Rewrite vweight_bot : weight.
@@ -1728,57 +1707,6 @@ Proof.
   rewrite abstraction_sum_insert, abstraction_sum_empty by apply lookup_empty. lia.
 Qed.
 Hint Rewrite abstraction_sum_singleton : weight.
-
-Global Instance LLBC_plus_WellFormed : WellFormed LLBC_plus_state :=
-{ well_formed := LLBC_plus_well_formed }.
-
-(*
-Lemma leq_base_preserves_wf_l Sl Sr : well_formed Sl -> leq_base Sl Sr -> well_formed Sr.
-Proof.
-  rewrite !well_formedness_equiv.
-  intros H G l'. specialize (H l'). destruct G.
-  - destruct H. split; weight_inequality.
-  - apply add_anon_remove_anon in get_a. rewrite<- get_a in H. destruct H, Hto_abs.
-    + destruct (decide (l = l')) as [<- | ]; split; weight_inequality.
-    + destruct (decide (l0 = l')) as [-> | ]; [ | split; weight_inequality].
-      destruct (decide (l1 = l')) as [-> | ]; split; weight_inequality.
-  - apply add_anon_remove_anon in get_a. rewrite<- get_a in H.
-    apply not_value_contains_weight with (weight := indicator (loanC^m(l'))) in no_loan;
-      [ | intros ? <-%indicator_non_zero; constructor].
-    apply not_value_contains_weight with (weight := indicator (borrowC^m(l'))) in no_borrow;
-      [ | intros ? <-%indicator_non_zero; constructor].
-    destruct H. split; weight_inequality.
-  - destruct H. split; weight_inequality.
-  - apply add_remove_abstraction in get_A, get_B.
-    rewrite<- get_B, remove_add_abstraction_ne in get_A by assumption.
-    rewrite <-get_B, <-get_A in H. clear get_A get_B. destruct H.
-    induction Hmerge.
-    + split; weight_inequality.
-    + apply IHHmerge; weight_inequality.
-    + apply IHHmerge; weight_inequality.
-  - assert (sweight (indicator (borrowC^m(l))) S = 0).
-    { eapply not_state_contains_implies_weight_zero; [ | eassumption].
-      intros ? <-%indicator_non_zero. constructor. }
-    assert (sweight (indicator (loanC^m(l))) S = 0).
-    { eapply not_state_contains_implies_weight_zero; [ | eassumption].
-      intros ? <-%indicator_non_zero. constructor. }
-    destruct H, (decide (l = l')) as [<- | ]; split; weight_inequality.
-    (* Note: the fact l0 <> l1 may be useful at other places. *)
-  - assert (l0 <> l1).
-    { intros <-. eapply fresh_l1; [ | rewrite get_borrow]; [validity | constructor]. }
-    assert (sweight (indicator (borrowC^m(l1))) S = 0).
-    { eapply not_state_contains_implies_weight_zero; [ | eassumption].
-      intros ? <-%indicator_non_zero. constructor. }
-    assert (sweight (indicator (loanC^m(l1))) S = 0).
-    { eapply not_state_contains_implies_weight_zero; [ | eassumption].
-      intros ? <-%indicator_non_zero. constructor. }
-    destruct H. destruct (decide (l1 = l')) as [<- | ]; [split; weight_inequality | ].
-    destruct (decide (l0 = l')) as [<- | ]; split; weight_inequality.
-  (* TODO: Compute the weight when removing a value. *)
-  - admit.
-  - destruct H; split; weight_inequality.
-Admitted.
- *)
 
 (* Simulation proofs. *)
 Lemma eval_path_preservation Sl Sr perm p R :
