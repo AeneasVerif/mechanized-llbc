@@ -260,6 +260,10 @@ Section LeqValStateUtils.
    *)
 End LeqValStateUtils.
 
+(* TODO: split into two tactics/lemmas:
+ * - leq_val_state_step_left
+ * - leq_val_state_step_right
+ *)
 (* This lemma is used to prove a goal of the form ?vSl < (vr, Sr) or (vl, Sl) < ?vSr without
  * exhibiting the existential variable ?vSl or ?vSr. *)
 Ltac leq_val_state_step :=
@@ -509,3 +513,28 @@ Proof.
     edestruct IH1 as (? & ? & ?); [eassumption | ].
     eexists. split; [ | eapply rt_trans]; eassumption.
 Qed.
+
+(* Lemmas to prove the commutation of reorganizations. *)
+(* TODO: document it *)
+Lemma do_reorg_step {S} {reorg leq : relation S} S0 S1 Sr:
+  reorg S0 S1 -> (exists Sl, leq Sl Sr /\ reorg^* S1 Sl) ->
+  exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
+Proof.
+  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
+  etransitivity; [constructor | ]; eassumption.
+Qed.
+
+Lemma do_reorgs {S} {reorg leq : relation S} S0 S1 Sr:
+  reorg^* S0 S1 -> (exists Sl, leq Sl Sr /\ reorg^* S1 Sl) ->
+  exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
+Proof.
+  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
+  etransitivity; eassumption.
+Qed.
+
+Lemma reorgs_done {S} {reorg leq : relation S} S0 Sr:
+  leq S0 Sr -> exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
+Proof. exists S0. split; [assumption | reflexivity]. Qed.
+
+Lemma leq_step_right {S} {R : relation S} Sl Sm Sr : R Sm Sr -> R^* Sl Sm -> R^* Sl Sr.
+Proof. intros. transitivity Sm; [ | constructor]; assumption. Qed.

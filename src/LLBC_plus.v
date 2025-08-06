@@ -2912,16 +2912,16 @@ Proof.
       destruct (decidable_prefix q sp) as [(r & <-) | ].
       * admit.
       * assert (disj sp q). reduce_comp.
-        eapply complete_square_diagram'.
-        -- constructor. eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
-           eapply not_value_contains_sset_rev. eassumption.
-           apply not_value_contains_zeroary; rewrite H6. reflexivity. easy. validity.
-           eauto with spath. (* TODO: takes a lot of time *)
-        -- eapply leq_n_step.
-           { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
-           { auto. }
-           reflexivity.
-        -- states_eq.
+        eapply do_reorg_step.
+        { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
+          eapply not_value_contains_sset_rev. eassumption.
+          apply not_value_contains_zeroary; rewrite H6. reflexivity. easy. validity.
+          eauto with spath. (* TODO: takes a lot of time *) }
+        apply reorgs_done.
+        eapply leq_n_step.
+        { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
+        { constructor. }
+        apply reflexive_eq. states_eq.
     + admit.
     + admit.
     + admit.
@@ -2948,24 +2948,23 @@ Proof.
            { apply lookup_insert_Some in H0. destruct H0 as [ | (_ & H0)]; [easy | ].
              rewrite lookup_singleton_Some in H0. destruct H0 as (<- & H0).
              inversion H0. auto. }
-           eapply complete_square_diagram'.
-           ++ constructor.
-              eapply Reorg_end_borrow_m with (p := (anon_accessor a, []) +++ [0]) (q := q).
-              left. cbn. auto.
-              rewrite sget_app, <-Heqv. reflexivity. assumption.
-              inversion H2; unfold not_contains_loan; not_contains.
-              (* Note: this takes time. It could be more effective to perform rewrites in H3. *)
-              eauto with spath.
-              eapply anon_not_in_abstraction. reflexivity.
-              assumption.
-           ++ eapply leq_n_step.
-              { apply Leq_ToAbs_n with (i := i') (a := a). validity. eauto with spath.
-                autorewrite with spath. rewrite <-Heqv. cbn. constructor. assumption. }
-              { easy. }
-              reflexivity.
-           ++ rewrite remove_abstraction_value_add_abstraction.
-              rewrite delete_insert_ne, delete_singleton by congruence.
-              autorewrite with spath. reflexivity.
+           eapply do_reorg_step.
+           { eapply Reorg_end_borrow_m with (p := (anon_accessor a, []) +++ [0]) (q := q).
+             left. cbn. auto.
+             rewrite sget_app, <-Heqv. reflexivity. assumption.
+             inversion H2; unfold not_contains_loan; not_contains.
+             (* Note: this takes time. It could be more effective to perform rewrites in H3. *)
+             eauto with spath.
+             eapply anon_not_in_abstraction. reflexivity.
+             assumption. }
+           apply reorgs_done.
+           eapply leq_n_step.
+           { apply Leq_ToAbs_n with (i := i') (a := a). validity. eauto with spath.
+             autorewrite with spath. rewrite <-Heqv. cbn. constructor. assumption. }
+           { easy. }
+           apply reflexive_eq. autorewrite with spath.
+           rewrite delete_insert_ne, delete_singleton by congruence.
+           autorewrite with spath. reflexivity.
         -- admit.
       * admit.
     + admit.
@@ -2998,27 +2997,26 @@ Proof.
             * symbolic value. Because when we end the region A, the anonymous binding introduced
             * is a symbolic value. *)
            destruct Hv.
-           ++ eapply complete_square_diagram'.
-              ** reflexivity.
+           ++ apply reorgs_done.
               (* After reorganization, the borrow is introduced in an anonymous variable `b` that
                * can be different than the anonymous variable `a` that were turned into a
                * region. However, the states when we add a borrow in a and b are equivalent. *)
-              ** apply leq_n_by_equivalence.
-                 eapply rename_anon_equivalence with (b := b); eassumption.
-              ** rewrite remove_add_abstraction by assumption.
-                 rewrite Heqv. reflexivity.
-           ++ eapply complete_square_diagram'.
-              ** reflexivity.
-              ** eapply leq_n_step.
-                 { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
-                   rewrite sget_app, <-Heqv. reflexivity. }
-                 { easy. }
-                 eapply leq_n_by_equivalence.
-                 eapply rename_anon_equivalence with (b := b).
-                 validity. autorewrite with spath. assumption.
-              ** rewrite remove_add_abstraction by assumption.
-                 autorewrite with spath. (* TODO: LONG *)
-                 rewrite <-Heqv. reflexivity.
+              apply leq_n_by_equivalence. etransitivity.
+              { eapply rename_anon_equivalence with (b := b); eassumption. }
+              apply reflexive_eq. rewrite remove_add_abstraction, Heqv by assumption.
+              reflexivity.
+           ++ apply reorgs_done.
+              eapply leq_n_step.
+              { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
+                rewrite sget_app, <-Heqv. reflexivity. }
+              { easy. }
+              apply leq_n_by_equivalence. etransitivity.
+              { eapply rename_anon_equivalence with (b := b).
+                 validity. autorewrite with spath. assumption. }
+              apply reflexive_eq.
+              rewrite remove_add_abstraction by assumption.
+              autorewrite with spath. (* TODO: LONG *)
+              rewrite <-Heqv. reflexivity.
       * admit. (* separation *)
     + admit.
     + admit.
@@ -3028,25 +3026,22 @@ Proof.
         assert (map_Forall (λ _ : positive, not_contains_loan) B) by eauto using merge_no_loan.
         destruct Hmerge as (A' & B' & Hremove_loans & union_A'_B').
         destruct (exists_add_anon (remove_abstraction j S) B) as (Sl1 & HSl1).
+        (* Ending the region B: *)
+        eapply do_reorg_step.
+        { eapply Reorg_end_abstraction. exact get_B. assumption. exact HSl1. }
         eapply end_removed_loans with (i := i) in Hremove_loans;
           [ | | exact HSl1].
         (* TODO: lemma *)
         2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
         destruct Hremove_loans as (n & Sbots & Hadd_bots & Hn & _Sl2 & reorg_Sl2 & Hadd_anons_Sl2).
+        (* Ending all the borrows in the difference between B and B': *)
+        eapply do_reorgs. { exact reorg_Sl2. }
         apply add_anons_add_abstraction in Hadd_anons_Sl2.
         destruct Hadd_anons_Sl2 as (Sl2 & -> & Hadd_anons_Sl2).
         destruct (exists_add_anon Sl2 A') as (Sl3 & HSl3).
-        edestruct commute_add_anonymous_bots_anons as (Sl1' & Hadd_anons_Sl1' & Hadd_bots_Sl2);
-          [exact Hadd_bots | exact Hadd_anons_Sl2 | ].
-        edestruct commute_add_anonymous_bots_anons as (Sl2' & Hadd_anons_Sl2' & Hadd_bots_Sl3);
-          [exact Hadd_bots_Sl2 | exact HSl3 | ].
-        rewrite remove_add_abstraction in Hadd_anons.
-        2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
-        eapply complete_square_diagram'.
-        -- etransitivity; [constructor | ].
-           { eapply Reorg_end_abstraction. exact get_B. assumption. exact HSl1. }
-           etransitivity; [exact reorg_Sl2 | ].
-           constructor. eapply Reorg_end_abstraction with (i' := i) (A' := A').
+        (* Ending the region A: *)
+        eapply do_reorg_step.
+        { eapply Reorg_end_abstraction with (i' := i) (A' := A').
            unfold add_abstraction. cbn. simpl_map. reflexivity.
            (* TODO: lemma *)
            intros ? ? G. eapply union_contains_left in G; [ | exact union_A'_B'].
@@ -3054,11 +3049,19 @@ Proof.
            rewrite remove_add_abstraction. exact HSl3.
            eapply add_anons_fresh_abstraction; [eassumption | ].
            eapply add_anonymous_bots_fresh_abstraction; [eassumption | ].
-           unfold remove_abstraction. cbn. simpl_map. reflexivity.
-        -- exists Sl2'. split.
-           { eapply leq_n_add_anonymous_bots; [eassumption | ].
-             eapply map_sum_union_maps in union_A'_B'. rewrite union_A'_B'. lia. }
-           eapply add_anons_assoc; eassumption.
+           unfold remove_abstraction. cbn. simpl_map. reflexivity. }
+        apply reorgs_done.
+
+        edestruct commute_add_anonymous_bots_anons as (Sl1' & Hadd_anons_Sl1' & Hadd_bots_Sl2);
+          [exact Hadd_bots | exact Hadd_anons_Sl2 | ].
+        edestruct commute_add_anonymous_bots_anons as (Sl2' & Hadd_anons_Sl2' & Hadd_bots_Sl3);
+          [exact Hadd_bots_Sl2 | exact HSl3 | ].
+        rewrite remove_add_abstraction in Hadd_anons.
+        2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
+        eexists. split.
+        { eapply leq_n_add_anonymous_bots; [eassumption | ].
+          eapply map_sum_union_maps in union_A'_B'. rewrite union_A'_B'. lia. }
+         eapply add_anons_assoc; eassumption.
 Admitted.
 
 Local Open Scope option_monad_scope.
