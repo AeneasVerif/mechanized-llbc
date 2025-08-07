@@ -2338,128 +2338,117 @@ Lemma operand_preserves_LLBC_plus_rel op :
 Proof.
   apply preservation_by_base_case.
   intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
+  (* op = IntConst n *)
   - destruct Hle.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_step.
-        { eapply Leq_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_step.
-        { apply Leq_ToAbs with (a := a) (i := i) (A := A).
-          all: autorewrite with spath; try assumption; validity. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_step.
-        { apply Leq_RemoveAnon with (a := a); autorewrite with spath; try assumption; validity. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_add_anon.
-        { apply Leq_MoveValue with (sp := sp) (a := a).
-          autorewrite with spath. assumption. eassumption. validity. assumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_step.
-        { apply (Leq_MergeAbs _ i j A B C); assumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_add_anon.
-        { apply (Leq_Fresh_MutLoan _ sp l a).
-          apply not_state_contains_add_anon. assumption. not_contains.
-          eassumption.
-          autorewrite with spath. assumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_add_anon.
-        { apply (Leq_Reborrow_MutBorrow _ sp l0 l1 a).
-          apply not_state_contains_add_anon. assumption. not_contains. eassumption.
-          autorewrite with spath. assumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_step.
-        { apply (Leq_Abs_ClearValue _ i j v); autorewrite with spath; assumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
-    + eapply complete_square_diagram'.
-      * constructor.
-      * leq_val_state_add_anon.
-        { apply (Leq_AnonValue _ a); [assumption.. | ]. eassumption. }
-        { reflexivity. }
-        reflexivity.
-      * reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_step_left.
+      { eapply Leq_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_step_left.
+      { apply Leq_ToAbs with (a := a) (i := i) (A := A).
+        all: autorewrite with spath; try assumption; validity. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_step_left.
+      { apply Leq_RemoveAnon with (a := a); autorewrite with spath; try assumption; validity. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_add_anon.
+      { apply Leq_MoveValue with (sp := sp) (a := a).
+        autorewrite with spath. assumption. eassumption. validity. assumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_step_left.
+      { apply (Leq_MergeAbs _ i j A B C); assumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_add_anon.
+      { apply (Leq_Fresh_MutLoan _ sp l a).
+        apply not_state_contains_add_anon. assumption. not_contains.
+        eassumption.
+        autorewrite with spath. assumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_add_anon.
+      { apply (Leq_Reborrow_MutBorrow _ sp l0 l1 a).
+        apply not_state_contains_add_anon. assumption. not_contains. eassumption.
+        autorewrite with spath. assumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_step_left.
+      { apply (Leq_Abs_ClearValue _ i j v); autorewrite with spath; assumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    + eapply execution_step. { constructor. }
+      leq_val_state_add_anon.
+      { apply (Leq_AnonValue _ a); [assumption.. | ]. eassumption. }
+      { reflexivity. }
+      reflexivity.
+
+  (* op = copy p *)
   - admit.
+
+  (* op = move p *)
   - destruct Hle.
+    (* Leq-ToSymbolic *)
     + eval_place_preservation.
       destruct (decidable_prefix pi sp) as [(q & <-) | ].
+
       (* Case 1: the value we turn into a symbolic value is in the place we move. *)
       * autorewrite with spath in * |-.
-        eapply complete_square_diagram'.
-        -- constructor. eassumption.
-           (* TODO: automatize *)
-           eapply not_value_contains_vset_rev with (p := q).
-           autorewrite with spath.
-           eapply not_value_contains_zeroary; rewrite H. reflexivity. easy. eassumption.
-           eapply not_value_contains_vset_rev with (p := q).
-           autorewrite with spath.
-           eapply not_value_contains_zeroary; rewrite H. reflexivity. discriminate. eassumption.
-        -- leq_val_state_step.
-           { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
-             all: autorewrite with spath; assumption. }
-           { autorewrite with spath. reflexivity. }
-           reflexivity.
-        -- states_eq.
+        eapply execution_step.
+        { constructor. eassumption.
+          (* TODO: automatize *)
+          eapply not_value_contains_vset_rev with (p := q).
+          autorewrite with spath.
+          eapply not_value_contains_zeroary; rewrite H. reflexivity. easy. eassumption.
+          eapply not_value_contains_vset_rev with (p := q).
+          autorewrite with spath.
+          eapply not_value_contains_zeroary; rewrite H. reflexivity. discriminate. eassumption. }
+        leq_val_state_step_left.
+        { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
+          all: autorewrite with spath; assumption. }
+        { autorewrite with spath. reflexivity. }
+        apply reflexive_eq. states_eq.
+
       (* Case 2: the value we turn into a symbolic value is disjoint to the place we move. *)
       * assert (disj sp pi) by reduce_comp.
         autorewrite with spath in * |-.
-        eapply complete_square_diagram'.
-        --- apply Eval_move; eassumption.
-        --- leq_val_state_step.
-            { apply Leq_ToSymbolic with (sp := sp) (n := n).
-              all: autorewrite with spath; assumption. }
-            { autorewrite with spath. reflexivity. }
-            reflexivity.
-        --- states_eq.
+        eapply execution_step. { apply Eval_move; eassumption. }
+        leq_val_state_step_left.
+        { apply Leq_ToSymbolic with (sp := sp) (n := n).
+          all: autorewrite with spath; assumption. }
+        { autorewrite with spath. reflexivity. }
+        apply reflexive_eq. states_eq.
+
+    (* Leq-ToAbs *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
-      eapply complete_square_diagram'.
-      * apply Eval_move; eassumption.
-      * leq_val_state_step.
-        { apply Leq_ToAbs with (a := a) (i := i); try validity.
-          autorewrite with spath. assumption. autorewrite with spath. eassumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * autorewrite with spath. reflexivity.
+      eapply execution_step. { apply Eval_move; eassumption. }
+      leq_val_state_step_left.
+      { apply Leq_ToAbs with (a := a) (i := i); try validity.
+        autorewrite with spath. assumption. autorewrite with spath. eassumption. }
+      { autorewrite with spath. reflexivity. }
+      autorewrite with spath. reflexivity.
+
+    (* Leq-RemoveAnon *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
-      eapply complete_square_diagram'.
-      * apply Eval_move; eassumption.
-      * leq_val_state_step.
-        { apply Leq_RemoveAnon with (a := a). validity. all: autorewrite with spath; assumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * autorewrite with spath. reflexivity.
+      eapply execution_step. { apply Eval_move; eassumption. }
+      leq_val_state_step_left.
+      { apply Leq_RemoveAnon with (a := a). validity. all: autorewrite with spath; assumption. }
+      { autorewrite with spath. reflexivity. }
+      autorewrite with spath. reflexivity.
+
+    (* Leq-MoveValue *)
     + eval_place_preservation.
       (* The place pi we move does not contain any bottom value is the right state, as a
        * condition of the move rule.
@@ -2469,23 +2458,27 @@ Proof.
       { intros (q & <-). autorewrite with spath in move_no_bot. eapply move_no_bot with (p := q).
         apply vset_same_valid. validity. autorewrite with spath. reflexivity. }
       assert (disj sp pi) by reduce_comp.
-      autorewrite with spath in * |-. eapply complete_square_diagram'.
-      * apply Eval_move; eassumption.
-      * leq_val_state_add_anon.
-         { apply Leq_MoveValue with (sp := sp) (a := a).
-           autorewrite with spath. assumption. assumption. validity. assumption. }
-         { autorewrite with spath. reflexivity. }
-         reflexivity.
-      * states_eq.
+      autorewrite with spath in * |-.
+      eapply execution_step. { apply Eval_move; eassumption. }
+      leq_val_state_add_anon.
+       { apply Leq_MoveValue with (sp := sp) (a := a).
+         autorewrite with spath. assumption. assumption. validity. assumption. }
+       { autorewrite with spath. reflexivity. }
+      apply reflexive_eq. states_eq.
+
+
+    (* Leq-MergeAbs *)
     + eval_place_preservation.
-      autorewrite with spath in * |-. eapply complete_square_diagram'.
-      * apply Eval_move; eassumption.
-      * leq_val_state_step.
-        { apply Leq_MergeAbs with (A := A) (B := B) (i := i) (j := j).
-          all: autorewrite with spath; eassumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * autorewrite with spath. reflexivity.
+      autorewrite with spath in * |-.
+      eapply execution_step. { apply Eval_move; eassumption. }
+      leq_val_state_step_left.
+      { apply Leq_MergeAbs with (A := A) (B := B) (i := i) (j := j).
+        all: autorewrite with spath; eassumption. }
+      { autorewrite with spath. reflexivity. }
+      autorewrite with spath. reflexivity.
+
+
+    (* Leq-Fresh-MutLoan *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
       (* Because the path pi we move does not contain any loan, it cannot contain the spath sp
@@ -2496,62 +2489,64 @@ Proof.
         eapply move_no_loan with (p := q). apply vset_same_valid. validity.
         autorewrite with spath. constructor. }
       assert (disj pi sp) by reduce_comp. autorewrite with spath in *.
-      eapply complete_square_diagram'.
-      * apply Eval_move; eassumption.
-      * leq_val_state_add_anon.
-        { apply Leq_Fresh_MutLoan with (sp := sp) (l := l).
-          (* TODO: the tactic not_contains should solve it. *)
-          apply not_state_contains_add_anon. not_contains. not_contains.
-          eassumption. autorewrite with spath. assumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * states_eq.
+      eapply execution_step. { apply Eval_move; eassumption. }
+      leq_val_state_add_anon.
+      { apply Leq_Fresh_MutLoan with (sp := sp) (l := l).
+        (* TODO: the tactic not_contains should solve it. *)
+        apply not_state_contains_add_anon. not_contains. not_contains.
+        eassumption. autorewrite with spath. assumption. }
+      { autorewrite with spath. reflexivity. }
+      apply reflexive_eq. states_eq.
+
+    (* Leq-Reborrow-MutBorrow *)
     + apply eval_place_Reborrow_MutBorrow in Heval; [ | exact get_borrow].
       destruct Heval as (? & (-> & ?) & eval_p_in_Sl).
       autorewrite with spath in * |-.
       destruct (decidable_prefix pi sp) as [(q & <-) | ].
+
       (* Case 1: the spath sp we reborrow is in the place pi we move. *)
-      * eapply complete_square_diagram'.
-        -- apply Eval_move. eassumption.
-           eapply not_contains_rename_mut_borrow; eauto with spath.
-           eapply not_contains_rename_mut_borrow; eauto with spath.
-        -- leq_val_state_add_anon.
-          (* Because the place we reborrow was at sp +++ q, and that we move and return S.[sp],
-           * the borrow is now in the anonymous value we evaluate a0, at path q. *)
-           (* TODO: rename a0 *)
-          { apply Leq_Reborrow_MutBorrow with (sp := (anon_accessor a0, q)) (l1 := l1).
-            not_contains. eassumption. autorewrite with spath. eassumption. }
-          { autorewrite with spath. reflexivity. }
-          reflexivity.
-        -- autorewrite with spath. reflexivity.
-       (* Case 2: the spath sp we reborrow ... *)
-      * eapply complete_square_diagram'.
-        -- apply Eval_move. eassumption.
-           all: erewrite sget_reborrow_mut_borrow_not_prefix in * by eassumption; assumption.
-        -- leq_val_state_add_anon.
-           { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1).
-             not_contains. eassumption. autorewrite with spath. eassumption. }
-           { autorewrite with spath. reflexivity. }
-           reflexivity.
-        -- autorewrite with spath.
-           erewrite sget_reborrow_mut_borrow_not_prefix by eassumption.
-           erewrite sset_reborrow_mut_borrow_not_prefix by eauto with spath. reflexivity.
-    + eval_place_preservation. autorewrite with spath in *. eapply complete_square_diagram'.
-      * constructor; eassumption.
-      * leq_val_state_step.
-        { eapply Leq_Abs_ClearValue with (i := i) (j := j); autorewrite with spath; eassumption. }
+      * eapply execution_step.
+        { apply Eval_move. eassumption.
+          eapply not_contains_rename_mut_borrow; eauto with spath.
+          eapply not_contains_rename_mut_borrow; eauto with spath. }
+         leq_val_state_add_anon.
+        (* Because the place we reborrow was at sp +++ q, and that we move and return S.[sp],
+         * the borrow is now in the anonymous value we evaluate a0, at path q. *)
+         (* TODO: rename a0 *)
+        { apply Leq_Reborrow_MutBorrow with (sp := (anon_accessor a0, q)) (l1 := l1).
+          not_contains. eassumption. autorewrite with spath. eassumption. }
         { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * reflexivity.
+        autorewrite with spath. reflexivity.
+
+       (* Case 2: the spath sp we reborrow is not in the place pi we move. *)
+      * eapply execution_step.
+        { apply Eval_move. eassumption.
+          all: erewrite sget_reborrow_mut_borrow_not_prefix in * by eassumption; assumption. }
+        leq_val_state_add_anon.
+        { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1).
+          not_contains. eassumption. autorewrite with spath. eassumption. }
+        { autorewrite with spath. reflexivity. }
+        autorewrite with spath.
+        erewrite sget_reborrow_mut_borrow_not_prefix by eassumption.
+        erewrite sset_reborrow_mut_borrow_not_prefix by eauto with spath. reflexivity.
+
+    (* Leq-Abs-ClearValue *)
+    + eval_place_preservation. autorewrite with spath in *.
+      eapply execution_step. { constructor; eassumption. }
+      leq_val_state_step_left.
+      { eapply Leq_Abs_ClearValue with (i := i) (j := j); autorewrite with spath; eassumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
+    (* Leq-AnonValue *)
     + apply eval_place_AnonValue in Heval.
       destruct Heval as (? & (-> & ?) & eval_p_in_Sl).
-      autorewrite with spath in *. eapply complete_square_diagram'.
-      * econstructor; eassumption.
-      * leq_val_state_add_anon.
-        { apply Leq_AnonValue; eassumption. }
-        { reflexivity. }
-        reflexivity.
-      * reflexivity.
+      autorewrite with spath in *.
+      eapply execution_step. { econstructor; eassumption. }
+      leq_val_state_add_anon.
+      { apply Leq_AnonValue; eassumption. }
+      { reflexivity. }
+      reflexivity.
 Abort.
 
 Notation node_measure n :=

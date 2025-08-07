@@ -115,25 +115,6 @@ Lemma execution_step {B C D : Type}
   -> exists S'l, LeqDC S'l S'r /\ RedBD Sl S'l.
 Proof. exists S'l. split; assumption. Qed.
 
-(* To complete a square diagram for LLBC+, we prove that:
-   - The state b is in relation with a state d
-   - The state d reduces to a state c1
-   - c0 = c1
-   This lemma allows us to not exhibit the terms d0 and d1 explicitely. As the relations LeqCD and
-   RedBD are generally inductively defined, these terms are constructed by applying inductive
-   constructors. This is why the constructors of the relation should be on the form:
-   - red S E[S] for the reduction
-   - S < E[S] for the base relation (only true for LLBC+)
-   Finally, the last goal c0 = c1 is intended to be solved automatically, using the tactic
-   states_eq.
- *)
-(* TODO: name *)
-Lemma complete_square_diagram' {B C D : Type}
-  (LeqDC : D -> C -> Prop) (RedBD : B -> D -> Prop) b d c0 c1 :
-  RedBD b d -> LeqDC d c1 -> c0 = c1
-  -> exists d, LeqDC d c0 /\ RedBD b d.
-Proof. intros ? ? <-. exists d. auto. Qed.
-
 (* Generally, to prove preservation when the relation is a reflexive transitive closure, it
  * suffices to prove it for the base cases. *)
 Lemma preservation_by_base_case {A B : Type}
@@ -263,6 +244,11 @@ Ltac leq_val_state_step :=
      3. leq ?vSl (?vm, ?Sm) *)
   | |- ?leq_star ?vSl (?vr, ?Sr) =>
       eapply prove_leq_val_state_right_to_left; [intros a ? ?; eexists; split | ]
+  end.
+
+Ltac leq_val_state_step_left :=
+  let a := fresh "a" in
+  lazymatch goal with
   (* When proving a goal `leq (vl, Sl) ?vSr`, using this tactic creates three subgoals:
      1. leq_base (Sl,, a |-> v) ?vSm
      2. ?vSm = ?Sm,, a |-> ?vm
@@ -273,10 +259,6 @@ Ltac leq_val_state_step :=
      TODO: remove it from the hypotheses of the lemma? *)
   | |- ?leq_star (?vl, ?Sl) ?vSr =>
       eapply prove_leq_val_state_left_to_right; [intros a _ ?; eexists; split | ]
-(* In either cases:
-   1. Solved by applying the adequate base rule. Here, a is a fresh anon.
-   2. Solved by rewriting (with `autorewrite with spath`) then reflexivity.
-   3. Solved by applying again this tactic, or concluding by reflexivity. *)
   end.
 
 (* In LLBC+, some base rules are of the form S < S',, b |-> w (with b fresh in S). The presence of
