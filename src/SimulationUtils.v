@@ -109,23 +109,11 @@ Definition forward_simulation {A B C D : Type}
   (RedAC : A -> C -> Prop) (RedBD : B -> D -> Prop) :=
   forall a c, RedAC a c -> forall b, LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
 
-(* To complete a square diagram for HLPL+, we prove that:
-   - The state c reduces to a state c0
-   - The state b is in relation with a state d1: b <= d1
-   - d0 = d1
-   This lemma allows us to not exhibit the terms d0 and d1 explicitely. As the relations LeqCD and
-   RedBD are generally inductively defined, these terms are constructed by applying inductive
-   constructors. This is why the constructors of the relation should be on the form:
-   - red S E[S] for the reduction
-   - E[S] < S for the base relation (only true for HLPL+)
-   Finally, the last goal d0 = d1 is intended to be solved automatically, using the tactic
-   states_eq.
- *)
-Lemma complete_square_diagram {B C D : Type}
-  (LeqDC : D -> C -> Prop) (RedBD : B -> D -> Prop) b c (d0 d1 : D) :
-  LeqDC d0 c -> RedBD b d1 -> d0 = d1
-  -> exists d, LeqDC d c /\ RedBD b d.
-Proof. intros ? ? <-. exists d0. auto. Qed.
+Lemma execution_step {B C D : Type}
+  (LeqDC : D -> C -> Prop) (RedBD : B -> D -> Prop) Sl S'l S'r :
+  RedBD Sl S'l -> LeqDC S'l S'r
+  -> exists S'l, LeqDC S'l S'r /\ RedBD Sl S'l.
+Proof. exists S'l. split; assumption. Qed.
 
 (* To complete a square diagram for LLBC+, we prove that:
    - The state b is in relation with a state d
