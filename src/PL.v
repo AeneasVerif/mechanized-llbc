@@ -329,11 +329,74 @@ Section Concretization.
     addr_spath_equiv S ((bi, off + sizeof t0), t1) (x, pi ++ [1]).
 
   (** [addr_proj proj (addr, t) (addr', t')] when the projection [proj] of the value at address [addr] of type [t] gives the value at address [addr'] of type [t'] *)
+  Variant follow_path_addr : nat -> address * type -> address * type -> Prop :=
+  | FP_Addr_first bi off t0 t1 :
+    follow_path_addr 0 ((bi, off), TPair t0 t1) ((bi, off), t0)
+  | FP_Addr_second bi off t0 t1 :
+    follow_path_addr 1 ((bi, off), TPair t0 t1) ((bi, off + sizeof t0), t1).
+
+  Variant follow_path_val : nat -> pl_val * type -> pl_val * type -> Prop :=
+  | FP_Val_first vl t0 t1 :
+    follow_path_val 0 (vl, TPair t0 t1) (firstn (sizeof t0) vl, t0)
+  | FP_Val_second vl t0 t1 :
+    follow_path_val 1 (vl, TPair t0 t1) (skipn (sizeof t0) vl, t1).
+
+  Lemma concr_val_size : forall v vl t, concr_hlpl_val v t vl -> sizeof t = length vl.
+  Proof.
+    intros v vl t Hconcr. induction Hconcr ; auto ; try reflexivity.
+    - rewrite Hs, repeat_length. reflexivity.
+    - rewrite List.length_app. simpl. lia.
+  Qed.
+
+  Lemma follow_path_PL_HLPL_valid : forall vl vl' t t' v i,
+      get_node v <> HLPL_botC ->
+      ~ (exists l, get_node v = HLPL_locC l) ->
+      concr_hlpl_val v t vl ->
+      follow_path_val i (vl, t) (vl', t') ->
+      concr_hlpl_val (v.[[ [i] ]]) t' vl'.
+  Proof.
+    intros vl vl' t t' v i Hbot Hloc Hconcr Hpath.
+    destruct Hconcr.
+    - inversion Hpath.
+    - contradiction.
+    - inversion Hpath ; subst.
+      * simpl. rewrite (concr_val_size _ _ _ Hconcr1), take_app_length. assumption.
+      * simpl. rewrite (concr_val_size _ _ _ Hconcr1), drop_app_length. assumption.
+    - exfalso. apply Hloc. exists l. reflexivity.
+    - inversion Hpath.
+  Qed.
+
+  Lemma follow_path_PL_HLPL_valid_stutter : forall vl t v,
+      get_node v <> HLPL_botC ->
+      (exists l, get_node v = HLPL_locC l) ->
+      concr_hlpl_val v t vl ->
+      concr_hlpl_val (v.[[ [0] ]]) t vl.
+  Proof.
+    intros vl t v Hbot [l Hloc] Hconcr.
+    destruct v ; simpl in Hloc ; try easy.
+    injection Hloc ; intros ; inversion Hconcr ; subst. auto.
+  Qed.
+
+  Fixpoint sget_val (vpl : pl_val) (vp : vpath) :=
+    match vp with
+
+  Fixpoint sget (Spl : PL_state) (sp : spath)
+  Inductive eval_proj : PL_state -> proj -> spath -> spath -> Prop :=
+  | Eval_Field_First q
+      (get_q : get_node (S.[q]) = HLPL_pairC) :
+    eval_proj S perm (Field First) q (q +++ [0])
+  | Eval_Field_Second q
+      (get_q : get_node (S.[q]) = HLPL_pairC) :
+    eval_proj S perm (Field Second) q (q +++ [1])
+.
+
   Inductive eval_proj_addr : PL_state -> proj -> address * type -> address * type -> Prop :=
-  | Addr_first S bi off t0 t1 :
-    eval_proj_addr S (Field First) ((bi, off), TPair t0 t1) ((bi, off), t0)
-  | Addr_second S bi off t0 t1 :
-    eval_proj_addr S (Field Second) ((bi, off), TPair t0 t1) ((bi, off + sizeof t0), t1)
+  | Addr_first S addr addr' t t'
+    (H : follow_path_addr 0) (addr, t) (addr', t') :
+    eval_proj_addr S (Field First) (addr, t) (addr', t')
+  | Addr_second S addr addr' t t'
+    (H : follow_path_addr 1) (addr, t) (addr', t') :
+    eval_proj_addr S (Field Second) (addr, t) (addr', t')
   | Addr_deref S bi off bi' off' t pl 
       (Haddr : heap S !! bi = Some pl)
       (Hoff : List.nth_error pl off = Some (PL_address (bi', off'))) :
@@ -390,17 +453,43 @@ Section Concretization.
       assumption.
   Qed.
 
+  Lemma concr_val_TInt_imlies_PL_int :
+    forall v vl, concr_hlpl_val v TInt vl -> (exists n, vl = [PL_int n]) \/ vl = [PL_poison].
+  Proof.
+    intros v vl Hconcr. remember TInt as t. induction Hconcr ; try discriminate.
+    - left. exists n. reflexivity.
+    - right. subst. reflexivity.
+    - auto.
+  Qed.
+
   Lemma concr_state_implies_concr_val :
     forall S Spl v vl bi off t x pi,
+      vars S !! x = Some v ->
       concr_hlpl S Spl ->
-      S.[(x, pi)] = v ->
+      S.[(encode_var x, pi)] = v ->
       lookup_heap_at_addr (bi, off) t Spl = vl ->
       addr_spath_equiv S (bi, off, t) (x, pi) ->
       concr_hlpl_val v t vl.
   Proof.
-    intros S Spl v vl bi off t x pi [Hconcr_heap _] HS HSpl Hequiv.
+    intros S Spl v vl bi off t x pi Hcheat [Hconcr_heap _] HS HSpl Hequiv.
     remember (bi, off, t) as t_addr. remember (x, pi) as p.
-    induction Hequiv. injection Heqt_addr ; injection Heqp ; intros ; subst.
+    induction Hequiv ; injection Heqt_addr ; injection Heqp ; intros ; subst.
+    - unfold sget, encode_var. simpl. rewrite sum_maps_lookup_l.
+      destruct (Hconcr_heap x (S .[ (encode_var x, [])]) bi t)
+        as [vl [Hval Hheap] ]; auto.
+      rewrite Hcheat. replace (heap Spl !! bi) with (Some vl). unfold drop.
+
+      inversion Hval.
+      + apply Concr_lit.
+
+      induction t ; simpl.
+      + destruct (concr_val_TInt_imlies_PL_int _ _ Hval) as [ [n Hint] | Hpois ].
+        * rewrite Hint in *. apply Hval.
+        * rewrite Hpois in *. apply Hval.
+      + admit.
+      + admit.
+    - admit.
+    - 
   Abort.
 
   Lemma addr_spath_deref_proj (S : HLPL_state) (Spl : PL_state) :
