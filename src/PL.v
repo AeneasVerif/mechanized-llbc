@@ -377,7 +377,7 @@ Section Concretization.
     injection Hloc ; intros ; inversion Hconcr ; subst. auto.
   Qed.
 
-  Fixpoint sget_val (vpl : pl_val) (vp : vpath) :=
+  (*Fixpoint sget_val (vpl : pl_val) (vp : vpath) :=
     match vp with
 
   Fixpoint sget (Spl : PL_state) (sp : spath)
@@ -388,14 +388,14 @@ Section Concretization.
   | Eval_Field_Second q
       (get_q : get_node (S.[q]) = HLPL_pairC) :
     eval_proj S perm (Field Second) q (q +++ [1])
-.
+. *)
 
   Inductive eval_proj_addr : PL_state -> proj -> address * type -> address * type -> Prop :=
   | Addr_first S addr addr' t t'
-    (H : follow_path_addr 0) (addr, t) (addr', t') :
+    (H : follow_path_addr 0 (addr, t) (addr', t')) :
     eval_proj_addr S (Field First) (addr, t) (addr', t')
   | Addr_second S addr addr' t t'
-    (H : follow_path_addr 1) (addr, t) (addr', t') :
+    (H : follow_path_addr 1 (addr, t) (addr', t')) :
     eval_proj_addr S (Field Second) (addr, t) (addr', t')
   | Addr_deref S bi off bi' off' t pl 
       (Haddr : heap S !! bi = Some pl)
@@ -414,7 +414,7 @@ Section Concretization.
           addrof l = Some addr
       ; reachable_loc :
         forall l sp,
-          valid_spath  S sp ->
+          valid_spath S sp ->
           get_node (S.[sp]) = HLPL_locC l ->
           exists addr, addr_spath_equiv S addr sp
       }.
@@ -447,13 +447,32 @@ Section Concretization.
   Proof.
     intros f bi off bi' off' x pi y pi' t0 t1 t perm Hequiv Hproj Hprojaddr.
     inversion Hproj ; subst ; inversion Hprojaddr; subst.
-    * apply Addr_spath_pair_first with (t1 := t1).
-      assumption.
-    * apply Addr_spath_pair_second. 
+    * inversion H3 ; subst ; eapply Addr_spath_pair_first.
+      eassumption.
+    * inversion H3 ; subst ; apply Addr_spath_pair_second. 
       assumption.
   Qed.
 
-  Lemma concr_val_TInt_imlies_PL_int :
+  Definition addresses_are_compatible (S : HLPL_state) (Spl : PL_state) :=
+    forall bi off t p l,
+      addr_spath_equiv S ((bi, off), t) p ->
+      get_node (S.[p]) = locC(l) ->
+      addrof l = Some (bi, off).
+
+  Lemma addr_spath_deref_proj (S : HLPL_state) (Spl : PL_state) :
+    forall bi off bi' off' x pi y pi' t perm,
+      addresses_are_compatible S Spl ->
+      addr_spath_equiv S ((bi, off), TRef t) (x, pi) ->
+      eval_proj S perm Deref (x, pi) (y, pi') ->
+      eval_proj_addr Spl Deref ((bi, off), TRef t) ((bi', off'), t) ->
+      addr_spath_equiv S ((bi', off'), t) (y, pi').
+  Proof.
+    intros bi off bi' off' x pi y pi' t perm Haddrcomp Hequiv Hproj Hprojaddr.
+    inversion Hproj ; subst ; inversion Hprojaddr ; subst.
+    eapply Addr_spath_pointer ; try eassumption.
+
+
+Lemma concr_val_TInt_implies_PL_int :
     forall v vl, concr_hlpl_val v TInt vl -> (exists n, vl = [PL_int n]) \/ vl = [PL_poison].
   Proof.
     intros v vl Hconcr. remember TInt as t. induction Hconcr ; try discriminate.
