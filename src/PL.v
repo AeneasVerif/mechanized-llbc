@@ -439,63 +439,72 @@ Section Concretization.
 
   (** Commutation Diagram to read in states *)
   Lemma addr_spath_pair_proj (S : HLPL_state) (Spl : PL_state) :
-    forall f bi off bi' off' x pi y pi' t0 t1 t perm,
+    forall f bi off x pi y pi' t0 t1 t perm,
       addr_spath_equiv S ((bi, off), TPair t0 t1) (x, pi) ->
       eval_proj S perm (Field f) (x, pi) (y, pi') ->
+      exists bi' off',
       eval_proj_addr Spl (Field f) ((bi, off), TPair t0 t1) ((bi', off'), t) ->
       addr_spath_equiv S ((bi', off'), t) (y, pi').
   Proof.
-    intros f bi off bi' off' x pi y pi' t0 t1 t perm Hequiv Hproj Hprojaddr.
-    inversion Hproj ; subst ; inversion Hprojaddr; subst.
-    * inversion H3 ; subst ; eapply Addr_spath_pair_first.
+    intros f bi off x pi y pi' t0 t1 t perm Hequiv Hproj.
+    inversion Hproj ; subst.
+    * exists bi, off. intros Hprojaddr. inversion Hprojaddr ; subst.
+      inversion H3 ; subst ; eapply Addr_spath_pair_first.
       eassumption.
-    * inversion H3 ; subst ; apply Addr_spath_pair_second. 
+    * exists bi, (off + sizeof t0). intros Hprojaddr. inversion Hprojaddr ; subst.
+      inversion H3 ; subst ; apply Addr_spath_pair_second. 
       assumption.
   Qed.
 
   (* This hypothesis is necessary to prove that the diagram commutes with dereference, it should be a consequence that the PL_state Spl is the concretization of the HLPL state S *)
   Definition addresses_are_compatible (S : HLPL_state) (Spl : PL_state) :=
-    forall S addr addr' t sp l,
-      addr_spath_equiv S (addr, (TRef t)) sp ->
+    forall S bi off t sp l,
+      addr_spath_equiv S (bi, off, (TRef t)) sp ->
       get_node (S.[ sp ]) = ptrC(l) ->
-      lookup_heap_at_addr addr (TRef t) Spl = [PL_address addr'] ->
-      addrof l = Some addr'.
+      exists bi' off',
+      lookup_heap_at_addr (bi, off) (TRef t) Spl = [PL_address (bi', off')] /\
+      addrof l = Some (bi', off').
 
-  Lemma addr_spath_deref_proj (S : HLPL_state) (Spl : PL_state) :
-    forall bi bi' off off' x y pi pi' t perm,
+  Lemma addr_spath_deref_proj(S : HLPL_state) (Spl : PL_state) :
+    forall bi off x y pi pi' t perm,
       addresses_are_compatible S Spl ->
       addr_spath_equiv S ((bi, off), TRef t) (x, pi) ->
       eval_proj S perm Deref (x, pi) (y, pi') ->
-      eval_proj_addr Spl Deref ((bi, off), TRef t) ((bi', off'), t) ->
+      exists bi' off',
+      eval_proj_addr Spl Deref ((bi, off), TRef t) ((bi', off'), t) /\
       addr_spath_equiv S ((bi', off'), t) (y, pi').
   Proof.
-    intros bi bi' off off' x y pi pi' t perm Haddrcomp Hequiv Hproj Hprojaddr.
-    inversion Hproj ; subst ; inversion Hprojaddr ; subst.
-    eapply Addr_spath_pointer ; try eassumption.
-    unfold addresses_are_compatible in Haddrcomp.
-    apply Haddrcomp with (S := S) (addr := (bi, off)) (t := t) (sp := (x, pi)) ;
-      try assumption.
-    simpl. rewrite Haddr. rewrite <- hd_error_skipn in Hoff.
-    destruct (drop off pl) eqn:E.
-    * discriminate.
-    * simpl in Hoff. injection Hoff ; intros ; subst.
-      auto.
+    intros bi off x y pi pi' t perm Haddrcomp Hequiv Hproj.
+    inversion Hproj ; subst.
+    destruct (Haddrcomp _ _ _ _ _ _ Hequiv get_q) as [bi' [off' [Hlookup Haddr] ] ].
+    exists bi', off'.
+    split.
+    - simpl in Hlookup. destruct (heap Spl !! bi) eqn:E.
+      + apply Addr_deref with (pl := l0).
+        * simpl in Hlookup. assumption.
+        * rewrite <- hd_error_skipn. 
+          destruct (drop off l0) eqn:E1.
+          ** simpl in Hlookup. discriminate.
+          ** simpl in Hlookup. rewrite take_0 in Hlookup.
+             injection Hlookup ; intros ; subst ; reflexivity.
+      + discriminate.
+    - econstructor ; eassumption.
   Qed.
-
 
   (* The commuting diagram to relate addresses and spath *)
   Lemma addr_spath_proj (S : HLPL_state) (Spl : PL_state) :
-    forall proj bi bi' off off' x y pi pi' t t' perm,
+    forall proj bi off x y pi pi' t t' perm,
       addresses_are_compatible S Spl ->
       addr_spath_equiv S ((bi, off), t) (x, pi) ->
       eval_proj S perm proj (x, pi) (y, pi') ->
-      eval_proj_addr Spl proj ((bi, off), t) ((bi', off'), t') ->
+      exists bi' off',
+      eval_proj_addr Spl proj ((bi, off), t) ((bi', off'), t') /\
       addr_spath_equiv S ((bi', off'), t') (y, pi').
   Proof.
     intros [ | ]
-      bi bi' off off' x y pi pi' t t' perm Haddrcomp Hequiv Hproj Hprojaddr.
-    * inversion Hproj ; subst ; inversion Hprojaddr ; subst.
-      eapply addr_spath_deref_proj ; eassumption.
+      bi off x y pi pi' t t' perm Haddrcomp Hequiv Hproj.
+    * inversion Hproj ; subst. 
+      eapply addr_spath_deref_proj. ; eassumption.
     * inversion Hproj ; subst ; inversion Hprojaddr ; subst ; inversion H3 ; subst ;
         eapply addr_spath_pair_proj ; eauto.
   Qed.
