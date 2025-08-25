@@ -253,8 +253,9 @@ Section Concretization.
   Qed.
 
   Definition concr_hlpl_heap (S : HLPL_state) (h : Pmap pl_val) : Prop :=
-    forall x v bi t,
-      (vars S) !! x = Some v -> 
+    forall x bi t v,
+      S.[ (encode_var x, []) ] = v ->
+      v <> bot ->
       blockof x = (bi, t) ->
       exists vl, concr_hlpl_val v t vl /\ h !! bi = Some vl .
 
@@ -311,22 +312,26 @@ Section Concretization.
 
   (** [add_spath_equiv S Spl addr sp] is inhabited when reading in S.[p] corresponds dto reading in Spl.heap(addr) *)
   Inductive addr_spath_equiv (S : HLPL_state) :
-    address * type -> spath -> Prop :=
+    address -> type -> spath -> Prop :=
   | Addr_spath_base bi t x
       (H : blockof x = (bi, t)) :
-    addr_spath_equiv S ((bi, 0), t) (x, [])
-  | Addr_spath_pointer bi bi' off off' t x y vp vp' l
-      (Hloc : get_node (S.[(x, vp)]) = HLPL_locC l)
-      (Hptr : get_node (S.[(y, vp')]) = HLPL_ptrC l)
-      (Hrec : addr_spath_equiv S ((bi', off'), TRef t) (y, vp'))
+    addr_spath_equiv S (bi, 0) t (encode_var x, [])
+  | Addr_spath_pointer bi bi' off off' t enc_x enc_y vp vp' l
+      (Hloc : get_node (S.[(enc_x, vp)]) = HLPL_locC l)
+      (Hptr : get_node (S.[(enc_y, vp')]) = HLPL_ptrC l)
+      (Hrec : addr_spath_equiv S (bi', off') (TRef t) (enc_y, vp'))
       (Haddr : addrof l = Some (bi, off)) :
-    addr_spath_equiv S ((bi, off), t) (x, vp)
-  | Addr_spath_pair_first bi off x pi t0 t1
-      (Hrec : addr_spath_equiv S ((bi, off), TPair t0 t1) (x, pi)) :
-    addr_spath_equiv S ((bi, off), t0) (x, pi ++ [0])
-  | Addr_spath_pair_second bi off x pi t0 t1
-      (Hrec : addr_spath_equiv S ((bi, off), TPair t0 t1) (x, pi)) :
-    addr_spath_equiv S ((bi, off + sizeof t0), t1) (x, pi ++ [1]).
+    addr_spath_equiv S (bi, off) t (enc_x, vp)
+  | Addr_spath_pair_first bi off enc_x pi t0 t1
+      (Hrec : addr_spath_equiv S (bi, off) (TPair t0 t1) (enc_x, pi)) :
+    addr_spath_equiv S (bi, off) t0 (enc_x, pi ++ [0])
+  | Addr_spath_pair_second bi off enc_x pi t0 t1
+      (Hrec : addr_spath_equiv S (bi, off) (TPair t0 t1) (enc_x, pi)) :
+    addr_spath_equiv S (bi, off + sizeof t0) t1 (enc_x, pi ++ [1])
+  | Addr_spath_loc bi off enc_x pi t l
+      (Hloc : get_node (S.[(enc_x, pi)]) = HLPL_locC l)
+      (Hrec : addr_spath_equiv S (bi, off) t (enc_x, pi)) :
+    addr_spath_equiv S (bi, off) t (enc_x, pi ++ [0]).
 
   (** [addr_proj proj (addr, t) (addr', t')] when the projection [proj] of the value at address [addr] of type [t] gives the value at address [addr'] of type [t'] *)
   Variant follow_path_addr : nat -> address * type -> address * type -> Prop :=
@@ -377,19 +382,6 @@ Section Concretization.
     injection Hloc ; intros ; inversion Hconcr ; subst. auto.
   Qed.
 
-  (*Fixpoint sget_val (vpl : pl_val) (vp : vpath) :=
-    match vp with
-
-  Fixpoint sget (Spl : PL_state) (sp : spath)
-  Inductive eval_proj : PL_state -> proj -> spath -> spath -> Prop :=
-  | Eval_Field_First q
-      (get_q : get_node (S.[q]) = HLPL_pairC) :
-    eval_proj S perm (Field First) q (q +++ [0])
-  | Eval_Field_Second q
-      (get_q : get_node (S.[q]) = HLPL_pairC) :
-    eval_proj S perm (Field Second) q (q +++ [1])
-. *)
-
   Inductive eval_proj_addr : PL_state -> proj -> address * type -> address * type -> Prop :=
   | Addr_first S addr addr' t t'
     (H : follow_path_addr 0 (addr, t) (addr', t')) :
@@ -405,18 +397,20 @@ Section Concretization.
   Record Compatible (S : HLPL_state) : Prop :=
     mkCompatible
       { block_dom :
-        forall (x : var), exists v1 v2,
-          (vars S) !! x = Some v1 -> blockof x = v2
+        forall (x : var) (v : HLPL_val) perm (sp : spath), 
+          eval_place S perm (x, []) sp ->
+          valid_spath S sp ->
+          exists bi t, blockof x = (bi, t)
       ; correct_addrof :
         forall (sp : spath) (addr : address) t l,
-          addr_spath_equiv S (addr, t) sp ->
+          addr_spath_equiv S addr t sp ->
           get_node (S.[sp]) = HLPL_locC l ->
           addrof l = Some addr
       ; reachable_loc :
         forall l sp,
           valid_spath S sp ->
           get_node (S.[sp]) = HLPL_locC l ->
-          exists addr, addr_spath_equiv S addr sp
+          exists addr t, addr_spath_equiv S addr t sp
       }.
 
   Inductive le_val : PL_val -> PL_val -> Prop :=
@@ -437,33 +431,285 @@ Section Concretization.
   Definition le_pl_hlpl (Spl : PL_state) (S : HLPL_state) : Prop :=
     exists Spl', Compatible S /\ concr_hlpl S Spl' /\ Spl <={pl} Spl'.
 
-  (** Commutation Diagram to read in states *)
-  Lemma addr_spath_pair_proj (S : HLPL_state) (Spl : PL_state) :
-    forall f bi off x pi y pi' t0 t1 t perm,
-      addr_spath_equiv S ((bi, off), TPair t0 t1) (x, pi) ->
-      eval_proj S perm (Field f) (x, pi) (y, pi') ->
-      exists bi' off',
-      eval_proj_addr Spl (Field f) ((bi, off), TPair t0 t1) ((bi', off'), t) ->
-      addr_spath_equiv S ((bi', off'), t) (y, pi').
-  Proof.
-    intros f bi off x pi y pi' t0 t1 t perm Hequiv Hproj.
-    inversion Hproj ; subst.
-    * exists bi, off. intros Hprojaddr. inversion Hprojaddr ; subst.
-      inversion H3 ; subst ; eapply Addr_spath_pair_first.
-      eassumption.
-    * exists bi, (off + sizeof t0). intros Hprojaddr. inversion Hprojaddr ; subst.
-      inversion H3 ; subst ; apply Addr_spath_pair_second. 
-      assumption.
-  Qed.
-
   (* This hypothesis is necessary to prove that the diagram commutes with dereference, it should be a consequence that the PL_state Spl is the concretization of the HLPL state S *)
   Definition addresses_are_compatible (S : HLPL_state) (Spl : PL_state) :=
-    forall S bi off t sp l,
-      addr_spath_equiv S (bi, off, (TRef t)) sp ->
+    forall bi off t sp l,
+      addr_spath_equiv S (bi, off) (TRef t) sp ->
       get_node (S.[ sp ]) = ptrC(l) ->
       exists bi' off',
       lookup_heap_at_addr (bi, off) (TRef t) Spl = [PL_address (bi', off')] /\
       addrof l = Some (bi', off').
+
+  Definition ref_types_are_preserved (S : HLPL_state) (Spl : PL_state) :=
+    forall sp addr l t,
+      addr_spath_equiv S addr t sp ->
+      get_node (S.[ sp ]) = ptrC(l) ->
+      exists t', t = TRef t'.
+
+  Definition pair_types_are_preserved (S : HLPL_state) (Spl : PL_state) :=
+    forall sp addr t,
+      addr_spath_equiv S addr t sp ->
+      get_node (S.[ sp ]) = HLPL_pairC ->
+      exists t0 t1, t = TPair t0 t1.
+
+  Lemma addr_spath_equiv_deterministic : forall S sp t addr1 addr2,
+      Compatible S ->
+      addr_spath_equiv S addr1 t sp -> addr_spath_equiv S addr2 t sp -> addr1 = addr2.
+  Proof.
+    intros S sp t addr1 addr2 [_ Hcorr_addr _] Hequiv1. generalize dependent addr2.
+    induction Hequiv1 ; intros addr2 Hequiv2.
+    - inversion Hequiv2 ; subst.
+      * apply encode_inj in H0 ; congruence.
+      * assert (Haddrof : addrof l = Some (bi, 0)) by
+          (apply Hcorr_addr with (sp := (encode_var x, [])) (t := t);
+           try constructor ; auto).
+        rewrite Haddr in Haddrof. congruence.
+      * apply f_equal with (f := length) in H4. rewrite List.length_app in H4.
+        rewrite Nat.add_comm in H4. simpl in H4. discriminate.
+      * apply f_equal with (f := length) in H4. rewrite List.length_app in H4.
+        rewrite Nat.add_comm in H4. simpl in H4. discriminate.
+      * apply f_equal with (f := length) in H4. rewrite List.length_app in H4.
+        rewrite Nat.add_comm in H4. simpl in H4. discriminate.
+    - inversion Hequiv2 ; subst.
+      * subst. assert (Haddrof : addrof l = Some (bi0, 0)) by 
+          (apply Hcorr_addr with (sp := (encode_var x, [])) (t := t) ; auto).
+        congruence.
+      * rewrite Hloc in Hloc0. injection Hloc0 ; intros ; subst l0 ; clear Hloc0.
+        assert (Haddrof : addrof l = Some (bi, off)) by
+          (eapply Hcorr_addr ; try (eapply Addr_spath_pointer); eauto).
+        congruence.
+  Admitted.
+
+  (** Concretization of states/values implies correct types for values. *)
+  Lemma val_concr_implies_correct_type_size :
+    forall v t vl,
+      concr_hlpl_val v t vl -> sizeof t = length vl.
+  Proof.
+    intros v t vl Hconcr. induction Hconcr ; auto.
+    - subst s. rewrite repeat_length. reflexivity.
+    - rewrite List.length_app. simpl. rewrite IHHconcr1, IHHconcr2. reflexivity.
+  Qed.
+
+  Theorem list_back_ind : forall (A : Type) (P : list A -> Prop) (Hnil : P []) (Hrec : (forall (a : A) (l : list A), P l -> P (l ++ [a]))), forall (l : list A), P l.
+  Proof.
+    intros A P Hnil Hrec l. 
+    remember (length l) as len. generalize dependent l.
+    induction len ; intros l Heqlen.
+    - symmetry in Heqlen. apply nil_length_inv in Heqlen. subst ; auto.
+    - destruct l ; simpl in Heqlen.
+      * discriminate.
+      * injection Heqlen as Heqlen.
+        remember (rev (a :: l)) as alrev.
+        destruct alrev as [ | b l'].
+      + apply f_equal with (f := length) in Heqalrev.
+        simpl in Heqalrev. rewrite length_app, Nat.add_comm in Heqalrev.
+        simpl in Heqalrev. congruence.
+        + specialize (Hrec b (rev l')).
+          assert (H : len = length (rev l')).
+          {
+            apply f_equal with (f := length) in Heqalrev.
+            simpl in Heqalrev. rewrite length_app, Nat.add_comm in Heqalrev.
+            simpl in Heqalrev. injection Heqalrev ; intros ; auto.
+            rewrite length_rev. rewrite length_rev in H. congruence.
+          }
+          specialize (IHlen (rev l') H). specialize (Hrec IHlen).
+          assert (H' : rev (b :: l') = rev (rev (a :: l))) by congruence.
+          rewrite rev_involutive in H'. rewrite <- H'. simpl. auto.
+  Qed.
+
+  (* TODO: Clean this proof *)
+  Lemma state_concr_implies_val_concr_aux: 
+    forall S Spl x path v,
+      concr_hlpl S Spl ->
+      (S.[ (encode_var x, path) ]) = v ->
+      v <> bot ->
+      exists addr t vl,
+        addr_spath_equiv S addr t (encode_var x, path) /\ concr_hlpl_val v t vl.
+  Proof.
+    induction path using list_back_ind ; intros v [Hconcr_heap Hconcr_env] HSx Hbot.
+    - remember (blockof x).1 as bi. remember (blockof x).2 as t.
+      assert (Heqbit : blockof x = (bi, t)) by (subst ; rewrite <- surjective_pairing ; auto).
+      specialize (Hconcr_heap x bi t v HSx Hbot Heqbit).
+      destruct Hconcr_heap as [vl [Hconcr_val Hheap] ].
+      exists (bi, 0), t, vl. split.
+      * constructor ; auto.
+      * auto.
+    - replace (S.[(encode_var x, path ++ [a])]) with
+        ((S.[(encode_var x, path)]).[[ [a] ]] ) in HSx.
+      destruct (S.[(encode_var x, path)]) eqn:E ;
+        try (simpl in HSx ; rewrite nth_error_nil in HSx ; subst v ; contradiction).
+      + assert (H : ∃ (addr : address) (t : type) (vl : pl_val),
+                   addr_spath_equiv S addr t (encode_var x, path) ∧
+                     concr_hlpl_val (loc ((l), (y))) t vl).
+        { apply IHpath ; try split ; auto. }
+        destruct H as [addr [t [vl [ Hequiv Hconcr_val ] ] ] ].
+        destruct a ; simpl in HSx.
+        * exists (addr.1, addr.2), t, vl. split.
+          ** apply Addr_spath_loc with (l := l).
+             *** replace (S .[ (encode_var x, path)]) with (loc ((l), (y))) ; auto.
+             *** rewrite <- surjective_pairing ; auto.
+          ** inversion Hconcr_val ; subst ; auto.
+        * rewrite nth_error_nil in HSx ; subst v ; contradiction.
+      + assert (H : ∃ (addr : address) (t : type) (vl : pl_val),
+                   addr_spath_equiv S addr t (encode_var x, path) ∧
+                     concr_hlpl_val (HLPL_pair y1 y2) t vl).
+        { apply IHpath ; try split ; auto. }
+        destruct H as [addr [t [vl [Hequiv Hconcr_val ] ] ] ].
+        inversion Hconcr_val ; subst v0 v1 t vl.
+        destruct a as [ | [ | ] ].
+        * exists (addr.1, addr.2), t0, vl0. split.
+          ** eapply Addr_spath_pair_first. rewrite <- surjective_pairing. eassumption.
+          ** simpl in HSx. congruence.
+        * exists (addr.1, addr.2 + sizeof t0), t1, vl1. split.
+          ** eapply Addr_spath_pair_second. rewrite <- surjective_pairing. eassumption.
+          ** simpl in HSx. congruence.
+        * simpl in HSx. rewrite nth_error_nil in HSx ; subst v ; contradiction.
+      + remember (encode_var x, path) as p.
+        rewrite surjective_pairing with (p := p) in Heqp; injection Heqp ; intros.
+        rewrite <- H, <- H0 in *.
+        rewrite <- sget_app. reflexivity.
+  Qed.
+                                                             
+  Lemma state_concr_implies_val_concr :
+    forall S Spl sp addr t v,
+      concr_hlpl S Spl ->
+      addr_spath_equiv S addr t sp ->
+      S.[ sp ] = v ->
+      v <> bot ->
+      exists vl, lookup_heap_at_addr addr t Spl = vl /\ concr_hlpl_val v t vl.
+  Proof.
+    intros S Spl sp addr t v [Hconcr_heap _] Hequiv HSsp_v Hbot.
+    generalize dependent v.
+    induction Hequiv ; intros v HSsp_v Hbot ; simpl in *.
+    - assert (Hconcr_ex_val: ∃ vl : pl_val, concr_hlpl_val v t vl ∧
+                                   (heap Spl) !! bi = Some vl)
+        by (eapply Hconcr_heap ; eauto).
+      destruct Hconcr_ex_val as [vl' [Hval Hheap] ].
+      exists vl'. split ; auto.
+      simpl. replace (heap Spl !! bi) with (Some vl').
+      erewrite skipn_0, val_concr_implies_correct_type_size ; eauto.
+      apply firstn_all.
+    - assert (HSy : S.[(y, vp')] = ptr(l)) by
+        (destruct (S.[(y, vp')]) ; try discriminate ; injection Hptr ; auto).
+      assert (Hneq : ptr (l) ≠ HLPL_bot) by auto.
+      destruct (IHHequiv (ptr (l)) HSy Hneq) as [vl [Hheap Hconcr] ]; clear IHHequiv. 
+      inversion Hconcr ; subst l0 t0 vl ; rewrite <- H1 in Hconcr ; clear H1.
+      Admitted.
+           
+
+  Lemma state_concr_implies_val_concr:
+    forall S Spl sp addr_t v vl,
+      concr_hlpl S Spl ->
+      addr_spath_equiv S addr_t sp ->
+      S.[ sp ] = v ->
+      v <> bot ->
+      lookup_heap_at_addr addr_t.1 addr_t.2 Spl = vl ->
+      concr_hlpl_val v addr_t.2 vl.
+  Proof.
+    intros S Spl sp addr v vl [Hconcr_heap _] Hequiv.
+    generalize dependent vl. generalize dependent v.
+    induction Hequiv ; intros v vl HS_sp Hbot HSpl_addr ; simpl in *.
+    - assert (Hconcr_ex_val: ∃ vl : pl_val, concr_hlpl_val v t vl ∧
+                                   (heap Spl) !! bi = Some vl)
+        by (eapply Hconcr_heap ; eauto).
+      destruct Hconcr_ex_val as [vl' [Hval Hheap] ].
+      replace (heap Spl !! bi) with (Some vl') in HSpl_addr.
+      assert (Hsize_length : sizeof t = length vl') by
+        (apply val_concr_implies_correct_type_size with (v := v) ; auto).
+      rewrite Hsize_length, skipn_0, firstn_all in HSpl_addr. congruence.
+    - specialize (IHHequiv ptr (l) ([PL_address (bi, off)])).
+
+        
+
+  (** Concretization of states implies concretization of values *)
+  Lemma state_concr_implies_val_concr :
+    forall S Spl, Compatible S -> concr_hlpl S Spl -> 
+             forall addr t sp v vl,
+               addr_spath_equiv S (addr, t) sp ->
+               S.[ sp ] = v ->
+               v <> bot ->
+               lookup_heap_at_addr addr t Spl = vl ->
+               concr_hlpl_val v t vl.
+  Proof.
+    intros S Spl [Hbo _ _] [Hconcr_heap Hconcr_env]
+      addr t sp v vl Hequiv HS_sp Hbot HSpl_addr.
+    remember (addr, t) as addr_t.
+    induction Hequiv.
+    - injection Heqaddr_t ; intros ; clear Heqaddr_t ; subst t0 addr.
+      assert (Hconcr_ex_val: ∃ vl : pl_val, concr_hlpl_val v t vl ∧
+                                   (heap Spl) !! bi = Some vl)
+        by (eapply Hconcr_heap ; eauto).
+      destruct Hconcr_ex_val as [vl' [Hval Hheap] ].
+      simpl in HSpl_addr. replace (heap Spl !! bi) with (Some vl') in HSpl_addr.
+      admit. (* need info on size of types *)
+    - injection Heqaddr_t ; intros ; clear Heqaddr_t ; subst t0 addr.
+      apply IHHequiv.
+
+    
+  (** Spl <= S implies addresses are compatible *)
+  Lemma le_implies_addresses_are_compatible :
+  forall S Spl, Compatible S -> concr_hlpl S Spl -> addresses_are_compatible S Spl.
+  Proof.
+    intros S Spl
+      [Hbo Hcorr_addr Hreach_loc] [Hconcr_heap Hconcr_env]
+      bi off t sp l Hequiv Hnode.
+    remember (bi, off, TRef t) as addr_t.
+    inversion Hequiv ; subst.
+    - injection H0 ; intros ; subst ;
+      destruct (S.[ (encode_var x, [])]) eqn:E ; simpl in Hnode ; try discriminate ;
+      injection Hnode ; intros ; subst ; clear Hnode H0.
+      assert (Hconcr_ptr : ∃ vl : pl_val, concr_hlpl_val (ptr (l)) (TRef t) vl ∧
+                                   (heap Spl) !! bi = Some vl) 
+        by (eapply Hconcr_heap ; eauto).
+      destruct Hconcr_ptr as [vl [Hconcr_ptr Haddrof] ].
+      inversion Hconcr_ptr ; subst.
+      exists addr.1, addr.2. split.
+      * simpl. replace (heap Spl !! bi) with (Some [PL_address addr]).
+        simpl. rewrite <- surjective_pairing ; auto.
+      * rewrite <- surjective_pairing ; auto.
+    - injection H ; intros ; subst ; clear H. congruence. 
+    - injection H ; intros ; subst ; clear H.
+
+  Lemma le_implies_addresses_are_compatible :
+  forall S Spl, le_pl_hlpl Spl S -> addresses_are_compatible S Spl.
+  Proof.
+    intros S Spl Spl_le_S bi off t sp l Hequiv Hnode.
+    destruct Spl_le_S as
+      [Spl' [[Hbo Hcorr_addr Hreach_loc]
+               [[Hconcr_heap Hconcr_env] Spl_le_Spl'] ] ].
+    remember (bi, off, TRef t) as addr_t.
+    induction Hequiv.
+    injection Heqaddr_t ; intros ; subst ;
+      destruct (S.[ (encode_var x, [])]) eqn:E ; simpl in Hnode ; try discriminate ;
+      injection Hnode ; intros ; subst ; clear Hnode Heqaddr_t.
+    - assert (Hconcr_ptr : ∃ vl : pl_val, concr_hlpl_val (ptr (l)) (TRef t) vl ∧
+                                   (heap Spl') !! bi = Some vl)
+        by (eapply Hconcr_heap ; eauto).
+      destruct Hconcr_ptr as [vl [Hconcr_ptr Haddrof] ].
+      inversion Hconcr_ptr ; subst.
+      exists addr.1, addr.2. split.
+      * simpl. admit.
+      * rewrite <- surjective_pairing; auto.
+  Admitted.
+
+  (** Commutation Diagram to read in states *)
+  Lemma addr_spath_pair_proj (S : HLPL_state) (Spl : PL_state) :
+    forall f bi off x pi y pi' t0 t1 perm,
+      addr_spath_equiv S ((bi, off), TPair t0 t1) (x, pi) ->
+      eval_proj S perm (Field f) (x, pi) (y, pi') ->
+      exists t bi' off',
+        eval_proj_addr Spl (Field f) ((bi, off), TPair t0 t1) ((bi', off'), t) /\
+      addr_spath_equiv S ((bi', off'), t) (y, pi').
+  Proof.
+    intros f bi off x pi y pi' t0 t1 perm Hequiv Hproj.
+    inversion Hproj ; subst.
+    * exists t0, bi, off. split.
+      ** repeat constructor.
+      ** eapply Addr_spath_pair_first. eassumption.
+    * exists t1, bi, (off + sizeof t0). split.
+      ** repeat constructor.
+      ** eapply Addr_spath_pair_second. eassumption.
+  Qed.
 
   Lemma addr_spath_deref_proj(S : HLPL_state) (Spl : PL_state) :
     forall bi off x y pi pi' t perm,
@@ -476,7 +722,7 @@ Section Concretization.
   Proof.
     intros bi off x y pi pi' t perm Haddrcomp Hequiv Hproj.
     inversion Hproj ; subst.
-    destruct (Haddrcomp _ _ _ _ _ _ Hequiv get_q) as [bi' [off' [Hlookup Haddr] ] ].
+    destruct (Haddrcomp _ _ _ _ _ Hequiv get_q) as [bi' [off' [Hlookup Haddr] ] ].
     exists bi', off'.
     split.
     - simpl in Hlookup. destruct (heap Spl !! bi) eqn:E.
@@ -493,20 +739,29 @@ Section Concretization.
 
   (* The commuting diagram to relate addresses and spath *)
   Lemma addr_spath_proj (S : HLPL_state) (Spl : PL_state) :
-    forall proj bi off x y pi pi' t t' perm,
+    forall proj bi off x y pi pi' t perm,
+      ref_types_are_preserved S Spl ->
+      pair_types_are_preserved S Spl ->
       addresses_are_compatible S Spl ->
       addr_spath_equiv S ((bi, off), t) (x, pi) ->
       eval_proj S perm proj (x, pi) (y, pi') ->
-      exists bi' off',
+      exists t' bi' off',
       eval_proj_addr Spl proj ((bi, off), t) ((bi', off'), t') /\
       addr_spath_equiv S ((bi', off'), t') (y, pi').
   Proof.
     intros [ | ]
-      bi off x y pi pi' t t' perm Haddrcomp Hequiv Hproj.
+      bi off x y pi pi' t perm Hrtypes Hptypes Haddrcomp Hequiv Hproj.
     * inversion Hproj ; subst. 
-      eapply addr_spath_deref_proj. ; eassumption.
-    * inversion Hproj ; subst ; inversion Hprojaddr ; subst ; inversion H3 ; subst ;
-        eapply addr_spath_pair_proj ; eauto.
+      assert (Ht : exists t'', t = TRef t'') by 
+      (unfold ref_types_are_preserved in Hrtypes ; eapply Hrtypes ; eassumption).
+      destruct Ht as [t'' Ht''] ; subst.
+      exists t''. eapply addr_spath_deref_proj ; eassumption.
+    * inversion Hproj ; subst ;
+      assert (Ht : exists t0 t1, t = TPair t0 t1) by 
+      (unfold pair_types_are_preserved in Hptypes ; eapply Hptypes ; eassumption) ;
+      destruct Ht as [t0 [t1 Ht] ] ; subst.
+      ** eapply addr_spath_pair_proj ; eassumption.
+      ** eapply addr_spath_pair_proj ; eassumption.
   Qed.
 
 Lemma concr_val_TInt_implies_PL_int :
