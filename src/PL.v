@@ -5,6 +5,7 @@ From Stdlib Require Import PeanoNat.
 Import ListNotations.
 From Stdlib Require Import Lia ZArith.
 From Stdlib Require Import Relations.
+Require ListBackInd.
 
 From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
@@ -462,33 +463,6 @@ Section Concretization.
     - rewrite List.length_app. simpl. rewrite IHHconcr1, IHHconcr2. reflexivity.
   Qed.
 
-  Theorem list_back_ind : forall (A : Type) (P : list A -> Prop) (Hnil : P []) (Hrec : (forall (a : A) (l : list A), P l -> P (l ++ [a]))), forall (l : list A), P l.
-  Proof.
-    intros A P Hnil Hrec l. 
-    remember (length l) as len. generalize dependent l.
-    induction len ; intros l Heqlen.
-    - symmetry in Heqlen. apply nil_length_inv in Heqlen. subst ; auto.
-    - destruct l ; simpl in Heqlen.
-      * discriminate.
-      * injection Heqlen as Heqlen.
-        remember (rev (a :: l)) as alrev.
-        destruct alrev as [ | b l'].
-      + apply f_equal with (f := length) in Heqalrev.
-        simpl in Heqalrev. rewrite length_app, Nat.add_comm in Heqalrev.
-        simpl in Heqalrev. congruence.
-        + specialize (Hrec b (rev l')).
-          assert (H : len = length (rev l')).
-          {
-            apply f_equal with (f := length) in Heqalrev.
-            simpl in Heqalrev. rewrite length_app, Nat.add_comm in Heqalrev.
-            simpl in Heqalrev. injection Heqalrev ; intros ; auto.
-            rewrite length_rev. rewrite length_rev in H. congruence.
-          }
-          specialize (IHlen (rev l') H). specialize (Hrec IHlen).
-          assert (H' : rev (b :: l') = rev (rev (a :: l))) by congruence.
-          rewrite rev_involutive in H'. rewrite <- H'. simpl. auto.
-  Qed.
-
   (* Concretization of states implies concretization of values *)
   Lemma vpath_app :
     forall S x path a,
@@ -524,7 +498,8 @@ Section Concretization.
       exists addr t vl,
         addr_spath_equiv S addr t (encode_var x, path) /\ concr_hlpl_val v t vl /\ lookup_heap_at_addr addr t Spl = vl.
   Proof.
-    induction path using list_back_ind ; intros v [Hconcr_heap Hconcr_env] HSx Hbot.
+    induction path using ListBackInd.list_back_ind ;
+      intros v [Hconcr_heap Hconcr_env] HSx Hbot.
     - remember (blockof x).1 as bi. remember (blockof x).2 as t.
       assert (Heqbit : blockof x = (bi, t)) by (subst ; rewrite <- surjective_pairing ; auto).
       specialize (Hconcr_heap x bi t v HSx Hbot Heqbit).
