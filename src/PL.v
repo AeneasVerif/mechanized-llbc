@@ -612,7 +612,10 @@ Qed.
         inversion Hconcr_val ; subst v0 v1 t vl.
         destruct a as [ | [ | ] ].
         * exists (addr.1, addr.2), t0, vl0. repeat split.
-          ** eapply Addr_spath_pair_first. rewrite <- surjective_pairing. eassumption.
+          ** eapply Addr_spath_pair_first.
+             *** replace (S .[ (encode_var x, path)]) with (HLPL_pair y1 y2) by auto.
+                 auto.
+             *** rewrite <- surjective_pairing. eassumption.
           ** simpl in HSx. congruence.
           ** apply concr_val_size in H4, H5.
              rewrite surjective_pairing with (p := addr), lookup_heap_pair_app in H3.
@@ -625,7 +628,10 @@ Qed.
              assert (Hlen_fst_eq : length (lookup_heap_at_addr (addr.1, addr.2) t0 Spl) = sizeof t0) by lia.
              apply app_inj_1 in H3. destruct H3. auto. lia.
         * exists (addr.1, addr.2 + sizeof t0), t1, vl1. repeat split.
-          ** eapply Addr_spath_pair_second. rewrite <- surjective_pairing. eassumption.
+          ** eapply Addr_spath_pair_second.
+             *** replace (S .[ (encode_var x, path)]) with (HLPL_pair y1 y2) by auto.
+                 auto.
+             *** rewrite <- surjective_pairing. eassumption.
           ** simpl in HSx. congruence.
           ** apply concr_val_size in H4, H5.
              rewrite surjective_pairing with (p := addr), lookup_heap_pair_app in H3.
@@ -648,22 +654,22 @@ Qed.
   Lemma le_implies_addresses_are_compatible :
   forall S Spl, le_pl_hlpl Spl S -> addresses_are_compatible S Spl.
   Proof.
-    intros S Spl Spl_le_S bi off t sp l Hequiv Hnode.
+    intros S Spl Spl_le_S (bi, off) t sp l Hequiv Hnode.
     destruct Spl_le_S as
       [Spl' [[Hbo Hcorr_addr Hreach_loc]
                [[Hconcr_heap Hconcr_env] Spl_le_Spl'] ] ].
-    remember (bi, off, TRef t) as addr_t.
+    remember (bi, off) as addr. remember (TRef t) as tref.
     induction Hequiv.
       destruct (S.[ (encode_var x, [])]) eqn:E ; simpl in Hnode ; try discriminate ;
-      injection Hnode ; intros ; subst ; clear Hnode.
+      injection Hnode ; injection Heqaddr ; intros ; subst ; clear Hnode.
     - assert (Hconcr_ptr : ∃ vl : pl_val, concr_hlpl_val (ptr (l)) (TRef t) vl ∧
-                                   (heap Spl') !! bi = Some vl)
+                                            (heap Spl') !! bi = Some vl)
         by (eapply Hconcr_heap ; eauto).
       destruct Hconcr_ptr as [vl [Hconcr_ptr Haddrof] ].
       inversion Hconcr_ptr ; subst.
-      exists addr.1, addr.2. split.
+      exists addr. split.
       * simpl. admit.
-      * rewrite <- surjective_pairing; auto.
+      * auto.
   Admitted.
 
   (** Commutation Diagram to read in states *)
@@ -685,7 +691,7 @@ Qed.
       ** eapply Addr_spath_pair_second. eassumption.
   Qed.
 
-  Lemma addr_spath_deref_proj(S : HLPL_state) (Spl : PL_state) :
+  Lemma addr_spath_deref_proj (S : HLPL_state) (Spl : PL_state) :
     forall bi off x y pi pi' t perm,
       addresses_are_compatible S Spl ->
       addr_spath_equiv S ((bi, off), TRef t) (x, pi) ->
