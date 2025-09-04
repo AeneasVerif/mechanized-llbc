@@ -317,16 +317,20 @@ Section Concretization.
   | Addr_spath_base bi t x
       (H : blockof x = (bi, t)) :
     addr_spath_equiv S (bi, 0) t (encode_var x, [])
+                     (*
   | Addr_spath_pointer bi bi' off off' t enc_x enc_y vp vp' l
       (Hloc : get_node (S.[(enc_x, vp)]) = HLPL_locC l)
       (Hptr : get_node (S.[(enc_y, vp')]) = HLPL_ptrC l)
       (Hrec : addr_spath_equiv S (bi', off') (TRef t) (enc_y, vp'))
       (Haddr : addrof l = Some (bi, off)) :
     addr_spath_equiv S (bi, off) t (enc_x, vp)
+                      *)
   | Addr_spath_pair_first bi off enc_x pi t0 t1
+      (Hpair : get_node (S.[(enc_x, pi)]) = HLPL_pairC)
       (Hrec : addr_spath_equiv S (bi, off) (TPair t0 t1) (enc_x, pi)) :
     addr_spath_equiv S (bi, off) t0 (enc_x, pi ++ [0])
   | Addr_spath_pair_second bi off enc_x pi t0 t1
+      (Hpair : get_node (S.[(enc_x, pi)]) = HLPL_pairC)
       (Hrec : addr_spath_equiv S (bi, off) (TPair t0 t1) (enc_x, pi)) :
     addr_spath_equiv S (bi, off + sizeof t0) t1 (enc_x, pi ++ [1])
   | Addr_spath_loc bi off enc_x pi t l
@@ -431,6 +435,72 @@ Section Concretization.
 
   Definition le_pl_hlpl (Spl : PL_state) (S : HLPL_state) : Prop :=
     exists Spl', Compatible S /\ concr_hlpl S Spl' /\ Spl <={pl} Spl'.
+
+
+  (* Addr_spath_equiv is a function: given state S and spath sp, addr and t are unique *)
+  Lemma app_elem_not_nil {A : Type} :
+    forall (l : list A) (a : A), l ++ [ a ] <> [].
+  Proof. intros l a Hcontr. apply app_nil, proj2 in Hcontr. discriminate. Qed.
+    
+  Ltac list_discriminate_or_find_equality :=
+    match goal with
+    | H1: ?E = HLPL_pairC, H2: ?E = locC (_) |- _ => rewrite H2 in H1 ; discriminate
+    | H: [?a] = [?b] |- _ => injection H ; intros ; clear H ; try discriminate
+    | H: ?l ++ [?a] = [ ] |- _ =>
+        destruct (app_elem_not_nil l a H)
+    | H: [ ] = ?l ++ [?a] |- _ =>
+        symmetry in H ;
+        destruct (app_elem_not_nil l a H)
+    | H: ?l1 ++ [?a1] = ?l2 ++ [?a2] |- _ =>
+        assert (Hlen_one : length [ a1 ] = length [ a2 ]) by reflexivity ;
+        destruct (app_inj_2 _ _ _ _ Hlen_one H) ;
+        clear H Hlen_one ; subst
+    end.
+  
+  Lemma addr_spath_equiv_deterministic_type :
+    forall S enc_x vp addr1 addr2 t1 t2,
+      addr_spath_equiv S addr1 t1 (enc_x, vp) ->
+      addr_spath_equiv S addr2 t2 (enc_x, vp) ->
+      t1 = t2.
+  Proof.
+    assert (H : forall (l : list nat) n, l ++ [n] <> []) by (apply (@app_elem_not_nil nat)).
+    intros S enc_x vp.
+    induction vp using ListBackInd.list_back_ind
+    ; intros addr1 addr2 t1 t2 Hequiv1 Hequiv2.
+    - inversion Hequiv1 ; inversion Hequiv2 ; subst ; try congruence.
+      apply encode_inl_inj in H4 ; subst. rewrite H7 in H3. injection H3 ; auto.
+    - inversion Hequiv1 ; inversion Hequiv2 ; subst ;
+      repeat list_discriminate_or_find_equality.
+      * specialize (IHvp _ _ _ _ Hrec Hrec0). injection IHvp ; auto.
+      * specialize (IHvp _ _ _ _ Hrec Hrec0). injection IHvp ; auto.
+      * eapply IHvp ; eauto.
+Qed.
+
+  Lemma addr_spath_equiv_deterministic_addr :
+    forall S enc_x vp addr1 addr2 t,
+      addr_spath_equiv S addr1 t (enc_x, vp) ->
+      addr_spath_equiv S addr2 t (enc_x, vp) ->
+      addr1 = addr2.
+  Proof.
+    assert (H : forall (l : list nat) n, l ++ [n] <> []) by (apply (@app_elem_not_nil nat)).
+    intros S enc_x vp. induction vp using ListBackInd.list_back_ind ;
+      intros addr1 addr2 t Hequiv1 Hequiv2.
+    - inversion Hequiv1 ; inversion Hequiv2 ; subst ; try congruence.
+      apply encode_inl_inj in H4 ; subst. rewrite H7 in H3.
+      injection H3 ; intros ; subst ; auto.
+    - inversion Hequiv1 ; inversion Hequiv2 ; subst ;
+        repeat list_discriminate_or_find_equality.
+      * assert (Ht: TPair t t1 = TPair t t3)
+          by (eapply addr_spath_equiv_deterministic_type ; eauto).
+        injection Ht as Ht1 ; subst t3.
+        eapply IHvp ; eauto.
+      * assert (Ht: TPair t0 t = TPair t2 t)
+          by (eapply addr_spath_equiv_deterministic_type ; eauto).
+        injection Ht as Ht0 ; subst t2. 
+        assert (Haddr : (bi, off) = (bi0, off0)) by (eapply IHvp ; eauto).
+        congruence.
+      * eapply IHvp ; eauto.
+  Qed.
 
   (* This hypothesis is necessary to prove that the diagram commutes with dereference, it should be a consequence that the PL_state Spl is the concretization of the HLPL state S *)
   Definition addresses_are_compatible (S : HLPL_state) (Spl : PL_state) :=
