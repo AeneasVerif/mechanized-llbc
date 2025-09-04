@@ -323,14 +323,12 @@ Section Concretization.
   | Addr_spath_base bi t x
       (H : blockof x = (bi, t)) :
     addr_spath_equiv S (bi, 0) t (encode_var x, [])
-  (*
-  | Addr_spath_pointer bi bi' off off' t enc_x enc_y vp vp' l
+  (*| Addr_spath_pointer addr addr' t enc_x enc_y vp vp' l
       (Hloc : get_node (S.[(enc_x, vp)]) = HLPL_locC l)
       (Hptr : get_node (S.[(enc_y, vp')]) = HLPL_ptrC l)
-      (Hrec : addr_spath_equiv S (bi', off') (TRef t) (enc_y, vp'))
-      (Haddr : addrof l = Some (bi, off)) :
-    addr_spath_equiv S (bi, off) t (enc_x, vp)
-   *)
+      (Hrec : addr_spath_equiv S addr' (TRef t) (enc_y, vp'))
+      (Haddr : addrof l = Some addr) :
+    addr_spath_equiv S addr t (enc_x, vp)*)
   | Addr_spath_pair_first addr enc_x pi t0 t1
       (Hpair : get_node (S.[(enc_x, pi)]) = HLPL_pairC)
       (Hrec : addr_spath_equiv S addr (TPair t0 t1) (enc_x, pi)) :
@@ -471,8 +469,8 @@ Section Concretization.
   Proof.
     assert (H : forall (l : list nat) n, l ++ [n] <> []) by (apply (@app_elem_not_nil nat)).
     intros S enc_x vp.
-    induction vp using ListBackInd.list_back_ind
-    ; intros addr1 addr2 t1 t2 Hequiv1 Hequiv2.
+    induction vp using ListBackInd.list_back_ind ;
+      intros addr1 addr2 t1 t2 Hequiv1 Hequiv2.
     - inversion Hequiv1 ; inversion Hequiv2 ; subst ; try congruence.
       apply encode_inl_inj in H4 ; subst. rewrite H7 in H3. injection H3 ; auto.
     - inversion Hequiv1 ; inversion Hequiv2 ; subst ;
