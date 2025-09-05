@@ -100,32 +100,32 @@ Inductive read_address (S : PL_state) : place -> type -> address -> Prop :=
 | Read_Addr_Var x t bi
     (HS : lookup_block_and_type_env x S = Some (bi, t)) :
   read_address S (x, []) t (bi, 0)
-| Read_Addr_Deref x p t bi n bi' n' vl
-    (Hp : read_address S (x, p) (TRef t) (bi, n))
-    (Hheap : (lookup_heap bi S = Some vl))
-    (Hvl : List.nth_error vl n  = Some (PL_address (bi', n'))) :
-  read_address S (x, Deref :: p) t (bi', n')
-| Read_Addr_ProjPairLeft x path t0 t1 bi n
-  (H : read_address S (x, path) (TPair t0 t1) (bi, n)) :
-    read_address S (x, (Field First) :: path) t0 (bi, n)
-| Read_Addr_ProjPairRight x path t0 t1 bi n
-  (H : read_address S (x, path) (TPair t0 t1) (bi, n)) :
-  read_address S (x, (Field Second) :: path) t1 (bi, n + sizeof t0).
+| Read_Addr_Deref x p t addr addr' vl
+    (Hp : read_address S (x, p) (TRef t) addr)
+    (Hheap : (lookup_heap addr.1 S = Some vl))
+    (Hvl : List.nth_error vl addr.2  = Some (PL_address addr')) :
+  read_address S (x, Deref :: p) t addr'
+| Read_Addr_ProjPairLeft x path t0 t1 addr
+  (H : read_address S (x, path) (TPair t0 t1) addr) :
+    read_address S (x, (Field First) :: path) t0 addr
+| Read_Addr_ProjPairRight x path t0 t1 addr
+  (H : read_address S (x, path) (TPair t0 t1) addr) :
+  read_address S (x, (Field Second) :: path) t1 (addr +o sizeof t0).
 
 Variant read (S : PL_state) (p : place) (t : type) (vl : pl_val) : Prop :=
-  | Read bi n vl'
-      (Haddr : read_address S p t (bi, n))
-      (Hheap : Some vl' = lookup_heap bi S)
-      (Hsub : vl = firstn (sizeof t) (skipn n vl')) :
+  | Read addr vl'
+      (Haddr : read_address S p t addr)
+      (Hheap : Some vl' = lookup_heap addr.1 S)
+      (Hsub : vl = firstn (sizeof t) (skipn addr.2 vl')) :
     read S p t vl.
 
 Variant write (S : PL_state) (p : place) (t : type) (vl : pl_val)
   : PL_state -> Prop :=
-  | Write bi n vl' vl'' h
-      (Haddr : read_address S p t (bi, n))
-      (Hlu : Some vl' = lookup_heap bi S)
-      (Hcut : vl'' = (firstn n vl') ++ vl ++ (skipn (n + sizeof t) vl'))
-      (Hheap : h = alter (fun _ => vl'') bi (heap S)) :
+  | Write addr vl' vl'' h
+      (Haddr : read_address S p t addr)
+      (Hlu : Some vl' = lookup_heap addr.1 S)
+      (Hcut : vl'' = (firstn addr.2 vl') ++ vl ++ (skipn (addr.2 + sizeof t) vl'))
+      (Hheap : h = alter (fun _ => vl'') addr.1 (heap S)) :
       write S p t vl (update_heap S h).
 
 
