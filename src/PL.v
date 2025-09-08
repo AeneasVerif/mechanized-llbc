@@ -6,6 +6,7 @@ Import ListNotations.
 From Stdlib Require Import Lia ZArith.
 From Stdlib Require Import Relations.
 Require ListBackInd.
+Require Setoid.
 
 From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
@@ -602,9 +603,8 @@ Section Concretization.
       by (subst ; rewrite <- surjective_pairing ; reflexivity).
     - specialize (Hconcr_heap enc_x bi t v HSx Hbot Heqbit).
       destruct Hconcr_heap as [vl [Hconcr_val Hheap] ].
-      exists (bi, 0), t, vl. repeat split.
+      exists (bi, 0), t, vl. repeat split ; auto.
       * eapply Addr_spath_base ; eauto.
-      * auto.
       * unfold lookup_heap_at_addr ; simpl.
         replace (heap Spl !! bi) with (Some vl) by auto.
         rewrite drop_0, (val_concr_implies_correct_type_size v t vl), firstn_all ;
@@ -619,12 +619,9 @@ Section Concretization.
         (apply IHsp ; try split ; auto).
         destruct H as [addr [t [vl [ Hequiv [Hconcr_val Hval_heap] ] ] ] ].
         destruct n ; simpl in HSx.
-        * exists addr, t, vl. repeat split.
-          ** apply Addr_spath_loc with (l := l).
-             *** replace (S .[ sp ]) with (loc ((l), (y))) ; auto.
-             *** auto.
+        * exists addr, t, vl. repeat split ; auto.
+          ** apply Addr_spath_loc with (l := l) ; try rewrite E ; auto.
           ** inversion Hconcr_val ; subst ; auto.
-          ** auto.
         * rewrite nth_error_nil in HSx ; subst v ; contradiction.
       + assert (H : ∃ (addr : address) (t : type) (vl : pl_val),
                    addr_spath_equiv S addr t sp ∧
@@ -633,36 +630,22 @@ Section Concretization.
         (apply IHsp ; try split ; auto).
         destruct H as [addr [t [vl [Hequiv [Hconcr_val Hval_heap] ] ] ] ].
         inversion Hconcr_val ; subst v0 v1 t vl.
-        destruct n as [ | [ | ] ].
-        * exists addr, t0, vl0. repeat split.
-          ** eapply Addr_spath_pair_first.
-             *** replace (S .[ sp ]) with (HLPL_pair y1 y2) ; auto.
-             *** eassumption.
-          ** simpl in HSx. congruence.
-          ** apply concr_val_size in H4, H5.
-             rewrite lookup_heap_pair_app in H3.
-             assert (Hlen_fst : length (lookup_heap_at_addr addr t0 Spl) <= sizeof t0) by (apply lookup_heap_length_le_size).
-             assert (Hlen_snd : length (lookup_heap_at_addr (addr +o sizeof t0) t1 Spl) <= sizeof t1) by (apply lookup_heap_length_le_size).
-             assert (Hlen_pair : length (lookup_heap_at_addr addr t0 Spl ++ lookup_heap_at_addr (addr +o sizeof t0) t1 Spl) = sizeof t0 + sizeof t1) by
-                      by (rewrite <- H3, length_app ; lia).
-             rewrite length_app in Hlen_pair.
-             assert (Hlen_fst_eq : length (lookup_heap_at_addr addr t0 Spl) = sizeof t0) by lia.
-             apply app_inj_1 in H3. destruct H3. auto. lia.
-        * exists (addr +o sizeof t0), t1, vl1. repeat split.
-          ** eapply Addr_spath_pair_second.
-             *** replace (S .[ sp ]) with (HLPL_pair y1 y2) ; auto.
-             *** eassumption.
-          ** simpl in HSx. congruence.
-          ** apply concr_val_size in H4, H5.
-             rewrite lookup_heap_pair_app in H3.
-             assert (Hlen_fst : length (lookup_heap_at_addr addr t0 Spl) <= sizeof t0) by (apply lookup_heap_length_le_size).
-             assert (Hlen_snd : length (lookup_heap_at_addr (addr +o sizeof t0) t1 Spl) <= sizeof t1) by (apply lookup_heap_length_le_size).
-             assert (Hlen_pair : length (lookup_heap_at_addr addr t0 Spl ++ lookup_heap_at_addr (addr +o sizeof t0) t1 Spl) = sizeof t0 + sizeof t1) by
-                      by (rewrite <- H3, length_app ; lia).
-             rewrite length_app in Hlen_pair.
-             assert (Hlen_fst_eq : length (lookup_heap_at_addr addr t0 Spl) = sizeof t0) by lia.
-             apply app_inj_1 in H3. destruct H3. auto. lia.
-        * simpl in HSx. rewrite nth_error_nil in HSx ; subst v ; contradiction.
+        rewrite lookup_heap_pair_app in H3.
+        pose proof (concr_val_size _ _ _ H4) as Hsize_t0.
+        pose proof (concr_val_size _ _ _ H5) as Hsize_t1.
+        assert (Hlen_fst : length (lookup_heap_at_addr addr t0 Spl) <= sizeof t0) by (apply lookup_heap_length_le_size).
+        assert (Hlen_snd : length (lookup_heap_at_addr (addr +o sizeof t0) t1 Spl) <= sizeof t1)
+          by (apply lookup_heap_length_le_size).
+        assert (Hlen_pair : length (lookup_heap_at_addr addr t0 Spl ++ lookup_heap_at_addr (addr +o sizeof t0) t1 Spl) = sizeof t0 + sizeof t1)
+          by (rewrite <- H3, length_app; lia).
+        rewrite length_app in Hlen_pair.
+        apply app_inj_1 in H3 ; try lia. destruct H3 as [Hvl0 Hvl1].
+        destruct n as [ | [ | ] ] ; simpl in *.
+        * exists addr, t0, vl0. repeat split ; try congruence.
+          eapply Addr_spath_pair_first ; eauto. rewrite E ; auto.
+        * exists (addr +o sizeof t0), t1, vl1 ; repeat split ; try congruence.
+          eapply Addr_spath_pair_second ; eauto. rewrite E ; auto.
+        * rewrite nth_error_nil in HSx ; subst v ; contradiction.
   Qed.
     
   (** Concretization of states implies addresses are compatible *)
