@@ -2340,34 +2340,34 @@ Proof.
   intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
   (* op = IntConst n *)
   - destruct Hle.
-    + eapply execution_step. { constructor. }
-      leq_val_state_step_left.
+    + execution_step. { constructor. }
+      leq_step_left.
       { eapply Leq_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    + eapply execution_step. { constructor. }
-      leq_val_state_step_left.
+    + execution_step. { constructor. }
+      leq_step_left.
       { apply Leq_ToAbs with (a := a) (i := i) (A := A).
         all: autorewrite with spath; try assumption; validity. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    + eapply execution_step. { constructor. }
-      leq_val_state_step_left.
+    + execution_step. { constructor. }
+      leq_step_left.
       { apply Leq_RemoveAnon with (a := a); autorewrite with spath; try assumption; validity. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    + eapply execution_step. { constructor. }
+    + execution_step. { constructor. }
       leq_val_state_add_anon.
       { apply Leq_MoveValue with (sp := sp) (a := a).
         autorewrite with spath. assumption. eassumption. validity. assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    + eapply execution_step. { constructor. }
-      leq_val_state_step_left.
+    + execution_step. { constructor. }
+      leq_step_left.
       { apply (Leq_MergeAbs _ i j A B C); assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    + eapply execution_step. { constructor. }
+    + execution_step. { constructor. }
       leq_val_state_add_anon.
       { apply (Leq_Fresh_MutLoan _ sp l a).
         apply not_state_contains_add_anon. assumption. not_contains.
@@ -2375,19 +2375,19 @@ Proof.
         autorewrite with spath. assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    + eapply execution_step. { constructor. }
+    + execution_step. { constructor. }
       leq_val_state_add_anon.
       { apply (Leq_Reborrow_MutBorrow _ sp l0 l1 a).
         apply not_state_contains_add_anon. assumption. not_contains. eassumption.
         autorewrite with spath. assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    + eapply execution_step. { constructor. }
-      leq_val_state_step_left.
+    + execution_step. { constructor. }
+      leq_step_left.
       { apply (Leq_Abs_ClearValue _ i j v); autorewrite with spath; assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    + eapply execution_step. { constructor. }
+    + execution_step. { constructor. }
       leq_val_state_add_anon.
       { apply (Leq_AnonValue _ a); [assumption.. | ]. eassumption. }
       { reflexivity. }
@@ -2404,7 +2404,7 @@ Proof.
 
       (* Case 1: the value we turn into a symbolic value is in the place we move. *)
       * autorewrite with spath in * |-.
-        eapply execution_step.
+        execution_step.
         { constructor. eassumption.
           (* TODO: automatize *)
           eapply not_value_contains_vset_rev with (p := q).
@@ -2413,7 +2413,7 @@ Proof.
           eapply not_value_contains_vset_rev with (p := q).
           autorewrite with spath.
           eapply not_value_contains_zeroary; rewrite H. reflexivity. discriminate. eassumption. }
-        leq_val_state_step_left.
+        leq_step_left.
         { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
           all: autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
@@ -2422,8 +2422,8 @@ Proof.
       (* Case 2: the value we turn into a symbolic value is disjoint to the place we move. *)
       * assert (disj sp pi) by reduce_comp.
         autorewrite with spath in * |-.
-        eapply execution_step. { apply Eval_move; eassumption. }
-        leq_val_state_step_left.
+        execution_step. { apply Eval_move; eassumption. }
+        leq_step_left.
         { apply Leq_ToSymbolic with (sp := sp) (n := n).
           all: autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
@@ -2432,8 +2432,8 @@ Proof.
     (* Leq-ToAbs *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
-      eapply execution_step. { apply Eval_move; eassumption. }
-      leq_val_state_step_left.
+      execution_step. { apply Eval_move; eassumption. }
+      leq_step_left.
       { apply Leq_ToAbs with (a := a) (i := i); try validity.
         autorewrite with spath. assumption. autorewrite with spath. eassumption. }
       { autorewrite with spath. reflexivity. }
@@ -2442,8 +2442,8 @@ Proof.
     (* Leq-RemoveAnon *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
-      eapply execution_step. { apply Eval_move; eassumption. }
-      leq_val_state_step_left.
+      execution_step. { apply Eval_move; eassumption. }
+      leq_step_left.
       { apply Leq_RemoveAnon with (a := a). validity. all: autorewrite with spath; assumption. }
       { autorewrite with spath. reflexivity. }
       autorewrite with spath. reflexivity.
@@ -2459,7 +2459,7 @@ Proof.
         apply vset_same_valid. validity. autorewrite with spath. reflexivity. }
       assert (disj sp pi) by reduce_comp.
       autorewrite with spath in * |-.
-      eapply execution_step. { apply Eval_move; eassumption. }
+      execution_step. { apply Eval_move; eassumption. }
       leq_val_state_add_anon.
        { apply Leq_MoveValue with (sp := sp) (a := a).
          autorewrite with spath. assumption. assumption. validity. assumption. }
@@ -2470,8 +2470,8 @@ Proof.
     (* Leq-MergeAbs *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
-      eapply execution_step. { apply Eval_move; eassumption. }
-      leq_val_state_step_left.
+      execution_step. { apply Eval_move; eassumption. }
+      leq_step_left.
       { apply Leq_MergeAbs with (A := A) (B := B) (i := i) (j := j).
         all: autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
@@ -2489,7 +2489,7 @@ Proof.
         eapply move_no_loan with (p := q). apply vset_same_valid. validity.
         autorewrite with spath. constructor. }
       assert (disj pi sp) by reduce_comp. autorewrite with spath in *.
-      eapply execution_step. { apply Eval_move; eassumption. }
+      execution_step. { apply Eval_move; eassumption. }
       leq_val_state_add_anon.
       { apply Leq_Fresh_MutLoan with (sp := sp) (l := l).
         (* TODO: the tactic not_contains should solve it. *)
@@ -2505,7 +2505,7 @@ Proof.
       destruct (decidable_prefix pi sp) as [(q & <-) | ].
 
       (* Case 1: the spath sp we reborrow is in the place pi we move. *)
-      * eapply execution_step.
+      * execution_step.
         { apply Eval_move. eassumption.
           eapply not_contains_rename_mut_borrow; eauto with spath.
           eapply not_contains_rename_mut_borrow; eauto with spath. }
@@ -2519,7 +2519,7 @@ Proof.
         autorewrite with spath. reflexivity.
 
        (* Case 2: the spath sp we reborrow is not in the place pi we move. *)
-      * eapply execution_step.
+      * execution_step.
         { apply Eval_move. eassumption.
           all: erewrite sget_reborrow_mut_borrow_not_prefix in * by eassumption; assumption. }
         leq_val_state_add_anon.
@@ -2532,8 +2532,8 @@ Proof.
 
     (* Leq-Abs-ClearValue *)
     + eval_place_preservation. autorewrite with spath in *.
-      eapply execution_step. { constructor; eassumption. }
-      leq_val_state_step_left.
+      execution_step. { constructor; eassumption. }
+      leq_step_left.
       { eapply Leq_Abs_ClearValue with (i := i) (j := j); autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
@@ -2542,7 +2542,7 @@ Proof.
     + apply eval_place_AnonValue in Heval.
       destruct Heval as (? & (-> & ?) & eval_p_in_Sl).
       autorewrite with spath in *.
-      eapply execution_step. { econstructor; eassumption. }
+      execution_step. { econstructor; eassumption. }
       leq_val_state_add_anon.
       { apply Leq_AnonValue; eassumption. }
       { reflexivity. }
@@ -2907,12 +2907,12 @@ Proof.
       destruct (decidable_prefix q sp) as [(r & <-) | ].
       * admit.
       * assert (disj sp q). reduce_comp.
-        eapply do_reorg_step.
+        reorg_step.
         { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
           eapply not_value_contains_sset_rev. eassumption.
           apply not_value_contains_zeroary; rewrite H6. reflexivity. easy. validity.
           eauto with spath. (* TODO: takes a lot of time *) }
-        apply reorgs_done.
+        reorg_done.
         eapply leq_n_step.
         { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
         { constructor. }
@@ -2943,7 +2943,7 @@ Proof.
            { apply lookup_insert_Some in H0. destruct H0 as [ | (_ & H0)]; [easy | ].
              rewrite lookup_singleton_Some in H0. destruct H0 as (<- & H0).
              inversion H0. auto. }
-           eapply do_reorg_step.
+           reorg_step.
            { eapply Reorg_end_borrow_m with (p := (anon_accessor a, []) +++ [0]) (q := q).
              left. cbn. auto.
              rewrite sget_app, <-Heqv. reflexivity. assumption.
@@ -2952,7 +2952,7 @@ Proof.
              eauto with spath.
              eapply anon_not_in_abstraction. reflexivity.
              assumption. }
-           apply reorgs_done.
+           reorg_done.
            eapply leq_n_step.
            { apply Leq_ToAbs_n with (i := i') (a := a). validity. eauto with spath.
              autorewrite with spath. rewrite <-Heqv. cbn. constructor. assumption. }
@@ -2992,7 +2992,7 @@ Proof.
             * symbolic value. Because when we end the region A, the anonymous binding introduced
             * is a symbolic value. *)
            destruct Hv.
-           ++ apply reorgs_done.
+           ++ reorg_done.
               (* After reorganization, the borrow is introduced in an anonymous variable `b` that
                * can be different than the anonymous variable `a` that were turned into a
                * region. However, the states when we add a borrow in a and b are equivalent. *)
@@ -3000,7 +3000,7 @@ Proof.
               { eapply rename_anon_equivalence with (b := b); eassumption. }
               apply reflexive_eq. rewrite remove_add_abstraction, Heqv by assumption.
               reflexivity.
-           ++ apply reorgs_done.
+           ++ reorg_done.
               eapply leq_n_step.
               { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
                 rewrite sget_app, <-Heqv. reflexivity. }
@@ -3022,7 +3022,7 @@ Proof.
         destruct Hmerge as (A' & B' & Hremove_loans & union_A'_B').
         destruct (exists_add_anon (remove_abstraction j S) B) as (Sl1 & HSl1).
         (* Ending the region B: *)
-        eapply do_reorg_step.
+        reorg_step.
         { eapply Reorg_end_abstraction. exact get_B. assumption. exact HSl1. }
         eapply end_removed_loans with (i := i) in Hremove_loans;
           [ | | exact HSl1].
@@ -3030,12 +3030,12 @@ Proof.
         2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
         destruct Hremove_loans as (n & Sbots & Hadd_bots & Hn & _Sl2 & reorg_Sl2 & Hadd_anons_Sl2).
         (* Ending all the borrows in the difference between B and B': *)
-        eapply do_reorgs. { exact reorg_Sl2. }
+        reorg_steps. { exact reorg_Sl2. }
         apply add_anons_add_abstraction in Hadd_anons_Sl2.
         destruct Hadd_anons_Sl2 as (Sl2 & -> & Hadd_anons_Sl2).
         destruct (exists_add_anon Sl2 A') as (Sl3 & HSl3).
         (* Ending the region A: *)
-        eapply do_reorg_step.
+        reorg_step.
         { eapply Reorg_end_abstraction with (i' := i) (A' := A').
            unfold add_abstraction. cbn. simpl_map. reflexivity.
            (* TODO: lemma *)
@@ -3045,7 +3045,7 @@ Proof.
            eapply add_anons_fresh_abstraction; [eassumption | ].
            eapply add_anonymous_bots_fresh_abstraction; [eassumption | ].
            unfold remove_abstraction. cbn. simpl_map. reflexivity. }
-        apply reorgs_done.
+        reorg_done.
 
         edestruct commute_add_anonymous_bots_anons as (Sl1' & Hadd_anons_Sl1' & Hadd_bots_Sl2);
           [exact Hadd_bots | exact Hadd_anons_Sl2 | ].

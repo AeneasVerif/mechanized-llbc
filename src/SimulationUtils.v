@@ -109,11 +109,13 @@ Definition forward_simulation {A B C D : Type}
   (RedAC : A -> C -> Prop) (RedBD : B -> D -> Prop) :=
   forall a c, RedAC a c -> forall b, LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
 
-Lemma execution_step {B C D : Type}
+Lemma prove_execution_step {B C D : Type}
   (LeqDC : D -> C -> Prop) (RedBD : B -> D -> Prop) Sl S'l S'r :
   RedBD Sl S'l -> LeqDC S'l S'r
   -> exists S'l, LeqDC S'l S'r /\ RedBD Sl S'l.
 Proof. exists S'l. split; assumption. Qed.
+
+Ltac execution_step := eapply prove_execution_step.
 
 (* Generally, to prove preservation when the relation is a reflexive transitive closure, it
  * suffices to prove it for the base cases. *)
@@ -229,24 +231,24 @@ Section LeqValStateUtils.
    *)
 End LeqValStateUtils.
 
-(* TODO: split into two tactics/lemmas:
- * - leq_val_state_step_left
- * - leq_val_state_step_right
- *)
+Lemma leq_step_right {S} {R : relation S} Sl Sm Sr : R Sm Sr -> R^* Sl Sm -> R^* Sl Sr.
+Proof. intros. transitivity Sm; [ | constructor]; assumption. Qed.
+
 (* This lemma is used to prove a goal of the form ?vSl < (vr, Sr) or (vl, Sl) < ?vSr without
  * exhibiting the existential variable ?vSl or ?vSr. *)
-Ltac leq_val_state_step :=
-  let a := fresh "a" in
+Ltac leq_step_right :=
   lazymatch goal with
   (* When proving a goal `leq ?vSl (vr, Sr)`, using this tactic creates three subgoals:
      1. leq_base ?vSm (Sr,, a |-> v)
      2. ?vSm = ?Sm,, a |-> ?vm
      3. leq ?vSl (?vm, ?Sm) *)
   | |- ?leq_star ?vSl (?vr, ?Sr) =>
+      let a := fresh "a" in
       eapply prove_leq_val_state_right_to_left; [intros a ? ?; eexists; split | ]
+  | |- ?leq_star ?Sl ?Sr => eapply leq_step_right
   end.
 
-Ltac leq_val_state_step_left :=
+Ltac leq_step_left :=
   let a := fresh "a" in
   lazymatch goal with
   (* When proving a goal `leq (vl, Sl) ?vSr`, using this tactic creates three subgoals:
@@ -287,6 +289,28 @@ Ltac leq_val_state_add_anon :=
          intros a ? ? ?; eexists; split |
         ]
   end.
+
+(* Tactics to prove the commutation of reorganizations. *)
+(* TODO: document it *)
+Lemma prove_reorg_step {S} {reorg leq : relation S} S0 S1 Sr:
+  reorg S0 S1 -> (exists Sl, leq Sl Sr /\ reorg^* S1 Sl) ->
+  exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
+Proof.
+  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
+  etransitivity; [constructor | ]; eassumption.
+Qed.
+
+Lemma prove_reorg_steps {S} {reorg leq : relation S} S0 S1 Sr:
+  reorg^* S0 S1 -> (exists Sl, leq Sl Sr /\ reorg^* S1 Sl) ->
+  exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
+Proof.
+  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
+  etransitivity; eassumption.
+Qed.
+
+Ltac reorg_step := eapply prove_reorg_step.
+Ltac reorg_steps := eapply prove_reorg_steps.
+Ltac reorg_done := eexists; split; [ | reflexivity].
 
 Section Leq.
   Context `{LeqBase state}.
@@ -483,28 +507,3 @@ Proof.
     edestruct IH1 as (? & ? & ?); [eassumption | ].
     eexists. split; [ | eapply rt_trans]; eassumption.
 Qed.
-
-(* Lemmas to prove the commutation of reorganizations. *)
-(* TODO: document it *)
-Lemma do_reorg_step {S} {reorg leq : relation S} S0 S1 Sr:
-  reorg S0 S1 -> (exists Sl, leq Sl Sr /\ reorg^* S1 Sl) ->
-  exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
-Proof.
-  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
-  etransitivity; [constructor | ]; eassumption.
-Qed.
-
-Lemma do_reorgs {S} {reorg leq : relation S} S0 S1 Sr:
-  reorg^* S0 S1 -> (exists Sl, leq Sl Sr /\ reorg^* S1 Sl) ->
-  exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
-Proof.
-  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
-  etransitivity; eassumption.
-Qed.
-
-Lemma reorgs_done {S} {reorg leq : relation S} S0 Sr:
-  leq S0 Sr -> exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
-Proof. exists S0. split; [assumption | reflexivity]. Qed.
-
-Lemma leq_step_right {S} {R : relation S} Sl Sm Sr : R Sm Sr -> R^* Sl Sm -> R^* Sl Sr.
-Proof. intros. transitivity Sm; [ | constructor]; assumption. Qed.
