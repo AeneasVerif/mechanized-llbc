@@ -477,6 +477,21 @@ Section Concretization.
         subst sp1 ; clear H1 H2
     end.
 
+  Ltac injection_list_app :=
+    match goal with
+    | H: ?x = ?x |- _ => clear H 
+    | H: [?a] :: _ = [?b] :: _ |- _ => injection H ; intros [=]; try discriminate
+    | H: ?l1 ++ [?a1] = ?l2 ++ [?a2] |- _ =>
+        assert (Hlen_one : length [ a1 ] = length [ a2 ]) by reflexivity ;
+        destruct (app_inj_2 _ _ _ _ Hlen_one H) ;
+        clear H Hlen_one ; subst
+    | H: [ ] = ?l ++ [?a] |- _ =>
+        symmetry in H ;
+        destruct (list_app_elem_not_nil l a H)
+    | H: ?l ++ [?a] = [] |- _ =>
+        destruct (list_app_elem_not_nil l a H)
+    end.
+
   Ltac sp_discriminate_or_find_equalities :=
     match goal with
     | H1: ?E = HLPL_pairC, H2: ?E = locC (_) |- _ => rewrite H2 in H1 ; discriminate
@@ -647,7 +662,7 @@ Section Concretization.
           eapply Addr_spath_pair_second ; eauto. rewrite E ; auto.
         * rewrite nth_error_nil in HSx ; subst v ; contradiction.
   Qed.
-    
+  
   (** Concretization of states implies addresses are compatible *)
   Lemma concr_implies_addresses_are_compatible :
     forall S Spl, Compatible S -> concr_hlpl S Spl -> addresses_are_compatible S Spl.
@@ -744,6 +759,215 @@ Lemma concr_val_TInt_implies_PL_int :
     - right. subst. reflexivity.
     - auto.
   Qed.
+
+  (* Definition of spath for PL state *)
+  Variant lproj :=
+    | LFirst
+    | LSecond
+    | LLoc.
+
+  Definition lvpath : Type := list lproj.
+  Definition lspath : Type := positive * lvpath.
+
+  (* The concatenation of a lspath and a lpath. *)
+  Definition app_lspath_lvpath (p : lspath) (q : lvpath) := (fst p, snd p ++ q).
+  (* TODO: place the notation in a scope? *)
+  Notation "p +++l q" := (app_lspath_lvpath p q) (right associativity, at level 60).
+
+  Fixpoint vget_l (lvp : lvpath) (v : HLPL_val) :=
+    match (lvp, v) with
+    | ([], _) => v
+    | (LFirst :: lvp', HLPL_pair v0 _) =>
+        vget_l lvp' v0
+    | (LSecond :: lvp', HLPL_pair _ v1) =>
+        vget_l lvp' v1
+    | (LLoc :: lvp', HLPL_loc _ v') =>
+        vget_l lvp' v'
+    | _ => HLPL_bot
+    end.
+Notation "v .[[ p ]]l" := (vget_l p v) (left associativity, at level 50).
+
+  Definition sget_l (lsp : lspath) (S : HLPL_state) :=
+    match get_at_accessor S lsp.1 with
+  | Some v => vget_l lsp.2 v
+  | None => bot
+  end.
+Notation "S .[ p ]l" := (sget_l p S) (left associativity, at level 50).
+
+  Inductive eval_proj_l (S : HLPL_state) : proj -> lspath -> lspath -> Prop :=
+  | Eval_Deref_Ptr_Locs :
+    forall (q q' : lspath) (l : loan_id) perm,
+      perm <> Mov ->
+      get_node (sget_l q S) = ptrC (l) →
+      get_node (sget_l q' S) = locC (l) ->
+      eval_proj_l S Deref q q'
+  | Eval_Field_First_l :
+    forall q : lspath,
+      eval_proj_l S (Field First) q (q +++l [LFirst])
+  | Eval_Field_Second_l :
+    forall (q : lspath),
+      eval_proj_l S (Field Second) q (q +++l [LSecond]).
+
+  Inductive vpath_lvpath_equiv : HLPL_val -> vpath -> lvpath -> Prop :=
+  | Vpath_lvpath_nil v : vpath_lvpath_equiv v [] []
+  | Vpath_lvpath_First
+      v0 v1 vp lvp (Hrec : vpath_lvpath_equiv v0 vp lvp) :
+    vpath_lvpath_equiv (HLPL_pair v0 v1) (0 :: vp) (LFirst :: lvp)
+  | Vpath_lvpath_Second
+      v0 v1 vp lvp (Hrec : vpath_lvpath_equiv v1 vp lvp) :
+    vpath_lvpath_equiv (HLPL_pair v0 v1) (1 :: vp) (LSecond :: lvp)
+  | Vpath_lvpath_Loc
+      l v vp lvp (Hrec : vpath_lvpath_equiv v vp lvp) :
+    vpath_lvpath_equiv (HLPL_loc l v) (0 :: vp) (LLoc :: lvp).
+
+  Definition spath_lspath_equiv (S : HLPL_state) (sp : spath) (lsp : lspath) :=
+    sp.1 = lsp.1 /\
+      exists v, get_at_accessor S sp.1 = Some v /\
+      vpath_lvpath_equiv v sp.2 lsp.2.
+
+  Lemma vget_l_bot : forall vp, HLPL_bot.[[ vp]]l = HLPL_bot.
+  Proof.
+    induction vp ; auto.
+    destruct a ; reflexivity.
+  Qed.
+
+  Lemma vget_vget_l_equiv :
+    forall v vp lvp,
+      vpath_lvpath_equiv v vp lvp -> vget vp v = vget_l lvp v.
+  Proof.
+    intros v vp lvp Hequiv. induction Hequiv ;
+      simpl ; try rewrite IHHequiv ; reflexivity.
+  Qed.
+
+  Lemma sget_sget_l_equiv :
+    forall S sp lsp,
+      spath_lspath_equiv S sp lsp -> S.[sp] = S.[lsp]l.
+  Proof.
+    intros S sp lsp [Heq [v [Haccess Hequiv] ] ].
+    remember sp.2 as vp. remember lsp.2 as lvp.
+    apply vget_vget_l_equiv in Hequiv.
+    unfold sget, sget_l. rewrite <- Heq, Haccess, <- Heqvp, <- Heqlvp. auto.
+  Qed.
+
+  Lemma sget_l_app_nil_r : 
+    forall p, p +++l [] = p.
+  Proof.
+    intros p. rewrite surjective_pairing with (p := p).
+    unfold app_lspath_lvpath. simpl. rewrite app_nil_r. reflexivity.
+  Qed.
+
+  Lemma vget_l_app :
+    forall p q v,
+      v.[[p ++ q]]l = v.[[p]]l.[[q]]l.
+  Proof.
+    induction p ; intros q v.
+    - reflexivity.
+    - destruct a ; destruct v ; simpl ; try (rewrite vget_l_bot) ; auto.
+  Qed.
+
+  Lemma sget_l_app :
+    forall p q S,
+       S.[p +++l q]l = S.[p]l.[[q]]l.
+  Proof.
+    intros p q S.
+    unfold sget_l, app_lspath_lvpath. cbn.
+    destruct (sum_maps (vars S) (anons S) !! p.1). 
+    - apply vget_l_app.
+    - rewrite vget_l_bot. reflexivity.
+  Qed.
+
+  Lemma sget_implies_sget_l :
+    forall S sp v,
+      S.[sp] = v -> v <> bot -> exists lsp, S.[lsp]l = v.
+  Proof.
+    intros S sp.
+    induction sp using ListBackInd.state_path_back_ind ; intros v HS_sp Hbot.
+    - exists (enc_x, []). assumption.
+    - rewrite sget_app in HS_sp.
+      destruct (IHsp (S.[sp]) (eq_refl _)) as [lsp Hsget_l].
+      * destruct (S.[sp]) ; destruct n ; auto.
+      * destruct (S.[sp]) ; simpl in * ;
+          try (rewrite nth_error_nil in HS_sp ; congruence).
+        ** destruct n ; simpl in *.
+           *** exists (lsp +++l [LLoc]).
+               rewrite sget_l_app, Hsget_l, HS_sp. reflexivity.
+           *** rewrite nth_error_nil in HS_sp ; congruence.
+        ** destruct n ; simpl in *.
+           *** exists (lsp +++l [LFirst]).
+               rewrite sget_l_app, Hsget_l. auto.
+           *** destruct n ; simpl in *.
+               **** exists (lsp +++l [LSecond]).
+                    rewrite sget_l_app, Hsget_l. auto.
+               **** rewrite nth_error_nil in HS_sp. congruence.
+  Qed.
+
+  Lemma vget_implies_exists_lvp :
+    forall vp v,
+      v.[[vp]] <> bot -> exists lvp, vpath_lvpath_equiv v vp lvp.
+  Proof.
+    induction vp ; intros v Hbot_vp.
+    - exists []. constructor.
+    - replace (a :: vp) with ([a] ++ vp) in Hbot_vp by auto. rewrite vget_app in Hbot_vp.
+      assert (Hbot : v.[[ [a] ]] <> bot).
+      { destruct (v.[[ [a] ]]) eqn:E ; auto. 
+        replace HLPL_bot with bot in Hbot_vp by auto. rewrite vget_bot in Hbot_vp.
+        contradiction. }.
+      destruct (IHvp (v.[[ [a] ]]) Hbot_vp) as [lvp Hequiv].
+      destruct v ; destruct a as [ | a'] ; try destruct a' ;
+        try contradiction ; simpl in *.
+      * exists (LLoc :: lvp) ; constructor ; assumption.
+      * exists (LFirst :: lvp) ; constructor ; assumption.
+      * exists (LSecond :: lvp) ; constructor ; assumption.
+      * rewrite nth_error_nil in Hbot. contradiction.
+  Qed.
+
+  Lemma sget_implies_exists_l :
+    forall S sp,
+      S.[sp] <> bot -> exists lsp, spath_lspath_equiv S sp lsp.
+  Proof.
+    intros S [x vp] Hbot.
+    remember ((x, []) : spath) as p.
+    replace (x, vp) with (p +++ vp) in Hbot by (unfold "+++" ; subst ; reflexivity).
+    rewrite sget_app in Hbot ; subst.
+    destruct (vget_implies_exists_lvp vp (S.[(x, [])]) Hbot) as [lvp Hequiv].
+    exists (x, lvp) ; split.
+    - reflexivity.
+    - exists (S.[(x, [])]) ; split ; auto.
+      unfold sget. simpl.
+      destruct (sum_maps (vars S) (anons S) !! x) eqn:E ; try reflexivity.
+      unfold sget in Hbot. simpl in Hbot. rewrite E in Hbot.
+      replace HLPL_bot with bot in Hbot by auto. rewrite vget_bot in Hbot.
+      contradiction.
+  Qed.
+
+  Lemma proj_spath_lspath_commute :
+    forall S perm sp sp' lsp proj,
+      spath_lspath_equiv S sp lsp ->
+      eval_proj S perm proj sp sp' ->
+      exists lsp',
+        eval_proj_l S proj lsp lsp' /\ spath_lspath_equiv S sp' lsp'.
+  Proof.
+    intros S perm sp sp' lsp proj Hequiv Hproj.
+    remember sp.2 as vp. remember lsp.2 as lvp.
+    inversion Hproj ; subst.
+    - assert (H : exists lsp', S.[lsp']l = S.[sp']).
+      { eapply sget_implies_sget_l. reflexivity. destruct (S.[sp']) ; auto. }.
+      destruct H as [lsp' HS_lsp'].
+      exists lsp' ; split.
+      * pose proof (sget_sget_l_equiv _ _ _ Hequiv) as HS_lsp.
+        econstructor.
+        ** apply Hperm.
+        ** rewrite <- HS_lsp. eauto.
+        ** rewrite HS_lsp'. eauto.
+      * split. admit.
+    - exists (lsp +++l [LFirst]). split.
+      * constructor.
+      * constructor.
+        ** admit.
+        ** admit.
+    - 
+    
+
 End Concretization.
 
 
