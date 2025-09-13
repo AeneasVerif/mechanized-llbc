@@ -1272,6 +1272,25 @@ Section GetSetPath.
     rewrite arity_0, nth_error_nil in * |-. discriminate.
   Qed.
 
+  (* This lemma is complicated, but it's used at least once in src/LLBC_plus.v *)
+  Lemma sget_sset_zeroary_not_prefix S p q v n :
+    get_node (S.[p <- v].[q]) = n ->
+    arity (get_node v) = 0 -> get_node v <> n -> n <> get_node bot -> ~prefix p q.
+  Proof.
+    intros G ? ? ? Hprefix.
+    assert (valid_q : valid_spath (S.[p <- v]) q) by (apply get_not_bot_valid_spath; congruence).
+    assert (valid_spath S p). {
+      destruct Hprefix as (? & <-). apply valid_spath_app in valid_q.
+      destruct valid_q as (valid_p & _).
+      rewrite <-sset_not_prefix_valid in valid_p; auto with spath. }
+    apply prefix_if_equal_or_strict_prefix in Hprefix. destruct Hprefix as [<- | Hstrict_prefix].
+    - rewrite sset_sget_equal in G by assumption. auto.
+    - apply get_nil_prefix_right with (S := S.[p <- v]) in Hstrict_prefix.
+      + assumption.
+      + rewrite sset_sget_equal; assumption.
+      + apply get_not_bot_valid_spath. congruence.
+  Qed.
+
   (* Setting up the definitions for judgements like "loan \notin v" or
      "l is fresh". *)
   Definition not_value_contains (P : nodes -> Prop) (v : V) :=
@@ -1687,6 +1706,16 @@ Section GetSetPath.
     intros G ? r K ?. eapply G; [ | eassumption].
     rewrite get_node_sset_sget_not_prefix; eauto with spath.
   Qed.
+
+  Lemma no_ancestor_add_anon P S p a v :
+    no_ancestor P S p -> valid_spath S p -> fresh_anon S a -> no_ancestor P (S,, a |-> v) p.
+  Proof.
+    intros no_ancestor valid_p fresh_a q G Hprefix. rewrite sget_add_anon in G.
+    - eapply no_ancestor; eassumption.
+    - eapply valid_spath_diff_fresh_anon; [eassumption | ].
+      destruct Hprefix as (? & ? & <-). rewrite valid_spath_app in valid_p.
+      destruct valid_p as (? & _). assumption.
+  Qed.
 End GetSetPath.
 
 Section StateUniqueConstructor.
@@ -1720,6 +1749,17 @@ Section StateUniqueConstructor.
   Proof.
     intros not_bot not_contains p ? Hp. exfalso. eapply not_contains; [ | eauto].
     apply get_not_bot_valid_spath. congruence.
+  Qed.
+
+  Lemma not_state_contains_map_Forall S P :
+    not_state_contains P S <-> map_Forall (fun _ => not_value_contains P) (get_map S).
+  Proof.
+    split.
+    - intros Hnot_contains i ? get_i p valid_p ?. eapply (Hnot_contains (i, p)).
+      eexists. split; eassumption.
+      unfold sget. replace (fst (i, p)) with i by reflexivity. rewrite get_i. assumption.
+    - intros Hnot_contains p (? & G & ?) P_p. eapply Hnot_contains. eassumption. eassumption.
+      unfold sget in P_p. rewrite G in P_p. exact P_p.
   Qed.
 
   Lemma decide_at_most_one_node c S (not_bot : c <> get_node bot) :

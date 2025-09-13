@@ -31,6 +31,9 @@ Proof.
   - exists a. f_equal. apply length_zero_iff_nil. inversion H. auto.
 Qed.
 
+Lemma nth_error_singleton {A} (a b : A) i : nth_error [a] i = Some b -> a = b /\ i = 0.
+Proof. destruct i; cbn; rewrite ?nth_error_nil; split; congruence. Qed.
+
 (* A variant of the lemma `nth_error_Some` that is more convenient to use.
    Indeed, it let us perform an inversion on the result. *)
 Lemma nth_error_Some' [A : Type] (l : list A) n :
@@ -917,16 +920,6 @@ Proof.
   - setoid_rewrite lookup_insert_is_Some. firstorder.
   - erewrite apply_permutation_insert by now simpl_map. rewrite delete_insert; [reflexivity | ].
     rewrite eq_None_not_Some, eq_dom, get_j. auto.
-Qed.
-
-Corollary equiv_map_rename_index {A} m i j (a : A) (H : lookup j (delete i m) = None)
-  (G : lookup i m = Some a) : equiv_map m (insert j a (delete i m)).
-Proof.
-  apply insert_delete in G. rewrite <-G.
-  apply equiv_map_insert.
-  - rewrite delete_insert by now simpl_map. reflexivity.
-  - simpl_map. reflexivity.
-  - rewrite delete_insert by now simpl_map. assumption.
 Qed.
 
 Section UnionMaps.

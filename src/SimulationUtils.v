@@ -201,6 +201,19 @@ Section LeqValStateUtils.
     intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
   Qed.
 
+  Lemma prove_leq_val_state_anon_left vl Sl vm Sm vSr b w
+    (fresh_b : fresh_anon Sl b)
+    (G : forall a, fresh_anon Sm a -> fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
+         exists vSm, leq_base (Sl,, a |-> vl,, b |-> w) vSm /\ vSm = Sm,, a |-> vm) :
+    leq_val_state_base^* (vm, Sm) vSr ->
+    leq_val_state_base^* (vl, Sl,, b |-> w) vSr.
+  Proof.
+    intros ?. eapply rt_trans; [ | eassumption]. constructor.
+    intros a (? & ?)%fresh_anon_add_anon ?. cbn in *.
+    rewrite add_anon_commute by congruence.
+    destruct (G a) as (? & ? & ->); try assumption. rewrite fresh_anon_add_anon. auto.
+  Qed.
+
   (* This lemma is used by the tactic `leq_val_state_add_anon`. *)
   Lemma prove_leq_val_state_add_anon vl Sl vm Sm vSr b w
     (fresh_b : fresh_anon Sl b)
@@ -246,21 +259,6 @@ Ltac leq_step_right :=
       let a := fresh "a" in
       eapply prove_leq_val_state_right_to_left; [intros a ? ?; eexists; split | ]
   | |- ?leq_star ?Sl ?Sr => eapply leq_step_right
-  end.
-
-Ltac leq_step_left :=
-  let a := fresh "a" in
-  lazymatch goal with
-  (* When proving a goal `leq (vl, Sl) ?vSr`, using this tactic creates three subgoals:
-     1. leq_base (Sl,, a |-> v) ?vSm
-     2. ?vSm = ?Sm,, a |-> ?vm
-     3. leq (?vm, ?Sm) ?vSr *)
-  (* Note: the hypothesis that a is fresh in ?Sm creates problems.
-     Indeed, ?Sm is an existential and it can be accidently instantiated to a wrong value by
-     eauto. That's why we're removing this hypothesis.
-     TODO: remove it from the hypotheses of the lemma? *)
-  | |- ?leq_star (?vl, ?Sl) ?vSr =>
-      eapply prove_leq_val_state_left_to_right; [intros a _ ?; eexists; split | ]
   end.
 
 (* In LLBC+, some base rules are of the form S < S',, b |-> w (with b fresh in S). The presence of

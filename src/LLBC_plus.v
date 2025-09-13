@@ -429,20 +429,41 @@ Definition add_abstraction S i A :=
 
 Notation "S ,,, i |-> A" := (add_abstraction S i A) (at level 50, left associativity).
 
-Notation fresh_abstraction S i := (lookup i (abstractions S) = None).
+Definition fresh_abstraction S i := lookup i (abstractions S) = None.
 
 Notation abstraction_contains_value S i j v :=
   (get_at_accessor S (encode_abstraction (i, j)) = Some v).
 
-Definition remove_anon a S :=
-  {| vars := vars S; anons := delete a (anons S); abstractions := abstractions S|}.
-
-Definition remove_abstraction i S :=
-  {|vars := vars S; anons := anons S; abstractions := delete i (abstractions S)|}.
-
 (* Remove the value at j in the region abstraction at i, if this value exists. *)
 Definition remove_abstraction_value S i j :=
   {|vars := vars S; anons := anons S; abstractions := alter (delete j) i (abstractions S)|}.
+
+Lemma get_at_accessor_add_abstraction S i j A :
+  get_at_accessor (S,,, i |-> A) (encode_abstraction (i, j)) = lookup j A.
+Proof.
+  unfold get_map, encode_abstraction. cbn.
+  rewrite sum_maps_lookup_r.
+  rewrite <-insert_delete_insert, flatten_insert by now simpl_map.
+  rewrite lookup_union_l.
+  - rewrite lookup_kmap by typeclasses eauto. reflexivity.
+  - apply lookup_None_flatten. simpl_map. reflexivity.
+Qed.
+
+(* The hypothesis `fresh_abstraction S i` is not necessary, we're going to remove it. *)
+Lemma _get_at_accessor_add_abstraction_notin S i A x (fresh_i : fresh_abstraction S i)
+  (H : ~in_abstraction i x) :
+  get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
+Proof.
+  unfold get_map. cbn. 
+  rewrite flatten_insert' by assumption. rewrite sum_maps_union.
+  rewrite lookup_union_l; [reflexivity | ].
+  rewrite eq_None_not_Some. rewrite lookup_kmap_is_Some by typeclasses eauto.
+  intros (p & ? & G). rewrite lookup_kmap_is_Some in G by typeclasses eauto.
+  destruct G as (j & -> & _). eapply H. firstorder.
+Qed.
+
+Definition remove_abstraction i S :=
+  {|vars := vars S; anons := anons S; abstractions := delete i (abstractions S)|}.
 
 Lemma add_remove_abstraction i A S (H : lookup i (abstractions S) = Some A) :
   (remove_abstraction i S),,, i |-> A = S.
@@ -465,45 +486,8 @@ Proof.
   intros ?. destruct S. cbn. f_equal. apply delete_insert_ne. assumption.
 Qed.
 
-Lemma remove_fresh_abstraction i S : fresh_abstraction S i -> remove_abstraction i S = S.
-Proof.
-  intros ?. unfold remove_abstraction. rewrite delete_notin by assumption. destruct S. reflexivity.
-Qed.
-
 Lemma add_remove_add_abstraction S i A : (remove_abstraction i S),,, i |-> A = S,,, i |-> A.
 Proof. unfold add_abstraction, remove_abstraction. cbn. f_equal. apply insert_delete_insert. Qed.
-
-(* The hypothesis `fresh_abstraction S i` is not necessary, we're going to remove it. *)
-Lemma _get_at_accessor_add_abstraction S i j A (i_fresh : fresh_abstraction S i) :
-  get_at_accessor (S,,, i |-> A) (encode_abstraction (i, j)) = lookup j A.
-Proof.
-  unfold get_map, encode_abstraction. cbn.
-  rewrite sum_maps_lookup_r. rewrite flatten_insert by assumption.
-  rewrite lookup_union_l.
-  - rewrite lookup_kmap by typeclasses eauto. reflexivity.
-  - apply lookup_None_flatten. assumption.
-Qed.
-
-Lemma get_at_accessor_add_abstraction S i j A :
-  get_at_accessor (S,,, i |-> A) (encode_abstraction (i, j)) = lookup j A.
-Proof.
-  destruct (lookup i (abstractions S)) eqn:EQN.
-  - apply add_remove_abstraction in EQN. rewrite<- EQN. rewrite <-add_remove_add_abstraction.
-    rewrite !_get_at_accessor_add_abstraction; auto; apply lookup_delete.
-  - apply _get_at_accessor_add_abstraction. assumption.
-Qed.
-
-(* The hypothesis `fresh_abstraction S i` is not necessary, we're going to remove it. *)
-Lemma _get_at_accessor_add_abstraction_notin S i A x (i_fresh : fresh_abstraction S i)
-  (H : ~in_abstraction i x) :
-  get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
-Proof.
-  unfold get_map. cbn. rewrite flatten_insert' by assumption.
-  rewrite sum_maps_union. rewrite lookup_union_l; [reflexivity | ].
-  rewrite eq_None_not_Some. rewrite lookup_kmap_is_Some by typeclasses eauto.
-  intros (p & ? & G). rewrite lookup_kmap_is_Some in G by typeclasses eauto.
-  destruct G as (j & -> & _). eapply H. firstorder.
-Qed.
 
 Lemma get_at_accessor_add_abstraction_notin S i A x (H : ~in_abstraction i x) :
   get_at_accessor (S,,, i |-> A) x = get_at_accessor S x.
@@ -514,26 +498,12 @@ Proof.
   - apply _get_at_accessor_add_abstraction_notin; assumption.
 Qed.
 
-Lemma get_at_accessor_remove_abstraction S i x (H : ~in_abstraction i x) :
-  get_at_accessor (remove_abstraction i S) x = get_at_accessor S x.
-Proof.
-  destruct (lookup i (abstractions S)) eqn:EQN.
-  - apply add_remove_abstraction in EQN. rewrite<- EQN at 2. symmetry.
-    apply get_at_accessor_add_abstraction_notin. assumption.
-  - repeat f_equal. unfold remove_abstraction. rewrite delete_notin by assumption.
-    destruct S. reflexivity.
-Qed.
-
 Lemma sget_add_abstraction S i A p : ~in_abstraction i (fst p) -> (S,,, i |-> A).[p] = S.[p].
 Proof. intros H. unfold sget. rewrite get_at_accessor_add_abstraction_notin; auto. Qed.
 
 Lemma get_extra_add_abstraction S i A :
   get_extra (S,,, i |-> A) = (union (singleton i) (get_extra S)).
 Proof. unfold get_extra. cbn. rewrite dom_insert_L. reflexivity. Qed.
-
-Lemma get_extra_remove_abstraction S i :
-  get_extra (remove_abstraction i S) = difference (get_extra S) (singleton i).
-Proof. unfold get_extra. cbn. rewrite dom_delete_L. reflexivity. Qed.
 
 Lemma sset_add_abstraction S i A p v :
   ~in_abstraction i (fst p) -> (S,,, i |-> A).[p <- v] = S.[p <- v],,, i |-> A.
@@ -563,10 +533,16 @@ Lemma fresh_anon_remove_abstraction_value S a i j :
   fresh_anon (remove_abstraction_value S i j) a <-> fresh_anon S a.
 Proof. unfold fresh_anon. rewrite !get_at_anon. reflexivity. Qed.
 
+Lemma fresh_abstraction_add_abstraction S i j A :
+  fresh_abstraction S i -> fresh_abstraction S j -> i <> j ->
+  fresh_abstraction (S,,, i |-> A) j.
+Proof. unfold fresh_abstraction, add_abstraction. cbn. intros. simpl_map. assumption. Qed.
+Hint Resolve fresh_abstraction_add_abstraction : spath.
+
 Lemma fresh_abstraction_sset S p v i :
   fresh_abstraction S i <-> fresh_abstraction (S.[p <- v]) i.
 Proof.
-  rewrite<-!not_elem_of_dom.
+  unfold fresh_abstraction. rewrite<-!not_elem_of_dom.
   replace (dom (abstractions S)) with (get_extra S) by reflexivity.
   replace (dom (abstractions (S.[p <- v]))) with (get_extra (S.[p <- v])) by reflexivity.
   unfold sset. rewrite get_extra_alter. reflexivity.
@@ -579,25 +555,8 @@ Proof. split; intros H; exact H. Qed.
 Hint Resolve-> fresh_abstraction_sset : spath.
 Hint Resolve-> fresh_abstraction_add_anon : spath.
 
-Lemma sset_remove_abstraction S i p v :
-  ~in_abstraction i (fst p) -> remove_abstraction i (S.[p <- v]) = (remove_abstraction i S).[p <- v].
-Proof.
-  intros ?.
-  destruct (lookup i (abstractions S)) as [A | ] eqn:?.
-  - rewrite <-(add_remove_abstraction i A S) at 1 by assumption.
-    rewrite sset_add_abstraction by assumption.
-    apply remove_add_abstraction.
-    rewrite <-fresh_abstraction_sset. cbn. apply lookup_delete.
-  - rewrite !remove_fresh_abstraction; rewrite <-?fresh_abstraction_sset; easy.
-Qed.
-
-Lemma sget_remove_abstraction S i p : ~in_abstraction i (fst p) -> (remove_abstraction i S).[p] = S.[p].
-Proof. intros H. unfold sget. rewrite get_at_accessor_remove_abstraction; auto. Qed.
-
 Hint Rewrite sget_add_abstraction using auto; fail : spath.
 Hint Rewrite sset_add_abstraction using auto with spath; fail : spath.
-Hint Rewrite sget_remove_abstraction using assumption : spath.
-Hint Rewrite sset_remove_abstraction using assumption : spath.
 
 Lemma abstractions_remove_abstraction_value S i j :
   flatten (abstractions (remove_abstraction_value S i j)) =
@@ -628,7 +587,6 @@ Lemma get_extra_remove_abstraction_value S i j :
   get_extra (remove_abstraction_value S i j) = get_extra S.
 Proof. unfold get_extra. cbn. rewrite dom_alter_L. reflexivity. Qed.
 
-(* TODO: autorewrite? *)
 Lemma sget_remove_abstraction_value S i j p (H : fst p <> encode_abstraction (i, j)) :
   (remove_abstraction_value S i j).[p] = S.[p].
 Proof. unfold sget. rewrite get_map_remove_abstraction_value. simpl_map. reflexivity. Qed.
@@ -646,28 +604,14 @@ Qed.
 Hint Rewrite sget_remove_abstraction_value using assumption : spath.
 Hint Rewrite sset_remove_abstraction_value using assumption : spath.
 
-(* In order to prove that a state is of the form (S,, a |-> v), it's useful to have lemmas that
- * commute the addition of an anonymous variable to the end. *)
-Lemma remove_anon_add_anon_ne S a a' v :
-  a <> a' -> remove_anon a (S,, a' |-> v) = (remove_anon a S),, a' |-> v.
-Proof.
-  intros ?. unfold remove_anon, add_anon. cbn. rewrite delete_insert_ne by assumption. reflexivity.
-Qed.
-
 Lemma add_abstraction_add_anon S a v i A : (S,, a |-> v),,, i |-> A = (S,,, i |-> A),, a |-> v.
-Proof. reflexivity. Qed.
-
-Lemma remove_abstraction_add_anon S a v i :
-  remove_abstraction i (S,, a |-> v) = (remove_abstraction i S),, a |-> v.
 Proof. reflexivity. Qed.
 
 Lemma remvoe_abstraction_value_add_anon S a v i j :
   remove_abstraction_value (S,, a |-> v) i j = (remove_abstraction_value S i j),, a |-> v.
 Proof. reflexivity. Qed.
 
-Hint Rewrite remove_anon_add_anon_ne using eauto with spath; fail : spath.
 Hint Rewrite add_abstraction_add_anon : spath.
-Hint Rewrite remove_abstraction_add_anon : spath.
 Hint Rewrite remvoe_abstraction_value_add_anon : spath.
 
 (* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
@@ -700,9 +644,9 @@ Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     reorg S ((remove_abstraction_value S i' j').[q <- bot])
 (* q refers to a path in abstraction A, at index j. *)
 | Reorg_end_abstraction S i' A' S'
-    (get_A' : lookup i' (abstractions S) = Some A')
+    (fresh_i : fresh_abstraction S i')
     (A_no_loans : map_Forall (fun _ => not_contains_loan) A')
-    (Hadd_anons : add_anons (remove_abstraction i' S) A' S') : reorg S S'
+    (Hadd_anons : add_anons S A' S') : reorg (S,,, i' |-> A') S'
 .
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
@@ -766,119 +710,27 @@ Proof.
   subst. rewrite sum_maps_lookup_r, lookup_None_flatten in lookup_l by assumption.
   discriminate. all: typeclasses eauto.
 Qed.
-Hint Rewrite sweight_add_abstraction using cbn; simpl_map; auto : weight.
+Hint Rewrite sweight_add_abstraction using auto with spath; fail : weight.
 
-Lemma add_anon_remove_anon S a v :
-  lookup (anon_accessor a) (get_map S) = Some v -> (remove_anon a S),, a |-> v = S.
-Proof.
-  intros ?. destruct S. unfold add_anon, remove_anon. cbn. f_equal.
-  apply insert_delete. revert H.
-  cbn. unfold encode_anon. rewrite sum_maps_lookup_l, sum_maps_lookup_r. auto.
-Qed.
-
-(* Note: this is a general lemma on states, that could be moved into PathToSubtree.v *)
-(* TODO: change the name to add_anon_states_eq, to avoid confusion with add_anons *)
-Lemma add_anons_states_eq S S' a v w
-  (fresh_a_S : fresh_anon S a) (fresh_a_S' : fresh_anon S' a)
-  (H : S,, a |-> v = S',, a |-> w) : S = S'.
-Proof.
-  apply state_eq_ext.
-  - apply (f_equal get_map) in H. rewrite !get_map_add_anon in H.
-    apply (f_equal (delete (anon_accessor a))) in H.
-    rewrite !delete_insert in H by assumption. exact H.
-  - apply (f_equal get_extra) in H. rewrite !get_extra_add_anon in H. exact H.
-Qed.
-
-Lemma remove_anon_is_fresh S a : fresh_anon (remove_anon a S) a.
-Proof.
-  unfold fresh_anon, remove_anon, get_map. cbn. unfold encode_anon.
-  rewrite sum_maps_lookup_l, sum_maps_lookup_r. apply lookup_delete.
-Qed.
-Hint Resolve remove_anon_is_fresh : weight.
 Hint Rewrite @sweight_add_anon using auto with weight : weight.
-
-Lemma remove_anon_fresh S a : fresh_anon S a -> remove_anon a S = S.
-Proof.
-  unfold fresh_anon, remove_anon. intros H. rewrite delete_notin.
-  - destruct S. cbn. reflexivity.
-  - unfold get_map, encode_anon in H. cbn in H. unfold encode_anon in H.
-    rewrite sum_maps_lookup_l, sum_maps_lookup_r in H. exact H.
-Qed.
-
-Lemma get_map_remove_anon S a : get_map (remove_anon a S) = delete (encode_anon a) (get_map S).
-Proof.
-  destruct (lookup (anon_accessor a) (get_map S)) eqn:EQN.
-  - apply add_anon_remove_anon in EQN. rewrite<- EQN at 2.
-    rewrite get_map_add_anon. symmetry. apply delete_insert, remove_anon_is_fresh.
-  - rewrite delete_notin by assumption. f_equal. apply remove_anon_fresh. assumption.
-Qed.
-
-Lemma remove_anon_add_anon S a v : fresh_anon S a -> remove_anon a (S,, a |-> v) = S.
-Proof.
-  intros H. apply add_anons_states_eq with (a := a) (v := v) (w := v).
-  - apply remove_anon_is_fresh.
-  - assumption.
-  - rewrite add_anon_remove_anon; [reflexivity | ].
-    rewrite get_map_add_anon. simpl_map. reflexivity.
-Qed.
-
-Lemma sget_remove_anon S a sp :
-  fst sp <> anon_accessor a -> (remove_anon a S).[sp] = S.[sp].
-Proof.
-  unfold sget. intros ?. rewrite get_map_remove_anon, lookup_delete_ne by auto. reflexivity.
-Qed.
-Hint Rewrite sget_remove_anon using auto with spath : spath.
-
-Lemma sset_remove_anon S a sp v :
-  fst sp = anon_accessor a -> remove_anon a (S.[sp <- v]) = remove_anon a S.
-Proof.
-  intros ?.
-  destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
-  - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 1.
-    rewrite sset_anon by assumption.
-    apply remove_anon_add_anon. apply remove_anon_is_fresh.
-  - rewrite sset_invalid; [reflexivity | ]. intros (? & ? & _). congruence.
-Qed.
-
-Corollary sset_remove_anon_2 S a p q v w :
-  fst p = anon_accessor a -> disj p q ->
-  remove_anon a (S.[p <- v].[q <- w]) = remove_anon a (S.[q <- w]).
-Proof.
-  intros. rewrite sset_twice_disj_commute, sset_remove_anon by assumption. reflexivity.
-Qed.
-
-Lemma sset_remove_anon_ne S a sp v :
-  fst sp <> anon_accessor a -> (remove_anon a S).[sp <- v] = remove_anon a (S.[sp <- v]).
-Proof.
-  intros ?.
-  destruct (get_at_accessor S (anon_accessor a)) eqn:EQN.
-  - rewrite <-(add_anon_remove_anon _ _ _ EQN) at 2.
-    rewrite sset_add_anon by assumption.
-    + symmetry. apply remove_anon_add_anon, fresh_anon_sset, remove_anon_is_fresh.
-  - rewrite !remove_anon_fresh by auto with spath. reflexivity.
-Qed.
-
-Hint Rewrite sset_remove_anon_ne using auto with spath : spath.
-Hint Rewrite sset_remove_anon using reflexivity : spath.
-Hint Rewrite sset_remove_anon_2 using auto with spath : spath.
 
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Contrary to the article, symbolic values should be typed. Thus, only an integer can be converted
  * to a symbolic value for the moment. *)
 | Leq_ToSymbolic S sp n :
     get_node (S.[sp]) = LLBC_plus_intC n -> leq_state_base S (S.[sp <- LLBC_plus_symbolic])
-| Leq_ToAbs S a i A
-    (a_valid : valid_spath S (anon_accessor a, []))
+| Leq_ToAbs S a i v A
+    (fresh_a : fresh_anon S a)
     (fresh_i : fresh_abstraction S i)
-    (Hto_abs : to_abs (S.[(anon_accessor a, [])]) A) :
-    leq_state_base S ((remove_anon a S),,, i |-> A)
+    (Hto_abs : to_abs v A) :
+    leq_state_base (S,, a |-> v) (S,,, i |-> A)
 (* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
  * contain any loan or borrow, no region abstraction is created. *)
-| Leq_RemoveAnon S a
-    (a_valid : valid_spath S (anon_accessor a, []))
-    (no_loan : not_contains_loan (S.[(anon_accessor a, [])]))
-    (no_borrow : not_contains_borrow (S.[(anon_accessor a, [])])) :
-    leq_state_base S (remove_anon a S)
+| Leq_RemoveAnon S a v
+    (fresh_a : fresh_anon S a)
+    (no_loan : not_contains_loan v)
+    (no_borrow : not_contains_borrow v) :
+    leq_state_base (S,, a |-> v) S
 | Leq_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
@@ -888,9 +740,9 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Note: for the merge, we reuse the region abstraction at i. Maybe we should use another region
  * abstraction index k? *)
 | Leq_MergeAbs S i j A B C
-    (get_A : lookup i (abstractions S) = Some A) (get_B : lookup j (abstractions S) = Some B)
+    (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
     (Hmerge : merge_abstractions A B C) :
-    i <> j -> leq_state_base S (remove_abstraction i (remove_abstraction j S),,, i |-> C)
+    i <> j -> leq_state_base (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
 | Leq_Fresh_MutLoan S sp l a
     (fresh_l1 : is_fresh l S)
     (fresh_a : fresh_anon S a)
@@ -923,12 +775,10 @@ Proof.
   destruct (exists_fresh_anon S) as (a & fresh_a).
   etransitivity.
   { constructor. apply Leq_Reborrow_MutBorrow; eassumption. }
-  etransitivity.
-  { constructor. eapply Leq_ToAbs with (a := a).
-    - validity.
-    - repeat apply fresh_abstraction_sset. eassumption.
-    - autorewrite with spath. constructor. }
-  rewrite remove_anon_add_anon by auto with spath. reflexivity.
+  constructor. eapply Leq_ToAbs with (a := a).
+  - eauto with spath.
+  - repeat apply fresh_abstraction_sset. eassumption.
+  - autorewrite with spath. constructor.
 Qed.
 
 Lemma Leq_Fresh_MutLoan_Abs S sp l i n
@@ -948,10 +798,10 @@ Proof.
     - autorewrite with spath. apply not_value_contains_zeroary; auto. }
   etransitivity.
   { constructor. eapply Leq_ToAbs with (a := a) (i := i).
-    - validity.
+    - eauto with spath.
     - repeat apply fresh_abstraction_sset. assumption.
     - autorewrite with spath. constructor. constructor. }
-  autorewrite with spath. rewrite remove_anon_add_anon by auto with spath. reflexivity.
+  autorewrite with spath. reflexivity.
 Qed.
 
 (* We are going to give an alternative definition of map equivalence that is computable.
@@ -1141,29 +991,6 @@ Proof.
   edestruct get_at_accessor_state_permutation as (? & -> & ->); auto.
 Qed.
 
-Corollary permutation_valid_anon S a q perm (H : is_state_equivalence perm S) :
-  valid_spath S (encode_anon a, q) ->
-  exists a', lookup a (anons_perm perm) = Some a' /\
-             valid_spath (apply_state_permutation perm S) (anon_accessor a', q).
-Proof.
-  intros (v & ? & ?). unfold permutation_spath. cbn. (*rewrite perm_at_anon.*)
-  edestruct get_at_accessor_state_permutation as (? & perm_a & ?); [eauto.. | ].
-  cbn in perm_a. rewrite perm_at_anon in perm_a.
-  destruct (lookup a (anons_perm perm)) as [a' | ]; [ | discriminate].
-  inversion perm_a; subst. exists a'. split; [reflexivity | ].
-  exists v. split.
-  - cbn in *. congruence.
-  - assumption.
-Qed.
-
-(* TODO: name *)
-Lemma perm_at_anon' perm a a' q (H : lookup a (anons_perm perm) = Some a') :
-  permutation_spath perm (anon_accessor a, q) = (anon_accessor a', q).
-Proof.
-  unfold permutation_spath. replace (fst _) with (anon_accessor a) by reflexivity.
-  rewrite perm_at_anon. setoid_rewrite H. reflexivity.
-Qed.
-
 Lemma permutation_sget S (perm : state_perm) (H : is_state_equivalence perm S)
   sp (valid_sp : valid_spath S sp) :
   (apply_state_permutation perm S).[permutation_spath perm sp] = S.[sp].
@@ -1209,7 +1036,8 @@ Proof.
       inversion dom_abs as [? ? eq_dom | ]; subst. constructor.
       unfold is_permutation. destruct G. setoid_rewrite <-elem_of_dom.
       rewrite <-eq_dom. setoid_rewrite elem_of_dom. split; assumption.
-    + symmetry in EQN_A. rewrite fresh_abstraction_sset in EQN_A. rewrite EQN_A. constructor.
+    + assert (fresh_abstraction S i) as G by easy.
+      rewrite fresh_abstraction_sset in G. rewrite G. constructor.
 Qed.
 
 Lemma permutation_sset S (perm : state_perm) v (H : is_state_equivalence perm S)
@@ -1285,50 +1113,38 @@ Definition remove_anon_perm perm a := {|
   abstractions_perm := abstractions_perm perm;
 |}.
 
-Lemma remove_anon_perm_equivalence perm S a :
-  is_state_equivalence perm S -> is_state_equivalence (remove_anon_perm perm a) (remove_anon a S).
+Lemma remove_anon_perm_equivalence perm S a v :
+  fresh_anon S a -> is_state_equivalence perm (S,, a |-> v) ->
+  is_state_equivalence (remove_anon_perm perm a) S /\
+  exists b, perm = add_anon_perm (remove_anon_perm perm a) a b /\
+            fresh_anon (apply_state_permutation (remove_anon_perm perm a) S) b.
 Proof.
-  intros p_is_state_equiv.
-  destruct p_is_state_equiv as ((anons_perm_inj & eq_dom) & Habstractions_perm). split.
+  intros ? p_is_state_equiv.
+  destruct p_is_state_equiv as ((anons_perm_inj & eq_dom) & Habstractions_perm).
+  split; [split | ].
   - cbn. split.
     + intros ? ? (_ & ?)%lookup_delete_Some ? ? (_ & ?)%lookup_delete_Some ?.
       eapply anons_perm_inj; eassumption.
-    + setoid_rewrite lookup_delete_is_Some. firstorder.
+    + intros i. setoid_rewrite lookup_delete_is_Some.
+      specialize (eq_dom i). cbn in eq_dom. rewrite lookup_insert_is_Some' in eq_dom.
+      unfold fresh_anon in H.
+      split.
+      -- intuition.
+      -- intros ?. rewrite get_at_anon, eq_None_not_Some in H.
+        assert (a <> i) by now intros <-. intuition.
   - exact Habstractions_perm.
-Qed.
-
-Lemma get_extra_remove_anon a S : get_extra (remove_anon a S) = get_extra S.
-Proof. reflexivity. Qed.
-
-Lemma permutation_remove_anon S perm a b :
-  is_state_equivalence perm S -> lookup a (anons_perm perm) = Some b ->
-  apply_state_permutation (remove_anon_perm perm a) (remove_anon a S) =
-      remove_anon b (apply_state_permutation perm S).
-Proof.
-  intros ? get_at_a.
-  assert (is_state_equivalence (remove_anon_perm perm a) (remove_anon a S)) as G
-      by now apply remove_anon_perm_equivalence.
-  apply state_eq_ext.
-  - rewrite get_map_state_permutation by assumption.
-    rewrite !get_map_remove_anon.
-    rewrite get_map_state_permutation by assumption.
-    apply permutation_accessor_is_equivalence in H.
-    erewrite <-pkmap_delete;
-      [ | apply H | rewrite perm_at_anon; setoid_rewrite get_at_a; reflexivity].
-    apply pkmap_fun_eq.
-    intros i (? & get_rel)%lookup_delete_is_Some.
-    apply get_at_accessor_is_Some in get_rel. destruct get_rel.
-    + rewrite !perm_at_var. reflexivity.
-    + rewrite !perm_at_anon. cbn. rewrite lookup_delete_ne by congruence. reflexivity.
-    + rewrite !perm_at_abstraction. reflexivity.
-  - rewrite get_extra_state_permutation by assumption.
-    rewrite !get_extra_remove_anon.
-    symmetry. apply get_extra_state_permutation. assumption.
+  - pose proof (eq_dom a) as (_ & (b & G)). { cbn. simpl_map. easy. }
+    exists b. split.
+    + unfold add_anon_perm, remove_anon_perm. destruct perm. cbn. rewrite insert_delete; easy.
+    + unfold fresh_anon. rewrite get_at_anon. cbn.
+      replace (anons S) with (delete a (anons (S,, a |-> v))).
+      2: { cbn. rewrite delete_insert by now rewrite <-get_at_anon. reflexivity. }
+      erewrite apply_permutation_delete by eassumption. simpl_map. reflexivity.
 Qed.
 
 Lemma permutation_fresh_abstraction S p i :
   fresh_abstraction S i -> fresh_abstraction (apply_state_permutation p S) i.
-Proof. cbn. rewrite map_lookup_zip_with_None. auto. Qed.
+Proof. unfold fresh_abstraction. cbn. rewrite map_lookup_zip_with_None. auto. Qed.
 
 Definition add_abstraction_perm perm i p := {|
   anons_perm := anons_perm perm;
@@ -1343,6 +1159,7 @@ Proof.
   - assumption.
   - apply map_Forall2_insert_2; assumption.
 Qed.
+Hint Resolve add_abstraction_perm_equivalence : spath.
 
 Lemma permutation_add_abstraction S perm p i A :
   fresh_abstraction S i -> is_state_equivalence perm S -> is_permutation p A ->
@@ -1391,44 +1208,20 @@ Definition remove_abstraction_perm perm i := {|
   abstractions_perm := delete i (abstractions_perm perm);
 |}.
 
-Lemma remove_abstraction_perm_equivalence perm S i :
-  is_state_equivalence perm S ->
-  is_state_equivalence (remove_abstraction_perm perm i) (remove_abstraction i S).
-Proof. intros (? & ?). split; [ | apply map_Forall2_delete]; assumption. Qed.
-
-Lemma permutation_remove_abstraction S perm i :
-  is_state_equivalence perm S ->
-  apply_state_permutation (remove_abstraction_perm perm i) (remove_abstraction i S) =
-  remove_abstraction i (apply_state_permutation perm S).
+Lemma remove_abstraction_perm_equivalence perm S i A :
+  fresh_abstraction S i ->
+  is_state_equivalence perm (S,,, i |-> A) ->
+  is_state_equivalence (remove_abstraction_perm perm i) S /\
+  exists p, is_permutation p A /\ perm = add_abstraction_perm (remove_abstraction_perm perm i) i p.
 Proof.
-  intros Hstate_perm.
-  assert (is_state_equivalence (remove_abstraction_perm perm i) (remove_abstraction i S)) as G
-      by now apply remove_abstraction_perm_equivalence.
-  destruct (Hstate_perm) as (anons_perm & abs_perm).
-  apply state_eq_ext.
-  - rewrite get_map_state_permutation by assumption.
-    apply pkmap_eq.
-    + apply permutation_accessor_is_equivalence. assumption.
-    + intros ? ? perm_rel%permutation_accessor_is_Some.
-      destruct perm_rel as [ | | i' ? ? ? perm_at_i].
-      * rewrite !get_at_var. reflexivity.
-      * rewrite !get_at_anon. cbn. erewrite lookup_pkmap;
-          [reflexivity | apply map_inj_equiv, G | assumption].
-      * erewrite !get_at_abstraction.
-        cbn in perm_at_i. apply lookup_delete_Some in perm_at_i.
-        destruct perm_at_i as (? & perm_at_i).
-        cbn. simpl_map. rewrite map_lookup_zip_with, perm_at_i.
-        specialize (abs_perm i'). rewrite perm_at_i in abs_perm.
-        inversion abs_perm as [? ? (? & _) | ]; subst. cbn.
-        symmetry. apply lookup_apply_permutation; assumption.
-    + cbn. rewrite !size_sum_maps.
-      rewrite !size_pkmap by now apply permutation_is_equivalence.
-      f_equal. apply size_flatten. apply map_Forall2_delete.
-      intros i'. rewrite map_lookup_zip_with.
-      specialize (abs_perm i'). destruct abs_perm; constructor.
-      symmetry. apply size_pkmap, permutation_is_equivalence. assumption.
-  - rewrite get_extra_remove_abstraction, !get_extra_state_permutation by assumption.
-    rewrite get_extra_remove_abstraction. reflexivity.
+  intros ? (? & H). split; [split | ].
+  - assumption.
+  - replace (abstractions S) with (delete i (abstractions (S,,, i |-> A))).
+    2: { cbn. now rewrite delete_insert. }
+    apply map_Forall2_delete. assumption.
+  - specialize (H i). cbn in H. simpl_map. inversion H. eexists. split; [eassumption | ].
+    unfold add_abstraction_perm, remove_abstraction_perm. cbn.
+    rewrite insert_delete by congruence. destruct perm. reflexivity.
 Qed.
 
 Definition remove_abstraction_value_perm perm i j := {|
@@ -1584,6 +1377,32 @@ Proof.
     inversion G; subst. constructor. etransitivity; eassumption.
 Qed.
 
+(* Note: the condition H (and the argument S) could be removed. But because of how the lemma
+ * get_at_accessor_is_Some is defined, it's easier to include them. *)
+Lemma in_abstraction_perm S perm i x y (H : is_Some (get_at_accessor S x)) :
+  permutation_accessor perm x = Some y -> in_abstraction i y ->
+  in_abstraction i x.
+Proof.
+  intros G (? & ->). apply get_at_accessor_is_Some in H. destruct H as [ | a | i' j].
+  - rewrite perm_at_var in G. discriminate.
+  - rewrite perm_at_anon in G. destruct (lookup a (anons_perm perm)); discriminate.
+  - rewrite perm_at_abstraction in G.
+    destruct (lookup i' (abstractions_perm perm)) as [p | ]; [ | discriminate]. cbn in G.
+    destruct (lookup j p); [ | discriminate]. cbn in G.
+    inversion G as [K]. apply encode_inj in K. exists j. congruence.
+Qed.
+
+Corollary not_in_abstraction_perm S perm sp (valid_sp : valid_spath S sp) :
+  not_in_abstraction sp -> not_in_abstraction (permutation_spath perm sp).
+Proof.
+  unfold not_in_abstraction, in_abstraction, permutation_spath.
+  intros H i (j & ?). apply (H i).
+  destruct (permutation_accessor perm (fst sp)) eqn:EQN.
+  - destruct valid_sp as (? & G%mk_is_Some & _).
+    eapply in_abstraction_perm; [eassumption.. | ]. eexists. eassumption.
+  - eexists. eassumption.
+Qed.
+
 Lemma leq_equiv_states_commute :
   forward_simulation equiv_states equiv_states leq_state_base leq_state_base.
 Proof.
@@ -1595,31 +1414,27 @@ Proof.
       rewrite permutation_sget. eassumption. assumption. validity.
     + eexists. rewrite permutation_sset by eauto with spath.
       split; [ | reflexivity]. apply is_state_equivalence_sset. assumption.
-  - edestruct permutation_valid_anon as (a' & H & ?); [exact valid_perm | exact a_valid | ].
-    eexists. rewrite Logic.and_comm. split.
-    + apply Leq_ToAbs with (i := i). eassumption.
-      apply permutation_fresh_abstraction; assumption.
-      erewrite <-perm_at_anon', permutation_sget; eassumption.
+  - apply remove_anon_perm_equivalence in valid_perm; [ | assumption].
+    destruct valid_perm as (valid_perm & b & G & ?). rewrite G.
+    eexists. rewrite permutation_add_anon; try assumption.
+    rewrite Logic.and_comm. split.
+    + apply Leq_ToAbs with (i := i); eauto using permutation_fresh_abstraction.
     + eexists. erewrite permutation_add_abstraction with (p := id_permutation A);
-        [ | auto
-          | apply remove_anon_perm_equivalence; eassumption
-          | apply id_permutation_is_permutation].
-      rewrite apply_id_permutation. erewrite permutation_remove_anon by eassumption.
-      split; [ | reflexivity].
-      apply add_abstraction_perm_equivalence; [ | apply id_permutation_is_permutation].
-      apply remove_anon_perm_equivalence. assumption.
-  - edestruct permutation_valid_anon as (a' & H & ?); [exact valid_perm | exact a_valid | ].
+        [ | eassumption.. | apply id_permutation_is_permutation].
+      rewrite apply_id_permutation. split; [ | reflexivity].
+      apply add_abstraction_perm_equivalence; [assumption | apply id_permutation_is_permutation].
+  - apply remove_anon_perm_equivalence in valid_perm; [ | assumption].
+    destruct valid_perm as (valid_perm & b & G & ?).
+    rewrite G, permutation_add_anon by assumption.
     eexists. rewrite Logic.and_comm. split.
-    + apply Leq_RemoveAnon. eassumption.
-      erewrite <-perm_at_anon', permutation_sget; eassumption.
-      erewrite <-perm_at_anon', permutation_sget; eassumption.
-    + eexists. erewrite permutation_remove_anon by eassumption. split; [ | reflexivity].
-      apply remove_anon_perm_equivalence. assumption.
+    + apply Leq_RemoveAnon; eassumption.
+    + eexists. eauto.
   - destruct (exists_fresh_anon (apply_state_permutation perm S)) as (b & fresh_b).
     eexists. rewrite Logic.and_comm. split.
     + apply Leq_MoveValue.
       rewrite permutation_sget by eauto. assumption.
-      exact fresh_b. now apply permutation_valid_spath. admit.
+      exact fresh_b. now apply permutation_valid_spath.
+      eapply not_in_abstraction_perm; eassumption.
     + eexists.
       rewrite permutation_add_anon.
       2: { apply is_state_equivalence_sset. eassumption. }
@@ -1631,31 +1446,22 @@ Proof.
       apply add_anon_perm_equivalence. auto with spath.
       rewrite permutation_sset by auto with spath. auto with spath.
       apply is_state_equivalence_sset. assumption.
-  - pose proof valid_perm as _valid_perm.
-    destruct _valid_perm as (_ & Habs_perm).
-    pose proof (Habs_perm i) as Hi. rewrite get_A in Hi.
-    inversion Hi as [p ? p_perm get_p | ]; subst.
-    pose proof (Habs_perm j) as Hj. rewrite get_B in Hj.
-    inversion Hj as [q ? q_perm get_q | ]; subst.
+  - apply remove_abstraction_perm_equivalence in valid_perm; [ | auto with spath].
+    destruct valid_perm as (valid_perm & p & p_perm & Hperm).
+    apply remove_abstraction_perm_equivalence in valid_perm; [ | assumption].
+    destruct valid_perm as (valid_perm & q & q_perm & Hperm').
     eapply merge_abstractions_equiv in Hmerge; [ | eassumption..].
     destruct Hmerge as (r & perm_r & Hmerge).
-    set (A' := apply_permutation p A). set (B' := apply_permutation q B).
+    rewrite Hperm, Hperm'.
+    rewrite !permutation_add_abstraction by auto with spath.
     eexists. rewrite Logic.and_comm. split.
-    + apply Leq_MergeAbs with (A := A') (B := B').
-      * apply map_lookup_zip_with_Some. exists p, A. eauto.
-      * apply map_lookup_zip_with_Some. exists q, B. eauto.
+    + apply Leq_MergeAbs.
+      * apply map_lookup_zip_with_None. cbn. simpl_map. auto.
+      * apply map_lookup_zip_with_None. cbn. simpl_map. auto.
       * eassumption.
       * assumption.
-    + eexists.
-      rewrite permutation_add_abstraction.
-      2: { cbn. simpl_map. reflexivity. }
-      2: { repeat apply remove_abstraction_perm_equivalence. eassumption. }
-      2: { exact perm_r. }
-      rewrite permutation_remove_abstraction by now apply remove_abstraction_perm_equivalence.
-      rewrite permutation_remove_abstraction by assumption.
-      split; [ | reflexivity].
-      apply add_abstraction_perm_equivalence; [ | exact perm_r].
-      repeat apply remove_abstraction_perm_equivalence. assumption.
+    + eexists. rewrite permutation_add_abstraction by eassumption. split; [ | reflexivity].
+      auto using add_abstraction_perm_equivalence.
   - admit.
   - admit.
   - pose proof get_at_i_j as _get_at_i_j.
@@ -1754,25 +1560,6 @@ Qed.
 Lemma add_anon_preserves_vars_dom S a v : dom (vars (S,, a |-> v)) = dom (vars S).
 Proof. reflexivity. Qed.
 
-(* TODO: move in PathToSubtree.v *)
-(* TODO: name *)
-Lemma sget_sset_zeroary_not_prefix S p q v n :
-  get_node (S.[p <- v].[q]) = n ->
-  arity (get_node v) = 0 -> get_node v <> n -> n <> get_node bot -> ~prefix p q.
-Proof.
-  intros H ? ? ? Hprefix.
-  assert (valid_q : valid_spath (S.[p <- v]) q) by (apply get_not_bot_valid_spath; congruence).
-  assert (valid_spath S p). {
-    destruct Hprefix as (? & <-). apply valid_spath_app in valid_q.
-    destruct valid_q as (valid_p & _).
-    rewrite <-sset_not_prefix_valid in valid_p; auto with spath. }
-  apply prefix_if_equal_or_strict_prefix in Hprefix. destruct Hprefix as [<- | Hstrict_prefix].
-  - rewrite sset_sget_equal in H by assumption. auto.
-  - apply get_nil_prefix_right with (S := S.[p <- v]) in Hstrict_prefix.
-    + assumption.
-    + rewrite sset_sget_equal; assumption.
-    + apply get_not_bot_valid_spath. congruence.
-Qed.
 Hint Resolve sget_sset_zeroary_not_prefix : spath.
 
 Lemma eval_place_ToSymbolic S sp p pi perm n
@@ -1801,19 +1588,19 @@ Definition rel_ToAbs a i (p q : spath) :=
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
 (* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
  * borrows. *)
-Lemma eval_place_ToAbs S a i A p perm
-  (get_a : valid_spath S (anon_accessor a, []))
+Lemma eval_place_ToAbs S a i v A p perm
+  (fresh_a : fresh_anon S a)
   (fresh_i : fresh_abstraction S i)
-  (Hto_abs : to_abs (S.[(anon_accessor a, [])]) A) :
-  forall pi_r, ((remove_anon a S),,, i |-> A) |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_ToAbs a i pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+  (Hto_abs : to_abs v A) :
+  forall pi_r, (S,,, i |-> A) |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_ToAbs a i pi_l pi_r /\ (S,, a |-> v) |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - repeat split; [now eapply var_not_in_abstraction | inversion 1].
   - reflexivity.
   - intros proj pi_r pi_r' Heval_proj ? (-> & ? & ?). exists pi_r'.
     inversion Heval_proj; subst. repeat split; auto.
-    autorewrite with spath in get_q. econstructor; eassumption.
+    autorewrite with spath in get_q. econstructor; autorewrite with spath; eassumption.
 Qed.
 
 (* Let Sl < Sr be two states in relation. Let's assume that there is a difference of one anonymous
@@ -1833,11 +1620,11 @@ Definition rel_change_anon_not_in_spath sp a pi_l pi_r :=
 (* Note: the hypothesis `no_borrow` is not necessary to prove this lemma. *)
 (* The hypothesis `no_loan` is not necessary yet, but it will be when we introduce shared
  * borrows. *)
-Lemma eval_place_RemoveAnon S perm a p
-  (a_valid : valid_spath S (anon_accessor a, []))
-  (no_loan : not_contains_loan (S.[(anon_accessor a, [])])) :
-  forall pi_r, remove_anon a S |-{p} p =>^{perm} pi_r ->
-  exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+Lemma eval_place_RemoveAnon S perm a v p
+  (fresh_a : fresh_anon S a)
+  (no_loan : not_contains_loan v) :
+  forall pi_r, S |-{p} p =>^{perm} pi_r ->
+  exists pi_l, rel_change_anon a pi_l pi_r /\ (S,, a |-> v) |-{p} p =>^{perm} pi_l.
 Proof.
   eapply eval_place_preservation.
   - split; [reflexivity | inversion 1].
@@ -1845,7 +1632,8 @@ Proof.
   - intros proj pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'.
     inversion Heval_proj; subst.
     + autorewrite with spath in get_q.
-      repeat split; try assumption. eapply Eval_Deref_MutBorrow; eassumption.
+      repeat split; try assumption.
+      eapply Eval_Deref_MutBorrow; autorewrite with spath; eassumption.
 Qed.
 
 (* Take Sr = Sl.[sp <- bot],, a |-> Sl.[sp] the left state. Relation between the evaluation
@@ -1907,10 +1695,10 @@ Definition rel_MergeAbs i j (p q : spath) :=
   p = q /\ ~in_abstraction i (fst p) /\ ~in_abstraction j (fst p) /\ ~in_abstraction i (fst q).
 
 Lemma eval_place_MergeAbs S i j A B C perm p
-    (get_A : lookup i (abstractions S) = Some A) (get_B : lookup j (abstractions S) = Some B)
+    (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
     (Hmerge : merge_abstractions A B C) (diff : i <> j) :
-    forall pi_r, (remove_abstraction i (remove_abstraction j S),,, i |-> C) |-{p} p =>^{perm} pi_r ->
-    exists pi_l, rel_MergeAbs i j pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
+    forall pi_r, (S,,, i |-> C) |-{p} p =>^{perm} pi_r ->
+    exists pi_l, rel_MergeAbs i j pi_l pi_r /\ (S,,, i |-> A,,, j |-> B) |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
   - repeat split; intros (? & ?); easy.
@@ -1919,7 +1707,8 @@ Proof.
     inversion Heval_proj; subst.
     + destruct rel_pi_l_pi_r as (-> & ? & ? & ?). exists (pi_r +++ [0]).
       repeat split; [assumption.. | ].
-      autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
+      autorewrite with spath in get_q.
+      eapply Eval_Deref_MutBorrow; autorewrite with spath; eassumption.
 Qed.
 
 Lemma eval_place_Fresh_MutLoan S sp l a perm p :
@@ -2093,27 +1882,27 @@ Ltac eval_place_preservation :=
     H : (?S.[?sp <- LLBC_plus_symbolic]) |-{p} ?p =>^{?perm} ?pi |- _ =>
         apply (eval_place_ToSymbolic _ _ _ _ _ _ get_integer) in H;
         destruct H as (eval_p_in_Sl & ?)
-  | a_valid : valid_spath ?S (anon_accessor ?a, _),
+  | fresh_a : fresh_anon ?S ?a,
     fresh_i : fresh_abstraction ?S ?i,
     Hto_abs : to_abs ?v ?A,
-    Heval : ((remove_anon ?a ?S),,, ?i |-> ?A) |-{p} ?p =>^{?perm} ?pi |- _ =>
+    Heval : (?S,,, ?i |-> ?A) |-{p} ?p =>^{?perm} ?pi |- _ =>
         let _valid_pi := fresh "_valid_pi" in
         let valid_pi := fresh "valid_pi" in
         let pi_not_in_a := fresh "pi_not_in_a" in
         (* Proving that pi is a valid spath of (remove_anon a S),,, i |-> A *)
         pose proof (eval_place_valid _ _ _ _ Heval) as _valid_pi;
-        apply (eval_place_ToAbs _ _ _ _ _ _ a_valid fresh_i Hto_abs) in Heval;
+        apply (eval_place_ToAbs _ _ _ _ _ _ _ fresh_a fresh_i Hto_abs) in Heval;
         destruct Heval as (? & (-> & pi_not_in_abstraction & pi_not_in_a) & eval_p_in_Sl);
         (* We can then prove that pi is a valid spath of (remove_anon a S) *)
         pose proof (valid_spath_add_abstraction _ _ _ _ _valid_pi pi_not_in_abstraction) as valid_pi;
         clear _valid_pi
-  | a_valid : valid_spath ?S (anon_accessor ?a, _),
-    no_loan : not_contains_loan (?S.[(anon_accessor ?a, _)]),
-    Heval : (remove_anon ?a ?S) |-{p} ?p =>^{?perm} ?pi |- _ =>
+  | fresh_a : fresh_anon ?S ?a,
+    no_loan : not_contains_loan ?v,
+    Heval : ?S |-{p} ?p =>^{?perm} ?pi |- _ =>
         let valid_pi := fresh "valid_pi" in
         let pi_not_in_a := fresh "pi_not_in_a" in
         pose proof (eval_place_valid _ _ _ _ Heval) as valid_pi;
-        apply (eval_place_RemoveAnon _ _ _ _ a_valid no_loan) in Heval;
+        apply (eval_place_RemoveAnon _ _ _ _ _ fresh_a no_loan) in Heval;
         destruct Heval as (? & (-> & pi_not_a) & eval_p_in_Sl)
   (* Case MoveValue *)
   (* Preservation of place evaluation with permission Imm. *)
@@ -2133,11 +1922,11 @@ Ltac eval_place_preservation :=
         apply eval_place_change_anon_not_in_spath in H;[ | discriminate | assumption..];
         destruct H as (pi_l & ((-> & ?) & ?) & eval_p_in_Sl)
 
-  | get_A : lookup ?i (abstractions ?S) = Some ?A, get_B : lookup ?j (abstractions ?S) = Some ?B,
+  | fresh_i : fresh_abstraction ?S ?i, fresh_j : fresh_abstraction ?S ?j,
     Hmerge : merge_abstractions ?A ?B ?C, diff : ?i <> ?j,
-    Heval : (remove_abstraction ?i (remove_abstraction ?j ?S),,, ?i |-> ?C) |-{p} ?p =>^{?perm} ?pi_r
+    Heval : (?S,,, ?i |-> ?C) |-{p} ?p =>^{?perm} ?pi_r
     |- _ =>
-        apply (eval_place_MergeAbs _ _ _ _ _ _ _ _ get_A get_B Hmerge diff) in Heval;
+        apply (eval_place_MergeAbs _ _ _ _ _ _ _ _ fresh_i fresh_j Hmerge diff) in Heval;
         destruct Heval as (? & (-> & ? & ? & ?) & eval_p_in_Sl)
   (* Case Fresh_MutLoan *)
   | H : (?S.[?sp <- loan^m(?l)],, ?a |-> borrow^m(?l, ?S.[?sp])) |-{p} ?p =>^{?perm} ?pi |- _ =>
@@ -2158,12 +1947,6 @@ Proof. congruence. Qed.
 Hint Resolve fresh_anon_diff : spath.
 Hint Resolve<- fresh_anon_sset : spath.
 Hint Resolve anon_accessor_diff : spath.
-
-(* TODO: move *)
-Lemma get_abstraction_add_anon i S a v :
-  lookup i (abstractions (S,, a |-> v)) = lookup i (abstractions S).
-Proof. reflexivity. Qed.
-Hint Rewrite get_abstraction_add_anon : spath.
 
 (* Lemmas about add_anon. *)
 Lemma add_anons_insert S i A v S' :
@@ -2333,6 +2116,30 @@ Proof.
 Qed.
 Hint Rewrite get_abstraction_sset using assumption : spath.
 
+Ltac leq_step_left :=
+  let a := fresh "a" in
+  lazymatch goal with
+  |  |- ?leq_star (?vl, ?Sl,, ?b |-> ?w) ?vSr =>
+      eapply prove_leq_val_state_anon_left;
+        [eauto with spath |
+         intros a ? ? ?; eexists; split |
+        ]
+  (* When proving a goal `leq (vl, Sl) ?vSr`, using this tactic creates three subgoals:
+     1. leq_base (Sl,, a |-> v) ?vSm
+     2. ?vSm = ?Sm,, a |-> ?vm
+     3. leq (?vm, ?Sm) ?vSr *)
+  (* Note: the hypothesis that a is fresh in ?Sm creates problems.
+     Indeed, ?Sm is an existential and it can be accidently instantiated to a wrong value by
+     eauto. That's why we're removing this hypothesis.
+     TODO: remove it from the hypotheses of the lemma? *)
+  | |- ?leq_star (?vl, ?Sl) ?vSr =>
+      eapply prove_leq_val_state_left_to_right;
+        [intros a _ ?; eexists; split; [
+          repeat rewrite <-add_abstraction_add_anon |
+          ] |
+        ]
+  end.
+
 Lemma operand_preserves_LLBC_plus_rel op :
   forward_simulation leq_base^* leq_val_state_base^* (eval_operand op) (eval_operand op).
 Proof.
@@ -2348,7 +2155,7 @@ Proof.
     + execution_step. { constructor. }
       leq_step_left.
       { apply Leq_ToAbs with (a := a) (i := i) (A := A).
-        all: autorewrite with spath; try assumption; validity. }
+        all: autorewrite with spath; assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
@@ -2431,22 +2238,22 @@ Proof.
 
     (* Leq-ToAbs *)
     + eval_place_preservation.
-      autorewrite with spath in * |-.
-      execution_step. { apply Eval_move; eassumption. }
+      autorewrite with spath in *.
+      execution_step. { apply Eval_move. eassumption. all: autorewrite with spath; assumption. }
+      autorewrite with spath in *.
       leq_step_left.
-      { apply Leq_ToAbs with (a := a) (i := i); try validity.
-        autorewrite with spath. assumption. autorewrite with spath. eassumption. }
+      { apply Leq_ToAbs with (a := a) (i := i); [ | autorewrite with spath | ]; eauto with spath. }
       { autorewrite with spath. reflexivity. }
-      autorewrite with spath. reflexivity.
+      reflexivity.
 
     (* Leq-RemoveAnon *)
     + eval_place_preservation.
-      autorewrite with spath in * |-.
-      execution_step. { apply Eval_move; eassumption. }
-      leq_step_left.
-      { apply Leq_RemoveAnon with (a := a). validity. all: autorewrite with spath; assumption. }
-      { autorewrite with spath. reflexivity. }
-      autorewrite with spath. reflexivity.
+      execution_step. { apply Eval_move. eassumption. all: autorewrite with spath; eassumption. }
+      autorewrite with spath. leq_step_left.
+      { apply Leq_RemoveAnon with (a := a). eauto with spath.
+        all: autorewrite with spath; assumption. }
+      { reflexivity. }
+      reflexivity.
 
     (* Leq-MoveValue *)
     + eval_place_preservation.
@@ -2466,17 +2273,14 @@ Proof.
        { autorewrite with spath. reflexivity. }
       apply reflexive_eq. states_eq.
 
-
     (* Leq-MergeAbs *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
-      execution_step. { apply Eval_move; eassumption. }
-      leq_step_left.
-      { apply Leq_MergeAbs with (A := A) (B := B) (i := i) (j := j).
-        all: autorewrite with spath; eassumption. }
+      execution_step. { apply Eval_move. eassumption. all: autorewrite with spath; assumption. }
+      autorewrite with spath. leq_step_left.
+      { apply Leq_MergeAbs with (A := A) (B := B) (i := i) (j := j); eauto with spath. }
       { autorewrite with spath. reflexivity. }
-      autorewrite with spath. reflexivity.
-
+      reflexivity.
 
     (* Leq-Fresh-MutLoan *)
     + eval_place_preservation.
@@ -2561,18 +2365,18 @@ Notation abs_measure S := (map_sum (vweight (fun c => node_measure c)) S).
 Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_ToSymbolic_n S sp x :
     get_node (S.[sp]) = LLBC_plus_intC x -> leq_state_base_n 0 S (S.[sp <- LLBC_plus_symbolic])
-| Leq_ToAbs_n S a i A
-    (a_valid : valid_spath S (anon_accessor a, []))
+| Leq_ToAbs_n S a i v A
+    (fresh_a : fresh_anon S a)
     (fresh_i : fresh_abstraction S i)
-    (Hto_abs : to_abs (S.[(anon_accessor a, [])]) A) :
-    leq_state_base_n 0 S ((remove_anon a S),,, i |-> A)
+    (Hto_abs : to_abs v A) :
+    leq_state_base_n 0 (S,, a |-> v) (S,,, i |-> A)
 (* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
  * contain any loan or borrow, no region abstraction is created. *)
-| Leq_RemoveAnon_n S a
-    (a_valid : valid_spath S (anon_accessor a, []))
-    (no_loan : not_contains_loan (S.[(anon_accessor a, [])]))
-    (no_borrow : not_contains_borrow (S.[(anon_accessor a, [])])) :
-    leq_state_base_n (1 + vweight (fun c => node_measure c) (S.[(anon_accessor a, [])])) S (remove_anon a S)
+| Leq_RemoveAnon_n S a v
+    (fresh_a : fresh_anon S a)
+    (no_loan : not_contains_loan v)
+    (no_borrow : not_contains_borrow v) :
+    leq_state_base_n (1 + vweight (fun c => node_measure c) v) (S,, a |-> v) S
 | Leq_MoveValue_n S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
@@ -2580,11 +2384,10 @@ Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (Hnot_in_abstraction : not_in_abstraction sp) n :
     leq_state_base_n n S (S.[sp <- bot],, a |-> S.[sp])
 | Leq_MergeAbs_n S i j A B C
-    (get_A : lookup i (abstractions S) = Some A) (get_B : lookup j (abstractions S) = Some B)
+    (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
     (Hmerge : merge_abstractions A B C) :
-    i <> j ->
-    leq_state_base_n (abs_measure A + abs_measure B - abs_measure C + 2)
-      S (remove_abstraction i (remove_abstraction j S),,, i |-> C)
+    i <> j -> leq_state_base_n (abs_measure A + abs_measure B - abs_measure C + 2) 
+                                (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
 | Leq_Fresh_MutLoan_n S sp l a
     (fresh_l1 : is_fresh l S)
     (fresh_a : fresh_anon S a)
@@ -2614,34 +2417,13 @@ Lemma size_abstraction_add_anon S a v :
   size (abstractions (S,, a |-> v)) = size (abstractions S).
 Proof. reflexivity. Qed.
 
-Lemma abstractions_remove_anon S a : abstractions (remove_anon a S) = abstractions S.
-Proof. reflexivity. Qed.
-
 Lemma size_abstraction_add_abstraction S i A (H : fresh_abstraction S i) :
   size (abstractions (S,,, i |-> A)) = 1 + size (abstractions S).
 Proof. cbn. rewrite map_size_insert, H. reflexivity. Qed.
 
-Lemma size_abstraction_remove_abstraction S i (H : is_Some (lookup i (abstractions S))) :
-  (size (abstractions (remove_abstraction i S)))%Z = size (abstractions S) - 1.
-Proof. cbn. rewrite map_size_delete. destruct H as (? & ->). lia. Qed.
-
 Hint Rewrite size_abstractions_sset : weight.
 Hint Rewrite size_abstraction_add_anon : weight.
-Hint Rewrite abstractions_remove_anon : weight.
-Hint Rewrite size_abstraction_add_abstraction using assumption : weight.
-
-(* TODO: move up *)
-Lemma sweight_remove_anon f a S (H : valid_spath S (anon_accessor a, [])) :
-  (sweight f (remove_anon a S))%Z = sweight f S - vweight f (S.[(anon_accessor a, [])]).
-Proof.
-  unfold sget. destruct H as (? & H & _). rewrite H.
-  erewrite <-(add_anon_remove_anon S) at 2 by eassumption. autorewrite with weight. cbn. lia.
-Qed.
-Hint Rewrite sweight_remove_anon using assumption : weight.
-
-Lemma sweight_remove_abstraction f i S A (H : lookup i (abstractions S) = Some A) :
-  (sweight f (remove_abstraction i S))%Z = sweight f S - map_sum (vweight f) A.
-Proof. erewrite <-(add_remove_abstraction _ _ S) at 2 by exact H. autorewrite with weight. lia. Qed.
+Hint Rewrite size_abstraction_add_abstraction using auto with spath; fail : weight.
 
 Lemma leq_state_base_n_decreases n Sl Sr (H : leq_state_base_n n Sl Sr) :
   measure Sl < measure Sr + n.
@@ -2653,15 +2435,7 @@ Proof.
     + autorewrite with weight. destruct Hv; cbn; lia.
   - autorewrite with weight. cbn. lia.
   - autorewrite with weight. lia.
-  - autorewrite with weight. erewrite !sweight_remove_abstraction.
-    2: eassumption. 2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
-    rewrite size_abstraction_add_abstraction.
-    2: unfold remove_abstraction; cbn; simpl_map; reflexivity.
-    autorewrite with weight.
-    rewrite size_abstraction_remove_abstraction.
-    2: { eexists. unfold remove_abstraction. cbn. simpl_map. reflexivity. }
-    rewrite size_abstraction_remove_abstraction.
-    2: eexists; eassumption. unfold vsize. lia.
+  - autorewrite with weight. lia.
   - autorewrite with weight. lia.
   - weight_inequality.
     (* I don't want to prove that. *)
@@ -2705,6 +2479,7 @@ Proof.
 Qed.
 
 (* TODO: similar lemma for add_anon *)
+(*
 Lemma not_in_borrow_remove_anon S a sp (H : fst sp <> anon_accessor a) :
   not_in_borrow (remove_anon a S) sp <-> not_in_borrow S sp.
 Proof.
@@ -2714,9 +2489,10 @@ Proof.
   - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
     autorewrite with spath in *. assumption.
 Qed.
+ *)
 
 Hint Resolve-> not_in_borrow_add_abstraction : spath.
-Hint Resolve-> not_in_borrow_remove_anon : spath.
+(*Hint Resolve-> not_in_borrow_remove_anon : spath.*)
 
 Lemma remove_loans_elem_right A B A' B' i :
   remove_loans A B A' B' ->
@@ -2757,15 +2533,12 @@ Qed.
 Lemma leq_n_by_equivalence n S S' : equiv_states S S' -> leq_n n S S'.
 Proof. intros ?. exists S. split; [reflexivity | assumption]. Qed.
 
-Lemma rename_anon_equivalence S a p b :
-  valid_spath S (anon_accessor a, p) -> fresh_anon (remove_anon a S) b ->
-  equiv_states S (remove_anon a S,, b |-> S.[(anon_accessor a, [])]).
+Lemma add_anon_equivalence S a b v :
+  fresh_anon S a -> fresh_anon S b -> equiv_states (S,, a |-> v) (S,, b |-> v).
 Proof.
-  intros (v & H & _) fresh_b. rewrite fst_pair in H. apply equiv_states_perm. split; [ | split].
+  intros fresh_a fresh_b. apply equiv_states_perm. split; [ | split].
   - reflexivity.
-  - unfold sget. rewrite fst_pair, H. apply equiv_map_rename_index.
-    + unfold fresh_anon in fresh_b. rewrite get_at_anon in fresh_b. exact fresh_b.
-    + rewrite get_at_anon in H. exact H.
+  - cbn. apply equiv_map_insert; [reflexivity | | ]; rewrite <-get_at_anon; assumption.
   - intros ?. reflexivity.
 Qed.
 
@@ -2804,10 +2577,10 @@ Qed.
  * borrows that are in B \ B', and the corresponding loans in A \ A'.
  * TODO: explain the add_anonymous_bots operation. *)
 Lemma end_removed_loans S0 S0_anons i A B A' B'
-  (H : remove_loans A B A' B') (get_A : lookup i (abstractions S0) = Some A) :
-  add_anons S0 B S0_anons ->
+  (H : remove_loans A B A' B') (fresh_i : fresh_abstraction S0 i) :
+  add_anons (S0,,, i |-> A) B S0_anons ->
   exists n S1,
-    add_anonymous_bots n (remove_abstraction i S0) S1 /\
+    add_anonymous_bots n S0 S1 /\
     2 * n <= abs_measure A + abs_measure B - abs_measure A' - abs_measure B' /\
     exists S1_anons, reorg^* S0_anons S1_anons /\
                      add_anons (S1,,, i |-> A') B' S1_anons.
@@ -2816,9 +2589,7 @@ Proof.
   - eexists 0, _. repeat split.
     + constructor.
     + apply le_0_n.
-    + exists S0_anons. split.
-      * reflexivity.
-      * rewrite add_remove_abstraction by assumption. assumption.
+    + exists S0_anons; easy.
   - clear Hadd_anons.
     destruct IH as (n & S1 & ? & ? & S1_anons & ? & Hadd_anons).
     eapply add_anons_delete in Hadd_anons; [ | eassumption].
@@ -2845,10 +2616,10 @@ Proof.
           autorewrite with spath. reflexivity.
         - erewrite add_anons_sget. 2: eassumption.
           (* TODO: automatize *)
-          2: { apply valid_spath_anon. cbn. econstructor. reflexivity. constructor. }
+          2: { apply valid_spath_anon. econstructor. reflexivity. constructor. }
           autorewrite with spath. constructor.
-        - intros ? ?. eauto with spath. (* TODO: make a lemma *)
-        - intros ? (? & ?). inversion H2. (* TODO: make a lemma. *) }
+        - intros ? ?. eauto with spath.
+        - intros ? (? & ?). inversion H2. }
     eapply prove_add_anons. eexists. split.
     { apply add_anons_sset. apply add_anons_remove_abstraction_value. eassumption.
       eauto with spath. }
@@ -2889,11 +2660,29 @@ Proof.
   - reflexivity.
   - intros m ?. replace m with (2 + (m - 2)) by lia. eapply MC_trans.
     + constructor.
-      (* When I finally get rid of remove_anon this horrible line is going to disappear. *)
-      replace 2 with (1 + vweight (fun c => node_measure c) ((S',, a |-> bot).[(anon_accessor a, [])])) by now autorewrite with spath.
+      replace 2 with (1 + vweight (fun c => node_measure c) bot) by reflexivity.
       apply Leq_RemoveAnon_n; autorewrite with spath.
-      validity. unfold not_contains_loan. not_contains. unfold not_contains_borrow. not_contains.
-    + rewrite remove_anon_add_anon by assumption. apply IHadd_anonymous_bots. lia.
+      assumption. unfold not_contains_loan. not_contains. unfold not_contains_borrow. not_contains.
+    + apply IHadd_anonymous_bots. lia.
+Qed.
+
+Lemma eq_add_abstraction S i A S' j B (H : S,,, i |-> A = S',,, j |-> B)
+  (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S' j) :
+  (i = j /\ S = S' /\ A = B) \/ (i <> j /\ exists S0, S = S0,,, j |-> B /\ S' = S0,,, i |-> A).
+Proof.
+  destruct (decide (i = j)) as [<- | ].
+  - left. split; [reflexivity | ]. split.
+    + destruct S, S'. unfold add_abstraction in H. cbn in * |-. f_equal; [congruence.. | ].
+      apply (f_equal abstractions) in H. apply (f_equal (delete i)) in H. cbn in H.
+      rewrite !delete_insert in H by assumption. exact H.
+    + apply (f_equal abstractions), (f_equal (lookup i)) in H. cbn in H. simpl_map. congruence.
+  - right. split; [assumption | ]. exists (remove_abstraction j S). split.
+    + symmetry. apply add_remove_abstraction.
+      apply (f_equal (remove_abstraction i)) in H.
+      rewrite remove_add_abstraction in H by assumption. rewrite H. cbn. simpl_map. reflexivity.
+    + apply (f_equal (remove_abstraction j)) in H.
+      rewrite remove_add_abstraction in H by assumption.
+      rewrite <-remove_add_abstraction_ne; congruence.
 Qed.
 
 Lemma reorg_local_preservation n :
@@ -2930,12 +2719,8 @@ Proof.
   - intros ? Hleq. destruct Hleq.
     + admit.
     (* Case Leq_ToAbs_n: *)
-    + (* TODO: automatize *)
-      assert (fst q <> anon_accessor a).
-      { eapply valid_spath_diff_fresh_anon with (S := remove_anon a S,,, i |-> A).
-        unfold fresh_anon. rewrite get_at_anon. unfold remove_anon, add_abstraction. cbn. simpl_map. reflexivity. validity. }
-      autorewrite with spath in *.
-      remember (S.[(anon_accessor a, [])]) as v. destruct Hto_abs.
+    + autorewrite with spath in * |-.
+      destruct Hto_abs.
       * destruct (decide (i' = i)) as [<- | ].
         -- (* The loan that we remove can only be the one at position 2 in A, with identifier l1. *)
            rewrite get_at_abstraction in H0. cbn in H0. simpl_map. cbn in H0.
@@ -2945,21 +2730,22 @@ Proof.
              inversion H0. auto. }
            reorg_step.
            { eapply Reorg_end_borrow_m with (p := (anon_accessor a, []) +++ [0]) (q := q).
-             left. cbn. auto.
-             rewrite sget_app, <-Heqv. reflexivity. assumption.
-             inversion H2; unfold not_contains_loan; not_contains.
-             (* Note: this takes time. It could be more effective to perform rewrites in H3. *)
              eauto with spath.
+             autorewrite with spath. reflexivity.
+             autorewrite with spath. assumption.
+             autorewrite with spath. (* TODO: lemma *) inversion H2; unfold not_contains_loan; not_contains.
+             rewrite not_in_borrow_add_abstraction in H3 by eauto with spath.
+             apply no_ancestor_add_anon; auto with spath.
              eapply anon_not_in_abstraction. reflexivity.
              assumption. }
            reorg_done.
+           autorewrite with spath.
            eapply leq_n_step.
-           { apply Leq_ToAbs_n with (i := i') (a := a). validity. eauto with spath.
-             autorewrite with spath. rewrite <-Heqv. cbn. constructor. assumption. }
+           { apply Leq_ToAbs_n with (i := i') (a := a). eauto with spath. eauto with spath.
+             cbn. constructor. assumption. }
            { easy. }
-           apply reflexive_eq. autorewrite with spath.
-           rewrite delete_insert_ne, delete_singleton by congruence.
-           autorewrite with spath. reflexivity.
+           apply reflexive_eq.
+           rewrite delete_insert_ne, delete_singleton by congruence. reflexivity.
         -- admit.
       * admit.
     + admit.
@@ -2971,23 +2757,19 @@ Proof.
     + admit.
 
   (* Case Reorg_end_abstraction: *)
-  - intros ? Hleq. destruct Hleq.
+  - intros ? Hleq. remember (S,,, i' |-> A') eqn:EQN. destruct Hleq.
     (* Case Leq_ToSymbolic *)
     + admit.
     (* Case Leq_ToAbs *)
-    + destruct (decide (i' = i)) as [<- | ].
-      * cbn in get_A'. simpl_map. inversion get_A'. subst.
-        remember (S .[ (anon_accessor a, [])]) as v eqn: Heqv. destruct Hto_abs.
+    + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
+      * destruct EQN as (<- & -> & <-). destruct Hto_abs.
         (* First case: a reborrow is turned into a region. But we can't end a region that
          * contains a loan. We eliminate this case by contradiction. *)
         -- exfalso. rewrite map_Forall_lookup in A_no_loans.
            eapply A_no_loans with (i := 2%positive).
            simpl_map. reflexivity. constructor. constructor.
        (* On one side we turn the anonymous binding *)
-        -- apply add_anons_singleton in Hadd_anons. destruct Hadd_anons as (b & _fresh_b & ->).
-           (* TODO: make a lemma or automatize this reasonning. *)
-           assert (fresh_b : fresh_anon (remove_anon a S) b).
-           { unfold fresh_anon in *. rewrite get_at_anon in *. exact _fresh_b. }
+        -- apply add_anons_singleton in Hadd_anons. destruct Hadd_anons as (b & fresh_b & ->).
            (* If v is an integer, we must perform an extra relation step to turn it into a
             * symbolic value. Because when we end the region A, the anonymous binding introduced
             * is a symbolic value. *)
@@ -2996,38 +2778,26 @@ Proof.
               (* After reorganization, the borrow is introduced in an anonymous variable `b` that
                * can be different than the anonymous variable `a` that were turned into a
                * region. However, the states when we add a borrow in a and b are equivalent. *)
-              apply leq_n_by_equivalence. etransitivity.
-              { eapply rename_anon_equivalence with (b := b); eassumption. }
-              apply reflexive_eq. rewrite remove_add_abstraction, Heqv by assumption.
-              reflexivity.
+              now apply leq_n_by_equivalence, add_anon_equivalence.
            ++ reorg_done.
               eapply leq_n_step.
               { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
-                rewrite sget_app, <-Heqv. reflexivity. }
+                autorewrite with spath. reflexivity. }
               { easy. }
-              apply leq_n_by_equivalence. etransitivity.
-              { eapply rename_anon_equivalence with (b := b).
-                 validity. autorewrite with spath. assumption. }
-              apply reflexive_eq.
-              rewrite remove_add_abstraction by assumption.
-              autorewrite with spath. (* TODO: LONG *)
-              rewrite <-Heqv. reflexivity.
+               autorewrite with spath. now apply leq_n_by_equivalence, add_anon_equivalence.
       * admit. (* separation *)
     + admit.
     + admit.
-    + destruct (decide (i' = i)) as [-> | ].
-      * unfold add_abstraction in get_A'. cbn in get_A'. simpl_map.
-        replace A' with C in * by congruence. clear A' get_A'.
+    + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
+      * destruct EQN as (<- & -> & <-).
         assert (map_Forall (λ _ : positive, not_contains_loan) B) by eauto using merge_no_loan.
         destruct Hmerge as (A' & B' & Hremove_loans & union_A'_B').
-        destruct (exists_add_anon (remove_abstraction j S) B) as (Sl1 & HSl1).
+        destruct (exists_add_anon (S,,, i |-> A) B) as (Sl1 & HSl1).
         (* Ending the region B: *)
         reorg_step.
-        { eapply Reorg_end_abstraction. exact get_B. assumption. exact HSl1. }
+        { eapply Reorg_end_abstraction. eauto with spath. assumption. exact HSl1. }
         eapply end_removed_loans with (i := i) in Hremove_loans;
-          [ | | exact HSl1].
-        (* TODO: lemma *)
-        2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
+          [ | exact fresh_i | exact HSl1].
         destruct Hremove_loans as (n & Sbots & Hadd_bots & Hn & _Sl2 & reorg_Sl2 & Hadd_anons_Sl2).
         (* Ending all the borrows in the difference between B and B': *)
         reorg_steps. { exact reorg_Sl2. }
@@ -3037,22 +2807,18 @@ Proof.
         (* Ending the region A: *)
         reorg_step.
         { eapply Reorg_end_abstraction with (i' := i) (A' := A').
-           unfold add_abstraction. cbn. simpl_map. reflexivity.
+          (* TODO: automatic resolution *)
+          eapply add_anons_fresh_abstraction. eassumption.
+          eapply add_anonymous_bots_fresh_abstraction. eassumption. assumption.
            (* TODO: lemma *)
            intros ? ? G. eapply union_contains_left in G; [ | exact union_A'_B'].
-           eapply A_no_loans. eassumption.
-           rewrite remove_add_abstraction. exact HSl3.
-           eapply add_anons_fresh_abstraction; [eassumption | ].
-           eapply add_anonymous_bots_fresh_abstraction; [eassumption | ].
-           unfold remove_abstraction. cbn. simpl_map. reflexivity. }
+           eapply A_no_loans. eassumption. eassumption. }
         reorg_done.
 
         edestruct commute_add_anonymous_bots_anons as (Sl1' & Hadd_anons_Sl1' & Hadd_bots_Sl2);
           [exact Hadd_bots | exact Hadd_anons_Sl2 | ].
         edestruct commute_add_anonymous_bots_anons as (Sl2' & Hadd_anons_Sl2' & Hadd_bots_Sl3);
           [exact Hadd_bots_Sl2 | exact HSl3 | ].
-        rewrite remove_add_abstraction in Hadd_anons.
-        2: { unfold remove_abstraction. cbn. simpl_map. reflexivity. }
         eexists. split.
         { eapply leq_n_add_anonymous_bots; [eassumption | ].
           eapply map_sum_union_maps in union_A'_B'. rewrite union_A'_B'. lia. }
@@ -3150,10 +2916,6 @@ Proof.
   - left. intros p ->%valid_vpath_no_children; assumption.
 Defined.
 
-(* TODO: move in base.v *)
-Lemma nth_error_singleton {A} (a b : A) i : nth_error [a] i = Some b -> a = b /\ i = 0.
-Proof. destruct i; cbn; rewrite ?nth_error_nil; split; congruence. Qed.
-
 Lemma decidable_not_value_contains_unary P (P_dec : forall n, Decision (P n)) v w :
   children v = [w] -> Decision (not_value_contains P w) -> Decision (not_value_contains P v).
 Proof.
@@ -3185,22 +2947,11 @@ Proof. destruct v; first [left; easy | right; easy]. Defined.
 Instance LLBC_plus_val_EqDec : EqDecision LLBC_plus_nodes.
 Proof. intros ? ?. unfold Decision. repeat decide equality. Defined.
 
-(* TODO: move in PathToSubtree.v *)
-Lemma not_state_contains_map_Forall S P :
-  not_state_contains P S <-> map_Forall (fun _ => not_value_contains P) (get_map S).
-Proof.
-  split.
-  - intros H i ? get_i p valid_p ?. eapply (H (i, p)). eexists. split; eassumption.
-    unfold sget. replace (fst (i, p)) with i by reflexivity. rewrite get_i. assumption.
-  - intros H p (? & G & ?) P_p. eapply H. eassumption. eassumption. unfold sget in P_p.
-    rewrite G in P_p. exact P_p.
-Qed.
-
 Instance decide_not_state_contains P `(forall v, Decision (P v)) S :
   Decision (not_state_contains P S).
 Proof.
   destruct (decide (map_Forall (fun _ => not_value_contains P) (get_map S)));
-    rewrite <-not_state_contains_map_Forall in * |-; [left | right]; assumption.
+  rewrite <-not_state_contains_map_Forall in * |-; [left | right]; assumption.
 Defined.
 
 (* Note: an alternative to using tactics is to define functions, and prove their correction. *)
@@ -3209,6 +2960,29 @@ Defined.
    - Leaves the evaluation of pi0 under the path P[] as a goal. *)
 Ltac eval_var :=
   split; [eexists; split; [reflexivity | constructor] | ].
+
+Definition remove_anon a S :=
+  {| vars := vars S; anons := delete a (anons S); abstractions := abstractions S|}.
+
+Ltac remove_abstraction i :=
+  lazymatch goal with
+  | |- ?leq_star ?S _ =>
+      erewrite<- (add_remove_abstraction i _ S) by reflexivity;
+      rewrite ?remove_add_abstraction_ne by congruence
+  end.
+
+Lemma add_anon_remove_anon S a v :
+  lookup (anon_accessor a) (get_map S) = Some v -> (remove_anon a S),, a |-> v = S.
+Proof.
+  intros ?. destruct S. unfold add_anon, remove_anon. cbn. f_equal.
+  apply insert_delete. revert H.
+  cbn. unfold encode_anon. rewrite sum_maps_lookup_l, sum_maps_lookup_r. auto.
+Qed.
+
+Ltac remove_anon a :=
+  lazymatch goal with
+  | |- ?leq_star ?S _ => erewrite<- (add_anon_remove_anon S a) by reflexivity
+  end.
 
 Section Eval_LLBC_plus_program.
   Hint Rewrite (@alter_insert _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
@@ -3253,7 +3027,9 @@ Section Eval_LLBC_plus_program.
           [compute_done.. | reflexivity]. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate]. econstructor. eexists. split. constructor.
+      { remove_abstraction 1%positive. remove_abstraction 2%positive.
+        eapply Leq_MergeAbs; [reflexivity.. | | discriminate].
+        econstructor. eexists. split. constructor.
         eapply UnionInsert with (j := 3%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
@@ -3261,8 +3037,7 @@ Section Eval_LLBC_plus_program.
       { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_RemoveAnon with (a := 1%positive).
-        econstructor; split; [reflexivity | constructor]. all: compute_done. }
+      { remove_anon 1%positive. apply Leq_RemoveAnon. all: compute_done. }
       simpl_state. reflexivity.
     - apply equiv_states_perm. split; [ | split]; try reflexivity.
       apply map_Forall2_singleton. rewrite equiv_map_alt.
@@ -3292,7 +3067,8 @@ Section Eval_LLBC_plus_program.
           [compute_done.. | reflexivity]. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_MergeAbs with (i := 1%positive) (j := 2%positive); [reflexivity.. | | discriminate].
+      { remove_abstraction 1%positive. remove_abstraction 2%positive.
+        apply Leq_MergeAbs; [reflexivity.. | | discriminate].
         econstructor. eexists. split. constructor.
         eapply UnionInsert with (j := 3%positive); [reflexivity.. | ].
         apply UnionEmpty. }
@@ -3301,8 +3077,7 @@ Section Eval_LLBC_plus_program.
       { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
       simpl_state.
       etransitivity; [constructor | ].
-      { eapply Leq_RemoveAnon with (a := 1%positive).
-        econstructor. split; [reflexivity | constructor]. all: compute_done. }
+      { remove_anon 1%positive. apply Leq_RemoveAnon. all: compute_done. }
       simpl_state. reflexivity.
     - apply equiv_states_perm. split; [ | split]; try reflexivity.
       apply map_Forall2_singleton. rewrite equiv_map_alt.
@@ -3341,7 +3116,8 @@ Section Eval_LLBC_plus_program.
         - eapply var_not_in_abstraction. reflexivity. }
       simpl_state. etransitivity.
       (* ... so that we could end the region abstraction ... *)
-      { constructor. eapply Reorg_end_abstraction with (i' := 1%positive).
+      { constructor.
+        remove_abstraction 1%positive. apply Reorg_end_abstraction.
         - reflexivity.
         - compute_done.
         - constructor. cbn. apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
