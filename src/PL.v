@@ -646,8 +646,7 @@ Section Concretization.
         destruct H as [addr [t [vl [Hequiv [Hconcr_val Hval_heap] ] ] ] ].
         inversion Hconcr_val ; subst v0 v1 t vl.
         rewrite lookup_heap_pair_app in H3.
-        pose proof (concr_val_size _ _ _ H4) as Hsize_t0.
-        pose proof (concr_val_size _ _ _ H5) as Hsize_t1.
+        apply concr_val_size in H4 as Hsize_t0, H5 as Hsize_t1.
         assert (Hlen_fst : length (lookup_heap_at_addr addr t0 Spl) <= sizeof t0) by (apply lookup_heap_length_le_size).
         assert (Hlen_snd : length (lookup_heap_at_addr (addr +o sizeof t0) t1 Spl) <= sizeof t1)
           by (apply lookup_heap_length_le_size).
@@ -901,6 +900,19 @@ Notation "S .[ p ]l" := (sget_l p S) (left associativity, at level 50).
                **** rewrite nth_error_nil in HS_sp. congruence.
   Qed.
 
+  Lemma v_equiv_l_read :
+    forall v vp lvp,
+      vpath_lvpath_equiv v vp lvp -> v.[[ vp ]] = v.[[ lvp ]]l.
+  Proof. intros v vp lvp Hequiv. induction Hequiv ; auto. Qed.
+
+  Lemma s_equiv_l_read :
+    forall S sp lsp,
+      spath_lspath_equiv S sp lsp -> S.[sp] = S.[lsp]l.
+  Proof. 
+    intros S sp lsp [Heq [v [Haccess Hequiv] ] ].
+    unfold sget, sget_l. rewrite <- Heq, Haccess. apply v_equiv_l_read ; auto.
+  Qed.
+
   Lemma vget_implies_exists_lvp :
     forall vp v,
       v.[[vp]] <> bot -> exists lvp, vpath_lvpath_equiv v vp lvp.
@@ -940,6 +952,26 @@ Notation "S .[ p ]l" := (sget_l p S) (left associativity, at level 50).
       contradiction.
   Qed.
 
+  Lemma v_backward_proj_l_First :
+    forall v v0 v1 vp lvp,
+      v.[[ vp ]] = HLPL_pair v0 v1 ->
+      vpath_lvpath_equiv v vp lvp ->
+      vpath_lvpath_equiv v (vp ++ [0]) (lvp ++ [LFirst]).
+  Proof.
+    intros v v0 v1 vp lvp Hpair Hequiv.
+    induction Hequiv ; simpl in * ; subst ; repeat constructor ; auto.
+    Qed.
+
+  Lemma v_backward_proj_l_Second :
+    forall v v0 v1 vp lvp,
+      v.[[ vp ]] = HLPL_pair v0 v1 ->
+      vpath_lvpath_equiv v vp lvp ->
+      vpath_lvpath_equiv v (vp ++ [1]) (lvp ++ [LSecond]).
+  Proof.
+    intros v v0 v1 vp lvp Hpair Hequiv.
+    induction Hequiv ; simpl in * ; subst ; repeat constructor ; auto.
+    Qed.
+
   Lemma proj_spath_lspath_commute :
     forall S perm sp sp' lsp proj,
       spath_lspath_equiv S sp lsp ->
@@ -950,23 +982,26 @@ Notation "S .[ p ]l" := (sget_l p S) (left associativity, at level 50).
     intros S perm sp sp' lsp proj Hequiv Hproj.
     remember sp.2 as vp. remember lsp.2 as lvp.
     inversion Hproj ; subst.
-    - assert (H : exists lsp', S.[lsp']l = S.[sp']).
-      { eapply sget_implies_sget_l. reflexivity. destruct (S.[sp']) ; auto. }.
-      destruct H as [lsp' HS_lsp'].
-      exists lsp' ; split.
-      * pose proof (sget_sget_l_equiv _ _ _ Hequiv) as HS_lsp.
-        econstructor.
-        ** apply Hperm.
-        ** rewrite <- HS_lsp. eauto.
-        ** rewrite HS_lsp'. eauto.
-      * split. admit.
-    - exists (lsp +++l [LFirst]). split.
-      * constructor.
-      * constructor.
-        ** admit.
-        ** admit.
-    - 
-    
+    - assert (H : exists lsp', spath_lspath_equiv S sp' lsp').
+      { eapply sget_implies_exists_l. destruct (S.[sp']) eqn:E ; auto. } 
+      destruct H as [lsp' Hequiv'].
+      apply s_equiv_l_read in Hequiv as HS_sp, Hequiv' as HS_sp'.
+      exists lsp' ; split ; auto.
+      apply Eval_Deref_Ptr_Locs with (l := l) (perm := perm) ; congruence.
+    - destruct Hequiv as [Heq [v [Haccess Hequiv] ] ].
+      exists (lsp +++l [LFirst]) ; split ; constructor ; auto.
+      exists v ; split ; auto.
+      unfold sget in get_q ; rewrite Haccess in get_q ;
+        destruct (v.[[ sp.2 ]]) eqn:E' ; simpl in get_q ; try congruence.
+      eapply v_backward_proj_l_First ; eauto.
+    - destruct Hequiv as [Heq [v [Haccess Hequiv] ] ].
+      exists (lsp +++l [LSecond]) ; split ; constructor ; auto.
+      exists v ; split ; auto.
+      unfold sget in get_q ; rewrite Haccess in get_q ; 
+        destruct (v.[[ sp.2 ]]) eqn:E' ; simpl in get_q ; try congruence.
+      eapply v_backward_proj_l_Second ; eauto.
+  Qed.
+
 
 End Concretization.
 
