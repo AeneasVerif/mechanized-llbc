@@ -143,7 +143,7 @@ Variant write (S : PL_state) (p : place) (t : type) (vl : pl_val)
 
 
 (* Evaluation of Expressions in PL *)
-Local Reserved Notation "S  |-{op-pl}  op  =>  r" (at level 60).
+Reserved Notation "S  |-{op-pl}  op  =>  r" (at level 60).
 Variant eval_operand : operand -> PL_state -> pl_val -> Prop :=
 | Eval_IntConst S t n :
   S |-{op-pl} IntConst t n => [PL_int n]
@@ -155,7 +155,7 @@ Variant eval_operand : operand -> PL_state -> pl_val -> Prop :=
   S |-{op-pl} Move t p => vl
 where "S |-{op-pl} op => r" := (eval_operand op S r).
 
-Local Reserved Notation "S  |-{rv-pl}  rv =>  r" (at level 60).
+Reserved Notation "S  |-{rv-pl}  rv =>  r" (at level 60).
 Variant eval_rvalue: rvalue -> PL_state -> pl_val -> Prop :=
 | Eval_just S t op vl
   (Hop : S |-{op-pl} op => vl) :
@@ -445,7 +445,9 @@ Section Concretization.
     Forall2 le_val b1 b2.
 
   Definition le_heap (h1 h2: Pmap pl_val) : Prop :=
-    forall bi, exists b1 b2, h1 !! bi = Some b1 /\ h2 !! bi = Some b2 /\ le_block b1 b2.
+    forall bi b1 b2,
+      (h1 !! bi = Some b1 \/ h2 !! bi = Some b2) ->
+        h1 !! bi = Some b1 /\ h2 !! bi = Some b2 /\ le_block b1 b2.
 
   Definition le_pl_state (Spl1 Spl2 : PL_state) : Prop :=
     env Spl1 = env Spl2 /\ le_heap (heap Spl1) (heap Spl2).
@@ -941,7 +943,7 @@ Notation "S .[ p ]l" := (sget_l p S) (left associativity, at level 50).
       assert (Hbot : v.[[ [a] ]] <> bot).
       { destruct (v.[[ [a] ]]) eqn:E ; auto. 
         replace HLPL_bot with bot in Hbot_vp by auto. rewrite vget_bot in Hbot_vp.
-        contradiction. }.
+        contradiction. }
       destruct (IHvp (v.[[ [a] ]]) Hbot_vp) as [lvp Hequiv].
       destruct v ; destruct a as [ | a'] ; try destruct a' ;
         try contradiction ; simpl in *.
@@ -1026,39 +1028,42 @@ Notation "S .[ p ]l" := (sget_l p S) (left associativity, at level 50).
         le_block (lookup_heap_at_addr addr t S1) (lookup_heap_at_addr addr t S2).
   Proof.
     intros S1 S2 addr t Hle_heap.
-    unfold lookup_heap_at_addr. specialize (Hle_heap addr.1).
-    destruct Hle_heap as [b1 [b2 [ Hb1 [Hb2 Hle_block ] ] ] ].
-    
-
-  Lemma HLPL_PL_Read :
-    forall S Spl perm p sp addr v t,
-      eval_place S perm p sp ->
-      le_pl_hlpl Spl S ->
-      addr_spath_equiv S addr t sp ->
-      S.[sp] = v ->
-      exists vl, 
-        lookup_heap_at_addr addr t Spl = vl /\
-          forall vl',
-            concr_hlpl_val v t vl' -> le_block vl vl'.
-  Proof.
-    intros S Spl perm p sp addr v t
-      [Hvalid Hpath] [Spl' [HComp [Hconcr [Hle_env Hle_heap] ] ] ] Hequiv HS_sp.
-    assert (Hbot : v <> bot) by admit.
-    destruct
-      (state_concr_implies_val_concr_at_addr _ _ _ _ _ _ Hconcr HS_sp Hbot Hequiv) as
-      [vl [ Hconcr_val Hlu] ].
-    exists (lookup_heap_at_addr addr t Spl) ; split ; auto.
-    intros vl' Hvl'.
-    apply le_heap_implies_le_block with (addr := addr) (t := t) in Hle_heap.
-    apply concr_val_implies_concr_val_comp in Hconcr_val, Hvl'.
-    rewrite Hconcr_val in Hvl' ; injection Hvl' ; intros ; subst ; auto.
-  Admitted.
-
-    
-    inversion Hvl' ; subst.
-    * inversion Hconcr_val ; subst ; try congruence.
+    unfold lookup_heap_at_addr. 
+    destruct (heap S1 !! addr.1) eqn:E1; destruct (heap S2 !! addr.1) eqn:E2.
+    - destruct (Hle_heap addr.1 l l0 (or_introl E1)) as [_ [_ Hblock] ].
+      apply Forall2_take, Forall2_drop, Hblock.
+    - destruct (Hle_heap addr.1 l l (or_introl E1)) as [_ [HS2 _] ].
+      unfold "!!" in * ; congruence.
+    - destruct (Hle_heap addr.1 l l (or_intror E2)) as [HS1 [_ _] ].
+      unfold "!!" in * ; congruence.
+    - unfold le_block. constructor.
+  Qed.
       
 End Concretization.
+
+Lemma HLPL_PL_Read :
+  forall blockof addrof S Spl perm p sp addr v t,
+    eval_place S perm p sp ->
+    le_pl_hlpl blockof addrof Spl S ->
+    addr_spath_equiv blockof S addr t sp ->
+    S.[sp] = v ->
+    v <> bot ->
+    exists vl, 
+      lookup_heap_at_addr addr t Spl = vl /\
+        forall vl',
+          concr_hlpl_val addrof v t vl' -> le_block vl vl'.
+Proof.
+  intros bo ao S Spl perm p sp addr v t
+    [Hvalid Hpath] [Spl' [HComp [Hconcr [Hle_env Hle_heap] ] ] ] Hequiv HS_sp Hbot.
+  destruct
+    (state_concr_implies_val_concr_at_addr bo ao _ _ _ _ _ _ Hconcr HS_sp Hbot Hequiv)
+    as [vl [ Hconcr_val Hlu] ].
+  exists (lookup_heap_at_addr addr t Spl) ; split ; auto.
+  intros vl' Hvl'.
+  apply le_heap_implies_le_block with (addr := addr) (t := t) in Hle_heap.
+  apply concr_val_implies_concr_val_comp in Hconcr_val, Hvl'.
+  rewrite Hconcr_val in Hvl' ; injection Hvl' ; intros ; subst ; auto.
+Qed.
 
 
 Section Tests.

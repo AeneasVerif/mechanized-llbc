@@ -253,7 +253,7 @@ Definition eval_place S perm (p : place) pi :=
   let pi_0 := (encode_var (fst p), []) in
   valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_var (fst p), []) pi.
 
-Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
+Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
 Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
 Proof.
@@ -318,7 +318,7 @@ Inductive copy_val : HLPL_val -> HLPL_val -> Prop :=
 | Copy_pair v1 v1' v2 v2' (H1 : copy_val v1 v1') (H2 : copy_val v2 v2') :
   copy_val (HLPL_pair v1 v2) (HLPL_pair v1' v2').
 
-Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
+Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
   | Eval_IntConst S n :
@@ -332,7 +332,7 @@ Variant eval_operand : operand -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop 
     S |-{op} Move t p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
-Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
+Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
   | Eval_just t op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just t op) => vS'
