@@ -539,6 +539,10 @@ Lemma fresh_abstraction_add_abstraction S i j A :
 Proof. unfold fresh_abstraction, add_abstraction. cbn. intros. simpl_map. assumption. Qed.
 Hint Resolve fresh_abstraction_add_abstraction : spath.
 
+Lemma fresh_abstraction_add_abstraction_rev S i j A :
+  fresh_abstraction (S,,, i |-> A) j -> fresh_abstraction S j /\ i <> j.
+Proof. unfold fresh_abstraction, add_abstraction. cbn. now rewrite lookup_insert_None. Qed.
+
 Lemma fresh_abstraction_sset S p v i :
   fresh_abstraction S i <-> fresh_abstraction (S.[p <- v]) i.
 Proof.
@@ -2049,6 +2053,16 @@ Proof.
     eexists.  split; [eassumption | ]. econstructor; eassumption.
 Qed.
 
+(* TODO: name *)
+Lemma add_anons_add_abstraction' S A B S' i :
+  add_anons S A S' -> add_anons (S,,, i |-> B) A (S',,, i |-> B).
+Proof.
+  setoid_rewrite add_anons_alt. induction 1.
+  - constructor.
+  - autorewrite with spath in * |-. econstructor; [assumption | | eassumption].
+    eauto with spath.
+Qed.
+
 Lemma add_anons_remove_abstraction_value S A S' i j :
   add_anons S A S' ->
   add_anons (remove_abstraction_value S i j) A (remove_abstraction_value S' i j).
@@ -2066,6 +2080,7 @@ Proof.
   - auto.
   - rewrite <-fresh_abstraction_add_anon in * |-. assumption.
 Qed.
+Hint Resolve add_anons_fresh_abstraction : spath.
 
 (* Note: this could be made into a tactic. *)
 Lemma prove_add_anons S0 A S1 :
@@ -2557,6 +2572,7 @@ Inductive add_anonymous_bots : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop
 Lemma add_anonymous_bots_fresh_abstraction n S S' i :
   add_anonymous_bots n S S' -> fresh_abstraction S i -> fresh_abstraction S' i.
 Proof. induction 1; eauto with spath. Qed.
+Hint Resolve add_anonymous_bots_fresh_abstraction : spath.
 
 Lemma abs_measure_remove_loans A B A' B' :
   remove_loans A B A' B' -> abs_measure A' <= abs_measure A /\ abs_measure B' <= abs_measure B.
@@ -2685,6 +2701,11 @@ Proof.
       rewrite <-remove_add_abstraction_ne; congruence.
 Qed.
 
+(* TODO: move *)
+Lemma add_abstraction_commute S i j A B :
+  i <> j -> S,,, i |-> A,,, j |-> B = S,,, j |-> B,,, i |-> A.
+Proof. intros ?. unfold add_abstraction. cbn. f_equal. apply insert_commute. congruence. Qed.
+
 Lemma reorg_local_preservation n :
   forward_simulation (leq_state_base_n n) (leq_n n) reorg reorg^*.
 Proof.
@@ -2757,7 +2778,8 @@ Proof.
     + admit.
 
   (* Case Reorg_end_abstraction: *)
-  - intros ? Hleq. remember (S,,, i' |-> A') eqn:EQN. destruct Hleq.
+  - intros ? Hleq. remember (S,,, i' |-> A') as _S eqn:EQN.
+    destruct Hleq as [ | | | | _S | | | | ].
     (* Case Leq_ToSymbolic *)
     + admit.
     (* Case Leq_ToAbs *)
@@ -2790,7 +2812,7 @@ Proof.
     + admit.
     + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
       * destruct EQN as (<- & -> & <-).
-        assert (map_Forall (λ _ : positive, not_contains_loan) B) by eauto using merge_no_loan.
+        assert (map_Forall (fun _ => not_contains_loan) B) by eauto using merge_no_loan.
         destruct Hmerge as (A' & B' & Hremove_loans & union_A'_B').
         destruct (exists_add_anon (S,,, i |-> A) B) as (Sl1 & HSl1).
         (* Ending the region B: *)
@@ -2806,10 +2828,7 @@ Proof.
         destruct (exists_add_anon Sl2 A') as (Sl3 & HSl3).
         (* Ending the region A: *)
         reorg_step.
-        { eapply Reorg_end_abstraction with (i' := i) (A' := A').
-          (* TODO: automatic resolution *)
-          eapply add_anons_fresh_abstraction. eassumption.
-          eapply add_anonymous_bots_fresh_abstraction. eassumption. assumption.
+        { apply Reorg_end_abstraction. eauto with spath.
            (* TODO: lemma *)
            intros ? ? G. eapply union_contains_left in G; [ | exact union_A'_B'].
            eapply A_no_loans. eassumption. eassumption. }
@@ -2823,6 +2842,23 @@ Proof.
         { eapply leq_n_add_anonymous_bots; [eassumption | ].
           eapply map_sum_union_maps in union_A'_B'. rewrite union_A'_B'. lia. }
          eapply add_anons_assoc; eassumption.
+      * destruct EQN as (? & S0 & -> & ->).
+        (* TODO: Ltac? *)
+        repeat lazymatch goal with
+                 | H : fresh_abstraction (_,,, _ |-> _) _ |- _ =>
+                     apply fresh_abstraction_add_abstraction_rev in H;
+                     destruct H
+               end.
+        rewrite !(add_abstraction_commute _ i') by congruence.
+        apply add_anons_add_abstraction in Hadd_anons.
+        destruct Hadd_anons as (S'' & -> & Hadd_anons).
+        reorg_step.
+        { apply Reorg_end_abstraction. eauto with spath. assumption.
+          repeat apply add_anons_add_abstraction'. eassumption. }
+        reorg_done.
+        eapply leq_n_step.
+        { apply Leq_MergeAbs_n; eauto with spath. } { reflexivity. }
+        reflexivity.
 Admitted.
 
 Local Open Scope option_monad_scope.
