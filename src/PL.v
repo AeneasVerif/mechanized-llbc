@@ -54,7 +54,7 @@ Reserved Notation "'ptrC' ( l )" (at level 0).
 Open Scope pl_scope.
 
 (* Notations and definition for the PL language *)
-Fixpoint add_offset (addr : address) (off : nat) : address :=
+Definition add_offset (addr : address) (off : nat) : address :=
   (addr.1, addr.2 + off).
 
 Infix "+o" := add_offset (at level 60).
@@ -445,12 +445,12 @@ Section Concretization.
     Forall2 le_val b1 b2.
 
   Definition le_heap (h1 h2: Pmap pl_val) : Prop :=
-    forall bi b1 b2, h1 !! bi = Some b2 -> h2 !! bi = Some b2 -> le_block b1 b2.
+    forall bi, exists b1 b2, h1 !! bi = Some b1 /\ h2 !! bi = Some b2 /\ le_block b1 b2.
 
-  Definition le_state (Spl1 Spl2 : PL_state) : Prop :=
+  Definition le_pl_state (Spl1 Spl2 : PL_state) : Prop :=
     env Spl1 = env Spl2 /\ le_heap (heap Spl1) (heap Spl2).
 
-  Infix "<={pl}" := le_state (at level 70).
+  Infix "<={pl}" := le_pl_state (at level 70).
 
   Definition le_pl_hlpl (Spl : PL_state) (S : HLPL_state) : Prop :=
     exists Spl', Compatible S /\ concr_hlpl S Spl' /\ Spl <={pl} Spl'.
@@ -590,7 +590,7 @@ Section Concretization.
     intros Spl addr t0 t1.
     unfold lookup_heap_at_addr. rewrite addr_add_offset_fst.
     destruct (heap Spl !! addr.1) eqn:E ; auto.
-    simpl. rewrite <- take_take_drop, drop_drop, addr_add_offset_snd. reflexivity.
+    simpl. rewrite <- take_take_drop, drop_drop. reflexivity.
   Qed.
 
   Lemma lookup_heap_length_le_size :
@@ -660,6 +660,24 @@ Section Concretization.
         * exists (addr +o sizeof t0), t1, vl1 ; repeat split ; try congruence.
           eapply Addr_spath_pair_second ; eauto. rewrite E ; auto.
         * rewrite nth_error_nil in HSx ; subst v ; contradiction.
+  Qed.
+
+  Lemma state_concr_implies_val_concr_at_addr : 
+    forall S Spl sp addr t v,
+      concr_hlpl S Spl ->
+      (S.[ sp ]) = v ->
+      v <> bot ->
+      addr_spath_equiv S addr t sp ->
+      exists vl,
+         concr_hlpl_val v t vl /\ lookup_heap_at_addr addr t Spl = vl.
+  Proof.
+    intros S Spl sp addr t v Hconcr HS_sp Hbot Hequiv.
+    destruct (state_concr_implies_val_concr _ _ _ _ Hconcr HS_sp Hbot)
+      as [addr' [t' [vl [Hequiv' [Hconcr_val Hlu ] ] ] ] ].
+    pose proof (addr_spath_equiv_deterministic_addr _ _ _ _ _ _ Hequiv' Hequiv) as Heq.
+    pose proof (addr_spath_equiv_deterministic_type _ _ _ _ _ _ Hequiv' Hequiv) as Heqt.
+    subst addr' t'; clear Hequiv'.
+    exists vl ; split ; auto.
   Qed.
   
   (** Concretization of states implies addresses are compatible *)
@@ -1002,7 +1020,44 @@ Notation "S .[ p ]l" := (sget_l p S) (left associativity, at level 50).
       eapply v_backward_proj_l_Second ; eauto.
   Qed.
 
+  Lemma le_heap_implies_le_block :
+    forall S1 S2 addr t,
+      le_heap (heap S1) (heap S2) ->
+        le_block (lookup_heap_at_addr addr t S1) (lookup_heap_at_addr addr t S2).
+  Proof.
+    intros S1 S2 addr t Hle_heap.
+    unfold lookup_heap_at_addr. specialize (Hle_heap addr.1).
+    destruct Hle_heap as [b1 [b2 [ Hb1 [Hb2 Hle_block ] ] ] ].
+    
 
+  Lemma HLPL_PL_Read :
+    forall S Spl perm p sp addr v t,
+      eval_place S perm p sp ->
+      le_pl_hlpl Spl S ->
+      addr_spath_equiv S addr t sp ->
+      S.[sp] = v ->
+      exists vl, 
+        lookup_heap_at_addr addr t Spl = vl /\
+          forall vl',
+            concr_hlpl_val v t vl' -> le_block vl vl'.
+  Proof.
+    intros S Spl perm p sp addr v t
+      [Hvalid Hpath] [Spl' [HComp [Hconcr [Hle_env Hle_heap] ] ] ] Hequiv HS_sp.
+    assert (Hbot : v <> bot) by admit.
+    destruct
+      (state_concr_implies_val_concr_at_addr _ _ _ _ _ _ Hconcr HS_sp Hbot Hequiv) as
+      [vl [ Hconcr_val Hlu] ].
+    exists (lookup_heap_at_addr addr t Spl) ; split ; auto.
+    intros vl' Hvl'.
+    apply le_heap_implies_le_block with (addr := addr) (t := t) in Hle_heap.
+    apply concr_val_implies_concr_val_comp in Hconcr_val, Hvl'.
+    rewrite Hconcr_val in Hvl' ; injection Hvl' ; intros ; subst ; auto.
+  Admitted.
+
+    
+    inversion Hvl' ; subst.
+    * inversion Hconcr_val ; subst ; try congruence.
+      
 End Concretization.
 
 
