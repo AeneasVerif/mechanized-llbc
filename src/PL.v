@@ -959,7 +959,7 @@ Lemma concr_val_TInt_implies_PL_int :
   Lemma le_heap_implies_le_block :
     forall S1 S2 addr t,
       le_heap (heap S1) (heap S2) ->
-        le_block (lookup_heap_at_addr addr t S1) (lookup_heap_at_addr addr t S2).
+      le_block (lookup_heap_at_addr addr t S1) (lookup_heap_at_addr addr t S2).
   Proof.
     intros S1 S2 addr t Hle_heap.
     unfold lookup_heap_at_addr. 
@@ -1105,32 +1105,31 @@ Qed.
     Qed.
 End Concretization.
 
-
-
 Lemma HLPL_PL_Read :
-  forall blockof addrof S Spl perm p sp addr v t,
-    eval_place S perm p sp ->
+  forall blockof addrof S Spl perm p sp v,
     le_pl_hlpl blockof addrof Spl S ->
-    addr_spath_equiv blockof S addr t sp ->
+    eval_place S perm p sp ->
     S.[sp] = v ->
     v <> bot ->
-    exists vl, 
-      lookup_heap_at_addr addr t Spl = vl /\
-        forall vl',
-          concr_hlpl_val addrof v t vl' -> le_block vl vl'.
-Proof.
-  intros bo ao S Spl perm p sp addr v t
-    [Hvalid Hpath] [Spl' [HComp [Hconcr [Hle_env Hle_heap] ] ] ] Hequiv HS_sp Hbot.
+    exists addr t vl, 
+      eval_place_pl Spl p (addr, t) /\
+        addr_spath_equiv blockof S addr t sp /\
+        lookup_heap_at_addr addr t Spl = vl /\
+        forall vl', concr_hlpl_val addrof v t vl' -> le_block vl vl'.
+  Proof.
+  intros bo ao S Spl perm p sp v Hle Hplace HS_sp Hbot.
+  destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ _ _ Hle Hplace)
+    as (addr & t & Hplace_pl & Hequiv).
+  destruct Hle as (Spl' & HComp & Hconcr & Henv & Hheap).
   destruct
     (state_concr_implies_val_concr_at_addr bo ao _ _ _ _ _ _ Hconcr HS_sp Hbot Hequiv)
     as [vl [ Hconcr_val Hlu] ].
-  exists (lookup_heap_at_addr addr t Spl) ; split ; auto.
-  intros vl' Hvl'.
-  apply le_heap_implies_le_block with (addr := addr) (t := t) in Hle_heap.
-  apply concr_val_implies_concr_val_comp in Hconcr_val, Hvl'.
-  rewrite Hconcr_val in Hvl' ; injection Hvl' ; intros ; subst ; auto.
-Qed.
-
+  exists addr, t, (lookup_heap_at_addr addr t Spl) ; repeat split ; auto.
+  intros vl' Hconcr_val'.
+  apply concr_val_implies_concr_val_comp in Hconcr_val, Hconcr_val'.
+  rewrite Hconcr_val in Hconcr_val' ; injection Hconcr_val' ; intros ; subst.
+  apply le_heap_implies_le_block ; auto.
+  Qed.
 
 Lemma Op_Preserves_PL_HLPL_Rel :
   forall blockof addrof S Spl op vS1,
@@ -1166,8 +1165,10 @@ Proof.
   Admitted.
 
 Section Tests.
-  Definition x := encode_var (1 % positive).
-  Definition y := encode_var (2 % positive).
+  Definition x := 1 % positive.
+  Definition enc_x := encode_var (1%positive).
+  Definition y := 2 % positive.
+  Definition enc_y := encode_var y.
   Definition b1 := (1 % positive).
   Definition b2 := (2 % positive).
   Definition b3 := (3 % positive).
@@ -1178,22 +1179,22 @@ Section Tests.
 
   Definition pl_state_1 : PL_state :=
     {|
-      env := {[ x := (b1, TInt) ]};
+      env := {[ enc_x := (b1, TInt) ]};
       heap := {[ b1 := [PL_poison] ]}
     |}.
   Definition pl_state_2 : PL_state :=
     {|
-      env := {[ x := (b1, TPair TInt TInt) ]};
+      env := {[ enc_x := (b1, TPair TInt TInt) ]};
       heap := {[ b1 := [PL_poison; PL_poison] ]}
     |}.
   Definition pl_state_3 : PL_state :=
     {|
-      env := {[ x := (b1, TPair (TRef TInt) TInt) ]};
+      env := {[ enc_x := (b1, TPair (TRef TInt) TInt) ]};
       heap := {[ b1 := [PL_address (b1, 1); PL_int 0] ]}
     |}.
   Definition pl_state_4 : PL_state :=
     {|
-      env := {[ x := (b1, TRef (TRef TInt)) ]};
+      env := {[ enc_x := (b1, TRef (TRef TInt)) ]};
       heap :=
         {[
             b1 := [PL_address (b2, 1)] ;
@@ -1202,7 +1203,7 @@ Section Tests.
     |}.
   Definition pl_state_5 : PL_state :=
     {|
-      env := {[ x := (b1, TRef (TRef TInt)) ]};
+      env := {[ enc_x := (b1, TRef (TRef TInt)) ]};
       heap :=
         {[
             b1 := [PL_address (b2, 1)] ;
@@ -1213,7 +1214,7 @@ Section Tests.
     {|
       env :=
         {[
-            x := (b1, TPair TInt (TPair TInt TInt))
+            enc_x := (b1, TPair TInt (TPair TInt TInt))
         ]};
       heap :=
         {[
@@ -1222,17 +1223,17 @@ Section Tests.
     |}.
   Definition pl_state_7 : PL_state :=
     {|
-      env := {[ x := (b1, TInt) ]};
+      env := {[ enc_x := (b1, TInt) ]};
       heap := {[ b1 := [PL_int 3] ]}
     |}.
   Definition pl_state_8 : PL_state :=
     {|
-      env := {[ x := (b1, TInt) ; y := (b2, TInt) ]};
+      env := {[ enc_x := (b1, TInt) ; enc_y := (b2, TInt) ]};
       heap := {[ b1 := [PL_poison] ; b2 := [PL_poison] ]}
     |}.
   Definition pl_state_9 : PL_state :=
     {|
-      env := {[ x := (b1, TInt) ; y := (b2, TInt) ]};
+      env := {[ enc_x := (b1, TInt) ; enc_y := (b2, TInt) ]};
       heap := {[ b1 := [PL_int 3] ; b2 := [PL_int 7] ]}
     |}.
 
@@ -1240,16 +1241,16 @@ Section Tests.
 
   (** READ AND WRITES TESTS **)
 
-  Goal exists S, write pl_state_1 (1%positive, []) TInt [PL_int 0] S.
+  Goal exists S, write pl_state_1 (x, []) TInt [PL_int 0] S.
   Proof. repeat econstructor. Qed.
 
-  Goal exists S, write pl_state_2 (1%positive, [Field(First)]) TInt [PL_int 0] S.
+  Goal exists S, write pl_state_2 (x, [Field(First)]) TInt [PL_int 0] S.
   Proof. repeat econstructor. Qed.
 
-  Goal exists S, write pl_state_2 (1%positive, [Field(Second)]) TInt [PL_int 0] S.
+  Goal exists S, write pl_state_2 (x, [Field(Second)]) TInt [PL_int 0] S.
   Proof. repeat econstructor. Qed.
 
-  Goal read pl_state_3 (x, Deref :: [Field(First)]) TInt [PL_int 0].
+  Goal read pl_state_3 (x, [Field(First) ; Deref ]) TInt [PL_int 0].
   Proof. repeat econstructor. Qed.
 
   Goal read pl_state_3 (x, [Field(Second)]) TInt [PL_int 0].
