@@ -383,12 +383,12 @@ Inductive eval_proj_pl (Spl : PL_state) :
       eval_path_pl Spl (proj :: P) addr_t addr_t''.
 
   Definition eval_place_pl (Spl : PL_state) (p : place) (addr_t : address * type) : Prop :=
-     exists bi t,
-       lookup_block_and_type_env (encode_var p.1) Spl = Some (bi, t) /\
-         eval_path_pl Spl p.2 ((bi, 0), t) addr_t.
+    exists bi t,
+      lookup_block_and_type_env (encode_var p.1) Spl = Some (bi, t) /\
+        eval_path_pl Spl p.2 ((bi, 0), t) addr_t.
 
     (** Read in PL state *)
-  Definition read_address (Spl : PL_state) (p : place) (t : type) (addr : address) : Prop :=
+  Definition read_address (Spl : PL_state) (p : place) (t : type) (addr : address): Prop :=
     eval_place_pl Spl p (addr, t).
 End EvalPlaces.
 Notation "S .[ p ]l" := (sget_l p S) (left associativity, at level 50).
@@ -1081,27 +1081,28 @@ Qed.
 
   (* TODO: drop induction, use spath_addres_path_simul *)
   Lemma eval_place_hlpl_pl_equiv :
-    forall S Spl p sp addr t perm,
+    forall S Spl p sp perm,
       le_pl_hlpl Spl S ->
       eval_place S perm p sp ->
-      eval_place_pl Spl p (addr, t) ->
+      exists addr t,
+      eval_place_pl Spl p (addr, t) /\
       addr_spath_equiv S addr t sp.
   Proof.
-    intros S Spl p sp addr t perm
-      (Spl' & HComp & (Hconcr_heap & Hconcr_env) & Henv & Hheap) Hplace Hplace_pl.
-    inversion Hplace as [(v & HS_x & Hvvp) Hpath].
-    inversion Hplace_pl as [bi [t0 [Hlu Hpath_pl] ] ].
-    rewrite surjective_pairing with (p := p) in *.
-    simpl in *. remember p.1 as x. remember p.2 as path.
-    remember (encode_var x, []) as sp0. clear Heqx Heqpath.
-    induction Hpath ; inversion Hpath_pl; subst.
-    - unfold lookup_block_and_type_env in Hlu.
-      eapply Addr_spath_base ; try eauto.
-      destruct (blockof (encode_var x)) as [bi' t'] eqn:Hbo ; eauto.
-      assert (Heq: env Spl' !! encode_var x = Some (bi', t')) by eauto.
-      rewrite <- Henv, Hlu in Heq ; injection Heq as Heq ; subst. reflexivity.
-  Admitted.
-
+    intros S Spl p sp perm Hle Hplace.
+    pose proof Hle as Htemp.
+    destruct Htemp as (Spl' & HComp & (Hconcr_heap & Hconcr_env) & Henv & Hheap).
+    destruct Hplace as [(v & HS_x & Hvvp) Hpath]. simpl in *.
+    destruct (blockof (encode_var p.1)) as [bi t0] eqn:Hbo.
+    assert (Hsimul_path_pl : exists addr t,
+               eval_path_pl Spl p.2 ((bi, 0), t0) (addr, t) /\
+                 addr_spath_equiv S addr t sp).
+    { eapply spath_address_path_simul ; eauto. eapply Addr_spath_base ; eauto. }
+    destruct Hsimul_path_pl as (addr & t & Hplace_pl & Hequiv').
+    exists addr, t ; split ; auto.
+    exists bi, t0 ; split ; auto.
+    unfold lookup_block_and_type_env.
+    rewrite Henv. eapply Hconcr_env ; eauto.
+    Qed.
 End Concretization.
 
 
@@ -1165,11 +1166,11 @@ Proof.
   Admitted.
 
 Section Tests.
-  Notation x := 1%positive.
-  Notation y := 2%positive.
-  Notation b1 := 1%positive.
-  Notation b2 := 2%positive.
-  Notation b3 := 3%positive.
+  Definition x := encode_var (1 % positive).
+  Definition y := encode_var (2 % positive).
+  Definition b1 := (1 % positive).
+  Definition b2 := (2 % positive).
+  Definition b3 := (3 % positive).
   Notation l1 := 0%nat.
   Notation l2 := 1%nat.
 
