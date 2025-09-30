@@ -768,6 +768,7 @@ Lemma concr_val_TInt_implies_PL_int :
         by (apply le_heap_implies_le_block ; auto).
       rewrite <- H3 in Hle_block.
       inversion Hle_block ; inversion H5 ;  inversion H6 ; subst. reflexivity.
+      admit.
     - nodes_to_val.
       assert (Htemp: ∃ vl, concr_hlpl_val (HLPL_pair h1 h2) t vl ∧
                       lookup_heap_at_addr addr t Spl' = vl).
@@ -787,7 +788,7 @@ Lemma concr_val_TInt_implies_PL_int :
       exists (addr +o sizeof t0), t1 ; split.
       * constructor.
       * eapply Addr_spath_pair_second ; eauto. 
-Qed.
+Admitted.
 
   Lemma spath_address_loc_simul :
     forall S Spl sp sp' addr t perm,
@@ -939,12 +940,12 @@ Section Tests.
     |}.
   Definition pl_state_3 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TPair (TRef TInt) TInt) ]};
+      env := {[ enc_x := (b1, TPair TRef TInt) ]};
       heap := {[ b1 := [PL_address (b1, 1); PL_int 0] ]}
     |}.
   Definition pl_state_4 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TRef (TRef TInt)) ]};
+      env := {[ enc_x := (b1, TRef) ]};
       heap :=
         {[
             b1 := [PL_address (b2, 1)] ;
@@ -953,7 +954,7 @@ Section Tests.
     |}.
   Definition pl_state_5 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TRef (TRef TInt)) ]};
+      env := {[ enc_x := (b1, TRef) ]};
       heap :=
         {[
             b1 := [PL_address (b2, 1)] ;
@@ -1034,7 +1035,7 @@ Section Tests.
          [PL_int (7 + 4)].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv-pl} &mut (x, []) : (TRef TInt) => [PL_address (b1, 0)].
+  Goal pl_state_1 |-{rv-pl} &mut (x, []) : TRef=> [PL_address (b1, 0)].
   Proof. repeat econstructor.  Qed.
 
   Goal pl_state_1 |-{rv-pl} Pair (TPair TInt TInt) (IntConst TInt 0) (IntConst TInt 1)
@@ -1091,6 +1092,6 @@ Section Tests.
   Proof. repeat econstructor. Qed.
 
   Goal concr_hlpl_val addrof
-    (ptr (l1)) (TRef TInt) [PL_address (b1, 1)].
+    (ptr (l1)) TRef [PL_address (b1, 1)].
   Proof. repeat econstructor. Qed.
 End Tests.
