@@ -330,9 +330,8 @@ Section Concretization.
     mkCompatible
       {
         block_dom :
-        forall (enc_x : positive) (v : HLPL_val) perm (sp : spath), 
-          eval_place S perm (enc_x, []) sp ->
-          valid_spath S sp ->
+        forall (enc_x : positive), 
+          valid_spath S (enc_x, []) ->
           exists bi t, blockof enc_x = (bi, t) 
       ; pointers_well_typed :
         forall sp sp' addr addr' t t' l,
@@ -425,7 +424,55 @@ Section Concretization.
     | H: ?sp +++ [?n] = (?enc_x, []) |- _ =>
         destruct (spath_app_elem_not_nil sp n enc_x H)
     end.
-  
+
+  Fixpoint typeof (v : HLPL_val) : type :=
+    match v with
+    | HLPL_int _ => TInt
+    | HLPL_loc _ v => typeof v
+    | HLPL_pair v0 v1 => TPair (typeof v0) (typeof v1)
+    | _ => TInt
+    end.
+
+  Fixpoint addressof (v : HLPL_val) (bi : block_id) (rvp: list nat) : address :=
+    match rvp with
+    | 0 :: rvp' =>
+        addressof v bi rvp'
+    | 1 :: rvp' =>
+        (addressof v bi rvp') +o sizeof (typeof (v.[[rev rvp']]))
+    | [] | _ :: _ => (bi, 0)
+    end.
+  (*
+  Fixpoint addressof (v : HLPL_val) (bi : block_id) (vp: vpath) : address :=
+    let (vp_pre, lastE) := (removelast vp, List.last vp 1000) in
+    match lastE, typeof (v.[[vp]]) with
+    | 0, _ =>
+        addressof v bi vp_pre
+    | 1, TPair t0 _ =>
+        (addressof v bi vp_pre) +o sizeof t0
+    | _, _ =>
+        (bi, 0)
+    end.
+   *)
+
+  Lemma addr_spath_equiv_exists_type :
+    forall S sp,
+      Compatible S ->
+      valid_spath S sp ->
+      exists addr t,
+        addr_spath_equiv S addr t sp.
+  Proof.
+    intros S sp [Hblock_dom _ _ _] Hvsp.
+    remember (S.[sp]) as v. rewrite surjective_pairing with (p := sp) in *.
+    remember (rev sp.2) as rvp. 
+    exists (addressof v ((blockof sp.1).1) rvp), (typeof v).
+    generalize dependent sp.2. induction rvp ; intros sp2 Hvsp Hv Heqrvp ;
+      apply f_equal with (f := @rev nat) in Heqrvp ; simpl in Heqrvp.
+    - simpl. specialize (Hblock_dom sp.1).
+      eapply Addr_spath_base ; admit.
+    - specialize (IHrvp (rev rvp)). destruct a as [ | [ | ?] ].
+      Admitted.
+
+
   Lemma addr_spath_equiv_deterministic_type :
     forall S sp addr1 addr2 t1 t2,
       addr_spath_equiv S addr1 t1 sp ->
