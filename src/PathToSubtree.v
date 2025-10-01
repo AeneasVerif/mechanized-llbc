@@ -915,6 +915,16 @@ Section GetSetPath.
       destruct arity_n. econstructor ; [eassumption | constructor].
   Qed.
 
+  Lemma not_valid_spath_app_last_get_node_arity S p :
+    forall (n : nat), arity (get_node (S.[p])) <= n -> ~ valid_spath S (p +++ [n]).
+  Proof.
+    intros n arity_n valid_pn.
+    apply valid_spath_app in valid_pn as [valid_p valid_vpn].
+    rewrite <- length_children_is_arity in arity_n.
+    apply nth_error_None in arity_n. 
+    inversion valid_vpn ; subst. congruence.
+  Qed.
+
   Lemma strict_prefix_one_child S p q (length_one : length (children (S.[p])) = 1) :
     strict_prefix p q -> valid_spath S q -> prefix (p +++ [0]) q.
   Proof.
