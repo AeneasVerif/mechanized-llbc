@@ -326,6 +326,23 @@ Section Concretization.
     - rewrite List.length_app. simpl. lia.
   Qed.
 
+  Fixpoint typeof (v : HLPL_val) : type :=
+    match v with
+    | HLPL_int _ => TInt
+    | HLPL_loc _ v => typeof v
+    | HLPL_pair v0 v1 => TPair (typeof v0) (typeof v1)
+    | _ => TInt
+    end.
+
+  Fixpoint addressof (v : HLPL_val) (bi : block_id) (rvp: list nat) : address :=
+    match rvp with
+    | 0 :: rvp' =>
+        addressof v bi rvp'
+    | 1 :: rvp' =>
+        (addressof v bi rvp') +o sizeof (typeof (v.[[rev rvp' ++ [0] ]]))
+    | [] | _ :: _ => (bi, 0)
+    end.
+
   Record Compatible (S : HLPL_state) : Prop :=
     mkCompatible
       {
@@ -333,6 +350,11 @@ Section Concretization.
         forall (enc_x : positive), 
           valid_spath S (enc_x, []) ->
           exists bi t, blockof enc_x = (bi, t) 
+      ; well_typed :
+        forall (enc_x : positive) bi t, 
+          valid_spath S (enc_x, []) ->
+          blockof enc_x = (bi, t) ->
+          typeof (S.[(enc_x, [])]) = t
       ; pointers_well_typed :
         forall sp sp' addr addr' t t' l,
           get_node (S.[sp]) = HLPL_ptrC l ->
@@ -425,34 +447,20 @@ Section Concretization.
         destruct (spath_app_elem_not_nil sp n enc_x H)
     end.
 
-  Fixpoint typeof (v : HLPL_val) : type :=
-    match v with
-    | HLPL_int _ => TInt
-    | HLPL_loc _ v => typeof v
-    | HLPL_pair v0 v1 => TPair (typeof v0) (typeof v1)
-    | _ => TInt
+  Ltac congruence' :=
+    match goal with
+    | H : sget ?S ?p = _ |- get_node (sget ?S ?p) = _ => rewrite H ; simpl ; reflexivity 
+    | _ => congruence
     end.
 
-  Fixpoint addressof (v : HLPL_val) (bi : block_id) (rvp: list nat) : address :=
-    match rvp with
-    | 0 :: rvp' =>
-        addressof v bi rvp'
-    | 1 :: rvp' =>
-        (addressof v bi rvp') +o sizeof (typeof (v.[[rev rvp']]))
-    | [] | _ :: _ => (bi, 0)
-    end.
-  (*
-  Fixpoint addressof (v : HLPL_val) (bi : block_id) (vp: vpath) : address :=
-    let (vp_pre, lastE) := (removelast vp, List.last vp 1000) in
-    match lastE, typeof (v.[[vp]]) with
-    | 0, _ =>
-        addressof v bi vp_pre
-    | 1, TPair t0 _ =>
-        (addressof v bi vp_pre) +o sizeof t0
-    | _, _ =>
-        (bi, 0)
-    end.
-   *)
+  Ltac discriminate_val_from_valid_spath S sp :=
+    match goal with
+    | Hvp : valid_spath S (sp +++ [?n]), Heq : (S.[sp]) = _ |- _ =>
+        try (
+            assert (Htemp: arity (get_node (S.[sp])) <= n)
+            by (rewrite Heq ; simpl;  lia) ; 
+            apply not_valid_spath_app_last_get_node_arity in Htemp ;
+            destruct (Htemp Hvp)) end.
 
   Lemma addr_spath_equiv_exists_type :
     forall S sp,
@@ -461,17 +469,30 @@ Section Concretization.
       exists addr t,
         addr_spath_equiv S addr t sp.
   Proof.
-    intros S sp [Hblock_dom _ _ _] Hvsp.
-    remember (S.[sp]) as v. rewrite surjective_pairing with (p := sp) in *.
-    remember (rev sp.2) as rvp. 
-    exists (addressof v ((blockof sp.1).1) rvp), (typeof v).
-    generalize dependent sp.2. induction rvp ; intros sp2 Hvsp Hv Heqrvp ;
-      apply f_equal with (f := @rev nat) in Heqrvp ; simpl in Heqrvp.
-    - simpl. specialize (Hblock_dom sp.1).
-      eapply Addr_spath_base ; admit.
-    - specialize (IHrvp (rev rvp)). destruct a as [ | [ | ?] ].
-      Admitted.
-
+    intros S sp [Hblock_dom Well_Typed _ _ _] Hvsp.
+    exists (addressof (S.[(sp.1, [])]) ((blockof sp.1).1) (rev sp.2)), (typeof (S.[sp])).
+    induction sp using ListBackInd.state_path_back_ind ; simpl.
+    - destruct (Hblock_dom enc_x Hvsp) as (bi & t & Hbo).
+      eapply Addr_spath_base ; eauto.
+      rewrite Hbo. simpl. specialize (Well_Typed enc_x bi t Hvsp Hbo).
+      congruence.
+    - apply valid_spath_app in Hvsp as Htemp. destruct Htemp as [Hvsp' _].
+      specialize (IHsp Hvsp'). rewrite rev_app_distr.
+      destruct n as [ | [ | ?] ] ; destruct (S.[sp]) eqn:HeqS_sp ;
+        discriminate_val_from_valid_spath S sp.
+      * rewrite sget_app, HeqS_sp. eapply Addr_spath_loc ; try congruence' ; auto.
+      * simpl. eapply Addr_spath_pair_first ; try congruence'.
+        unfold "+++" ; simpl.
+        replace (sp.1, sp.2 ++ [0]) with (sp +++ [0]) by reflexivity.
+        replace (sp.1, sp.2 ++ [1]) with (sp +++ [1]) by reflexivity.
+        repeat rewrite sget_app. rewrite HeqS_sp. simpl. eassumption.
+      * simpl. apply Addr_spath_pair_second ; try congruence'. 
+        rewrite rev_involutive, <- sget_app, app_spath_vpath_assoc. 
+        unfold "+++" ; simpl.
+        replace (sp.1, sp.2 ++ [0]) with (sp +++ [0]) by reflexivity.
+        replace (sp.1, sp.2 ++ [1]) with (sp +++ [1]) by reflexivity.
+        repeat rewrite sget_app. rewrite HeqS_sp. simpl. assumption.
+Qed.
 
   Lemma addr_spath_equiv_deterministic_type :
     forall S sp addr1 addr2 t1 t2,
