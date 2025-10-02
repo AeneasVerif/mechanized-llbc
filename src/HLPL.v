@@ -519,14 +519,14 @@ Notation l2 := 1%nat.
 
 Definition prog :=
   ASSIGN (x, nil) <- Just TInt (INT 3) ;;
-  ASSIGN (y, nil) <- &mut (1%positive, nil) : TRef TInt.
+  ASSIGN (y, nil) <- &mut (1%positive, nil) : TRef.
 
 Definition main : statement :=
   ASSIGN (a, []) <- Just TInt (INT 1983) ;;
   ASSIGN (b, []) <- Just TInt (INT 1986) ;;
-  ASSIGN (c, []) <- &mut (a, []) : TRef TInt ;;
-  ASSIGN (d, []) <- &mut (c, [Deref]) : TRef TInt ;;
-  ASSIGN (c, []) <- &mut (b, []) : TRef TInt ;;
+  ASSIGN (c, []) <- &mut (a, []) : TRef ;;
+  ASSIGN (d, []) <- &mut (c, [Deref]) : TRef ;;
+  ASSIGN (c, []) <- &mut (b, []) : TRef ;;
   ASSIGN (d, [Deref]) <- Just TInt (INT 58) ;;
   Nop
 .
@@ -534,7 +534,7 @@ Definition main : statement :=
 Definition main_pair : statement :=
   ASSIGN (a, []) <- Pair (TPair TInt TInt) (INT 667) (INT 1986) ;;
   ASSIGN (b, []) <- Just TInt (Move TInt (a, [ Field (First)] )) ;;
-  ASSIGN (c, []) <- &mut (a, [Field (Second)]) : TRef TInt  ;;
+  ASSIGN (c, []) <- &mut (a, [Field (Second)]) : TRef ;;
   Nop
 .
 
