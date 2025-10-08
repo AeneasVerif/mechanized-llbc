@@ -213,6 +213,25 @@ Section Concretization.
 
   Local Open Scope stdpp_scope.
 
+  (** Assigning types to spath *)
+  Inductive eval_type (S : HLPL_state) : spath -> type -> Prop :=
+  | Eval_base_type enc_x bi t
+      (Hbo : blockof enc_x = (bi, t)) :
+      eval_type S (enc_x, []) t
+  | Eval_loc_type sp t l
+    (Hnode : get_node ( S.[ sp ] ) = HLPL_locC l)
+    (Hrec : eval_type S sp t) :
+    eval_type S (sp +++ [0]) t
+  | Eval_pair_first_type sp t0 t1
+    (Hnode : get_node ( S.[ sp ] ) = HLPL_pairC)
+    (Hrec : eval_type S sp (TPair t0 t1)) :
+    eval_type S (sp +++ [0]) t0
+  | Eval_pair_second_type sp t0 t1
+    (Hnode : get_node ( S.[ sp ] ) = HLPL_pairC)
+    (Hrec : eval_type S sp (TPair t0 t1)) :
+    eval_type S (sp +++ [1]) t1
+  .
+
   Fixpoint typeof (v : HLPL_val) : type :=
     match v with
     | HLPL_int _ => TInt
