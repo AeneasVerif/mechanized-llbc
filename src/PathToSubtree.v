@@ -1044,6 +1044,7 @@ Section GetSetPath.
     S.[p +++ q <- x].[p <- y] = S.[p <- y].
   Proof. rewrite sset_app_split. apply sset_twice_equal. Qed.
 
+  (* Note: unused lemma. *)
   Lemma sset_twice_common_prefix  S p q r v w :
     S.[p +++ q <- v].[p +++ r <- w] = S.[p <- S.[p].[[q <- v]].[[r <- w]] ].
   Proof. rewrite (sset_app_split S p q). rewrite sset_twice_prefix_left. reflexivity. Qed.
