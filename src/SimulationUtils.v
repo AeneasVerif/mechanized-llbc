@@ -49,6 +49,11 @@ Proof.
   - reflexivity.
 Qed.
 
+Definition equiv_rel {A B} (R0 R1 : A -> B -> Prop) := forall a b, R0 a b <-> R1 a b.
+
+Local Instance equiv_rel_refl A B : Reflexive (@equiv_rel A B).
+Proof. intros R a b. reflexivity. Qed.
+
 Lemma measured_closure_equiv A R Rn (H : forall x y : A, R x y <-> exists n, Rn n x y) :
   forall x y, R^* x y <-> exists n, measured_closure Rn n x y.
 Proof.
@@ -133,22 +138,6 @@ Proof.
     destruct (IH1 _ Red_a0_b0) as (b1 & ? & Red_a1_b1).
     destruct (IH0 _ Red_a1_b1) as (b2 & ? & Red_a2_b2).
     exists b2. split; [ | assumption]. transitivity b1; assumption.
-Qed.
-
-Lemma preservation_by_base_case' {A B : Type}
-  {LeqA : relation A} {LeqB : relation B} {Red : B -> A -> Prop} :
-  forward_simulation Red Red LeqA LeqB ->
-  forward_simulation Red Red LeqA^* LeqB^*.
-Proof.
-  intros Hloc a a' Leq_a_a'.
-  induction Leq_a_a' as [? ? Hleq | | a0 a1 a2 _ IH0 _ IH1].
-  - intros ? Hred. specialize (Hloc _ _ Hleq _ Hred). destruct Hloc as (? & ? & ?).
-    eexists. split; [ | constructor]; eassumption.
-  - intros. eexists. split; [eassumption | reflexivity].
-  - intros b0 Red_b0_a0.
-    destruct (IH0 _ Red_b0_a0) as (b1 & Red_b1_a1 & ?).
-    destruct (IH1 _ Red_b1_a1) as (b2 & Red_b2_a2 & ?).
-    exists b2. split; [assumption | ]. transitivity b1; assumption.
 Qed.
 
 (* TODO: define an equivalence between relations? *)
@@ -315,21 +304,128 @@ Section Leq.
   Context {equiv : state -> state -> Prop}.
   Context `{Reflexive _ equiv}.
   Context `{Transitive _ equiv}.
-  Context (sim_equiv_leq_base : forward_simulation equiv equiv leq_base leq_base).
+  Context (sim_leq_base_equiv : forward_simulation leq_base leq_base equiv equiv).
 
-  Definition leq := chain leq_base^* equiv.
+  Definition leq := chain equiv leq_base^*.
 
   Global Instance reflexive_leq : Reflexive leq.
   Proof. intros x. exists x. split; reflexivity. Qed.
 
+  Lemma sim_leq_equiv : forward_simulation leq_base^* leq_base^* equiv equiv.
+  Proof.
+    intros a b red_ab a' Leq_a_a'. revert b red_ab.
+    induction Leq_a_a' as [? ? Leq_a_a' | | a2 a1 a0 _ IH0 _ IH1].
+    - intros. specialize (sim_leq_base_equiv _ _ red_ab _ Leq_a_a').
+      destruct sim_leq_base_equiv as (d & ? & ?). exists d. split; [constructor | ]; assumption.
+    - intros. eexists. split; [reflexivity | eassumption].
+    - intros b0 Red_a0_b0.
+      destruct (IH1 _ Red_a0_b0) as (b1 & ? & Red_a1_b1).
+      destruct (IH0 _ Red_a1_b1) as (b2 & ? & Red_a2_b2).
+      exists b2. split; [ | assumption]. transitivity b1; assumption.
+  Qed.
+
   Global Instance transitive_leq : Transitive leq.
   Proof.
-    intros x y z (y' & ? & equiv_y'_y) (z' & leq_y_z' & ?).
-    apply preservation_by_base_case' in sim_equiv_leq_base.
-    specialize (sim_equiv_leq_base _ _ leq_y_z' _ equiv_y'_y).
-    destruct sim_equiv_leq_base as (z'' & ? & ?). exists z''. split.
+    intros x y z (y' & ? & leq_y'_y) (z' & equiv_y_z' & ?).
+    pose proof (sim_leq_equiv _ _ equiv_y_z' _ leq_y'_y) as G.
+    destruct G as (z'' & ? & ?). exists z''. split.
     - transitivity y'; assumption.
     - transitivity z'; assumption.
+  Qed.
+
+  Context (reorg : state -> state -> Prop).
+  Context (measure : state -> nat).
+  Context (leq_base_n : nat -> state -> state -> Prop).
+  Definition leq_n n := chain equiv (measured_closure leq_base_n n).
+
+  Hypothesis (leq_decreasing : forall n a b, leq_base_n n a b -> measure a < measure b + n).
+  Hypothesis (reorg_decreasing : forall a b, reorg a b -> measure b < measure a).
+
+  Lemma leq_clos_decreasing : forall S S', reorg^* S S' -> measure S' <= measure S.
+  Proof. intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. Qed.
+
+  Hypothesis (reorg_preserves_equiv : forward_simulation equiv equiv reorg reorg).
+  Lemma reorgs_preserve_equiv : forward_simulation equiv equiv reorg^* reorg^*.
+  Proof.
+  intros a b. induction 1 as [? ? Hreorg | | a0 a1 a2 _ IH0 _ IH1].
+  - intros ? Hequiv. specialize (reorg_preserves_equiv _ _ Hreorg _ Hequiv).
+    destruct reorg_preserves_equiv as (d & ? & ?). exists d.
+    split; [ | constructor]; assumption.
+  - intros. eexists. split; [ | reflexivity]. assumption.
+  - intros b0 equiv_b0_a0.
+    destruct (IH0 _ equiv_b0_a0) as (b1 & Red_b1_a1 & ?).
+    destruct (IH1 _ Red_b1_a1) as (b2 & Red_b2_a1 & ?).
+    exists b2. split; [assumption | ]. transitivity b1; assumption.
+  Qed.
+
+  Context (sim_equiv_leq_base_n :
+    forall n, forward_simulation (leq_base_n n) (leq_base_n n) equiv equiv).
+
+  Lemma leq_n_cases n Sl Sr (G : leq_n n Sl Sr) :
+    (equiv Sl Sr) \/
+    (exists p q Sm, leq_n p Sl Sm /\ leq_base_n q Sm Sr /\ p + q <= n).
+  Proof.
+    destruct G as (Sr' & Gequiv & Gcases%measure_closure_cases).
+    destruct Gcases as [-> | (p & q & Sm & ? & G & ?)].
+    - left. assumption.
+    - right. exists p, q, Sm. firstorder.
+  Qed.
+
+  Lemma sim_equiv_leq_n n : forward_simulation (leq_base_n^{n}) (leq_base_n^{n}) equiv equiv.
+  Proof.
+    intros a b equiv_ab a' Leq_a'_a. revert b equiv_ab.
+    induction Leq_a'_a as [n ? ? Leq_a'_a | | p q a2 a1 a0 _ IH0 _ IH1].
+    - intros. specialize (sim_equiv_leq_base_n n _ _ equiv_ab _ Leq_a'_a).
+      destruct sim_equiv_leq_base_n as (d & ? & ?). exists d. split; [constructor | ]; assumption.
+    - intros. eexists. split; [reflexivity | eassumption].
+    - intros b0 equiv_a0_b0.
+      destruct (IH1 _ equiv_a0_b0) as (b1 & ? & equiv_a1_b1).
+      destruct (IH0 _ equiv_a1_b1) as (b2 & ? & equiv_a2_b2).
+      exists b2. split; [ | assumption]. eapply MC_trans; eassumption.
+  Qed.
+
+  Lemma leq_n_trans Sl Sm Sr p q n :
+    leq_n p Sl Sm -> leq_n q Sm Sr -> p + q <= n -> leq_n n Sl Sr.
+  Proof.
+    intros (S'l & ? & leq_S'l_Sm) (S'm & equiv_Sm_S'm & ?).
+    pose proof (sim_equiv_leq_n p _ _ equiv_Sm_S'm _ leq_S'l_Sm) as (S''l & ? & ?).
+    intros ?. exists S''l. split.
+    - transitivity S'l; assumption.
+    - eapply measured_closure_over_approx; [ eassumption |].
+      eapply MC_trans; eassumption.
+  Qed.
+
+  Lemma preservation_reorg_l
+    (G : forall n, forward_simulation (leq_base_n n) (leq_n n) reorg reorg^*) :
+    forall n, forward_simulation (leq_n n) (leq_n n) reorg^* reorg^*.
+  Proof.
+    intros n Sr. remember (measure Sr + n) as N eqn:EQN.
+    revert n Sr EQN. induction N as [? IH] using lt_wf_ind.
+    intros n Sr -> S''r reorg_Sr_S''r Sl leq_Sl_Sr.
+    destruct reorg_Sr_S''r as [ | Sr S'r S''r reorg_Sr_S'r ? _] using clos_refl_trans_ind_right'.
+    { eexists. split; [eassumption | reflexivity]. }
+    apply leq_n_cases in leq_Sl_Sr.
+    destruct leq_Sl_Sr as [Hequiv | (p & q & Sm & leq_Sl_Sm & leq_Sm_Sr & ?)].
+    { eapply reorgs_preserve_equiv in Hequiv.
+      - destruct Hequiv as (Sl' & ? & ?). exists Sl'. split; [ | assumption].
+        eexists. split; [eassumption | reflexivity].
+      - transitivity S'r; [constructor | ]; assumption. }
+    specialize (G q _ _ reorg_Sr_S'r _ leq_Sm_Sr).
+    destruct G as (S'm & leq_S'm_S'r & reorg_Sm_S'm).
+    specialize (leq_decreasing _ _ _ leq_Sm_Sr).
+    edestruct IH with (Sr := Sm) as (S'l & ? & ?);
+      [ | reflexivity | eassumption.. | ];
+      [lia | ].
+    pose proof (reorg_decreasing _ _ reorg_Sr_S'r).
+    edestruct IH with (Sr := S'r) as (S''m & ? & ?);
+      [ | reflexivity | eassumption.. | ];
+      [lia | ].
+    pose proof (leq_clos_decreasing _ _ reorg_Sm_S'm).
+    edestruct IH with (Sr := S'm) as (S''l & ? & ?);
+      [ | reflexivity | eassumption.. | ]. lia.
+    exists S''l. split.
+    - eapply leq_n_trans; eassumption.
+    - transitivity S'l; assumption.
   Qed.
 End Leq.
 
@@ -409,81 +505,6 @@ Section WellFormedSimulations.
       as (Sm'' & ? & ?)
       by eauto.
     assert (exists Sl'', leq_base^* Sl'' Sm'' /\ reorg^* Sl' Sl'')
-      as (? & ? & ?).
-    { eapply IH; [ | reflexivity | | eassumption..]; eauto using Nat.le_lt_trans. }
-    eexists. split; eapply rt_trans; eassumption.
-  Qed.
-
-  Lemma preservation_reorg_l
-    (reorg : state -> state -> Prop) (leq_base_n : nat -> state -> state -> Prop)
-    (measure : state -> nat)
-    (leq_decreasing : forall n a b, leq_base_n n a b -> measure a < measure b + n)
-    (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
-    (H : forall n, forward_simulation (leq_base_n n) (measured_closure leq_base_n n) reorg reorg^*) :
-    forall n, forward_simulation (measured_closure leq_base_n n) (measured_closure leq_base_n n) reorg^* reorg^*.
-  Proof.
-    assert (leq_clos_decreasing : forall S S', reorg^* S S' -> measure S' <= measure S).
-    { intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. }
-    intros n Sr.
-    remember (measure Sr + n) as N eqn:EQN.
-    revert n Sr EQN. induction N as [? IH] using lt_wf_ind.
-    intros n Sr -> S''r reorg_Sr_S''r Sl leq_Sl_Sr.
-    destruct reorg_Sr_S''r as [ | Sr S'r S''r reorg_Sr_S'r ? _] using clos_refl_trans_ind_right'.
-    { eexists. split; [exact leq_Sl_Sr | reflexivity]. }
-    apply measure_closure_cases in leq_Sl_Sr.
-    destruct leq_Sl_Sr as [ | (p & q & Sm & leq_Sl_Sm & leq_Sm_Sr & ?)].
-    { subst. exists S''r. split; [reflexivity | ]. transitivity S'r; [constructor | ]; assumption. }
-    specialize (H q _ _ reorg_Sr_S'r _ leq_Sm_Sr). destruct H as (S'm & leq_S'm_S'r & reorg_Sm_S'm).
-    specialize (leq_decreasing _ _ _ leq_Sm_Sr).
-    edestruct IH with (Sr := Sm) as (S'l & ? & ?);
-      [ | reflexivity | eassumption.. | ];
-      [lia | ].
-    specialize (reorg_decreasing _ _ reorg_Sr_S'r).
-    edestruct IH with (Sr := S'r) as (S''m & ? & ?);
-      [ | reflexivity | eassumption.. | ];
-      [lia | ].
-    specialize (leq_clos_decreasing _ _ reorg_Sm_S'm).
-    edestruct IH with (Sr := S'm) as (S''l & ? & ?);
-      [ | reflexivity | eassumption.. | ]. lia.
-    exists S''l. split.
-    - eapply measured_closure_over_approx; [eassumption | ].
-      apply MC_trans with (y := S''m); assumption.
-    - transitivity S'l; assumption.
-  Qed.
-
-  (* TODO: reformulate this theorem for the measured relation. *)
-  Lemma _preservation_reorg_l (reorg : state -> state -> Prop)
-    (measure : state -> nat)
-    (leq_decreasing : forall a b, leq_base a b -> measure a < measure b)
-    (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
-    (leq_base_preserves_wf_l : forall a b, well_formed a -> leq_base a b -> well_formed b)
-    (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ WF a -> @well_formed _ WF b)
-    (H : well_formed_forward_simulation_l (@leq_base _ LB) (@leq_base _ LB)^* reorg reorg^*) :
-    well_formed_forward_simulation_l leq_base^* leq_base^* reorg^* reorg^*.
-  Proof.
-    assert (forall S S', reorg^* S S' -> measure S' <= measure S).
-    { intros ? ? Hreorg. induction Hreorg; eauto using Nat.lt_le_incl, Nat.le_trans. }
-    assert (forall S S', well_formed S -> reorg^* S S' -> well_formed S').
-    { intros ? ? ? Hreorg. induction Hreorg; eauto. }
-    assert (forall Sl Sr, well_formed Sl -> leq_base^* Sl Sr -> well_formed Sr).
-    { intros ? ? ? G. induction G; eauto. }
-    intros Sr.
-    remember (measure Sr) as n eqn:EQN. revert Sr EQN.
-    induction n as [? IH] using lt_wf_ind.
-    intros Sr -> Sl Sr' well_formed_Sl reorg_Sr_Sr'.
-    destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using clos_refl_trans_ind_right'.
-    { intros. eexists. split; [eassumption | apply rt_refl]. }
-    intros leq_Sl_Sr.
-    destruct leq_Sl_Sr as [ | Sl Sm Sr ? _ leq_Sm_Sr] using clos_refl_trans_ind_left'.
-    { eexists. split; [apply rt_refl | ]. eapply rt_trans; [constructor | ]; eassumption. }
-    destruct (H Sr Sm Sr') as (Sm' & leq_Sm'_Sr' & reorg_Sm_Sm'); [eauto.. | ].
-    assert (exists Sl', leq_base^* Sl' Sm' /\ clos_refl_trans reorg Sl Sl')
-      as (Sl' & ? & ?)
-      by eauto.
-    assert (exists Sm'', leq_base^* Sm'' Sr'' /\ clos_refl_trans reorg Sm' Sm'')
-      as (Sm'' & ? & ?)
-      by eauto.
-    assert (exists Sl'', leq_base^* Sl'' Sm'' /\ clos_refl_trans reorg Sl' Sl'')
       as (? & ? & ?).
     { eapply IH; [ | reflexivity | | eassumption..]; eauto using Nat.le_lt_trans. }
     eexists. split; eapply rt_trans; eassumption.
