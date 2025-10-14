@@ -852,6 +852,37 @@ Lemma concr_val_TInt_implies_PL_int :
     unfold lookup_block_and_type_env.
     rewrite Henv. eapply Hconcr_env ; eauto.
     Qed.
+
+  Lemma concr_val_equiv_concr_copy_val :
+    forall v v_copy t vl, 
+      HLPL.copy_val v v_copy ->
+      concr_hlpl_val v t vl <-> concr_hlpl_val v_copy t vl.
+  Proof.
+    intros v v_copy t vl Hcopy. split ; intros Hconcr_val.
+    {
+      generalize dependent v_copy. induction Hconcr_val ; intros v_copy Hcopy.
+      - inversion Hcopy ; constructor.
+      - inversion Hcopy.
+      - inversion Hcopy ; subst.
+        specialize (IHHconcr_val1 v1' H3). specialize (IHHconcr_val2 v2' H4).
+        constructor ; auto.
+      - inversion Hcopy ; subst. by specialize (IHHconcr_val v_copy H2).
+      - inversion Hcopy ; subst. by constructor.
+    }
+    {
+      generalize dependent vl. generalize dependent t. generalize dependent v_copy.
+      induction v ; intros v_copy Hcopy t vl Hconcr_val.
+      - inversion Hcopy.
+      - by inversion Hcopy ; subst.
+      - inversion Hcopy ; subst. specialize (IHv v_copy H2 t vl Hconcr_val).
+        by constructor.
+      - inversion Hcopy ; subst. inversion Hconcr_val ; subst. by constructor.
+      - inversion Hcopy ; subst. inversion Hconcr_val ; subst.
+        specialize (IHv1 v1' H3 t0 vl0 H6). specialize (IHv2 v2' H4 t1 vl1 H7).
+        by constructor.
+    }
+  Qed.
+
 End Concretization.
 
 (* TODO: how to remove type t from exists? *)
@@ -861,9 +892,10 @@ Lemma HLPL_PL_Read :
     eval_place S perm p sp ->
     eval_type blockof S sp t ->
     S.[sp] = v ->
-    exists vl, 
+    exists vl vl', 
       read Spl p t vl /\
-        forall vl', concr_hlpl_val addrof v t vl' -> le_block vl vl'.
+        concr_hlpl_val addrof v t vl' /\
+        le_block vl vl'.
 Proof.
   intros bo ao S Spl perm p sp v t Hle Hplace Heval_type HS_sp.
   destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ _ _ _ Hle Hplace Heval_type)
@@ -873,40 +905,41 @@ Proof.
   destruct
     (state_concr_implies_val_concr_at_addr bo ao _ _ _ _ _ _ Hconcr Hvsp HS_sp Hequiv)
     as [vl [ Hconcr_val Hlu] ].
-  exists (lookup_heap_at_addr addr t Spl) ; repeat split ; auto.
+  exists (lookup_heap_at_addr addr t Spl), vl ;
+    repeat split ; auto.
   * eapply Read ; eauto.
-  * intros vl' Hconcr_val'.
-    apply concr_val_implies_concr_val_comp in Hconcr_val, Hconcr_val'.
-    rewrite Hconcr_val in Hconcr_val' ; injection Hconcr_val' ; intros ; subst.
-    apply le_heap_implies_le_block ; auto.
+  * rewrite <- Hlu. by apply le_heap_implies_le_block.
 Qed.
 
 Lemma Op_Preserves_PL_HLPL_Rel :
   forall blockof addrof S Spl op vS1,
     le_pl_hlpl blockof addrof Spl S ->
     S |-{op} op => vS1 ->
-    exists blockof1 addrof1 vl t,
+    exists blockof1 addrof1 vl vl' t,
       Spl |-{op-pl} op => vl /\
       le_pl_hlpl blockof1 addrof1 Spl vS1.2 /\
-      concr_hlpl_val addrof1 vS1.1 t vl.
+      concr_hlpl_val addrof1 vS1.1 t vl' /\
+      le_block vl vl'.
 Proof.
   intros bo ao S Spl op vS1 Hle Heval.
   pose proof Hle as Htemp ; destruct Htemp as (Spl' & HComp & Hconcr & Hle_state).
   induction Heval eqn:E.
-  - exists bo, ao, [PL_int n], TInt. repeat split ; try constructor.
-    exists Spl' ; auto.
+  - exists bo, ao, [PL_int n], [PL_int n], TInt. repeat split ; try constructor ; auto.
+    econstructor.
   - assert (Hevt : eval_type bo S pi t) by admit.
     destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ _ Hle Heval_place Hevt eq_refl)
-    as (vl & Hread & Hconcr_val).
-    exists bo, ao, vl, t ; repeat split ; simpl ; auto.
+    as (vl & vl' & Hread & Hconcr_val & Hle_val).
+    exists bo, ao, vl, vl', t ; repeat split ; simpl ; auto.
     * constructor ; auto.
-    * inversion Hread. admit.
+    * by apply (concr_val_equiv_concr_copy_val ao _ _ _ _ Hcopy_val).
   - assert (Hevt : eval_type bo S pi t) by admit.
     destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ _ Hle e Hevt eq_refl)
-    as (vl & Hread & Hconcr_val).
-    exists bo, ao, vl, t ; repeat split. 
+    as (vl & vl' & Hread & Hconcr_val & Hle_block).
+    exists bo, ao, vl, vl', t ; repeat split ; auto.
     * constructor ; auto.
-    * rewrite snd_pair. exists Spl'.
+    * exists Spl'. rewrite snd_pair. split ; [ idtac | split ] ; auto.
+      + split ; admit.
+      + admit.
 Admitted.
 
 Lemma Rvalue_Preserves_PL_HLPL_Rel :
