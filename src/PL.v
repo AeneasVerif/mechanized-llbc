@@ -79,6 +79,12 @@ Inductive copy_val : PL_val -> PL_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (PL_int n) (PL_int n).
 
 (* Functions to lookup and update PL states *)
+Definition update_env (S : PL_state) (e : Pmap (block_id * type)) :=
+  {|env := e ; heap := heap S |}.
+
+Definition update_heap (S : PL_state) (h : Pmap pl_val) :=
+  {|env := env S ; heap := h |}.
+
 Definition lookup_block_and_type_env (enc_x : positive) (S : PL_state)
   : option (block_id * type) :=
   lookup enc_x (env S).
@@ -106,11 +112,26 @@ Definition lookup_heap_at_addr (addr : address) (t : type) (S : PL_state) : pl_v
       firstn size (skipn addr.2 vl)
   end.
 
-Definition update_env (S : PL_state) (e : Pmap (block_id * type)) :=
-  {|env := e ; heap := heap S |}.
+Definition write_heap_at_addr (addr : address) (vl : pl_val) (S : PL_state) :=
+  let (bi, off) := addr in
+  let block := lookup_heap bi S in
+  match block with
+  | None => S
+  | Some vl' =>
+      let new_block := firstn off vl' ++ vl ++ skipn (off + length vl) vl' in
+      update_heap S (alter (fun _ => new_block) bi (heap S))
+  end. 
 
-Definition update_heap (S : PL_state) (h : Pmap pl_val) :=
-  {|env := env S ; heap := h |}.
+Lemma env_stable_by_write_at_addr :
+  forall S addr vl, env (write_heap_at_addr addr vl S) = env S.
+Proof.
+  intros [env_S heap_S] [bi off] vl. simpl.
+  destruct (lookup_heap bi {| env := env_S; heap := heap_S |}) ; reflexivity.
+Qed.
+
+Notation "S .h.[ addr : t ]" := (lookup_heap_at_addr addr t S) (left associativity, at level 50).
+
+Notation "S .h.[ addr <- vl ]" := (write_heap_at_addr addr vl S) (left associativity, at level 50).
 
 Inductive eval_proj_pl (Spl : PL_state) :
   proj -> (address * type) -> (address * type) -> Prop :=
@@ -388,8 +409,8 @@ Section Concretization.
       exists vl, concr_hlpl_val v t vl /\ h !! bi = Some vl .
 
   Definition concr_hlpl_env (S : HLPL_state) (env : Pmap (block_id * type)) : Prop :=
-    forall enc_x bi t v,
-      get_at_accessor S enc_x = Some v ->
+    forall enc_x bi t,
+    get_at_accessor S enc_x <> None ->
       blockof enc_x = (bi, t) ->
       env !! enc_x = Some (bi, t).
 
@@ -850,7 +871,7 @@ Lemma concr_val_TInt_implies_PL_int :
     exists addr ; split ; auto.
     exists bi, t0 ; split ; auto.
     unfold lookup_block_and_type_env.
-    rewrite Henv. eapply Hconcr_env ; eauto.
+    rewrite Henv. eapply Hconcr_env ; eauto. simpl ; intros H ; congruence.
     Qed.
 
   Lemma concr_val_equiv_concr_copy_val :
@@ -923,6 +944,8 @@ Lemma Op_Preserves_PL_HLPL_Rel :
 Proof.
   intros bo ao S Spl op vS1 Hle Heval.
   pose proof Hle as Htemp ; destruct Htemp as (Spl' & HComp & Hconcr & Hle_state).
+  pose proof proj1 Hconcr as Hconcr_heap.
+  pose proof proj2 Hconcr as Hconcr_env.
   induction Heval eqn:E.
   - exists bo, ao, [PL_int n], [PL_int n], TInt. repeat split ; try constructor ; auto.
     econstructor.
@@ -937,8 +960,21 @@ Proof.
     as (vl & vl' & Hread & Hconcr_val & Hle_block).
     exists bo, ao, vl, vl', t ; repeat split ; auto.
     * constructor ; auto.
-    * exists Spl'. rewrite snd_pair. split ; [ idtac | split ] ; auto.
+    * inversion Hread.
+      exists (write_heap_at_addr addr (repeat PL_poison (sizeof t)) Spl').
+         rewrite snd_pair. split ; [ idtac | split ] ; auto.
       + split ; admit.
+      + split.
+        ** admit.
+        ** intros enc_x bi t0 Haccess Hbo_enc_x.
+           rewrite env_stable_by_write_at_addr.
+           eapply Hconcr_env ; eauto.
+           rewrite surjective_pairing with (p := pi) in Haccess.
+           simpl in Haccess. intros H. 
+           destruct (Positive_as_DT.eqb_spec pi.1 enc_x) ; simpl in *.
+           
+           *** admit.
+           *** rewrite get_at_accessor_sset_disj in Haccess ; auto.
       + admit.
 Admitted.
 
