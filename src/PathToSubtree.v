@@ -2071,3 +2071,11 @@ Ltac weight_inequality :=
   autorewrite with weight in *;
   lia
 .
+
+Lemma lookup_alter_at_accessor_None {state} {val} `{IsState : State state val} :
+  forall S p1 p2 vset,
+    (get_map S) !! p1 = None <-> (get_map (alter_at_accessor vset p2 S)) !! p1 = None.
+  Proof.
+    intros S sp vset ; split ; intros Hget_map ;
+    rewrite get_map_alter in *; rewrite lookup_alter_None in * ; auto.
+  Qed.
