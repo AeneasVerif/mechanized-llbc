@@ -484,26 +484,48 @@ Section Concretization.
           exists addr t, addr_spath_equiv S addr t sp
       }.
 
-  Inductive le_val : PL_val -> PL_val -> Prop :=
+  Inductive le_val : relation PL_val :=
   | lev_refl v : le_val v v
   | lev_poison v : le_val v PL_poison.
 
-  Definition le_block (b1 b2 : pl_val) :=
-    Forall2 le_val b1 b2.
+  Program Instance IsPreoderVal: PreOrder le_val.
+  Next Obligation.
+    constructor. Qed.
+  Next Obligation.
+  intros x y z Hxy Hyz ; inversion Hxy ; inversion Hyz ; subst ; try constructor. Qed.
+  
+  Definition le_block : relation pl_val := Forall2 le_val.
+  Instance IsPreoderBlock: PreOrder le_block.
+  apply PreOrder_instance_1, IsPreoderVal. Qed.
 
-  Definition le_heap (h1 h2: Pmap pl_val) : Prop :=
-    forall bi b1 b2,
-      (h1 !! bi = Some b1 \/ h2 !! bi = Some b2) ->
-        h1 !! bi = Some b1 /\ h2 !! bi = Some b2 /\ le_block b1 b2.
-
-  Definition le_pl_state (Spl1 Spl2 : PL_state) : Prop :=
-    env Spl1 = env Spl2 /\ le_heap (heap Spl1) (heap Spl2).
+  Definition le_heap : relation (Pmap pl_val) :=
+    fun h1 h2 =>
+      forall bi b1,
+        h1 !! bi = Some b1 ->
+        exists b2, h2 !! bi = Some b2 /\ le_block b1 b2.
+  Program Instance IsPreoderHeap: PreOrder le_heap.
+  Next Obligation.
+    intros h bi b1 Hbi ; exists b1 ; repeat split ; auto. apply IsPreoderBlock. Qed.
+  Next Obligation.
+  intros h1 h2 h3 H12 H23 bi b1 Hh1.
+  destruct (H12 bi b1 Hh1) as (b2 & Hh2 & Hle12).
+  destruct (H23 bi b2 Hh2) as (b3 & Hh3 & Hle23).
+  exists b3 ; split ; auto. etransitivity ; eauto. Qed.
+  
+  Definition le_pl_state : relation PL_state :=
+    fun Spl1 Spl2 => env Spl1 = env Spl2 /\ le_heap (heap Spl1) (heap Spl2).
+  Program Instance IsPreoderState : PreOrder le_pl_state.
+  Next Obligation.
+    intros Spl. split ; reflexivity. Qed.
+  Next Obligation.
+    intros Spl1 Spl2 Spl3 [env12 heap12] [env23 heap23]. split ; try congruence.
+    etransitivity ; eauto.
+  Qed.
 
   Infix "<={pl}" := le_pl_state (at level 70).
 
   Definition le_pl_hlpl (Spl : PL_state) (S : HLPL_state) : Prop :=
     exists Spl', Compatible S /\ concr_hlpl S Spl' /\ Spl <={pl} Spl'.
-
 
   (* Addr_spath_equiv is a function: given state S and spath sp, addr and t are unique *)
   Ltac injection_list_app :=
