@@ -409,10 +409,10 @@ Section Concretization.
       exists vl, concr_hlpl_val v t vl /\ h !! bi = Some vl .
 
   Definition concr_hlpl_env (S : HLPL_state) (env : Pmap (block_id * type)) : Prop :=
-    forall enc_x bi t,
-    get_at_accessor S enc_x <> None ->
-      blockof enc_x = (bi, t) ->
-      env !! enc_x = Some (bi, t).
+    forall x bi t,
+    get_at_accessor S (encode_var x) <> None ->
+      blockof (encode_var x) = (bi, t) ->
+      env !! (encode_var x) = Some (bi, t).
 
   Definition concr_hlpl (S : HLPL_state) (Spl : PL_state) : Prop :=
     concr_hlpl_heap S (heap Spl) /\ concr_hlpl_env S (env Spl).
@@ -988,15 +988,11 @@ Proof.
       + split ; admit.
       + split.
         ** admit.
-        ** intros enc_x bi t0 Haccess Hbo_enc_x.
+        ** intros x bi t0 Haccess Hbo_enc_x.
            rewrite env_stable_by_write_at_addr.
-           eapply Hconcr_env ; eauto.
-           rewrite surjective_pairing with (p := pi) in Haccess.
-           simpl in Haccess. intros H. 
-           destruct (Positive_as_DT.eqb_spec pi.1 enc_x) ; simpl in *.
-           
-           *** admit.
-           *** rewrite get_at_accessor_sset_disj in Haccess ; auto.
+           eapply Hconcr_env ; eauto. intros Heq.
+           eapply lookup_alter_at_accessor_None in Heq.
+           apply Haccess in Heq ; congruence.
       + admit.
 Admitted.
 
