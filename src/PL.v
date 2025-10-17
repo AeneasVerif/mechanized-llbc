@@ -23,7 +23,7 @@ Inductive PL_val :=
 | PL_bot : PL_val
 | PL_poison : PL_val
 | PL_int : nat -> PL_val 
-| PL_address : address -> PL_val
+| PL_address : address -> type -> PL_val
 .
 
 Definition pl_val := list PL_val.
@@ -136,8 +136,8 @@ Notation "S .h.[ addr <- vl ]" := (write_heap_at_addr addr vl S) (left associati
 Inductive eval_proj_pl (Spl : PL_state) :
   proj -> (address * type) -> (address * type) -> Prop :=
 | Eval_Deref_Ptr_Locs_pl :
-  forall (addr addr' : address) (t : type),
-    lookup_heap_at_addr addr TRef Spl =  [PL_address addr'] ->
+  forall (addr addr' : address) (t: type),
+    lookup_heap_at_addr addr TRef Spl = [PL_address addr' t] ->
     eval_proj_pl Spl Deref (addr, TRef) (addr', t)
 | Eval_Field_First_l_pl :
   forall (addr : address) (t0 t1 : type),
@@ -157,6 +157,41 @@ Definition eval_place_pl (Spl : PL_state) (p : place) (addr_t : address * type) 
   exists bi t,
     lookup_block_and_type_env (encode_var p.1) Spl = Some (bi, t) /\
       eval_path_pl Spl p.2 ((bi, 0), t) addr_t.
+
+Lemma eval_proj_pl_deterministic :
+  forall Spl proj addr_t0 addr_t1 addr_t2,
+    eval_proj_pl Spl proj addr_t0 addr_t1 ->
+    eval_proj_pl Spl proj addr_t0 addr_t2 ->
+    addr_t1 = addr_t2.
+Proof.
+  intros Spl proj ? ? ? Heval_proj1 Heval_proj2.
+  destruct proj ; inversion Heval_proj1 ; subst ; inversion Heval_proj2; subst ; auto.
+  rewrite H in H1. injection H1 ; intros ; subst ; auto.
+Qed.
+
+Lemma eval_path_pl_deterministic :
+  forall Spl P addr_t0 addr_t1 addr_t2,
+    eval_path_pl Spl P addr_t0 addr_t1 ->
+    eval_path_pl Spl P addr_t0 addr_t2 ->
+    addr_t1 = addr_t2.
+Proof.
+  intros Spl P ? ? ? Heval_path01 Heval_path12.
+  induction Heval_path01 ; inversion Heval_path12 ; subst ; auto.
+  pose proof (eval_proj_pl_deterministic _ _ _ _ _ H H2) ; subst.
+  apply IHHeval_path01 ; auto.
+Qed.
+
+Lemma eval_place_pl_deterministic :
+  forall Spl p addr_t addr_t',
+    eval_place_pl Spl p addr_t ->
+    eval_place_pl Spl p addr_t' ->
+    addr_t = addr_t'.
+Proof.
+  intros Spl p addr_t addr_t'
+    (bi & t & Hlu & Heval_path) (bi' & t' & Hlu' & Heval_path').
+  rewrite Hlu in Hlu'. injection Hlu' ; intros ; subst.
+  eapply eval_path_pl_deterministic ; eauto.
+Qed.
 
 (** Read in PL state *)
 Definition read_address (Spl : PL_state) (p : place) (t : type) (addr : address): Prop :=
@@ -202,7 +237,7 @@ Variant eval_rvalue: rvalue -> PL_state -> pl_val -> Prop :=
   S |-{rv-pl} BinOp t op_l op_r => [PL_int (n_l + n_r)]
 | Eval_ptr S t p addr
     (Haddr : read_address S p t addr) :
-  S |-{rv-pl} &mut p : TRef => [PL_address addr]
+  S |-{rv-pl} &mut p : TRef => [PL_address addr t]
 | Eval_pair S t op_l vl_l op_r vl_r
     (Hl : S |-{op-pl} op_l => vl_l)
     (Hr : S |-{op-pl} op_r => vl_r) :
@@ -269,7 +304,7 @@ Ltac rewrite_pairs :=
 
 Section Concretization.
   Variable blockof : positive -> block_id * type.
-  Variable addrof : loan_id -> option address.
+  Variable addrof : loan_id -> option (address * type).
 
   Local Open Scope stdpp_scope.
 
@@ -340,9 +375,9 @@ Section Concretization.
   | Concr_loc l v t vl
       (Hv : concr_hlpl_val v t vl) :
     concr_hlpl_val (HLPL_loc l v) t vl
-  | Concr_ptr_loc l addr
-      (Haddr : addrof l = Some addr) :
-    concr_hlpl_val (HLPL_ptr l) TRef [PL_address addr]
+  | Concr_ptr_loc l addr t
+      (Haddr : addrof l = Some (addr, t)) :
+    concr_hlpl_val (HLPL_ptr l) TRef [PL_address addr t]
   .
 
   Fixpoint concr_hlpl_val_comp (v : HLPL_val) (t : type) :=
@@ -360,7 +395,7 @@ Section Concretization.
         concr_hlpl_val_comp v t
     | HLPL_ptr l, TRef =>
         match addrof l with
-        | Some addr => Some [PL_address addr]
+        | Some (addr, t) => Some [PL_address addr t]
         | _ => None
         end
     | _, _ => None
@@ -377,7 +412,7 @@ Section Concretization.
     - constructor; auto.
     - destruct t ; simpl in * ; try discriminate.
       destruct (addrof l) eqn:Haddr.
-      * injection H as H ; subst ; constructor. assumption.
+      * destruct p ; injection H as H ; subst ; constructor. assumption.
       * discriminate.
     - destruct t; try discriminate ; simpl in *.
       remember (concr_hlpl_val_comp v1 t1) as concr1.
@@ -477,7 +512,7 @@ Section Concretization.
         forall (sp : spath) (addr : address) t l,
           addr_spath_equiv S addr t sp ->
           get_node (S.[sp]) = HLPL_locC l ->
-          addrof l = Some addr
+          addrof l = Some (addr, t)
       ; reachable_loc :
         forall l sp,
           get_node (S.[sp]) = HLPL_locC l ->
@@ -500,17 +535,22 @@ Section Concretization.
 
   Definition le_heap : relation (Pmap pl_val) :=
     fun h1 h2 =>
+      dom h1 = dom h2 /\
       forall bi b1,
         h1 !! bi = Some b1 ->
         exists b2, h2 !! bi = Some b2 /\ le_block b1 b2.
   Program Instance IsPreoderHeap: PreOrder le_heap.
   Next Obligation.
-    intros h bi b1 Hbi ; exists b1 ; repeat split ; auto. apply IsPreoderBlock. Qed.
+    split ; auto.
+    intros bi b1 Hbi ; exists b1 ; repeat split ; auto. apply IsPreoderBlock. Qed.
   Next Obligation.
-  intros h1 h2 h3 H12 H23 bi b1 Hh1.
-  destruct (H12 bi b1 Hh1) as (b2 & Hh2 & Hle12).
-  destruct (H23 bi b2 Hh2) as (b3 & Hh3 & Hle23).
-  exists b3 ; split ; auto. etransitivity ; eauto. Qed.
+    intros h1 h2 h3 [Hdom12 H12] [Hdom23 H23].
+    split. 
+    - etransitivity ; eauto.
+    - intros bi b1 Hh1.
+      destruct (H12 bi b1 Hh1) as (b2 & Hh2 & Hle12).
+      destruct (H23 bi b2 Hh2) as (b3 & Hh3 & Hle23).
+      exists b3 ; split ; auto. etransitivity ; eauto. Qed.
   
   Definition le_pl_state : relation PL_state :=
     fun Spl1 Spl2 => env Spl1 = env Spl2 /\ le_heap (heap Spl1) (heap Spl2).
@@ -755,16 +795,17 @@ Lemma concr_val_TInt_implies_PL_int :
       le_heap (heap S1) (heap S2) ->
       le_block (lookup_heap_at_addr addr t S1) (lookup_heap_at_addr addr t S2).
   Proof.
-    intros S1 S2 addr t Hle_heap.
+    intros S1 S2 addr t [Hdom Hle_heap].
     unfold lookup_heap_at_addr. 
-    destruct (heap S1 !! addr.1) eqn:E1; destruct (heap S2 !! addr.1) eqn:E2.
-    - destruct (Hle_heap addr.1 l l0 (or_introl E1)) as [_ [_ Hblock] ].
-      apply Forall2_take, Forall2_drop, Hblock.
-    - destruct (Hle_heap addr.1 l l (or_introl E1)) as [_ [HS2 _] ].
-      unfold "!!" in * ; congruence.
-    - destruct (Hle_heap addr.1 l l (or_intror E2)) as [HS1 [_ _] ].
-      unfold "!!" in * ; congruence.
-    - unfold le_block. constructor.
+    destruct (heap S1 !! addr.1) eqn:E1.
+    - destruct (Hle_heap addr.1 l E1) as (l' & E2 & Hle_block).
+      replace (heap S2 !! addr.1) with (Some l') by auto.
+      apply Forall2_take, Forall2_drop ; auto.
+    - apply not_elem_of_dom in E1.
+      replace (dom (heap S1)) with (dom (heap S2)) in E1.
+      apply not_elem_of_dom in E1. 
+      replace (heap S2 !! addr.1) with (None : option pl_val) by auto.
+      constructor.
   Qed.
 
   (** Simulation proof between spath and address *)
@@ -895,6 +936,31 @@ Lemma concr_val_TInt_implies_PL_int :
     unfold lookup_block_and_type_env.
     rewrite Henv. eapply Hconcr_env ; eauto. simpl ; intros H ; congruence.
     Qed.
+
+  Lemma read_addr_spath_equiv_equiv :
+    forall S Spl perm p sp t addr,
+      le_pl_hlpl Spl S ->
+      eval_place S perm p sp ->
+      eval_type S sp t ->
+      addr_spath_equiv S addr t sp <-> read_address Spl p t addr .
+  Proof.
+    intros S Spl perm p sp t addr Hle Heval_place Heval_type ; split.
+    {
+      intros Hequiv.
+      destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ _ Hle Heval_place Heval_type)
+        as (addr' & Heval_place' & Hequiv').
+      rewrite (addr_spath_equiv_deterministic_addr _ _ _ _ _ _ Hequiv Hequiv') in *.
+      assumption.
+    }
+    {
+      intros (bi & t' & Hlu & Heval_path_pl). 
+      destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ _ Hle Heval_place Heval_type)
+        as (addr' & (bi' & t'' & Hlu' & Heval_path_pl') & Hequiv').
+      rewrite Hlu in Hlu' ; injection Hlu' ; intros ; subst.
+      by pose proof (eval_path_pl_deterministic _ _ _ _ _ Heval_path_pl Heval_path_pl')
+        as [=] ; subst.
+    }
+  Qed.
 
   Lemma concr_val_equiv_concr_copy_val :
     forall v v_copy t vl, 
@@ -1038,15 +1104,15 @@ Section Tests.
   Definition pl_state_3 : PL_state :=
     {|
       env := {[ enc_x := (b1, TPair TRef TInt) ]};
-      heap := {[ b1 := [PL_address (b1, 1); PL_int 0] ]}
+      heap := {[ b1 := [PL_address (b1, 1) TInt ; PL_int 0] ]}
     |}.
   Definition pl_state_4 : PL_state :=
     {|
       env := {[ enc_x := (b1, TRef) ]};
       heap :=
         {[
-            b1 := [PL_address (b2, 1)] ;
-            b2 := [PL_int 3 ; PL_address (b2, 0)]
+            b1 := [PL_address (b2, 1) TRef] ;
+            b2 := [PL_int 3 ; PL_address (b2, 0) TInt]
         ]}
     |}.
   Definition pl_state_5 : PL_state :=
@@ -1054,8 +1120,8 @@ Section Tests.
       env := {[ enc_x := (b1, TRef) ]};
       heap :=
         {[
-            b1 := [PL_address (b2, 1)] ;
-            b2 := [PL_poison ; PL_address (b2, 0)]
+            b1 := [PL_address (b2, 1) TRef] ;
+            b2 := [PL_poison ; PL_address (b2, 0) TInt]
         ]}
     |}.
   Definition pl_state_6 : PL_state :=
@@ -1132,7 +1198,7 @@ Section Tests.
          [PL_int (7 + 4)].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv-pl} &mut (x, []) : TRef=> [PL_address (b1, 0)].
+  Goal pl_state_1 |-{rv-pl} &mut (x, []) : TRef=> [PL_address (b1, 0) TInt].
   Proof. repeat econstructor.  Qed.
 
   Goal pl_state_1 |-{rv-pl} Pair (TPair TInt TInt) (IntConst TInt 0) (IntConst TInt 1)
@@ -1163,7 +1229,7 @@ Section Tests.
 
   (** CONCRETIZATION TESTS **)
 
-  Definition addrof := (fun l => if l =? l1 then Some (b1, 1) else None).
+  Definition addrof := (fun l => if l =? l1 then Some ((b1, 1), TInt) else None).
 
   Goal concr_hlpl_val addrof (HLPL_int 3) TInt [PL_int 3].
   Proof. repeat econstructor. Qed.
@@ -1189,6 +1255,6 @@ Section Tests.
   Proof. repeat econstructor. Qed.
 
   Goal concr_hlpl_val addrof
-    (ptr (l1)) TRef [PL_address (b1, 1)].
+    (ptr (l1)) TRef [PL_address (b1, 1) TInt ].
   Proof. repeat econstructor. Qed.
 End Tests.
