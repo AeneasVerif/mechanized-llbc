@@ -742,8 +742,8 @@ Proof. unfold fresh_abstraction, remove_abstraction. cbn. now simpl_map. Qed.
 
 Lemma sweight_remove_abstraction_value weight S i j v :
   abstraction_contains_value S i j v ->
-  sweight weight (remove_abstraction_value S i j) =
-  sweight weight S - vweight weight v.
+  (Z.of_nat (sweight weight (remove_abstraction_value S i j)) =
+   (Z.of_nat (sweight weight S)) - (Z.of_nat (vweight weight v)))%Z.
 Proof.
   rewrite get_at_abstraction. intros (A & get_A & get_v)%bind_Some.
   apply add_remove_abstraction in get_A.
@@ -2595,18 +2595,37 @@ Lemma leq_state_base_n_decreases n Sl Sr (H : leq_state_base_n n Sl Sr) :
   measure Sl < measure Sr + n.
 Proof.
   unfold measure. destruct H.
-  - autorewrite with weight. weight_given_node. lia.
+  - weight_inequality.
   - autorewrite with weight. destruct Hto_abs.
     + autorewrite with weight. lia. simpl_map. reflexivity.
     + autorewrite with weight. destruct Hv; cbn; lia.
-  - autorewrite with weight. cbn. lia.
-  - autorewrite with weight. lia.
-  - autorewrite with weight. lia.
-  - autorewrite with weight. lia.
   - weight_inequality.
-  - erewrite sweight_remove_abstraction_value by eassumption.
+  - weight_inequality.
+  - weight_inequality.
+  - weight_inequality.
+  - weight_inequality.
+  - autorewrite with weight. erewrite sweight_remove_abstraction_value by eassumption.
     autorewrite with weight. lia.
   - weight_inequality.
+Qed.
+
+Lemma measure_add_anons S A S' :
+  add_anons S A S' -> measure S' = measure S + abs_measure A.
+Proof.
+  rewrite add_anons_alt. induction 1.
+  - rewrite Nat.add_comm. reflexivity.
+  - rewrite IHadd_anons'. unfold measure. autorewrite with weight. lia.
+Qed.
+
+Lemma reorg_decreases S S' (H : reorg S S') : measure S' < measure S.
+Proof.
+  destruct H.
+  - unfold measure. weight_inequality.
+  - unfold measure. autorewrite with weight spath.
+    erewrite sweight_remove_abstraction_value by eassumption.
+    weight_given_node. autorewrite with weight. lia.
+  - apply measure_add_anons in Hadd_anons. rewrite Hadd_anons.
+    unfold measure. autorewrite with weight. lia.
 Qed.
 
 Hint Resolve no_ancestor_sset_rev : spath.
@@ -3101,7 +3120,7 @@ Lemma reorg_preservation : forward_simulation leq leq reorg^* reorg^*.
 Proof.
   eapply preservation_reorg_l.
   - exact leq_state_base_n_decreases.
-  - admit.
+  - exact reorg_decreases.
   - admit.
   - exact leq_n_equiv_states_commute.
   - exact leq_state_base_n_is_leq_state_base.
