@@ -368,6 +368,12 @@ Proof.
   eapply not_prefix_disj; [symmetry | ]; eassumption.
 Qed.
 
+Lemma not_prefix_app p q i :
+  ~prefix p (q +++ [i]) -> ~ prefix p q.
+Proof.
+  intros H G. eapply strict_prefix_app_last, strict_prefix_is_prefix in G. eauto.
+Qed.
+
 (* Automatically solving a comparison C p q using the hypotheses. *)
 Hint Immediate vdisj_symmetric : spath.
 Hint Resolve strict_prefix_is_prefix : spath.
