@@ -494,6 +494,43 @@ Section Concretization.
     }
   Qed.
 
+  Lemma addr_spath_equiv_sset : 
+    forall S addr t sp0 sp1 v,
+      ~ prefix sp1 sp0 ->
+      addr_spath_equiv S addr t sp0 <->
+      addr_spath_equiv (S .[ sp1 <- v]) addr t sp0.
+  Proof.
+    intros S addr t sp0 sp1 v Hpref. split ; intros Hequiv.
+    {
+      induction Hequiv ; subst.
+      - eapply Addr_spath_base ; eauto.
+        apply sset_not_prefix_valid ; auto. apply not_strict_prefix_nil.
+      - apply not_prefix_app in Hpref. apply IHHequiv in Hpref as Hequiv'.
+        eapply Addr_spath_pair_first ; eauto.
+        rewrite get_node_sset_sget_not_prefix ; auto.
+      - apply not_prefix_app in Hpref. apply IHHequiv in Hpref as Hequiv'.
+        eapply Addr_spath_pair_second ; eauto.
+        rewrite get_node_sset_sget_not_prefix ; auto.
+      - apply not_prefix_app in Hpref. apply IHHequiv in Hpref as Hequiv'.
+        eapply Addr_spath_loc ; eauto.
+        rewrite get_node_sset_sget_not_prefix ; eauto.
+    }
+    {
+      induction Hequiv ; subst.
+      - eapply Addr_spath_base ; eauto.
+        apply sset_not_prefix_valid in Hvp; auto. apply not_strict_prefix_nil.
+      - apply not_prefix_app in Hpref. apply IHHequiv in Hpref as Hequiv'.
+        eapply Addr_spath_pair_first ; eauto.
+        erewrite <- get_node_sset_sget_not_prefix ; eauto.
+      - apply not_prefix_app in Hpref. apply IHHequiv in Hpref as Hequiv'.
+        eapply Addr_spath_pair_second ; eauto.
+        erewrite <- get_node_sset_sget_not_prefix ; eauto.
+      - apply not_prefix_app in Hpref. apply IHHequiv in Hpref as Hequiv'.
+        eapply Addr_spath_loc ; eauto.
+        erewrite <- get_node_sset_sget_not_prefix ; eauto.
+    }
+  Qed.
+
   Lemma concr_val_size : forall v vl t, concr_hlpl_val v t vl -> sizeof t = length vl.
   Proof.
     intros v vl t Hconcr. induction Hconcr ; auto ; try reflexivity.
@@ -663,11 +700,10 @@ Section Concretization.
 
   Lemma addr_spath_equiv_implies_valid_spath :
     forall S sp addr t, 
-      Compatible S ->
       addr_spath_equiv S addr t sp ->
       valid_spath S sp.
   Proof.
-    intros S sp addr t Hcomp Hequiv. induction Hequiv ; subst ; auto ;
+    intros S sp addr t Hequiv. induction Hequiv ; subst ; auto ;
       try (apply valid_spath_app ; split ; auto ; nodes_to_val ; repeat econstructor).
   Qed.
 
@@ -1019,6 +1055,44 @@ Proof.
   * eapply Read ; eauto.
   * rewrite <- Hlu. by apply le_heap_implies_le_block.
 Qed.
+
+Lemma sset_preserves_compatibility :
+  forall S bo ao sp v,
+    Compatible bo ao S ->
+    not_contains_bot (S.[sp]) ->
+    not_contains_loc (S.[sp]) ->
+    not_contains_loc v ->
+    Compatible bo ao (S.[sp <- v]).
+Proof.
+  intros S bo ao sp v Hcomp Hnot_bot_sp Hnot_loc_sp Hnot_loc_v.
+  assert (Hvsp: valid_spath S sp).
+  {
+    apply get_not_bot_valid_spath. intros H ; rewrite H in *.
+    specialize (Hnot_bot_sp [] (valid_nil _)). simpl in Hnot_bot_sp. congruence.
+  }
+  pose proof Hcomp as [Hblock Hcorr_ao Hread].
+  split.
+  - intros enc_x Hvsp'. pose proof not_strict_prefix_nil.
+    eapply sset_not_prefix_valid in Hvsp' ; auto.
+  - intros sp0 addr t l Hequiv Hnode.
+    pose proof (not_value_contains_not_prefix is_loc (S.[sp <- v]) sp sp0).
+    apply addr_spath_equiv_implies_valid_spath in Hequiv as Hvsp'.
+    rewrite sset_sget_equal, Hnode in H by auto. 
+    specialize (H Hnot_loc_v (IsLoc_Loc _) Hvsp').
+    eapply Hcorr_ao ; eauto.
+    * apply addr_spath_equiv_sset in Hequiv ; eauto.
+    * rewrite get_node_sset_sget_not_prefix in Hnode; auto.
+  - intros l sp0 Hnode.
+    pose proof (not_value_contains_not_prefix is_loc (S.[sp <- v]) sp sp0).
+    rewrite sset_sget_equal, Hnode in H by auto. 
+    assert (Hvsp' : valid_spath (S .[ sp <- v]) sp0) by
+     (apply get_not_bot_valid_spath ; intros G ; rewrite G in *; discriminate).
+    specialize (H Hnot_loc_v (IsLoc_Loc _) Hvsp').
+    rewrite get_node_sset_sget_not_prefix in Hnode ; auto.
+    destruct (Hread l sp0 Hnode) as (addr & t & Hequiv).
+    exists addr, t. apply addr_spath_equiv_sset ; auto.
+Qed.
+
 
 Lemma Op_Preserves_PL_HLPL_Rel :
   forall blockof addrof S Spl op vS1,
