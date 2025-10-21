@@ -395,7 +395,7 @@ Section Leq.
       eapply MC_trans; eassumption.
   Qed.
 
-  Lemma preservation_reorg_l
+  Lemma measured_preservation_reorg_l
     (G : forall n, forward_simulation (leq_base_n n) (leq_n n) reorg reorg^*) :
     forall n, forward_simulation (leq_n n) (leq_n n) reorg^* reorg^*.
   Proof.
@@ -426,6 +426,30 @@ Section Leq.
     exists S''l. split.
     - eapply leq_n_trans; eassumption.
     - transitivity S'l; assumption.
+  Qed.
+
+  Context (leq_base_is_leq_base_n : forall Sl Sr, leq_base Sl Sr <-> exists n, leq_base_n n Sl Sr).
+
+  Lemma leq_n_is_leq Sl Sr : leq Sl Sr <-> exists n, leq_n n Sl Sr.
+  Proof.
+    split.
+    - intros (Sl' & Hequiv & Hleq).
+      rewrite measured_closure_equiv in Hleq by exact leq_base_is_leq_base_n.
+      destruct Hleq as (n & Hleq). exists n, Sl'. auto.
+    - intros (n & Sl' & Hequiv & Hleq). exists Sl'. split; [assumption | ].
+      rewrite measured_closure_equiv by exact leq_base_is_leq_base_n.
+      exists n. exact Hleq.
+  Qed.
+
+  Corollary preservation_reorg_l
+    (G : forall n, forward_simulation (leq_base_n n) (leq_n n) reorg reorg^*) :
+    forward_simulation leq leq reorg^* reorg^*.
+  Proof.
+    intros Sr S'l reorg_Sr_S'r Sl leq_Sl_Sr.
+    rewrite leq_n_is_leq in leq_Sl_Sr. destruct leq_Sl_Sr as (n & leq_n_Sl_Sr).
+    pose proof (measured_preservation_reorg_l G _ _ _ reorg_Sr_S'r _ leq_n_Sl_Sr)
+      as (Sl' & ? & ?).
+    exists Sl'. split; [ | assumption]. rewrite leq_n_is_leq. exists n. assumption.
   Qed.
 End Leq.
 

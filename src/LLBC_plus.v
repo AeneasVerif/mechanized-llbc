@@ -3097,6 +3097,17 @@ Proof.
         reflexivity.
 Admitted.
 
+Lemma reorg_preservation : forward_simulation leq leq reorg^* reorg^*.
+Proof.
+  eapply preservation_reorg_l.
+  - exact leq_state_base_n_decreases.
+  - admit.
+  - admit.
+  - exact leq_n_equiv_states_commute.
+  - exact leq_state_base_n_is_leq_state_base.
+  - exact reorg_local_preservation.
+Admitted.
+
 Local Open Scope option_monad_scope.
 (*
 fn main() {
