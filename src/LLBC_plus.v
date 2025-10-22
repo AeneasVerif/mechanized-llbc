@@ -1498,31 +1498,25 @@ Proof.
     inversion G; subst. constructor. etransitivity; eassumption.
 Qed.
 
-(* Note: the condition H (and the argument S) could be removed. But because of how the lemma
- * get_at_accessor_is_Some is defined, it's easier to include them. *)
-Lemma in_abstraction_perm S perm i x y (H : is_Some (get_at_accessor S x)) :
-  permutation_accessor perm x = Some y -> in_abstraction i y ->
-  in_abstraction i x.
+Lemma in_abstraction_perm perm i x y :
+  permutation_accessor perm x = Some y -> in_abstraction i y -> in_abstraction i x.
 Proof.
-  intros G (? & ->). apply get_at_accessor_is_Some in H. destruct H as [ | a | i' j].
-  - rewrite perm_at_var in G. discriminate.
-  - rewrite perm_at_anon in G. destruct (lookup a (anons_perm perm)); discriminate.
-  - rewrite perm_at_abstraction in G.
-    destruct (lookup i' (abstractions_perm perm)) as [p | ]; [ | discriminate]. cbn in G.
-    destruct (lookup j p); [ | discriminate]. cbn in G.
-    inversion G as [K]. apply encode_inj in K. exists j. congruence.
+  intros G%permutation_accessor_is_Some. destruct G.
+  - auto.
+  - intros (? & H). inversion H.
+  - intros (? & H). apply encode_inj in H. inversion H. eexists. reflexivity.
 Qed.
 
-Corollary not_in_abstraction_perm S perm sp (valid_sp : valid_spath S sp) :
+Corollary not_in_abstraction_perm perm sp :
   not_in_abstraction sp -> not_in_abstraction (permutation_spath perm sp).
 Proof.
-  unfold not_in_abstraction, in_abstraction, permutation_spath.
-  intros H i (j & ?). apply (H i).
-  destruct (permutation_accessor perm (fst sp)) eqn:EQN.
-  - destruct valid_sp as (? & G%mk_is_Some & _).
-    eapply in_abstraction_perm; [eassumption.. | ]. eexists. eassumption.
-  - eexists. eassumption.
+  unfold not_in_abstraction. intros H i (j & G). apply (H i).
+  unfold permutation_spath in G. destruct (permutation_accessor perm (fst sp)) eqn:EQN.
+  - eapply in_abstraction_perm; [ | eexists]; eassumption.
+  - rewrite G. eexists. reflexivity.
 Qed.
+Hint Resolve not_in_abstraction_perm : spath.
+
 
 Hint Resolve<- is_state_equivalence_sset : spath.
 Hint Resolve permutation_fresh_abstraction : spath.
@@ -2879,8 +2873,7 @@ Proof.
     execution_step. { eexists. eauto. }
     eapply prove_rel.
     { apply Leq_MoveValue_n; rewrite ?permutation_sget; eauto with spath.
-      apply permutation_valid_spath; assumption.
-      eauto using not_in_abstraction_perm. }
+      apply permutation_valid_spath; assumption. }
     autorewrite with spath. reflexivity.
   - process_state_equivalence. autorewrite with spath.
     eapply merge_abstractions_equiv in Hmerge; [ | eassumption].
