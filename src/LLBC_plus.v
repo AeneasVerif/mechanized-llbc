@@ -1585,16 +1585,126 @@ Proof.
     + constructor.
 Qed.
 
-Lemma apply_invert_state_permutation (perm : state_perm) S :
-  is_state_equivalence perm S ->
+Definition compose_state_permutation p1 p0 := {|
+  anons_perm := map_compose (anons_perm p1) (anons_perm p0);
+  abstractions_perm :=
+    map_zip_with (map_compose (MA := Pmap)) (abstractions_perm p1) (abstractions_perm p0);
+|}.
+
+Lemma is_permutation_compose S p1 p0 :
+  is_state_equivalence p0 S -> is_state_equivalence p1 (apply_state_permutation p0 S) ->
+  is_state_equivalence (compose_state_permutation p1 p0) S.
+Proof.
+  intros (? & H) (? & G). split.
+  - apply compose_permutation; assumption.
+  - intros i. specialize (H i). specialize (G i). revert G. cbn.
+    rewrite !map_lookup_zip_with. inversion H.
+    + cbn. inversion 1. constructor. apply compose_permutation; assumption.
+    + cbn. inversion 1. constructor.
+Qed.
+
+Lemma apply_state_permutation_compose S p1 p0 :
+  is_state_equivalence p0 S -> is_state_equivalence p1 (apply_state_permutation p0 S) ->
+  apply_state_permutation p1 (apply_state_permutation p0 S) =
+  apply_state_permutation (compose_state_permutation p1 p0) S.
+Proof.
+  unfold is_state_equivalence, apply_state_permutation. destruct S. cbn.
+  intros (? & H) (? & G). f_equal.
+  - symmetry. apply apply_permutation_compose; assumption.
+  - apply map_eq. intros i.
+    specialize (H i). specialize (G i). revert G. cbn.
+    rewrite !map_lookup_zip_with. inversion H.
+    + cbn. inversion 1. cbn. rewrite apply_permutation_compose; auto.
+    + cbn. inversion 1. reflexivity.
+Qed.
+
+Lemma permutation_spath_compose S g f sp :
+  is_state_equivalence f S -> is_state_equivalence g (apply_state_permutation f S) ->
+  valid_spath S sp ->
+  permutation_spath g (permutation_spath f sp) =
+  permutation_spath (compose_state_permutation g f) sp.
+Proof.
+  intros ((inj_anons_f & anons_f) & H) ((_ & anons_g) & G) (? & get_at_sp & _).
+  apply mk_is_Some, get_at_accessor_is_Some in get_at_sp.
+  unfold permutation_spath. destruct get_at_sp as [ | a ? get_a | i j A ? get_A get_v].
+  - rewrite !perm_at_var. cbn. rewrite perm_at_var. reflexivity.
+
+  - rewrite !perm_at_anon. cbn. rewrite map_lookup_compose.
+    apply mk_is_Some in get_a.
+    pose proof get_a as get_b. rewrite<- anons_f in get_b. destruct get_b as (b & get_b).
+    (* Why does rewrite fail? *)
+    setoid_rewrite get_b. replace (lookup a (anons_perm f)) with (Some b). cbn.
+    rewrite perm_at_anon.
+    specialize (anons_g b).
+    cbn in anons_g. erewrite lookup_pkmap in anons_g;
+      [ | apply map_inj_equiv, inj_anons_f | eassumption].
+    rewrite<-anons_g in get_a. destruct get_a as (c & get_c).
+    setoid_rewrite get_c. reflexivity.
+
+  - rewrite !perm_at_abstraction. cbn. rewrite map_lookup_zip_with.
+    specialize (H i). specialize (G i). cbn in G. rewrite map_lookup_zip_with in G. revert G.
+    rewrite get_A in *. inversion H as [p ? p_perm | ]. subst. cbn.
+    inversion 1 as [q ? q_perm | ]. subst. cbn.
+    rewrite map_lookup_compose.
+
+    apply mk_is_Some in get_v. pose proof get_v as get_j'.
+    destruct p_perm as (inj_p & dom_p). rewrite <-dom_p in get_j'.
+    destruct get_j' as (j' & get_j'). rewrite !get_j'. cbn. rewrite perm_at_abstraction, <-H1. cbn.
+    destruct q_perm as (_ & dom_q). specialize (dom_q j').
+    erewrite lookup_pkmap in dom_q; [ | apply map_inj_equiv, inj_p | eassumption].
+    rewrite <-dom_q in get_v. destruct get_v as (? & ->). reflexivity.
+Qed.
+
+Definition id_state_permutation S := {|
+  anons_perm := id_permutation (anons S);
+  abstractions_perm := fmap id_permutation (abstractions S);
+|}.
+
+Lemma apply_id_state_permutation S : apply_state_permutation (id_state_permutation S) S = S.
+Proof.
+  unfold apply_state_permutation, id_state_permutation. destruct S. cbn. f_equal.
+  - apply apply_id_permutation.
+  - apply map_eq. intros i. rewrite map_lookup_zip_with. simpl_map.
+    destruct (lookup i _); cbn; f_equal. apply apply_id_permutation.
+Qed.
+
+Lemma permutation_spath_id S sp : permutation_spath (id_state_permutation S) sp = sp.
+Proof.
+  unfold permutation_spath. autodestruct.
+  destruct sp. cbn. intros EQ%permutation_accessor_is_Some. destruct EQ.
+  - reflexivity.
+  - apply lookup_id_permutation_is_Some in get_a. congruence.
+  - cbn in get_i. simpl_map. destruct (lookup i (abstractions S)); inversion get_i. subst.
+    apply lookup_id_permutation_is_Some in get_j. congruence.
+Qed.
+
+Lemma compose_invert_permutation perm S (H : is_state_equivalence perm S) :
+  compose_state_permutation (invert_state_permutation perm) perm = id_state_permutation S.
+Proof.
+  destruct H as ((? & ?) & H).
+  unfold compose_state_permutation, invert_state_permutation, id_state_permutation. cbn. f_equal.
+  - rewrite compose_invert_permutation by assumption. now apply id_permutation_same_domain.
+  - apply map_eq. intros i. rewrite map_lookup_zip_with. simpl_map.
+    specialize (H i). inversion H as [? ? (? & ?) | ].
+    + cbn. rewrite compose_invert_permutation by assumption. f_equal.
+      apply id_permutation_same_domain. assumption.
+    + reflexivity.
+Qed.
+
+Corollary apply_invert_state_permutation (perm : state_perm) S (H : is_state_equivalence perm S) :
   apply_state_permutation (invert_state_permutation perm) (apply_state_permutation perm S) = S.
 Proof.
-  destruct S. unfold apply_state_permutation; cbn. intros (? & abs_perm). cbn in *. f_equal.
-  - apply apply_invert_permutation. assumption.
-  - apply map_eq. intros i. rewrite !map_lookup_zip_with. simpl_map.
-    specialize (abs_perm i). destruct abs_perm.
-    + cbn. f_equal. apply apply_invert_permutation. assumption.
-    + reflexivity.
+  rewrite apply_state_permutation_compose by auto using invert_state_permutation_is_permutation.
+  erewrite compose_invert_permutation by eassumption. apply apply_id_state_permutation.
+Qed.
+
+Corollary invert_state_permutation_spath (perm : state_perm) S sp :
+  is_state_equivalence perm S -> valid_spath S sp ->
+  permutation_spath (invert_state_permutation perm) (permutation_spath perm sp) = sp.
+Proof.
+  intros. erewrite permutation_spath_compose; eauto using invert_state_permutation_is_permutation.
+  erewrite compose_invert_permutation by eassumption.
+  apply permutation_spath_id.
 Qed.
 
 Lemma _not_state_contains_apply_permutation P perm S :

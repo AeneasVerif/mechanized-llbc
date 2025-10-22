@@ -963,6 +963,16 @@ Proof.
     * simpl_map. destruct (decide (j = k)) as [-> | ]; simpl_map; auto.
 Qed.
 
+Lemma id_permutation_same_domain {A B} (m : Pmap A) (n : Pmap B)
+  (eq_dom : forall i, is_Some (lookup i m) <-> is_Some (lookup i n)) :
+  id_permutation m = id_permutation n.
+Proof.
+  apply map_eq. intros i. unfold id_permutation. rewrite !map_lookup_imap.
+  destruct (lookup i m) eqn:EQN.
+  - apply mk_is_Some in EQN. rewrite eq_dom in EQN. destruct EQN as (? & ->). reflexivity.
+  - rewrite eq_None_not_Some, eq_dom, <-eq_None_not_Some in EQN. rewrite EQN. reflexivity.
+Qed.
+
 Lemma invert_permutation_is_permutation {A} perm :
   forall m : Pmap A, is_permutation perm m ->
   is_permutation (invert_permutation perm) (apply_permutation perm m).
@@ -1014,23 +1024,13 @@ Proof.
       destruct (decide (i = k)) as [<- | ]; simpl_map; reflexivity.
 Qed.
 
-Corollary apply_invert_permutation {A} p (m : Pmap A) (H : is_permutation p m) :
-  apply_permutation (invert_permutation p) (apply_permutation p m) = m.
-Proof.
-  rewrite <-apply_permutation_compose by auto using invert_permutation_is_permutation.
-  destruct H as (? & dom_p). rewrite compose_invert_permutation by assumption.
-  replace (id_permutation p) with (id_permutation m).
-  - apply apply_id_permutation.
-  - apply map_eq. intros i. unfold id_permutation. rewrite !map_lookup_imap.
-    specialize (dom_p i).
-    destruct (lookup i p) eqn:EQN; destruct (lookup i m) eqn:EQN'; try reflexivity.
-    all: exfalso; eapply is_Some_None; apply dom_p; auto.
-Qed.
-
 Global Instance equiv_map_sym {A} : Symmetric (@equiv_map A).
 Proof.
-  intros ? ?. rewrite !equiv_map_alt. intros (p & ? & ->). exists (invert_permutation p).
-  now split; [apply invert_permutation_is_permutation | rewrite apply_invert_permutation].
+  intros ? ?. rewrite !equiv_map_alt. intros (p & H & ->). exists (invert_permutation p).
+  pose proof (invert_permutation_is_permutation _ _ H).
+  split; [assumption | ]. rewrite <-apply_permutation_compose by assumption.
+  rewrite compose_invert_permutation by apply H.
+  symmetry. erewrite id_permutation_same_domain by apply H. apply apply_id_permutation.
 Qed.
 
 Lemma map_sum_apply_permutation {A} weight (m : Pmap A) :
