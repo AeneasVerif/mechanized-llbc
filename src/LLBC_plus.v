@@ -1727,6 +1727,32 @@ Proof.
     + rewrite apply_invert_state_permutation; assumption.
 Qed.
 
+Lemma _not_ancestor_apply_permutation P perm S sp :
+  is_state_equivalence perm S -> valid_spath S sp ->
+  no_ancestor P (apply_state_permutation perm S) (permutation_spath perm sp) ->
+  no_ancestor P S sp.
+Proof.
+  intros Hperm valid_sp H ? Pq (? & ? & <-).
+  rewrite valid_spath_app in valid_sp. destruct valid_sp.
+  eapply H.
+  - rewrite permutation_sget; eassumption.
+  - eexists _, _. autorewrite with spath. reflexivity.
+Qed.
+
+Lemma not_ancestor_apply_permutation P perm S sp :
+  is_state_equivalence perm S -> valid_spath S sp ->
+  no_ancestor P (apply_state_permutation perm S) (permutation_spath perm sp) <-> no_ancestor P S sp.
+Proof.
+  intros ? valid_sp. split.
+  - apply _not_ancestor_apply_permutation; assumption.
+  - intros ?. eapply _not_ancestor_apply_permutation.
+    + apply invert_state_permutation_is_permutation. assumption.
+    + apply permutation_valid_spath; assumption.
+    + rewrite apply_invert_state_permutation by assumption.
+      erewrite invert_state_permutation_spath by eassumption. assumption.
+Qed.
+Hint Resolve <-not_ancestor_apply_permutation : spath.
+
 Lemma vweight_bot weight : vweight weight bot = weight botC.
 Proof. reflexivity. Qed.
 Hint Rewrite vweight_bot : weight.
