@@ -921,26 +921,34 @@ Proof.
       econstructor; eassumption.
 Qed.
 
+Lemma permutation_accessor_inj perm S :
+  is_state_equivalence perm S -> partial_inj (permutation_accessor perm).
+Proof.
+  intros ((inj_anons_perm & _) & inj_abstractions_perm).
+  intros i Some_i j Hij. pose proof Some_i as Some_j. rewrite Hij in Some_j.
+  destruct Some_i as (i' & Some_i). destruct Some_j as (j' & Some_j).
+  rewrite Some_i, Some_j in Hij. inversion Hij; subst.
+  apply permutation_accessor_is_Some in Some_i, Some_j.
+  destruct Some_i.
+  - inversion Some_j. f_equal. eapply encode_inj. congruence.
+  - inversion Some_j. f_equal. eapply inj_anons_perm; [eassumption.. | ].
+    eapply encode_inj. auto.
+  - specialize (inj_abstractions_perm i).
+    inversion inj_abstractions_perm as [q A (inj_p & _) | ]; [ | congruence].
+    replace q with p in * by congruence.
+    inversion Some_j as [| | i'' ? q' ? get_i'' ? _H eq_encode].
+    f_equal. apply encode_inj in eq_encode. inversion eq_encode. subst. f_equal.
+    rewrite get_i in get_i''. replace q' with p in * by congruence.
+    eapply inj_p; [eassumption.. | congruence].
+Qed.
+
 Lemma permutation_accessor_is_equivalence S perm :
   is_state_equivalence perm S -> is_equivalence (permutation_accessor perm) (get_map S).
 Proof.
-  intros ((inj_anons_perm & dom_anons_perm) & inj_abstractions_perm). split.
-  - intros i Some_i j Hij. pose proof Some_i as Some_j. rewrite Hij in Some_j.
-    destruct Some_i as (i' & Some_i). destruct Some_j as (j' & Some_j).
-    rewrite Some_i, Some_j in Hij. inversion Hij; subst.
-    apply permutation_accessor_is_Some in Some_i, Some_j.
-    destruct Some_i.
-    + inversion Some_j. f_equal. eapply encode_inj. congruence.
-    + inversion Some_j. f_equal. eapply inj_anons_perm; [eassumption.. | ].
-      eapply encode_inj. auto.
-    + specialize (inj_abstractions_perm i).
-      inversion inj_abstractions_perm as [q A (inj_p & _) | ]; [ | congruence].
-      replace q with p in * by congruence.
-      inversion Some_j as [| | i'' ? q' ? get_i'' ? _H eq_encode].
-      f_equal. apply encode_inj in eq_encode. inversion eq_encode. subst. f_equal.
-      rewrite get_i in get_i''. replace q' with p in * by congruence.
-      eapply inj_p; [eassumption.. | congruence].
-  - unfold get_map, permutation_accessor. cbn. intros i.
+  intros Hperm. split.
+  - eapply permutation_accessor_inj. eassumption.
+  - destruct Hperm as ((_ & dom_anons_perm) & inj_abstractions_perm).
+    unfold get_map, permutation_accessor. cbn. intros i.
     intros [(i' & -> & Hi') | ((i' & j') & -> & Hij')]%sum_maps_is_Some.
     + rewrite decode'_encode.
       apply sum_maps_is_Some in Hi'.
@@ -1042,6 +1050,22 @@ Proof.
   destruct valid_sp as (v & get_at_sp & _). unfold permutation_spath, sget.
   edestruct get_at_accessor_state_permutation as (? & -> & <-); [eassumption | auto | reflexivity].
 Qed.
+
+Lemma permutation_spath_disj S perm p q :
+  is_state_equivalence perm S -> valid_spath S p -> valid_spath S q -> disj p q ->
+  disj (permutation_spath perm p) (permutation_spath perm q).
+Proof.
+  intros ? (? & get_at_p%mk_is_Some & ?) (? & get_at_q%mk_is_Some & ?) Hdisj.
+  unfold permutation_spath.
+  eapply get_at_accessor_state_permutation in get_at_p, get_at_q; [ | eassumption..].
+  destruct get_at_p as (? & get_at_p & _). destruct get_at_q as (? & get_at_q & _).
+  rewrite get_at_p, get_at_q.
+  destruct Hdisj as [diff_acc | (? & ?)].
+  - left. cbn. intros ?. eapply diff_acc.
+    eapply permutation_accessor_inj; [eassumption | auto | congruence].
+  - right. cbn. split; [congruence | assumption].
+Qed.
+Hint Resolve permutation_spath_disj : spath.
 
 Lemma sset_abstractions_dom S sp v :
   map_Forall2 (fun _ A A' => dom A = dom A') (abstractions S) (abstractions (S.[sp <- v])).
