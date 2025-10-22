@@ -1326,6 +1326,43 @@ Proof.
     + apply H.
 Qed.
 
+Lemma remove_abstraction_value_permutation_accessor perm i j acc acc':
+  permutation_accessor (remove_abstraction_value_perm perm i j) acc = Some acc' <->
+  permutation_accessor perm acc = Some acc' /\ acc <> encode_abstraction (i, j).
+Proof.
+  split.
+  - intros H%permutation_accessor_is_Some. destruct H as [ | | i'].
+    + rewrite perm_at_var. split; [reflexivity | inversion 1].
+    + cbn in get_a. rewrite perm_at_anon, get_a. split; [constructor | inversion 1].
+    + rewrite perm_at_abstraction. cbn in get_i. destruct (decide (i = i')) as [<- | ].
+      * simpl_map. destruct (lookup i (abstractions_perm perm)); [ | inversion get_i].
+        inversion get_i. subst. cbn.
+        rewrite lookup_delete_Some in get_j. destruct get_j as (? & ->).
+        split; [reflexivity | ]. intros ?%encode_inj. congruence.
+      * simpl_map. cbn. rewrite get_j. split; [reflexivity | ].
+        intros ?%encode_inj. congruence.
+  - intros (H%permutation_accessor_is_Some & ?).  destruct H as [ | | i'].
+    + apply perm_at_var.
+    + rewrite perm_at_anon. cbn. rewrite get_a. constructor.
+    + rewrite perm_at_abstraction. cbn. destruct (decide (i = i')) as [<- | ].
+      * simpl_map. cbn. rewrite lookup_delete_ne, get_j by congruence. reflexivity.
+      * simpl_map. cbn. rewrite get_j. reflexivity.
+Qed.
+
+Lemma remove_abstraction_value_permutation_spath perm i j q :
+  fst q <> encode_abstraction (i, j) ->
+  permutation_spath (remove_abstraction_value_perm perm i j) q = permutation_spath perm q.
+Proof.
+  intros H. unfold permutation_spath.
+  destruct (permutation_accessor (remove_abstraction_value_perm perm i j) (fst q)) eqn:EQN.
+  - apply remove_abstraction_value_permutation_accessor in EQN.
+    destruct EQN as (-> & _). reflexivity.
+  - autodestruct. intros G.
+    pose proof (conj G H) as K. apply remove_abstraction_value_permutation_accessor in K.
+    congruence.
+Qed.
+Hint Rewrite remove_abstraction_value_permutation_spath using auto with spath : spath.
+
 Lemma permutation_abstraction_element perm S i j v :
   is_state_equivalence perm S -> abstraction_contains_value S i j v -> exists j',
     permutation_accessor perm (encode_abstraction (i, j)) = Some (encode_abstraction (i, j')).
