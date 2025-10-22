@@ -1125,7 +1125,8 @@ Proof.
     * inversion Hread.
       exists (write_heap_at_addr addr (repeat PL_poison (sizeof t)) Spl').
          rewrite snd_pair. split ; [ idtac | split ] ; auto.
-      + split ; admit.
+      + apply sset_preserves_compatibility ; auto. 
+        unfold not_contains_loc. not_contains.
       + split.
         ** admit.
         ** intros x bi t0 Haccess Hbo_enc_x.
