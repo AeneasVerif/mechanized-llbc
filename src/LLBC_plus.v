@@ -1498,6 +1498,14 @@ Proof.
     inversion G; subst. constructor. etransitivity; eassumption.
 Qed.
 
+Instance equiv_states_symmetric : Symmetric equiv_states.
+Proof.
+  intros ? ?. rewrite <-!equiv_states_perm. intros (? & ? & ?). split; [ | split].
+  - congruence.
+  - symmetry. assumption.
+  - intros i. symmetry. auto.
+Qed.
+
 Lemma in_abstraction_perm perm i x y :
   permutation_accessor perm x = Some y -> in_abstraction i y -> in_abstraction i x.
 Proof.
