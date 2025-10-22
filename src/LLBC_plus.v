@@ -595,6 +595,11 @@ Lemma sget_remove_abstraction_value S i j p (H : fst p <> encode_abstraction (i,
   (remove_abstraction_value S i j).[p] = S.[p].
 Proof. unfold sget. rewrite get_map_remove_abstraction_value. simpl_map. reflexivity. Qed.
 
+Lemma not_in_abstraction_is_not_encode_abstraction sp i j :
+  not_in_abstraction sp -> fst sp <> encode_abstraction (i, j).
+Proof. intros H G. eapply H. rewrite G. exists j. reflexivity. Qed.
+Hint Resolve not_in_abstraction_is_not_encode_abstraction : spath.
+
 Lemma sset_remove_abstraction_value S i j p v (H : fst p <> encode_abstraction (i, j)) :
   remove_abstraction_value (S.[p <-v]) i j = (remove_abstraction_value S i j).[p <- v].
 Proof.
@@ -605,7 +610,7 @@ Proof.
     reflexivity.
 Qed.
 
-Hint Rewrite sget_remove_abstraction_value using assumption : spath.
+Hint Rewrite sget_remove_abstraction_value using auto with spath : spath.
 Hint Rewrite sset_remove_abstraction_value using assumption : spath.
 
 Lemma add_abstraction_add_anon S a v i A : (S,, a |-> v),,, i |-> A = (S,,, i |-> A),, a |-> v.
@@ -642,7 +647,7 @@ Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Ends a borrow when it's in an abstraction: *)
 (* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
 | Reorg_end_borrow_m_in_abstraction S q i' j' l :
-    fst q <> encode_abstraction (i', j') -> abstraction_contains_value S i' j' loan^m(l) ->
+    abstraction_contains_value S i' j' loan^m(l) ->
     get_node (S.[q]) = borrowC^m(l) -> is_integer (S.[q +++ [0] ]) ->
     not_in_borrow S q -> not_in_abstraction q ->
     reorg S ((remove_abstraction_value S i' j').[q <- bot])
@@ -3038,8 +3043,6 @@ Proof.
     { transitivity S1_anons; [assumption | ].
       constructor. apply Reorg_end_borrow_m_in_abstraction
         with (l := l) (q := (anon_accessor a, [])) (i' := i) (j' := j).
-        - inversion 1.
-           (* We need lemmas of commutation between add_anons and regular operations. *)
         - eapply add_anons_get_at_accessor; [eassumption | ].
           (* TODO: autorewrite *)
           autorewrite with spath. rewrite get_at_accessor_add_abstraction.
@@ -3160,18 +3163,18 @@ Proof.
       destruct Hto_abs.
       * destruct (decide (i' = i)) as [<- | ].
         -- (* The loan that we remove can only be the one at position 2 in A, with identifier l1. *)
-           rewrite get_at_abstraction in H0. cbn in H0. simpl_map. cbn in H0.
+           rewrite get_at_abstraction in H. cbn in H. simpl_map. cbn in H.
            assert (j' = kl /\ l = l1) as (-> & <-).
-           { apply lookup_insert_Some in H0. destruct H0 as [ | (_ & H0)]; [easy | ].
-             rewrite lookup_singleton_Some in H0. destruct H0 as (<- & H0).
-             inversion H0. auto. }
+           { apply lookup_insert_Some in H. destruct H as [ | (_ & H)]; [easy | ].
+             rewrite lookup_singleton_Some in H. destruct H as (<- & H).
+             inversion H. auto. }
            reorg_step.
            { eapply Reorg_end_borrow_m with (p := (anon_accessor a, []) +++ [0]) (q := q).
              eauto with spath.
              autorewrite with spath. reflexivity.
              autorewrite with spath. assumption.
-             autorewrite with spath. (* TODO: lemma *) inversion H2; unfold not_contains_loan; not_contains.
-             rewrite not_in_borrow_add_abstraction in H3 by eauto with spath.
+             autorewrite with spath. (* TODO: lemma *) inversion H1; unfold not_contains_loan; not_contains.
+             rewrite not_in_borrow_add_abstraction in H2 by eauto with spath.
              apply no_ancestor_add_anon; auto with spath.
              eapply anon_not_in_abstraction. reflexivity.
              assumption. }
@@ -3568,7 +3571,6 @@ Section Eval_LLBC_plus_program.
       { constructor.
         eapply Reorg_end_borrow_m_in_abstraction
           with (i' := 1%positive) (j' := 3%positive) (q := (encode_var 3%positive, [])).
-        - discriminate.
         - reflexivity.
         - reflexivity.
         - constructor.
