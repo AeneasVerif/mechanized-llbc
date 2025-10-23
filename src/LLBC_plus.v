@@ -1030,6 +1030,73 @@ Proof.
   eexists. split; [eassumption | ]. apply lookup_pkmap; assumption.
 Qed.
 
+Definition equiv_states S0 S1 :=
+  exists perm, is_state_equivalence perm S0 /\ S1 = apply_state_permutation perm S0.
+
+(* An alternative definition. *)
+Definition equiv_states' (S0 S1 : LLBC_plus_state) :=
+  vars S0 = vars S1 /\
+  equiv_map (anons S0) (anons S1) /\
+  map_Forall2 (fun _ => equiv_map) (abstractions S0) (abstractions S1).
+
+Definition leq := chain equiv_states leq_state_base^*.
+
+Lemma equiv_states_perm S0 S1 : equiv_states' S0 S1 <-> equiv_states S0 S1.
+Proof.
+  split.
+  - intros (eq_vars & H%equiv_map_alt & abstractions_equiv).
+    destruct H as (anons_perm & ? & ?).
+    assert (exists M,
+      map_Forall2 (fun _ => is_permutation) M (abstractions S0) /\
+      abstractions S1 = map_zip_with (fun p A => apply_permutation p A) M (abstractions S0))
+      as (M & G & ?).
+    { remember (abstractions S0) as As0 eqn:EQN. clear EQN.
+      remember (abstractions S1) as As1 eqn:EQN. clear EQN.
+      revert As1 abstractions_equiv.
+      induction As0 as [ | i A As0 ? ? IH] using map_first_key_ind.
+      - intros ? ->%map_Forall2_empty_inv_l.
+        exists empty. split; [apply map_Forall2_empty | reflexivity].
+      - intros _As1 G. apply map_Forall2_insert_inv_l in G; [ | assumption].
+        destruct G as (B & As1 & -> & ? & (p & ? & ->)%equiv_map_alt & G).
+        specialize (IH _ G). destruct IH as (M & ? & ->).
+        exists (insert i p M). split.
+        + apply map_Forall2_insert_2; assumption.
+        + rewrite<- map_insert_zip_with. reflexivity. }
+    exists {|anons_perm := anons_perm; abstractions_perm := M|}.
+    split; [split | ].
+    + assumption.
+    + cbn. intros i. specialize (G i). destruct G; constructor. assumption.
+    + unfold apply_state_permutation. destruct S0, S1. cbn in *. congruence.
+  - intros ((anons_perm0 & abs_perm0) & (? & Habs_perm) & ->). cbn in *.
+    split; [ | split].
+    + reflexivity.
+    + cbn. eexists. split; [ | reflexivity]. apply permutation_is_equivalence. assumption.
+    + cbn. intros i. specialize (Habs_perm i). rewrite map_lookup_zip_with.
+      destruct Habs_perm; constructor. eexists.
+      split; [ | reflexivity]. apply permutation_is_equivalence. assumption.
+Qed.
+
+Instance equiv_states_reflexive : Reflexive equiv_states.
+Proof.  intros ?. apply equiv_states_perm. repeat split; repeat intro; reflexivity. Qed.
+
+Instance equiv_states_transitive : Transitive equiv_states.
+Proof.
+  intros S0 S1 S2. rewrite <-!equiv_states_perm. intros (? & ? & H) (? & ? & G).
+  split; [ | split].
+  - congruence.
+  - transitivity (anons S1); assumption.
+  - intros i. specialize (G i). destruct (H i); [ | assumption].
+    inversion G; subst. constructor. etransitivity; eassumption.
+Qed.
+
+Instance equiv_states_symmetric : Symmetric equiv_states.
+Proof.
+  intros ? ?. rewrite <-!equiv_states_perm. intros (? & ? & ?). split; [ | split].
+  - congruence.
+  - symmetry. assumption.
+  - intros i. symmetry. auto.
+Qed.
+
 Definition permutation_spath (perm : state_perm) (sp : spath) : spath :=
   match permutation_accessor perm (fst sp) with
   | Some j => (j, snd sp)
@@ -1191,6 +1258,16 @@ Proof.
     symmetry. apply get_extra_state_permutation. assumption.
 Qed.
 
+Corollary equiv_states_add_anon S S' a a' v :
+  equiv_states S S' -> fresh_anon S a -> fresh_anon S' a' ->
+  equiv_states (S,, a |-> v) (S',, a' |-> v).
+Proof.
+  intros (perm & Hperm & ->) fresh_a fresh_a'. eexists. split.
+  - apply add_anon_perm_equivalence; eassumption.
+  - symmetry. apply permutation_add_anon; assumption.
+Qed.
+Hint Resolve equiv_states_add_anon : spath.
+
 Definition remove_anon_perm perm a := {|
   anons_perm := delete a (anons_perm perm);
   abstractions_perm := abstractions_perm perm;
@@ -1225,9 +1302,25 @@ Proof.
       erewrite apply_permutation_delete by eassumption. simpl_map. reflexivity.
 Qed.
 
+Lemma remove_anon_equiv_state Sl Sr a v :
+  fresh_anon Sl a -> equiv_states (Sl,, a |-> v) Sr ->
+    exists S'r b, Sr = S'r,, b |-> v /\ fresh_anon S'r b /\ equiv_states Sl S'r.
+Proof.
+  intros fresh_a (perm & Hperm & ->).
+  apply remove_anon_perm_equivalence in Hperm; [ | exact fresh_a].
+  destruct Hperm as (Hperm & b & G & fresh_b). rewrite G. eexists _, b. repeat split.
+  - rewrite permutation_add_anon by assumption. reflexivity.
+  - exact fresh_b.
+  - eexists _. eauto.
+Qed.
+
 Lemma permutation_fresh_abstraction S p i :
   fresh_abstraction S i -> fresh_abstraction (apply_state_permutation p S) i.
 Proof. unfold fresh_abstraction. cbn. rewrite map_lookup_zip_with_None. auto. Qed.
+
+Corollary equiv_states_fresh_abstraction S S' i :
+  equiv_states S S' -> fresh_abstraction S i -> fresh_abstraction S' i.
+Proof. intros (? & ? & ->). apply permutation_fresh_abstraction. Qed.
 
 Definition add_abstraction_perm perm i p := {|
   anons_perm := anons_perm perm;
@@ -1286,6 +1379,18 @@ Proof.
     rewrite get_extra_add_abstraction. reflexivity.
 Qed.
 
+(* The hypothesis `fresh_abstraction S i` could be removed. *)
+Corollary equiv_states_add_abstraction S S' A A' i :
+  equiv_states S S' -> equiv_map A A' -> fresh_abstraction S i ->
+  equiv_states (S,,, i |-> A) (S',,, i |-> A').
+Proof.
+  intros (perm & Hperm & ->). rewrite equiv_map_alt. intros (p & p_perm & ->) fresh_i.
+  eexists. split.
+  - apply add_abstraction_perm_equivalence; eassumption.
+  - symmetry. apply permutation_add_abstraction; assumption.
+Qed.
+Hint Resolve equiv_states_add_abstraction : spath.
+
 Definition remove_abstraction_perm perm i := {|
   anons_perm := anons_perm perm;
   abstractions_perm := delete i (abstractions_perm perm);
@@ -1305,6 +1410,20 @@ Proof.
   - specialize (H i). cbn in H. simpl_map. inversion H. eexists. split; [eassumption | ].
     unfold add_abstraction_perm, remove_abstraction_perm. cbn.
     rewrite insert_delete by congruence. destruct perm. reflexivity.
+Qed.
+
+Corollary remove_abstraction_equiv_state Sl Sr i A :
+  fresh_abstraction Sl i -> equiv_states (Sl,,, i |-> A) Sr ->
+      exists S'r A', Sr = S'r,,, i |-> A' /\ equiv_states Sl S'r /\ equiv_map A A' /\
+                     fresh_abstraction S'r i.
+Proof.
+  intros fresh_i (perm & Hperm & ->).
+  apply remove_abstraction_perm_equivalence in Hperm; [ | assumption].
+  destruct Hperm as (Hperm & p & p_perm & G). rewrite G. eexists _, _. repeat split.
+  - apply permutation_add_abstraction; assumption.
+  - eexists. eauto.
+  - apply equiv_map_alt. exists p. auto.
+  - apply permutation_fresh_abstraction. assumption.
 Qed.
 
 Definition remove_abstraction_value_perm perm i j := {|
@@ -1464,89 +1583,19 @@ Proof.
     exact IH'.
 Qed.
 
-Lemma merge_abstractions_equiv A B C pC :
-  is_permutation pC C -> merge_abstractions A B C ->
-  exists pA pB, is_permutation pA A /\ is_permutation pB B /\
-    merge_abstractions (apply_permutation pA A) (apply_permutation pB B) (apply_permutation pC C).
+Lemma merge_abstractions_equiv A B C C' :
+  equiv_map C C' -> merge_abstractions A B C ->
+  exists A' B', equiv_map A A' /\ equiv_map B B' /\ merge_abstractions A' B' C'.
 Proof.
-  intros perm_C (A' & B' & Hremove & union_A'_B').
+  setoid_rewrite equiv_map_alt. intros (pC & perm_C & ->) (A' & B' & Hremove & union_A'_B').
   eapply union_maps_equiv_rev in union_A'_B'; [ | eassumption..].
   destruct union_A'_B' as (pA' & pB' & ? & ? & ?).
   edestruct remove_loans_equiv as (pA & pB & ? & ? & ?); [eassumption.. | ].
-  exists pA, pB. split; [assumption | ]. split; [assumption | ].
-  eexists _, _. split; eassumption.
+  eexists _, _. split; [eauto | ]. split; [eauto | ]. eexists _, _. split; eassumption.
 Qed.
 
 Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
 { leq_base := leq_state_base }.
-
-(* TODO: should it be the main definition instead of a characterization? *)
-Definition equiv_states S0 S1 :=
-  exists perm, is_state_equivalence perm S0 /\ S1 = apply_state_permutation perm S0.
-
-(* An alternative definition. *)
-Definition equiv_states' (S0 S1 : LLBC_plus_state) :=
-  vars S0 = vars S1 /\
-  equiv_map (anons S0) (anons S1) /\
-  map_Forall2 (fun _ => equiv_map) (abstractions S0) (abstractions S1).
-
-Definition leq := chain equiv_states leq_state_base^*.
-
-Lemma equiv_states_perm S0 S1 : equiv_states' S0 S1 <-> equiv_states S0 S1.
-Proof.
-  split.
-  - intros (eq_vars & H%equiv_map_alt & abstractions_equiv).
-    destruct H as (anons_perm & ? & ?).
-    assert (exists M,
-      map_Forall2 (fun _ => is_permutation) M (abstractions S0) /\
-      abstractions S1 = map_zip_with (fun p A => apply_permutation p A) M (abstractions S0))
-      as (M & G & ?).
-    { remember (abstractions S0) as As0 eqn:EQN. clear EQN.
-      remember (abstractions S1) as As1 eqn:EQN. clear EQN.
-      revert As1 abstractions_equiv.
-      induction As0 as [ | i A As0 ? ? IH] using map_first_key_ind.
-      - intros ? ->%map_Forall2_empty_inv_l.
-        exists empty. split; [apply map_Forall2_empty | reflexivity].
-      - intros _As1 G. apply map_Forall2_insert_inv_l in G; [ | assumption].
-        destruct G as (B & As1 & -> & ? & (p & ? & ->)%equiv_map_alt & G).
-        specialize (IH _ G). destruct IH as (M & ? & ->).
-        exists (insert i p M). split.
-        + apply map_Forall2_insert_2; assumption.
-        + rewrite<- map_insert_zip_with. reflexivity. }
-    exists {|anons_perm := anons_perm; abstractions_perm := M|}.
-    split; [split | ].
-    + assumption.
-    + cbn. intros i. specialize (G i). destruct G; constructor. assumption.
-    + unfold apply_state_permutation. destruct S0, S1. cbn in *. congruence.
-  - intros ((anons_perm0 & abs_perm0) & (? & Habs_perm) & ->). cbn in *.
-    split; [ | split].
-    + reflexivity.
-    + cbn. eexists. split; [ | reflexivity]. apply permutation_is_equivalence. assumption.
-    + cbn. intros i. specialize (Habs_perm i). rewrite map_lookup_zip_with.
-      destruct Habs_perm; constructor. eexists.
-      split; [ | reflexivity]. apply permutation_is_equivalence. assumption.
-Qed.
-
-Instance equiv_states_reflexive : Reflexive equiv_states.
-Proof.  intros ?. apply equiv_states_perm. repeat split; repeat intro; reflexivity. Qed.
-
-Instance equiv_states_transitive : Transitive equiv_states.
-Proof.
-  intros S0 S1 S2. rewrite <-!equiv_states_perm. intros (? & ? & H) (? & ? & G).
-  split; [ | split].
-  - congruence.
-  - transitivity (anons S1); assumption.
-  - intros i. specialize (G i). destruct (H i); [ | assumption].
-    inversion G; subst. constructor. etransitivity; eassumption.
-Qed.
-
-Instance equiv_states_symmetric : Symmetric equiv_states.
-Proof.
-  intros ? ?. rewrite <-!equiv_states_perm. intros (? & ? & ?). split; [ | split].
-  - congruence.
-  - symmetry. assumption.
-  - intros i. symmetry. auto.
-Qed.
 
 Lemma in_abstraction_perm perm i x y :
   permutation_accessor perm x = Some y -> in_abstraction i y -> in_abstraction i x.
@@ -1567,9 +1616,9 @@ Proof.
 Qed.
 Hint Resolve not_in_abstraction_perm : spath.
 
-
 Hint Resolve<- is_state_equivalence_sset : spath.
 Hint Resolve permutation_fresh_abstraction : spath.
+Hint Resolve equiv_states_fresh_abstraction : spath.
 
 Hint Rewrite permutation_sset using (eauto with spath) : spath.
 Hint Rewrite permutation_sget using (eauto with spath) : spath.
@@ -1578,10 +1627,9 @@ Hint Rewrite permutation_add_abstraction using (eauto with spath) : spath.
 
 (* Because the indexes of to_abs are abritrary, it is possible to apply a permutation to them. *)
 (* Note: horrible proof, could be made nicer with a few rewrite lemmas. *)
-Lemma to_abs_apply_permutation v A p :
-  is_permutation p A -> to_abs v A -> to_abs v (apply_permutation p A).
+Lemma to_abs_apply_permutation v A B : equiv_map A B -> to_abs v A -> to_abs v B.
 Proof.
-  intros (p_inj & dom_p_A) Hto_abs. destruct Hto_abs.
+  rewrite equiv_map_alt. intros (p & (p_inj & dom_p_A) & ->) Hto_abs. destruct Hto_abs.
   - erewrite pkmap_insert.
     2: { rewrite <-map_inj_equiv. auto. }
     2: { apply lookup_singleton_ne. congruence. }
@@ -1607,20 +1655,30 @@ Ltac process_state_equivalence :=
   let perm_A := fresh "perm_A" in
   let b := fresh "b" in
   let fresh_b := fresh "fresh_b" in
+  let S0 := fresh "S0" in
+  let B := fresh "B" in
   lazymatch goal with
   (* First: the hypothesis contains a goal "is_state_equivalence perm S_r".
    * While Sr is an expression E_r[S], we break it down until we obtain a property about the
    * validity of S, the common denominator between S_l and S_r. *)
   | valid_perm : is_state_equivalence ?perm (?S.[?sp <- ?v]) |- _ =>
-    rewrite is_state_equivalence_sset in valid_perm
+      rewrite is_state_equivalence_sset in valid_perm
   | valid_perm : is_state_equivalence ?perm (?S,,, ?i |-> ?A) |- _ =>
       apply remove_abstraction_perm_equivalence in valid_perm; [ | eassumption];
       destruct valid_perm as (valid_perm & p & perm_A & G);
       rewrite G; clear G
   | valid_perm : is_state_equivalence ?perm (?S,, ?a |-> ?v) |- _ =>
-    apply remove_anon_perm_equivalence in valid_perm; [ | eauto with spath; fail];
-    destruct valid_perm as (valid_perm & b & G & fresh_b);
-    rewrite G; clear G
+      apply remove_anon_perm_equivalence in valid_perm; [ | eauto with spath; fail];
+      destruct valid_perm as (valid_perm & b & G & fresh_b);
+      rewrite G; clear G
+
+    (* Processing equivalence hypotheses. *)
+  | Hequiv : equiv_states (?Sl,,, ?i |-> ?A) ?Sr |- _ =>
+      apply remove_abstraction_equiv_state in Hequiv; [ | assumption];
+      destruct Hequiv as (S0 & B & -> & ? & ? & ?)
+  | Hequiv : equiv_states (?Sl,, ?a |-> ?v) ?Sr |- _ =>
+      apply remove_anon_equiv_state in Hequiv; [ | eauto with spath; fail];
+      destruct Hequiv as (S0 & b & -> & fresh_b & Hequiv)
   end.
 
 Lemma prove_rel A (R : A -> A -> Prop) x y z : R x y -> y = z -> R x z.
@@ -2890,32 +2948,32 @@ Qed.
 
 Definition leq_n (n : nat) := chain equiv_states (measured_closure leq_state_base_n n).
 
+(* TODO: move in base.v *)
+Lemma equiv_map_sum {A} (weight : A -> nat) m m' :
+  equiv_map m m' -> map_sum weight m = map_sum weight m'.
+Proof.
+  rewrite equiv_map_alt. intros (p & ? & ->).
+  symmetry. apply map_sum_apply_permutation. assumption.
+Qed.
+
 Lemma leq_n_equiv_states_commute n :
   forward_simulation (leq_state_base_n n) (leq_state_base_n n) equiv_states equiv_states.
 Proof.
-  intros Sl Sr (perm & valid_perm & ->) ? Hleq. destruct Hleq.
+  intros Sl Sr Hequiv ? Hleq. destruct Hleq.
   (* TODO: automatization *)
-  - process_state_equivalence.
+  - destruct Hequiv as (perm & valid_perm & ->). process_state_equivalence.
     rewrite permutation_sset by eauto with spath.
     eexists. split.
     + eapply Leq_ToSymbolic_n. rewrite permutation_sget; eauto with spath.
     + exists perm. auto.
   - process_state_equivalence.
-    rewrite permutation_add_abstraction by assumption.
-    (* We should be able to infer the anonymous b automatically. *)
-    destruct (exists_fresh_anon (apply_state_permutation (remove_abstraction_perm perm i) S)) as (b & fresh_b).
-    eexists. split.
-    + apply Leq_ToAbs_n. exact fresh_b. eauto using permutation_fresh_abstraction.
-      eauto using to_abs_apply_permutation.
-    + eexists.
-      rewrite permutation_add_anon by eassumption. split; [ | reflexivity].
-      apply add_anon_perm_equivalence; assumption.
-  - destruct (exists_fresh_anon (apply_state_permutation perm S)) as (b & fresh_b).
-    eexists. split.
+    destruct (exists_fresh_anon S0) as (b & fresh_b). eexists. split.
+    + apply Leq_ToAbs_n; eauto using to_abs_apply_permutation.
+    + auto with spath.
+  - destruct (exists_fresh_anon Sr) as (b & fresh_b). eexists. split.
     + apply Leq_RemoveAnon_n; eassumption.
-    + eexists. rewrite permutation_add_anon by eassumption. split; [ | reflexivity].
-      apply add_anon_perm_equivalence; assumption.
-  - process_state_equivalence. process_state_equivalence.
+    + auto with spath.
+  - destruct Hequiv as (perm & valid_perm & ->). repeat process_state_equivalence.
     autorewrite with spath.
     (* TODO: the rewriting in fresh_b should be done automatically, and should not impact
      * autorewrite with perm. *)
@@ -2925,17 +2983,14 @@ Proof.
     { apply Leq_MoveValue_n; rewrite ?permutation_sget; eauto with spath.
       apply permutation_valid_spath; assumption. }
     autorewrite with spath. reflexivity.
-  - process_state_equivalence. autorewrite with spath.
+  - process_state_equivalence.
     eapply merge_abstractions_equiv in Hmerge; [ | eassumption].
-    destruct Hmerge as (pA & pB & ? & ? & Hmerge).
+    destruct Hmerge as (A' & B' & ? & ? & Hmerge).
     execution_step.
-    { eexists.
-      rewrite permutation_add_abstraction by eauto with spath.
-      autorewrite with spath. auto with spath. }
-    { eapply Leq_MergeAbs_n with (i := i) (j := j) in Hmerge.
-      rewrite !map_sum_apply_permutation in Hmerge by assumption.
-      apply Hmerge. all: eauto with spath. }
-  - process_state_equivalence. process_state_equivalence.
+    { eauto with spath. }
+    { erewrite (equiv_map_sum _ A), (equiv_map_sum _ B), (equiv_map_sum _ C) by eassumption.
+      apply Leq_MergeAbs_n with (i := i) (j := j); eauto with spath. }
+  - destruct Hequiv as (perm & valid_perm & ->). repeat process_state_equivalence.
     autorewrite with spath in fresh_b.
     execution_step. { eexists. eauto. }
     autorewrite with spath; [ | autorewrite with spath; eauto with spath].
@@ -2944,7 +2999,7 @@ Proof.
       rewrite not_state_contains_apply_permutation; eassumption.
       eauto with spath. rewrite permutation_sget; eauto with spath. }
     { autorewrite with spath. reflexivity. }
-  - process_state_equivalence. process_state_equivalence.
+  - destruct Hequiv as (perm & valid_perm & ->). repeat process_state_equivalence.
     autorewrite with spath in fresh_b.
     execution_step. { eexists. eauto. }
     autorewrite with spath; [ | autorewrite with spath; eauto with spath].
@@ -2953,7 +3008,8 @@ Proof.
       rewrite not_state_contains_apply_permutation; eassumption.
       eassumption. rewrite permutation_sget; eauto with spath. }
     autorewrite with spath. reflexivity.
-  - eapply add_abstraction_value_perm_equivalence in valid_perm; [ | eassumption].
+  - destruct Hequiv as (perm & valid_perm & ->).
+    eapply add_abstraction_value_perm_equivalence in valid_perm; [ | eassumption].
     destruct valid_perm as (k & valid_perm & G & get_at_i_k). rewrite G.
     execution_step. { eexists. eauto. }
     (* This lemma should be reworked with a better last condition. *)
@@ -2968,9 +3024,7 @@ Proof.
       rewrite get_A in abs_valid. cbn in abs_valid. simpl_map.
       destruct (lookup i (abstractions_perm perm)); [ | inversion abs_valid].
       cbn. simpl_map. reflexivity. }
-  - process_state_equivalence.
-    execution_step. { eexists. eauto. }
-    autorewrite with spath. apply Leq_AnonValue_n. assumption.
+  - process_state_equivalence. eexists. eauto using Leq_AnonValue_n.
 Qed.
 
 Corollary leq_equiv_states_commute :

@@ -1033,9 +1033,10 @@ Proof.
   symmetry. erewrite id_permutation_same_domain by apply H. apply apply_id_permutation.
 Qed.
 
-Lemma map_sum_apply_permutation {A} weight (m : Pmap A) :
-  forall p, is_permutation p m -> map_sum weight (apply_permutation p m) = map_sum weight m.
+Lemma equiv_map_sum {A} weight (m m' : Pmap A) :
+  equiv_map m m' -> map_sum weight m = map_sum weight m'.
 Proof.
+  rewrite equiv_map_alt. intros (p & perm_p & ->). revert p perm_p.
   induction m as [ | k x m ? _ IHm] using map_first_key_ind; intros p perm_p.
   - unfold apply_permutation. rewrite map_fold_empty. reflexivity.
   - destruct (perm_p) as (inj_p & _).
@@ -1043,9 +1044,9 @@ Proof.
     destruct perm_p as (k' & get_k' & ? & perm_p).
     erewrite apply_permutation_insert by eassumption.
     rewrite !map_sum_insert.
-    + rewrite IHm by assumption. reflexivity.
-    + assumption.
+    + rewrite <-IHm by assumption. reflexivity.
     + apply lookup_pkmap_None. assumption.
+    + assumption.
 Qed.
 
 Section UnionMaps.
