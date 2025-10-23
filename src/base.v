@@ -1049,6 +1049,18 @@ Proof.
     + assumption.
 Qed.
 
+Lemma equiv_map_forall {A} (P : A -> Prop) (m m' : Pmap A) :
+  equiv_map m m' -> map_Forall (fun _ => P) m -> map_Forall (fun _ => P) m'.
+Proof.
+  intros Hequiv. symmetry in Hequiv. rewrite equiv_map_alt in Hequiv.
+  destruct Hequiv as (p & (inj_p & dom_p) & ->). intros H i a G.
+  assert (is_Some (lookup i p)) as (j & ?) by now rewrite dom_p.
+  specialize (H j a). erewrite lookup_pkmap in H.
+  - eauto.
+  - apply map_inj_equiv. assumption.
+  - assumption.
+Qed.
+
 Section UnionMaps.
   Context {V : Type}.
 

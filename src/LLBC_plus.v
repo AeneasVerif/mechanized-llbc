@@ -2501,6 +2501,19 @@ Proof.
   - intros ?. reflexivity.
 Qed.
 
+Lemma add_anons_equiv S0 S'0 A B S1 S'1 :
+  equiv_states S0 S'0 -> equiv_map A B -> add_anons S0 A S1 -> add_anons S'0 B S'1 ->
+  equiv_states S1 S'1.
+Proof.
+  rewrite <-!equiv_states_perm. intros (? & ? & ?) ?.
+  inversion 1; subst. inversion 1 as [? ? ? Hunion]; subst.
+  repeat split; [assumption | | assumption]. cbn.
+  eapply _union_maps_equiv in Hunion; [ | eassumption..].
+  destruct Hunion as (? & ? & ?). etransitivity; [ | eassumption].
+  eapply union_maps_unique; eassumption.
+Qed.
+
+(* TODO: delete? *)
 (*
 Ltac prove_add_anons :=
   lazymatch goal with
@@ -2948,14 +2961,6 @@ Qed.
 
 Definition leq_n (n : nat) := chain equiv_states (measured_closure leq_state_base_n n).
 
-(* TODO: move in base.v *)
-Lemma equiv_map_sum {A} (weight : A -> nat) m m' :
-  equiv_map m m' -> map_sum weight m = map_sum weight m'.
-Proof.
-  rewrite equiv_map_alt. intros (p & ? & ->).
-  symmetry. apply map_sum_apply_permutation. assumption.
-Qed.
-
 Lemma leq_n_equiv_states_commute n :
   forward_simulation (leq_state_base_n n) (leq_state_base_n n) equiv_states equiv_states.
 Proof.
@@ -3376,11 +3381,39 @@ Proof.
   eapply preservation_reorg_l.
   - exact leq_state_base_n_decreases.
   - exact reorg_decreases.
-  - admit.
+  - intros S0 S1 Hreorg S'0 Hequiv. destruct Hreorg.
+    + symmetry in Hequiv. destruct Hequiv as (perm & Hperm & ->).
+      execution_step.
+      { eapply Reorg_end_borrow_m; rewrite ?permutation_sget; eauto with spath.
+        eauto with spath. autorewrite with spath. assumption. }
+      symmetry. eexists. autorewrite with spath. auto with spath.
+
+    + symmetry in Hequiv. destruct Hequiv as (perm & Hperm & ->).
+      edestruct permutation_abstraction_element as (k & ?); [eassumption.. | ].
+      execution_step.
+      { eapply Reorg_end_borrow_m_in_abstraction; rewrite ?permutation_sget; eauto with spath.
+        (* TODO: lemma *)
+        rewrite get_map_state_permutation by assumption.
+        apply permutation_accessor_inj in Hperm.
+        erewrite lookup_pkmap. eassumption. apply Hperm. eassumption.
+        autorewrite with spath. assumption. }
+      pose proof Hperm as Hperm'.
+      apply remove_abstraction_value_perm_equivalence with (i := i') (j := j') in Hperm'.
+      symmetry. eexists. split; [eauto with spath | ]. autorewrite with spath.
+      (* TODO: automatic rewriting *)
+      erewrite permutation_remove_abstraction_value by eassumption. reflexivity.
+
+    + symmetry in Hequiv. process_state_equivalence.
+      destruct (exists_add_anon S0 B) as (S'0 & Hadd_anons').
+      execution_step.
+      { apply Reorg_end_abstraction.
+        auto with spath. eapply equiv_map_forall; eassumption. exact Hadd_anons'. }
+      symmetry. eapply add_anons_equiv; eassumption.
+
   - exact leq_n_equiv_states_commute.
   - exact leq_state_base_n_is_leq_state_base.
   - exact reorg_local_preservation.
-Admitted.
+Qed.
 
 Local Open Scope option_monad_scope.
 (*
