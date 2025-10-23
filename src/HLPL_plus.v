@@ -415,13 +415,13 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
-Inductive leq_state_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
+Inductive leq_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
 | Leq_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
     (HS_loan : get_node (S.[sp_loan]) = loanC^m(l))
     (HS_borrow : get_node (S.[sp_borrow]) = borrowC^m(l)) :
-    leq_state_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
+    leq_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
 
-Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
+Record well_formed (S : HLPL_plus_state) : Prop := {
   at_most_one_borrow_mut l : at_most_one_node (borrowC^m(l)) S;
   at_most_one_loan_mut l : at_most_one_node (loanC^m(l)) S;
   at_most_one_loc l : at_most_one_node (locC(l)) S;
@@ -431,13 +431,13 @@ Record HLPL_plus_well_formed (S : HLPL_plus_state) : Prop := {
 
 Notation scount c S := (sweight (indicator c) S).
 
-Record HLPL_plus_well_formed_alt (S : HLPL_plus_state) l : Prop := {
+Record well_formed_alt (S : HLPL_plus_state) l : Prop := {
   at_most_one_borrow_mut_alt : scount (borrowC^m(l)) S <= 1;
   no_mut_loan_loc_alt : scount (loanC^m(l)) S + scount (locC(l)) S <= 1;
   no_mut_loan_ptr_alt : scount (loanC^m(l)) S > 0 -> scount (ptrC(l)) S <= 0;
 }.
 
-Lemma well_formedness_equiv S : HLPL_plus_well_formed S <-> forall l, HLPL_plus_well_formed_alt S l.
+Lemma well_formedness_equiv S : well_formed S <-> forall l, well_formed_alt S l.
 Proof.
   split.
   - intros WF l. destruct WF. split.
@@ -496,12 +496,6 @@ Hint Rewrite vweight_int : weight.
 Lemma vweight_bot weight : vweight weight bot = weight (botC).
 Proof. reflexivity. Qed.
 Hint Rewrite vweight_bot : weight.
-
-Global Program Instance HLPL_plus_state_leq_base : LeqBase HLPL_plus_state :=
-{ leq_base := leq_state_base; }.
-
-Global Instance HLPL_plus_WellFormed : WellFormed HLPL_plus_state :=
-{ well_formed := HLPL_plus_well_formed }.
 
 Lemma leq_base_preserves_wf_r Sl Sr : well_formed Sr -> leq_base Sl Sr -> well_formed Sl.
 Proof.
@@ -693,7 +687,7 @@ Ltac eval_place_preservation :=
   end.
 
 Lemma operand_preserves_HLPL_plus_rel op :
-  forward_simulation leq_base^* leq_val_state_base^* (eval_operand op) (eval_operand op).
+  forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op).
 Proof.
   apply preservation_by_base_case.
   intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
@@ -736,11 +730,11 @@ Admitted.
 
 (* TODO: move in base.v *)
 Inductive well_formed_state_value : HLPL_plus_val * HLPL_plus_state -> Prop :=
-  | WF_vS v S (WF : forall a, fresh_anon S a -> HLPL_plus_well_formed (S,, a |-> v)) :
+  | WF_vS v S (WF : forall a, fresh_anon S a -> well_formed (S,, a |-> v)) :
       well_formed_state_value (v, S).
 
 Inductive well_formed_alt_state_value : HLPL_plus_val * HLPL_plus_state -> loan_id -> Prop :=
-  | WF_alt_vS v S l (WF : forall a, fresh_anon S a -> HLPL_plus_well_formed_alt (S,, a |-> v) l) :
+  | WF_alt_vS v S l (WF : forall a, fresh_anon S a -> well_formed_alt (S,, a |-> v) l) :
       well_formed_alt_state_value (v, S) l.
 
 Lemma well_formedness_state_value_equiv vS :
@@ -771,7 +765,7 @@ Proof.
 Qed.
 
 Lemma operand_preserves_well_formedness op S vS :
-  S |-{op} op => vS -> HLPL_plus_well_formed S -> well_formed_state_value vS.
+  S |-{op} op => vS -> well_formed S -> well_formed_state_value vS.
 Proof.
   intros eval_op WF. destruct eval_op.
   - constructor. intros ? ?. rewrite well_formedness_equiv in *.
@@ -783,7 +777,7 @@ Proof.
 Qed.
 
 Lemma rvalue_preserves_HLPL_plus_rel rv :
-  forward_simulation leq_base^* leq_val_state_base^* (eval_rvalue rv) (eval_rvalue rv).
+  forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_rvalue rv) (eval_rvalue rv).
 Proof.
   apply preservation_by_base_case.
   intros ? ? Heval. destruct Heval.
@@ -872,7 +866,7 @@ Proof.
 Qed.
 
 Corollary operand_preserves_well_formedness' op S v S' :
-  S |-{op} op => (v, S') -> HLPL_plus_well_formed S -> HLPL_plus_well_formed S'.
+  S |-{op} op => (v, S') -> well_formed S -> well_formed S'.
 Proof.
   intros eval_op WF. eapply operand_preserves_well_formedness in WF; [ | eassumption].
   inversion WF.
@@ -881,7 +875,7 @@ Proof.
 Qed.
 
 Lemma rvalue_preserves_well_formedness rv S vS :
-  S |-{rv} rv => vS -> HLPL_plus_well_formed S -> well_formed_state_value vS.
+  S |-{rv} rv => vS -> well_formed S -> well_formed_state_value vS.
 Proof.
   intros eval_rv WF. destruct eval_rv.
   - eauto using operand_preserves_well_formedness.
@@ -953,7 +947,7 @@ Qed.
    Then, we are going to prove that for each (vi, Si), the value vi does not contain any loan. *)
 (* TODO: the name is really similar to leq_val_state_base. *)
 Definition leq_val_state_base' (vSl vSr : HLPL_plus_val * HLPL_plus_state) : Prop :=
-  leq_val_state_base vSl vSr /\ not_contains_loan (fst vSr) /\ not_contains_loc (fst vSr).
+  leq_val_state_base leq_base vSl vSr /\ not_contains_loan (fst vSr) /\ not_contains_loc (fst vSr).
 
 Lemma leq_base_does_not_insert_loan_loc vSl vSr :
   leq_val_state_base' vSl vSr -> not_contains_loan (fst vSl) /\ not_contains_loc (fst vSl).
@@ -985,7 +979,7 @@ Proof.
 Qed.
 
 Lemma leq_val_state_no_loan_right (vSl vSr : HLPL_plus_val * HLPL_plus_state) :
-  leq_val_state_base^* vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
+  (leq_val_state_base leq_base)^* vSl vSr -> not_contains_loan (fst vSr) -> not_contains_loc (fst vSr)
   -> leq_val_state_base'^* vSl vSr.
 Proof.
   intros Hle Hno_loan Hno_loc.
@@ -999,7 +993,7 @@ Proof.
   - split; [transitivity y | ]; tauto.
 Qed.
 
-Lemma fresh_anon_leq_state_base_left Sl Sr a (fresh_a : fresh_anon Sr a) :
+Lemma fresh_anon_leq_base_left Sl Sr a (fresh_a : fresh_anon Sr a) :
   leq_base Sl Sr -> fresh_anon Sl a.
 Proof.
   intros Hle. inversion Hle.
@@ -1017,26 +1011,26 @@ Proof.
 Qed.
 
 Lemma leq_val_state_base_specialize_anon a vl Sl vr Sr :
-  fresh_anon Sr a -> leq_val_state_base (vl, Sl) (vr, Sr) ->
+  fresh_anon Sr a -> leq_val_state_base leq_base (vl, Sl) (vr, Sr) ->
   leq_base (Sl,, a |-> vl) (Sr,, a |-> vr).
 Proof.
   intros fresh_a H. apply H; [ | exact fresh_a].
   destruct (exists_fresh_anon2 Sl (Sr,, a |-> vr))
     as (b & fresh_b_l & (fresh_b_r & ?)%fresh_anon_add_anon).
   specialize (H b fresh_b_l fresh_b_r).
-  apply fresh_anon_leq_state_base_left with (a := a) in H;
+  apply fresh_anon_leq_base_left with (a := a) in H;
     [ | rewrite fresh_anon_add_anon; auto].
   rewrite fresh_anon_add_anon in H. destruct H. assumption.
 Qed.
 
 Lemma fresh_anon_leq_val_state_base_left vl Sl vr Sr a (fresh_a : fresh_anon Sr a) :
-  leq_val_state_base (vl, Sl) (vr, Sr) -> fresh_anon Sl a.
+  leq_val_state_base leq_base (vl, Sl) (vr, Sr) -> fresh_anon Sl a.
 Proof.
   intros H.
   destruct (exists_fresh_anon2 Sl (Sr,, a |-> vr))
     as (b & fresh_b_l & (fresh_b_r & ?)%fresh_anon_add_anon).
   specialize (H b fresh_b_l fresh_b_r).
-  eapply fresh_anon_leq_state_base_left in H.
+  eapply fresh_anon_leq_base_left in H.
   - rewrite fresh_anon_add_anon in H. destruct H. eassumption.
   - rewrite fresh_anon_add_anon. auto.
 Qed.
@@ -1204,7 +1198,7 @@ Lemma measure_bot : vweight measure_node bot = 0. Proof. reflexivity. Qed.
 Hint Rewrite measure_bot : weight.
 
 Lemma reorg_preserves_HLPL_plus_rel :
-  well_formed_forward_simulation_r leq_base^* leq_base^* reorg^* reorg^*.
+  well_formed_forward_simulation_r well_formed leq_base^* leq_base^* reorg^* reorg^*.
 Proof.
   eapply preservation_reorg_r with (measure := sweight measure_node).
   { intros Sl Sr Hle. destruct Hle; weight_inequality. }
@@ -1394,7 +1388,7 @@ Proof.
 Qed.
 
 Lemma stmt_preserves_HLPL_plus_rel s r :
-  well_formed_forward_simulation_r leq_base^* leq_base^* (eval_stmt s r) (eval_stmt s r).
+  well_formed_forward_simulation_r well_formed leq_base^* leq_base^* (eval_stmt s r) (eval_stmt s r).
 Proof.
   intros Sr Sr' WF_Sr Heval Sl Hle. revert Sl Hle. induction Heval; intros Sl Hle.
   - eexists. split; [eassumption | constructor].

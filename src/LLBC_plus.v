@@ -1594,9 +1594,6 @@ Proof.
   eexists _, _. split; [eauto | ]. split; [eauto | ]. eexists _, _. split; eassumption.
 Qed.
 
-Global Instance LLBC_plus_state_leq_base : LeqBase LLBC_plus_state :=
-{ leq_base := leq_state_base }.
-
 Lemma in_abstraction_perm perm i x y :
   permutation_accessor perm x = Some y -> in_abstraction i y -> in_abstraction i x.
 Proof.
@@ -2558,7 +2555,7 @@ Ltac leq_step_left :=
   end.
 
 Lemma operand_preserves_LLBC_plus_rel op :
-  forward_simulation leq_base^* leq_val_state_base^* (eval_operand op) (eval_operand op).
+  forward_simulation leq_state_base^* (leq_val_state_base leq_state_base)^* (eval_operand op) (eval_operand op).
 Proof.
   apply preservation_by_base_case.
   intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.

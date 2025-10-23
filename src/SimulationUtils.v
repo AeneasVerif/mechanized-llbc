@@ -152,18 +152,9 @@ Proof.
   exists S'l. split; [ | assumption]. exists S'm. split; assumption.
 Qed.
 
-(* Relations are generally defined for types of states, for any semantics between LLBC# and
-   HLPL. In the following section, we will define the relation S <= S' for states,
-   and (v, S) <= (v', S') for pairs of value and state.
-*)
-Class LeqBase state := leq_base : state -> state -> Prop.
-
-(* TODO: is this class useful? *)
-Class WellFormed state := well_formed : state -> Prop.
-
 Section LeqValStateUtils.
   Context `{State state V}.
-  Context `{LB : LeqBase state}.
+  Context (leq_base : state -> state -> Prop).
 
   Definition leq_val_state_base (vSl vSr : V * state) :=
     forall a, fresh_anon (snd vSl) a -> fresh_anon (snd vSr) a ->
@@ -217,20 +208,6 @@ Section LeqValStateUtils.
     destruct (G a) as (? & ? & ->); try assumption.
     now apply fresh_anon_add_anon.
   Qed.
-
-  (* The issue by directly applying the lemma `preservation_by_base_case` is that it
-     obfuscates the relation le, by unfolding it and replacing it with a reflexive transitive
-     closure.
-     We're going to give similar statements, but these types, the hypothesis uses the relation le.
-   *)
-  (*
-  Lemma preservation_by_base_case_leq_state_leq_val_state
-    (red : state -> (V * state) -> Prop) :
-    forward_simulation E equiv_val_state red red
-    -> forward_simulation (@leq_base _ LB) (@leq _ LeqStateVal) red red
-    -> forward_simulation (clos_refl_trans _ leq_base) LeqStateVal red.
-  Proof. apply preservation_by_base_case. intros ? ? ? ?. reflexivity. Qed.
-   *)
 End LeqValStateUtils.
 
 Lemma leq_step_right {S} {R : relation S} Sl Sm Sr : R Sm Sr -> R^* Sl Sm -> R^* Sl Sr.
@@ -300,10 +277,11 @@ Ltac reorg_steps := eapply prove_reorg_steps.
 Ltac reorg_done := eexists; split; [ | reflexivity].
 
 Section Leq.
-  Context `{LeqBase state}.
+  Context {state : Type}.
   Context {equiv : state -> state -> Prop}.
   Context `{Reflexive _ equiv}.
   Context `{Transitive _ equiv}.
+  Context (leq_base : state -> state -> Prop).
   Context (sim_leq_base_equiv : forward_simulation leq_base leq_base equiv equiv).
 
   Definition leq := chain equiv leq_base^*.
@@ -454,8 +432,9 @@ Section Leq.
 End Leq.
 
 Section WellFormedSimulations.
-  Context `{LB : LeqBase state}.
-  Context `{WF : WellFormed state}.
+  Context {state : Type}.
+  Context (leq_base : state -> state -> Prop).
+  Context (well_formed : state -> Prop).
 
   (* Preservation of reorgs require well-formedness. However, well-formedness for related states is
    * not proved the same in LLBC+ and HLPL+:
@@ -468,11 +447,6 @@ Section WellFormedSimulations.
     (LeqBA : B -> state -> Prop) (LeqDC : D -> C -> Prop)
     (RedAC : state -> C -> Prop) (RedBD : B -> D -> Prop) :=
     forall a c, well_formed a -> RedAC a c -> forall b, LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
-
-  Definition well_formed_forward_simulation_l {A C D : Type}
-  (LeqBA : state -> A -> Prop) (LeqDC : D -> C -> Prop)
-  (RedAC : A -> C -> Prop) (RedBD : state -> D -> Prop) :=
-  forall a b c, well_formed b -> RedAC a c -> LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
 
   (* Reorganizations and leq are defined as reflexive-transitive closure of relations (that we are
    * going to denote < and reorg). When we want to prove the preservation, ie:
@@ -504,8 +478,8 @@ Section WellFormedSimulations.
     (leq_decreasing : forall a b, leq_base a b -> measure a < measure b)
     (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
     (leq_base_preserves_wf_r : forall a b, well_formed b -> leq_base a b -> well_formed a)
-    (reorg_preserves_wf : forall a b, reorg a b -> @well_formed _ WF a -> @well_formed _ WF b)
-    (H : well_formed_forward_simulation_r (@leq_base _ LB) (@leq_base _ LB)^* reorg reorg^*) :
+    (reorg_preserves_wf : forall a b, reorg a b -> well_formed a -> well_formed b)
+    (H : well_formed_forward_simulation_r leq_base leq_base^* reorg reorg^*) :
     well_formed_forward_simulation_r leq_base^* leq_base^* reorg^* reorg^*.
   Proof.
     (* Sequences of reorgenizations make the measure decrease. *)
