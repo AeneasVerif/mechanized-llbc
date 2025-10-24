@@ -533,6 +533,11 @@ Lemma fresh_anon_remove_abstraction_value S a i j :
   fresh_anon (remove_abstraction_value S i j) a <-> fresh_anon S a.
 Proof. unfold fresh_anon. rewrite !get_at_anon. reflexivity. Qed.
 
+Lemma fresh_abstraction_remove_abstraction_value S i i' j :
+  fresh_abstraction (remove_abstraction_value S i j) i' <-> fresh_abstraction S i'.
+Proof. unfold fresh_abstraction, remove_abstraction_value. cbn. apply lookup_alter_None. Qed.
+Hint Resolve<- fresh_abstraction_remove_abstraction_value : spath.
+
 Lemma fresh_abstraction_add_abstraction S i j A :
   fresh_abstraction S i -> fresh_abstraction S j -> i <> j ->
   fresh_abstraction (S,,, i |-> A) j.
@@ -727,19 +732,19 @@ Hint Rewrite @sweight_add_anon using auto with weight : weight.
 Lemma remove_abstraction_value_add_abstraction S i j A :
   remove_abstraction_value (S,,, i |-> A) i j = S,,, i |-> (delete j A).
 Proof.
-  apply state_eq_ext.
-  - rewrite get_map_remove_abstraction_value.
-    apply map_eq. intros x.
-    destruct (decide (encode_abstraction (i, j) = x)) as [<- | H].
-    + rewrite lookup_delete, get_at_accessor_add_abstraction, lookup_delete. reflexivity.
-    + rewrite lookup_delete_ne by assumption.
-      destruct (decide (in_abstraction i x)) as [(k & ->) | ].
-      * rewrite !get_at_accessor_add_abstraction.
-        symmetry. apply lookup_delete_ne. intros ->. auto.
-      * rewrite !get_at_accessor_add_abstraction_notin by assumption. reflexivity.
-  - rewrite get_extra_remove_abstraction_value, !get_extra_add_abstraction. reflexivity.
+  unfold add_abstraction, remove_abstraction_value. cbn. f_equal. apply alter_insert.
 Qed.
+
+Lemma remove_abstraction_value_add_abstraction_ne S i i' j A (H : i <> i') :
+  remove_abstraction_value (S,,, i |-> A) i' j =
+  (remove_abstraction_value S i' j),,, i |-> A.
+Proof.
+  unfold add_abstraction, remove_abstraction_value. cbn. f_equal.
+  rewrite alter_insert_ne by congruence. reflexivity.
+Qed.
+
 Hint Rewrite remove_abstraction_value_add_abstraction : spath.
+Hint Rewrite remove_abstraction_value_add_abstraction_ne using congruence : spath.
 
 (* TODO: move *)
 Lemma remove_abstraction_fresh S i : fresh_abstraction (remove_abstraction i S) i.
@@ -2930,8 +2935,45 @@ Proof.
 Qed.
  *)
 
-Hint Resolve-> not_in_borrow_add_abstraction : spath.
-(*Hint Resolve-> not_in_borrow_remove_anon : spath.*)
+Hint Rewrite not_in_borrow_add_abstraction using eauto; fail : spath.
+Hint Resolve <-not_in_borrow_add_abstraction : spath.
+
+Lemma remove_loans_contains_left A B A' B' i v (H : remove_loans A B A' B') :
+  lookup i A' = Some v ->
+  lookup i A = Some v /\ remove_loans (delete i A) B (delete i A') B'.
+Proof.
+  induction H.
+  - intros ?. split; [assumption | constructor].
+  - intros (? & G)%lookup_delete_Some. specialize (IHremove_loans G).
+    destruct IHremove_loans as (? & IHremove_loans). split; [assumption | ].
+    rewrite delete_commute. econstructor; simpl_map; eauto.
+Qed.
+
+Lemma remove_loans_contains_right A B A' B' i v (H : remove_loans A B A' B') :
+  lookup i B' = Some v ->
+  lookup i B = Some v /\ remove_loans A (delete i B) A' (delete i B').
+Proof.
+  induction H.
+  - intros ?. split; [assumption | constructor].
+  - intros (? & G)%lookup_delete_Some. specialize (IHremove_loans G).
+    destruct IHremove_loans as (? & IHremove_loans). split; [assumption | ].
+    rewrite delete_commute. econstructor; simpl_map; eauto.
+Qed.
+
+Lemma merge_abstractions_contains A B C i v :
+  merge_abstractions A B C -> lookup i C = Some v ->
+  (lookup i A = Some v /\ merge_abstractions (delete i A) B (delete i C)) \/
+  (exists j, lookup j B = Some v /\ merge_abstractions A (delete j B) (delete i C)).
+Proof.
+  intros (A' & B' & Hremove & Hunion) H.
+  eapply union_contains in H; [ | exact Hunion]. destruct H as [? | (j & ? & ?)].
+  - left. eapply remove_loans_contains_left in Hremove; [ | eassumption].
+    destruct Hremove. split; [assumption | ].
+    econstructor. eexists. split; [eassumption | ].
+    eapply union_maps_delete_l; [rewrite insert_delete; eassumption | simpl_map; reflexivity].
+  - right. exists j. eapply remove_loans_contains_right in Hremove; [ | eassumption].
+    destruct Hremove. split; [assumption | ]. econstructor. eauto.
+Qed.
 
 Lemma remove_loans_elem_right A B A' B' i :
   remove_loans A B A' B' ->
@@ -3242,6 +3284,7 @@ Proof.
     + admit.
     + admit.
     + admit.
+    (* Case Leq_MergeAbs_n: *)
     + admit.
     + admit.
     + admit.
@@ -3267,7 +3310,6 @@ Proof.
              autorewrite with spath. reflexivity.
              autorewrite with spath. assumption.
              autorewrite with spath. (* TODO: lemma *) inversion H1; unfold not_contains_loan; not_contains.
-             rewrite not_in_borrow_add_abstraction in H2 by eauto with spath.
              apply no_ancestor_add_anon; auto with spath.
              eapply anon_not_in_abstraction. reflexivity.
              assumption. }
@@ -3283,7 +3325,48 @@ Proof.
       * admit.
     + admit.
     + admit.
-    + admit.
+    (* Case Leq_MergeAbs_n: *)
+    + destruct (decide (i = i')) as [<- | ].
+      * rewrite get_at_accessor_add_abstraction in H. (* TODO: autorewrite *)
+        autorewrite with spath in *.
+        eapply merge_abstractions_contains in Hmerge; [ | eassumption].
+        destruct Hmerge as [(G & Hmerge) | (k & G & Hmerge)].
+        -- reorg_step.
+           { eapply Reorg_end_borrow_m_in_abstraction with (i' := i) (j' := j') (q := q).
+             all: autorewrite with spath; eauto with spath.
+             (* TODO: autorewrite *)
+             rewrite get_at_abstraction. cbn. simpl_map. auto. }
+           reorg_done.
+           autorewrite with spath. eapply leq_n_step.
+           { apply Leq_MergeAbs_n; eauto with spath. }
+           { eapply map_sum_delete in H, G. rewrite H, G. lia. }
+           reflexivity.
+        -- reorg_step.
+           { eapply Reorg_end_borrow_m_in_abstraction with (i' := j) (j' := k) (q := q).
+             all: autorewrite with spath; eauto with spath.
+             (* TODO: autorewrite *)
+             rewrite get_at_abstraction. cbn. simpl_map. auto. }
+           reorg_done.
+           autorewrite with spath. eapply leq_n_step.
+           { apply Leq_MergeAbs_n; eauto with spath. }
+           { eapply map_sum_delete in H, G. rewrite H, G. lia. }
+           reflexivity.
+      * autorewrite with spath in * |-.
+        (* TODO: autorewrite *)
+        rewrite get_at_abstraction in H. cbn in H. simpl_map.
+        (* TODO: lemma *)
+        assert (i' <> j).
+        { intros <-. unfold fresh_abstraction in fresh_j. rewrite fresh_j in H. discriminate. }
+        reorg_step.
+           { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+             all: autorewrite with spath; eauto with spath.
+             (* TODO: autorewrite *)
+             rewrite get_at_abstraction. cbn. simpl_map. assumption. }
+           reorg_done. autorewrite with spath.
+           autorewrite with spath. eapply leq_n_step.
+           { apply Leq_MergeAbs_n; eauto with spath. }
+           { reflexivity. }
+           reflexivity.
     + admit.
     + admit.
     + admit.
@@ -3322,6 +3405,7 @@ Proof.
       * admit. (* separation *)
     + admit.
     + admit.
+    (* Case Leq_MergeAbs_n: *)
     + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
       * destruct EQN as (<- & -> & <-).
         assert (map_Forall (fun _ => not_contains_loan) B) by eauto using merge_no_loan.

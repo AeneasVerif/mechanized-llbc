@@ -1075,19 +1075,6 @@ Section UnionMaps.
         lookup j A = None -> lookup i B = None ->
         union_maps (insert j x A) B C -> union_maps A (insert i x B) C.
 
-  (* TODO: delete? *)
-  Lemma union_contains A B C i x (Hunion : union_maps A B C) :
-    lookup i C = Some x -> lookup i A = Some x \/ exists j, lookup j B = Some x.
-  Proof.
-    intros H. induction Hunion as [ | A B C i' j' ? ? ? ? IH].
-    - auto.
-    - destruct (IH H) as [ | (j & ?)].
-      + destruct (decide (i = j')) as [<- | ].
-        * right. exists i'. simpl_map. auto.
-        * simpl_map. auto.
-      + right. exists j. assert (i' <> j) by congruence. simpl_map. reflexivity.
-  Qed.
-
   Lemma union_contains_left A B C i x (Hunion : union_maps A B C) :
     lookup i A = Some x -> lookup i C = Some x.
   Proof.
@@ -1179,7 +1166,7 @@ Section UnionMaps.
     exists j, union_maps (insert j x m0) m1 m2 /\ lookup j m0 = None.
   Proof.
     intros H. remember (insert i x m1) as m'1 eqn:EQN. revert m1 EQN.
-    induction H as [ | m0 m'1 is i' j y ? ? ? IH].
+    induction H as [ | m0 m'1 ? i' j y ? ? ? IH].
     - intros ? EQN. symmetry in EQN. apply insert_non_empty in EQN. contradiction.
     - intros m1 EQN ?.
       destruct (decide (i = i')) as [<- | ].
@@ -1223,6 +1210,21 @@ Section UnionMaps.
       eapply IHunion_maps.
       + rewrite insert_commute by congruence. reflexivity.
       + simpl_map. assumption.
+  Qed.
+
+  Lemma union_contains C i x (Hunion : union_maps A B C) :
+    lookup i C = Some x ->
+    lookup i A = Some x \/ (exists j, lookup j B = Some x /\ union_maps A (delete j B) (delete i C)).
+  Proof.
+    intros H. induction Hunion as [ | A B C i' j' ? ? ? ? IH].
+    - auto.
+    - destruct (IH H) as [ | (j & ? & Hunion')].
+      + destruct (decide (i = j')) as [<- | ].
+        * right. exists i'. simpl_map. rewrite delete_insert by assumption.
+          split; [assumption | ]. eapply union_maps_delete_l; eassumption.
+        * simpl_map. auto.
+      + right. exists j. assert (i' <> j) by congruence. simpl_map. split; [reflexivity | ].
+        rewrite delete_insert_ne by congruence. econstructor; simpl_map; eassumption.
   Qed.
 End UnionMaps.
 
