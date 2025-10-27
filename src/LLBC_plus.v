@@ -529,6 +529,7 @@ Hint Resolve<- fresh_anon_add_abstraction : spath.
 Lemma fresh_anon_remove_abstraction_value S a i j :
   fresh_anon (remove_abstraction_value S i j) a <-> fresh_anon S a.
 Proof. unfold fresh_anon. rewrite !get_at_anon. reflexivity. Qed.
+Hint Resolve<- fresh_anon_remove_abstraction_value : spath.
 
 Lemma fresh_abstraction_remove_abstraction_value S i i' j :
   fresh_abstraction (remove_abstraction_value S i j) i' <-> fresh_abstraction S i'.
@@ -613,7 +614,7 @@ Proof.
 Qed.
 
 Hint Rewrite sget_remove_abstraction_value using auto with spath : spath.
-Hint Rewrite sset_remove_abstraction_value using assumption : spath.
+Hint Rewrite sset_remove_abstraction_value using eauto with spath : spath.
 
 Lemma add_abstraction_add_anon S a v i A : (S,, a |-> v),,, i |-> A = (S,,, i |-> A),, a |-> v.
 Proof. reflexivity. Qed.
@@ -2962,6 +2963,20 @@ Lemma is_integer_valid S p : is_integer (S.[p]) -> valid_spath S p.
 Proof. intros H. apply valid_get_node_sget_not_bot. inversion H; easy. Qed.
 Hint Resolve is_integer_valid : spath.
 
+Lemma is_integer_zeroary v : is_integer v -> arity (get_node v) = 0.
+Proof. intros []; reflexivity. Qed.
+
+Lemma is_integer_sset S p q v :
+  valid_spath S p -> ~is_integer v -> is_integer (S.[p <- v].[q]) -> ~prefix q p.
+Proof.
+  intros valid_p H G (r & <-). apply valid_spath_app in valid_p. destruct valid_p as (valid_q & valid_r).
+  autorewrite with spath in G. destruct r.
+  - apply H, G.
+  - apply is_integer_zeroary in G. rewrite get_node_vset_cons in G by discriminate.
+    rewrite <-length_children_is_arity in G.
+    inversion valid_r as [ | ? ? ? ? K%nth_error_length]; subst. rewrite G in K. lia.
+Qed.
+
 (* TODO: move *)
 Lemma not_in_borrow_add_abstraction S i A sp (H : ~in_abstraction i (fst sp)) :
   not_in_borrow (S,,, i |-> A) sp <-> not_in_borrow S sp.
@@ -3341,11 +3356,9 @@ Proof.
     + admit.
     (* Case Leq_ToAbs_n: *)
     + autorewrite with spath in * |-.
-      destruct Hto_abs.
-      * destruct (decide (i' = i)) as [<- | ].
-        -- (* The loan that we remove can only be the one at position 2 in A, with identifier l1. *)
-           autorewrite with spath in H.
-           assert (j' = kl /\ l = l1) as (-> & <-).
+      destruct (decide (i' = i)) as [<- | ].
+      * autorewrite with spath in H. destruct Hto_abs.
+        --  assert (j' = kl /\ l = l1) as (-> & <-).
            { apply lookup_insert_Some in H. destruct H as [ | (_ & H)]; [easy | ].
              rewrite lookup_singleton_Some in H. destruct H as (<- & H).
              inversion H. auto. }
@@ -3366,10 +3379,54 @@ Proof.
            { easy. }
            apply reflexive_eq.
            rewrite delete_insert_ne, delete_singleton by congruence. reflexivity.
-        -- admit.
-      * admit.
-    + admit.
-    + admit.
+        (* The abstraction H does not contain loans, we can eliminate this case. *)
+        -- apply lookup_singleton_Some in H. destruct H. discriminate.
+      * autorewrite with spath in * |-. reorg_step.
+        { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+          all: autorewrite with spath; eauto with spath. }
+        reorg_done.
+      autorewrite with spath. eapply leq_n_step.
+      { apply Leq_ToAbs_n; eauto with spath. }
+      { reflexivity. }
+      reflexivity.
+    (* Case Leq_RemoveAnon_n: *)
+    + reorg_step.
+      { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+        all: autorewrite with spath; eauto with spath. }
+      reorg_done. autorewrite with spath.
+      eapply leq_n_step.
+      { apply Leq_RemoveAnon_n; auto with spath. }
+      { reflexivity. }
+      reflexivity.
+    (* Case Leq_MoveValue_n: *)
+    + destruct (decide (fst q = anon_accessor a)).
+      (* Case 1: the borrow we end is in the anonymous binding a that contains the moved
+       * value. *)
+      * autorewrite with spath in *. reorg_step.
+        { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := sp +++ snd q).
+          all: autorewrite with spath; eauto with spath. }
+        reorg_done. eapply leq_n_step.
+        { apply Leq_MoveValue_n with (sp := sp) (a := a).
+          all: autorewrite with spath; eauto with spath.
+          (* TODO: automatize *)
+          apply not_contains_outer_sset_no_contains. assumption. not_contains.
+          intros ? []. discriminate. }
+        { reflexivity. }
+        autorewrite with spath. reflexivity.
+      * assert (~prefix sp q).
+        { intros (? & <-). autorewrite with spath in H0. rewrite vget_bot in H0. inversion H0. }
+        autorewrite with spath in *.
+        assert (disj sp q).
+        { apply is_integer_sset in H1; [ | validity | inversion 1]. reduce_comp. }
+        autorewrite with spath in * |-.
+        reorg_step.
+        { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+          all: eauto with spath. }
+        reorg_done. eapply leq_n_step.
+        { apply Leq_MoveValue_n with (sp := sp) (a := a).
+          all: autorewrite with spath; eauto with spath. }
+        { reflexivity. }
+        apply reflexive_eq. states_eq.
     (* Case Leq_MergeAbs_n: *)
     + destruct (decide (i = i')) as [<- | ].
       * autorewrite with spath in *.
