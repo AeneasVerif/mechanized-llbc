@@ -381,6 +381,9 @@ Proof.
   apply app_eq_nil in H. destruct H as (-> & _). reflexivity.
 Qed.
 
+Lemma app_spath_vpath_inv_head p q r : p +++ q = p +++ r -> q = r.
+Proof. intros H%(f_equal snd). eapply app_inv_head. exact H. Qed.
+
 (* Automatically solving a comparison C p q using the hypotheses. *)
 Hint Immediate vdisj_symmetric : spath.
 Hint Resolve strict_prefix_is_prefix : spath.
@@ -1694,28 +1697,57 @@ Section GetSetPath.
   Definition no_ancestor (P : nodes -> Prop) S p :=
     forall q, P (get_node (S.[q])) -> ~strict_prefix q p.
 
-  Lemma no_ancestor_sset P S p q v : no_ancestor P S p -> ~strict_prefix q p ->
-    no_ancestor P (S.[q <- v]) p.
-  Proof.
-    intros G ? r K ?. rewrite get_node_sset_sget_not_prefix in K by eauto with spath.
-    eapply G; eassumption.
-  Qed.
+  Definition no_ancestor_val (P : nodes -> Prop) v p :=
+    forall q, P (get_node (v.[[q]])) -> ~vstrict_prefix q p.
 
-  Lemma no_ancestor_sset_rev P S p q v : no_ancestor P (S.[q <- v]) p -> ~strict_prefix q p ->
-    no_ancestor P S p.
+  Lemma no_ancestor_sset P S p q v : ~strict_prefix q p ->
+    no_ancestor P (S.[q <- v]) p <-> no_ancestor P S p.
   Proof.
-    intros G ? r K ?. eapply G; [ | eassumption].
-    rewrite get_node_sset_sget_not_prefix; eauto with spath.
+    intros not_prefix. split.
+    - intros G r K ?. eapply G; [ | eassumption].
+      rewrite get_node_sset_sget_not_prefix; eauto with spath.
+    - intros G r K ?. rewrite get_node_sset_sget_not_prefix in K by eauto with spath.
+      eapply G; eassumption.
   Qed.
 
   Lemma no_ancestor_add_anon P S p a v :
-    no_ancestor P S p -> valid_spath S p -> fresh_anon S a -> no_ancestor P (S,, a |-> v) p.
+    fst p <> anon_accessor a -> no_ancestor P (S,, a |-> v) p <-> no_ancestor P S p.
   Proof.
-    intros no_ancestor valid_p fresh_a q G Hprefix. rewrite sget_add_anon in G.
-    - eapply no_ancestor; eassumption.
-    - eapply valid_spath_diff_fresh_anon; [eassumption | ].
-      destruct Hprefix as (? & ? & <-). rewrite valid_spath_app in valid_p.
-      destruct valid_p as (? & _). assumption.
+    intros ?. split.
+    - intros G ? ? Hprefix. eapply G; [ | eassumption]. rewrite sget_add_anon; [assumption | ].
+      destruct Hprefix as (? & ? & <-). assumption.
+    - intros G ? K Hprefix. rewrite sget_add_anon in K.
+      + eapply G; eassumption.
+      + destruct Hprefix  as (? & ? & <-). assumption.
+  Qed.
+
+  Lemma no_ancestor_anon P S p a v (G : fst p = anon_accessor a) :
+    no_ancestor P (S,, a |-> v) p <-> no_ancestor_val P v (snd p).
+  Proof.
+    destruct p; cbn in *. subst. split.
+    - intros G q ? (i & r & <-). eapply G with (q := (anon_accessor a, q)).
+      + rewrite sget_anon by reflexivity. assumption.
+      + exists i, r. reflexivity.
+    - intros G ? K (i & r & L). rewrite sget_anon in K.
+      + eapply G; [exact K | ]. exists i, r. apply (f_equal snd) in L. exact L.
+      + apply (f_equal fst) in L. exact L.
+  Qed.
+
+  Lemma no_ancestor_app P S p q (valid_p : valid_spath S p) :
+    no_ancestor P S p -> no_ancestor_val P (S.[p]) q -> no_ancestor P S (p +++ q).
+  Proof.
+    intros no_ancestor_p no_ancestor_q sp G (i & r & K).
+    destruct (decidable_prefix p sp) as [(? & <-) | not_prefix].
+    - eapply no_ancestor_q.
+      + rewrite <-sget_app. exact G.
+      + exists i, r. rewrite <-app_spath_vpath_assoc in K.
+        eapply app_spath_vpath_inv_head. exact K.
+    - destruct (comparable_spaths sp p) as [ | | (? & ? & <-) | Hdisj].
+      + subst. apply not_prefix. reflexivity.
+      + eapply no_ancestor_p; eassumption.
+      + apply not_prefix. eexists. reflexivity.
+      + eapply disj_if_left_disj_prefix in Hdisj.
+        eapply not_prefix_disj; [exact Hdisj | ]. eexists. exact K.
   Qed.
 End GetSetPath.
 
@@ -1822,6 +1854,14 @@ Hint Resolve valid_spath_diff_fresh_anon' : spath.
 Lemma diff_fist_app_spath_vpath p q x : fst p <> x -> fst (p +++ q) <> x.
 Proof. easy. Qed.
 Hint Resolve diff_fist_app_spath_vpath : spath.
+
+(* Hints for no_ancestor: *)
+Hint Resolve <-no_ancestor_add_anon : spath.
+Hint Rewrite @no_ancestor_add_anon using assumption : spath.
+Hint Resolve <-no_ancestor_sset : spath.
+Hint Rewrite @no_ancestor_sset using eauto with spath; fail: spath.
+Hint Rewrite @no_ancestor_anon using assumption : spath.
+Hint Resolve no_ancestor_app : spath.
 
 Lemma valid_vpath_app_last_get_node_not_zeroary {V} `{IsValue : Value V nodes} v p :
   arity (get_node (v.[[p]])) > 0 -> valid_vpath v (p ++ [0]).

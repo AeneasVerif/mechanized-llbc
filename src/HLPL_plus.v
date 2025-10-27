@@ -278,8 +278,6 @@ Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 Notation not_contains_outer_loc := (not_contains_outer is_mut_borrow is_loc).
 
 Notation not_in_borrow := (no_ancestor is_mut_borrow).
-(* TODO: move in PathToSubtree.v? *)
-Hint Resolve no_ancestor_sset : spath.
 
 Lemma loc_is_not_bot x : is_loc x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
 Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.

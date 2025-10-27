@@ -815,7 +815,8 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
     (valid_sp : valid_spath S sp)
-    (Hnot_in_abstraction : not_in_abstraction sp) :
+    (sp_not_in_borrow : not_in_borrow S sp)
+    (sp_not_in_abstraction : not_in_abstraction sp) :
     leq_state_base S (S.[sp <- bot],, a |-> S.[sp])
 (* Note: for the merge, we reuse the region abstraction at i. Maybe we should use another region
  * abstraction index k? *)
@@ -1900,7 +1901,7 @@ Proof.
     + rewrite apply_invert_state_permutation; assumption.
 Qed.
 
-Lemma _not_ancestor_apply_permutation P perm S sp :
+Lemma _no_ancestor_apply_permutation P perm S sp :
   is_state_equivalence perm S -> valid_spath S sp ->
   no_ancestor P (apply_state_permutation perm S) (permutation_spath perm sp) ->
   no_ancestor P S sp.
@@ -1912,19 +1913,19 @@ Proof.
   - eexists _, _. autorewrite with spath. reflexivity.
 Qed.
 
-Lemma not_ancestor_apply_permutation P perm S sp :
+Lemma no_ancestor_apply_permutation P perm S sp :
   is_state_equivalence perm S -> valid_spath S sp ->
   no_ancestor P (apply_state_permutation perm S) (permutation_spath perm sp) <-> no_ancestor P S sp.
 Proof.
   intros ? valid_sp. split.
-  - apply _not_ancestor_apply_permutation; assumption.
-  - intros ?. eapply _not_ancestor_apply_permutation.
+  - apply _no_ancestor_apply_permutation; assumption.
+  - intros ?. eapply _no_ancestor_apply_permutation.
     + apply invert_state_permutation_is_permutation. assumption.
     + apply permutation_valid_spath; assumption.
     + rewrite apply_invert_state_permutation by assumption.
       erewrite invert_state_permutation_spath by eassumption. assumption.
 Qed.
-Hint Resolve <-not_ancestor_apply_permutation : spath.
+Hint Resolve <-no_ancestor_apply_permutation : spath.
 
 Lemma vweight_bot weight : vweight weight bot = weight botC.
 Proof. reflexivity. Qed.
@@ -2635,7 +2636,7 @@ Proof.
     + execution_step. { constructor. }
       leq_val_state_add_anon.
       { apply Leq_MoveValue with (sp := sp) (a := a).
-        autorewrite with spath. assumption. eassumption. validity. assumption. }
+        all: autorewrite with spath; eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
@@ -2738,7 +2739,7 @@ Proof.
       execution_step. { apply Eval_move; eassumption. }
       leq_val_state_add_anon.
        { apply Leq_MoveValue with (sp := sp) (a := a).
-         autorewrite with spath. assumption. assumption. validity. assumption. }
+         all: autorewrite with spath; eauto 7 with spath. }
        { autorewrite with spath. reflexivity. }
       apply reflexive_eq. states_eq.
 
@@ -2851,7 +2852,8 @@ Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
     (valid_sp : valid_spath S sp)
-    (Hnot_in_abstraction : not_in_abstraction sp) :
+    (sp_not_in_borrow : not_in_borrow S sp)
+    (sp_in_abstraction : not_in_abstraction sp) :
     leq_state_base_n 0 S (S.[sp <- bot],, a |-> S.[sp])
 | Leq_MergeAbs_n S i j A B C
     (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
@@ -2956,8 +2958,6 @@ Proof.
     unfold measure. autorewrite with weight. lia.
 Qed.
 
-Hint Resolve no_ancestor_sset_rev : spath.
-
 Lemma is_integer_valid S p : is_integer (S.[p]) -> valid_spath S p.
 Proof. intros H. apply valid_get_node_sget_not_bot. inversion H; easy. Qed.
 Hint Resolve is_integer_valid : spath.
@@ -2973,21 +2973,17 @@ Proof.
     rewrite sget_add_abstraction in *; assumption.
 Qed.
 
-(* TODO: similar lemma for add_anon *)
-(*
-Lemma not_in_borrow_remove_anon S a sp (H : fst sp <> anon_accessor a) :
-  not_in_borrow (remove_anon a S) sp <-> not_in_borrow S sp.
+Lemma not_in_borrow_remove_abstraction_value S i j sp :
+  not_in_borrow S sp -> not_in_borrow (remove_abstraction_value S i j) sp.
 Proof.
-  split.
-  - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
-    autorewrite with spath. assumption.
-  - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
-    autorewrite with spath in *. assumption.
+  intros H q. destruct (decide (fst q = encode_abstraction (i, j))) as [e | ].
+  - unfold sget. rewrite get_map_remove_abstraction_value, e. simpl_map. inversion 1.
+  - rewrite sget_remove_abstraction_value by assumption. apply H.
 Qed.
- *)
 
-Hint Rewrite not_in_borrow_add_abstraction using eauto; fail : spath.
+Hint Rewrite not_in_borrow_add_abstraction using eauto : spath.
 Hint Resolve <-not_in_borrow_add_abstraction : spath.
+Hint Resolve not_in_borrow_remove_abstraction_value : spath.
 
 Lemma remove_loans_contains_left A B A' B' i v (H : remove_loans A B A' B') :
   lookup i A' = Some v ->
@@ -3317,15 +3313,14 @@ Proof.
   (* Case Reorg_end_borrow_m: *)
   - intros ? Hleq. destruct Hleq.
     + assert (disj sp p). reduce_comp. (* TODO: TOO LONG *)
-      autorewrite with spath in *.
+      autorewrite with spath in *. (* TODO: takes a bit of time. *)
       destruct (decidable_prefix q sp) as [(r & <-) | ].
       * admit.
       * assert (disj sp q). reduce_comp.
         reorg_step.
         { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
           eapply not_value_contains_sset_rev. eassumption.
-          apply not_value_contains_zeroary; rewrite H6. reflexivity. easy. validity.
-          eauto with spath. (* TODO: takes a lot of time *) }
+          apply not_value_contains_zeroary; rewrite H6. reflexivity. easy. validity. }
         reorg_done.
         eapply leq_n_step.
         { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
@@ -3360,7 +3355,7 @@ Proof.
              autorewrite with spath. reflexivity.
              autorewrite with spath. assumption.
              autorewrite with spath. (* TODO: lemma *) inversion H1; unfold not_contains_loan; not_contains.
-             apply no_ancestor_add_anon; auto with spath.
+             apply no_ancestor_add_anon; eauto with spath.
              eapply anon_not_in_abstraction. reflexivity.
              assumption. }
            reorg_done.
