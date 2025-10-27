@@ -2022,8 +2022,6 @@ Hint Rewrite @sset_sget_prefix_right using validity : spath.
 Hint Rewrite @sset_sget_common_prefix using validity : spath.
 Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
 
-Hint Rewrite @get_at_accessor_sset_disj using congruence : spath.
-
 (* Idem for vpaths: *)
 Hint Rewrite @vset_vget_equal using validity : spath.
 Hint Rewrite @vset_vget_prefix using validity : spath.
@@ -2041,7 +2039,6 @@ Hint Rewrite @sset_twice_prefix_right : spath.
    one of the following rewrite rules. *)
 Hint Rewrite @sset_add_anon using eauto with spath; fail : spath.
 Hint Rewrite @sset_anon using try assumption; reflexivity : spath.
-Hint Rewrite @get_at_accessor_add_anon using eauto with spath : spath.
 Hint Rewrite @sget_add_anon using eauto with spath; fail : spath.
 Hint Rewrite @sget_anon using try assumption; reflexivity : spath.
 Hint Rewrite<- @sget_app : spath.

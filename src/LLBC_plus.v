@@ -431,8 +431,7 @@ Notation "S ,,, i |-> A" := (add_abstraction S i A) (at level 50, left associati
 
 Definition fresh_abstraction S i := lookup i (abstractions S) = None.
 
-Notation abstraction_contains_value S i j v :=
-  (get_at_accessor S (encode_abstraction (i, j)) = Some v).
+Definition abstraction_element S i j := get_at_accessor S (encode_abstraction (i, j)).
 
 (* Remove the value at j in the region abstraction at i, if this value exists. *)
 Definition remove_abstraction_value S i j :=
@@ -526,9 +525,7 @@ Lemma fresh_anon_add_abstraction S a i A : fresh_anon (S,,, i |-> A) a <-> fresh
 Proof. unfold fresh_anon. rewrite !get_at_anon. reflexivity. Qed.
 
 Hint Resolve<- fresh_anon_add_abstraction : spath.
-(* Hint Rewrite fresh_anon_add_abstraction : spath. *)
 
-(* TODO: Hint? *)
 Lemma fresh_anon_remove_abstraction_value S a i j :
   fresh_anon (remove_abstraction_value S i j) a <-> fresh_anon S a.
 Proof. unfold fresh_anon. rewrite !get_at_anon. reflexivity. Qed.
@@ -621,12 +618,12 @@ Hint Rewrite sset_remove_abstraction_value using assumption : spath.
 Lemma add_abstraction_add_anon S a v i A : (S,, a |-> v),,, i |-> A = (S,,, i |-> A),, a |-> v.
 Proof. reflexivity. Qed.
 
-Lemma remvoe_abstraction_value_add_anon S a v i j :
+Lemma remove_abstraction_value_add_anon S a v i j :
   remove_abstraction_value (S,, a |-> v) i j = (remove_abstraction_value S i j),, a |-> v.
 Proof. reflexivity. Qed.
 
 Hint Rewrite add_abstraction_add_anon : spath.
-Hint Rewrite remvoe_abstraction_value_add_anon : spath.
+Hint Rewrite remove_abstraction_value_add_anon : spath.
 
 (* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
 Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
@@ -638,6 +635,40 @@ Variant is_integer : LLBC_plus_val -> Prop :=
 Variant add_anons : LLBC_plus_state -> Pmap LLBC_plus_val -> LLBC_plus_state -> Prop :=
   | AddAnons S A anons' : union_maps (anons S) A anons' ->
       add_anons S A {|vars := vars S; anons := anons'; abstractions := abstractions S|}.
+
+(* Rewriting lemmas for abstraction_element. *)
+Lemma abstraction_element_sset S i j p v :
+  fst p <> encode_abstraction (i, j) ->
+  abstraction_element (S.[p <- v]) i j = abstraction_element S i j.
+Proof. apply get_at_accessor_sset_disj. Qed.
+
+Lemma abstraction_element_add_anon S i j a v :
+  abstraction_element (S,, a |-> v) i j = abstraction_element S i j.
+Proof. apply get_at_accessor_add_anon. inversion 1. Qed.
+
+Lemma abstraction_element_add_abstraction S i j A :
+  abstraction_element (S,,, i |-> A) i j = lookup j A.
+Proof.
+  unfold abstraction_element, add_abstraction.
+  rewrite get_at_abstraction. cbn. simpl_map. reflexivity.
+Qed.
+
+Lemma abstraction_element_add_abstraction_ne S i i' j A :
+  i <> i' -> abstraction_element (S,,, i' |-> A) i j = abstraction_element S i j.
+Proof.
+  intros ?. unfold abstraction_element, add_abstraction.
+  rewrite !get_at_abstraction. cbn. simpl_map. reflexivity.
+Qed.
+
+Lemma abstraction_element_fresh_abstraction S i j :
+  fresh_abstraction S i  -> abstraction_element S i j = None.
+Proof. intros H. unfold abstraction_element. rewrite get_at_abstraction, H. reflexivity. Qed.
+
+Hint Rewrite abstraction_element_sset using eauto with spath; fail : spath.
+Hint Rewrite abstraction_element_add_anon : spath.
+Hint Rewrite abstraction_element_add_abstraction : spath.
+Hint Rewrite abstraction_element_add_abstraction_ne using congruence : spath.
+Hint Rewrite abstraction_element_fresh_abstraction using assumption : spath.
 
 (* Note: we use the variable names i' and j' instead of i and j that are used for leq_state_base.
  * We are also using the name A' instead of A, B or C for the region abstractions.
@@ -652,7 +683,7 @@ Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Ends a borrow when it's in an abstraction: *)
 (* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
 | Reorg_end_borrow_m_in_abstraction S q i' j' l :
-    abstraction_contains_value S i' j' loan^m(l) ->
+    abstraction_element S i' j' = Some (loan^m(l)) ->
     get_node (S.[q]) = borrowC^m(l) -> is_integer (S.[q +++ [0] ]) ->
     not_in_borrow S q -> not_in_abstraction q ->
     reorg S ((remove_abstraction_value S i' j').[q <- bot])
@@ -751,11 +782,12 @@ Lemma remove_abstraction_fresh S i : fresh_abstraction (remove_abstraction i S) 
 Proof. unfold fresh_abstraction, remove_abstraction. cbn. now simpl_map. Qed.
 
 Lemma sweight_remove_abstraction_value weight S i j v :
-  abstraction_contains_value S i j v ->
+  abstraction_element S i j = Some v ->
   (Z.of_nat (sweight weight (remove_abstraction_value S i j)) =
    (Z.of_nat (sweight weight S)) - (Z.of_nat (vweight weight v)))%Z.
 Proof.
-  rewrite get_at_abstraction. intros (A & get_A & get_v)%bind_Some.
+  unfold abstraction_element. rewrite get_at_abstraction.
+  intros (A & get_A & get_v)%bind_Some.
   apply add_remove_abstraction in get_A.
   rewrite <-get_A, remove_abstraction_value_add_abstraction.
   rewrite !sweight_add_abstraction by apply remove_abstraction_fresh.
@@ -806,7 +838,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
 | Leq_Abs_ClearValue S i j v
-    (get_at_i_j : abstraction_contains_value S i j v)
+    (get_at_i_j : abstraction_element S i j = Some v)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
     leq_state_base S (remove_abstraction_value S i j)
 | Leq_AnonValue S a (is_fresh : fresh_anon S a) : leq_state_base S (S,, a |-> bot)
@@ -1487,11 +1519,12 @@ Proof.
 Qed.
 Hint Rewrite remove_abstraction_value_permutation_spath using auto with spath : spath.
 
-Lemma permutation_abstraction_element perm S i j v :
-  is_state_equivalence perm S -> abstraction_contains_value S i j v -> exists j',
+Lemma permutation_accessor_abstraction_element perm S i j :
+  is_state_equivalence perm S -> is_Some (abstraction_element S i j) ->
+  exists j',
     permutation_accessor perm (encode_abstraction (i, j)) = Some (encode_abstraction (i, j')).
 Proof.
-  intros (_ & equiv_abs) H%mk_is_Some%get_at_accessor_is_Some.
+  intros (_ & equiv_abs) H%get_at_accessor_is_Some.
   inversion H as [ | | ? ? A ? get_A get_at_j eq_encode].
   apply encode_inj in eq_encode. inversion eq_encode; subst.
   specialize (equiv_abs i). rewrite get_A in equiv_abs.
@@ -1533,13 +1566,14 @@ Definition add_abstraction_value_perm perm i j k := {|
 |}.
 
 Lemma add_abstraction_value_perm_equivalence perm S i j v :
-  abstraction_contains_value S i j v ->
+  abstraction_element S i j = Some v ->
   is_state_equivalence perm (remove_abstraction_value S i j) ->
   exists k, is_state_equivalence (add_abstraction_value_perm perm i j k) S /\
             perm = remove_abstraction_value_perm (add_abstraction_value_perm perm i j k) i j /\
-            abstraction_contains_value (apply_state_permutation (add_abstraction_value_perm perm i j k) S) i k v.
+            abstraction_element (apply_state_permutation (add_abstraction_value_perm perm i j k) S) i k = Some v.
 Proof.
-  rewrite get_at_abstraction, bind_Some. intros (A & get_A & get_v) (? & H).
+  unfold abstraction_element. setoid_rewrite get_at_abstraction. rewrite bind_Some.
+  intros (A & get_A & get_v) (? & H).
   pose proof (H i) as G. cbn in G. simpl_map. rewrite get_A in G.
   inversion G as [p ? p_perm get_p | ]. subst.
   destruct (exist_fresh (map_img (SA := Pset) p)) as (k & Hk). rewrite not_elem_of_map_img in Hk.
@@ -1553,11 +1587,22 @@ Proof.
     f_equal. rewrite <-alter_compose. symmetry. apply alter_id.
     rewrite <-get_p. intros ? [=<-]. apply delete_insert.
     rewrite eq_None_not_Some. destruct p_perm as (_ & ->). simpl_map. auto.
-  - rewrite get_at_abstraction. cbn. rewrite map_lookup_zip_with. simpl_map. cbn.
+  - cbn. rewrite map_lookup_zip_with. simpl_map. cbn.
     erewrite lookup_pkmap.
     + eassumption.
     + apply map_inj_equiv, map_inj_insert; [assumption | apply p_perm].
     + simpl_map. reflexivity.
+Qed.
+
+Lemma permutation_abstraction_element  perm S i j k
+  (H : is_state_equivalence perm S)
+  (G : permutation_accessor perm (encode_abstraction (i, j)) = Some (encode_abstraction (i, k))) :
+  abstraction_element (apply_state_permutation perm S) i k = abstraction_element S i j.
+Proof.
+  unfold abstraction_element. rewrite get_map_state_permutation by assumption.
+  apply lookup_pkmap.
+  - eapply permutation_accessor_inj. exact H.
+  - exact G.
 Qed.
 
 Lemma remove_loans_equiv A B A' B' (H : remove_loans A B A' B') :
@@ -2249,7 +2294,7 @@ Qed.
 Definition rel_Abs_ClearValue i j (p q : spath) := p = q /\ fst p <> encode_abstraction (i, j).
 
 Lemma eval_place_Abs_ClearValue S i j v perm p :
-  abstraction_contains_value S i j v -> not_contains_loan v ->
+  abstraction_element S i j = Some v -> not_contains_loan v ->
   forall pi_r, (remove_abstraction_value S i j) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_Abs_ClearValue i j pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
@@ -2336,7 +2381,7 @@ Ltac eval_place_preservation :=
         apply eval_place_Fresh_MutLoan in H;
         destruct H as (pi_l & ((-> & ?) & ?) & eval_p_in_Sl)
   (* Case Abs_ClearValue *)
-  | H : abstraction_contains_value ?S ?i ?j ?v,
+  | H : abstraction_element ?S ?i ?j = Some ?v,
     no_loan : not_contains_loan ?v,
     Heval : remove_abstraction_value ?S ?i ?j |-{p} ?p =>^{?perm} ?pi_r |- _ =>
         eapply eval_place_Abs_ClearValue in Heval; [ | eassumption..];
@@ -2472,6 +2517,11 @@ Proof.
   - rewrite <-fresh_abstraction_add_anon in * |-. assumption.
 Qed.
 Hint Resolve add_anons_fresh_abstraction : spath.
+
+Corollary add_anons_abstraction_element S S' A i j v :
+  add_anons S A S' ->
+  abstraction_element S i j = Some v -> abstraction_element S' i j = Some v.
+Proof. apply add_anons_get_at_accessor. Qed.
 
 (* Note: this could be made into a tactic. *)
 Lemma prove_add_anons S0 A S1 :
@@ -2757,7 +2807,8 @@ Proof.
     + eval_place_preservation. autorewrite with spath in *.
       execution_step. { constructor; eassumption. }
       leq_step_left.
-      { eapply Leq_Abs_ClearValue with (i := i) (j := j); autorewrite with spath; eassumption. }
+      { eapply Leq_Abs_ClearValue with (i := i) (j := j).
+        all: autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
@@ -2820,7 +2871,7 @@ Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
     leq_state_base_n 0 S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(l1)))
 | Leq_Abs_ClearValue_n S i j v
-    (get_at_i_j : abstraction_contains_value S i j v)
+    (get_at_i_j : abstraction_element S i j  = Some v)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
     leq_state_base_n (1 + vweight (fun c => node_measure c) v) S (remove_abstraction_value S i j)
 | Leq_AnonValue_n S a (is_fresh : fresh_anon S a) :
@@ -3061,7 +3112,8 @@ Proof.
     { eapply Leq_Abs_ClearValue_n; eassumption. }
     { assumption. }
     (* TODO: separate lemma *)
-    { rewrite get_at_abstraction, bind_Some in get_at_i_j.
+    { unfold abstraction_element in get_at_i_j.
+      rewrite get_at_abstraction, bind_Some in get_at_i_j.
       destruct get_at_i_j as (A & get_A & _).
       rewrite perm_at_abstraction. cbn.
       destruct valid_perm as (_ & abs_valid). specialize (abs_valid i).
@@ -3178,10 +3230,8 @@ Proof.
     { transitivity S1_anons; [assumption | ].
       constructor. apply Reorg_end_borrow_m_in_abstraction
         with (l := l) (q := (anon_accessor a, [])) (i' := i) (j' := j).
-        - eapply add_anons_get_at_accessor; [eassumption | ].
-          (* TODO: autorewrite *)
-          autorewrite with spath. rewrite get_at_accessor_add_abstraction.
-          simpl_map. reflexivity.
+        - eapply add_anons_abstraction_element; [eassumption | ].
+          autorewrite with spath. assumption.
         - erewrite add_anons_sget by eauto with spath.
           autorewrite with spath. reflexivity.
         - erewrite add_anons_sget. 2: eassumption.
@@ -3299,7 +3349,7 @@ Proof.
       destruct Hto_abs.
       * destruct (decide (i' = i)) as [<- | ].
         -- (* The loan that we remove can only be the one at position 2 in A, with identifier l1. *)
-           rewrite get_at_abstraction in H. cbn in H. simpl_map. cbn in H.
+           autorewrite with spath in H.
            assert (j' = kl /\ l = l1) as (-> & <-).
            { apply lookup_insert_Some in H. destruct H as [ | (_ & H)]; [easy | ].
              rewrite lookup_singleton_Some in H. destruct H as (<- & H).
@@ -3327,15 +3377,12 @@ Proof.
     + admit.
     (* Case Leq_MergeAbs_n: *)
     + destruct (decide (i = i')) as [<- | ].
-      * rewrite get_at_accessor_add_abstraction in H. (* TODO: autorewrite *)
-        autorewrite with spath in *.
+      * autorewrite with spath in *.
         eapply merge_abstractions_contains in Hmerge; [ | eassumption].
         destruct Hmerge as [(G & Hmerge) | (k & G & Hmerge)].
         -- reorg_step.
            { eapply Reorg_end_borrow_m_in_abstraction with (i' := i) (j' := j') (q := q).
-             all: autorewrite with spath; eauto with spath.
-             (* TODO: autorewrite *)
-             rewrite get_at_abstraction. cbn. simpl_map. auto. }
+             all: autorewrite with spath; eauto with spath. }
            reorg_done.
            autorewrite with spath. eapply leq_n_step.
            { apply Leq_MergeAbs_n; eauto with spath. }
@@ -3343,25 +3390,18 @@ Proof.
            reflexivity.
         -- reorg_step.
            { eapply Reorg_end_borrow_m_in_abstraction with (i' := j) (j' := k) (q := q).
-             all: autorewrite with spath; eauto with spath.
-             (* TODO: autorewrite *)
-             rewrite get_at_abstraction. cbn. simpl_map. auto. }
+             all: autorewrite with spath; eauto with spath. }
            reorg_done.
            autorewrite with spath. eapply leq_n_step.
            { apply Leq_MergeAbs_n; eauto with spath. }
            { eapply map_sum_delete in H, G. rewrite H, G. lia. }
            reflexivity.
       * autorewrite with spath in * |-.
-        (* TODO: autorewrite *)
-        rewrite get_at_abstraction in H. cbn in H. simpl_map.
-        (* TODO: lemma *)
         assert (i' <> j).
-        { intros <-. unfold fresh_abstraction in fresh_j. rewrite fresh_j in H. discriminate. }
+        { intros <-. autorewrite with spath in H. discriminate. }
         reorg_step.
            { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
-             all: autorewrite with spath; eauto with spath.
-             (* TODO: autorewrite *)
-             rewrite get_at_abstraction. cbn. simpl_map. assumption. }
+             all: autorewrite with spath; eauto with spath. }
            reorg_done. autorewrite with spath.
            autorewrite with spath. eapply leq_n_step.
            { apply Leq_MergeAbs_n; eauto with spath. }
@@ -3470,13 +3510,10 @@ Proof.
       symmetry. eexists. autorewrite with spath. auto with spath.
 
     + symmetry in Hequiv. destruct Hequiv as (perm & Hperm & ->).
-      edestruct permutation_abstraction_element as (k & ?); [eassumption.. | ].
+      edestruct permutation_accessor_abstraction_element as (k & ?); [eauto.. | ].
       execution_step.
       { eapply Reorg_end_borrow_m_in_abstraction; rewrite ?permutation_sget; eauto with spath.
-        (* TODO: lemma *)
-        rewrite get_map_state_permutation by assumption.
-        apply permutation_accessor_inj in Hperm.
-        erewrite lookup_pkmap. eassumption. apply Hperm. eassumption.
+        erewrite permutation_abstraction_element; eassumption.
         autorewrite with spath. assumption. }
       pose proof Hperm as Hperm'.
       apply remove_abstraction_value_perm_equivalence with (i := i') (j := j') in Hperm'.
