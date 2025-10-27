@@ -197,7 +197,7 @@ Section LeqValStateUtils.
   (* This lemma is used by the tactic `leq_val_state_add_anon`. *)
   Lemma prove_leq_val_state_add_anon vl Sl vm Sm vSr b w
     (fresh_b : fresh_anon Sl b)
-    (G : forall a, fresh_anon Sm a -> fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
+    (G : forall a, fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
          exists vSm, leq_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm,, b |-> w) :
     leq_val_state_base^* (vm, Sm,, b |-> w) vSr ->
     leq_val_state_base^* (vl, Sl) vSr.
@@ -250,7 +250,7 @@ Ltac leq_val_state_add_anon :=
          * a single hypothesis of the form "fresh_anon Sr b" in the context, with Sr an expression
          * of Sl, that can be used. *)
         [eauto with spath; fail |
-         intros a ? ? ?; eexists; split |
+         intros a ? ?; eexists; split |
         ]
   end.
 
