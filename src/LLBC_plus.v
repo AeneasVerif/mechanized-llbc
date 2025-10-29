@@ -630,9 +630,9 @@ Hint Rewrite remove_abstraction_value_add_anon : spath.
 (* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
 Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
 
-Variant is_integer : LLBC_plus_val -> Prop :=
-  | Symbolic_is_integer : is_integer LLBC_plus_symbolic
-  | Integer_is_integer n : is_integer (LLBC_plus_int n).
+Variant is_integer : LLBC_plus_nodes -> Prop :=
+  | Symbolic_is_integer : is_integer LLBC_plus_symbolicC
+  | Integer_is_integer n : is_integer (LLBC_plus_intC n).
 
 Variant add_anons : LLBC_plus_state -> Pmap LLBC_plus_val -> LLBC_plus_state -> Prop :=
   | AddAnons S A anons' : union_maps (anons S) A anons' ->
@@ -686,7 +686,7 @@ Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
 | Reorg_end_borrow_m_in_abstraction S q i' j' l :
     abstraction_element S i' j' = Some (loan^m(l)) ->
-    get_node (S.[q]) = borrowC^m(l) -> is_integer (S.[q +++ [0] ]) ->
+    get_node (S.[q]) = borrowC^m(l) -> is_integer (get_node (S.[q +++ [0] ])) ->
     not_in_borrow S q -> not_in_abstraction q ->
     reorg S ((remove_abstraction_value S i' j').[q <- bot])
 (* q refers to a path in abstraction A, at index j. *)
@@ -732,7 +732,7 @@ Variant to_abs : LLBC_plus_val -> Pmap LLBC_plus_val -> Prop :=
 | ToAbs_MutReborrow l0 l1 kb kl (Hk : kb <> kl) :
     to_abs (borrow^m(l0, loan^m(l1)))
            ({[kb := (borrow^m(l0, LLBC_plus_symbolic)); kl := loan^m(l1)]})%stdpp
-| ToAbs_MutBorrow l v k (Hv : is_integer v) :
+| ToAbs_MutBorrow l v k (Hv : is_integer (get_node v)) :
     to_abs (borrow^m(l, v)) ({[k := (borrow^m(l, LLBC_plus_symbolic))]})%stdpp
 .
 
@@ -2942,7 +2942,7 @@ Proof.
   - weight_inequality.
   - autorewrite with weight. destruct Hto_abs.
     + autorewrite with weight. lia. simpl_map. reflexivity.
-    + autorewrite with weight. destruct Hv; cbn; lia.
+    + autorewrite with weight. destruct v; inversion Hv; cbn; lia.
   - weight_inequality.
   - weight_inequality.
   - weight_inequality.
@@ -2972,15 +2972,16 @@ Proof.
     unfold measure. autorewrite with weight. lia.
 Qed.
 
-Lemma is_integer_valid S p : is_integer (S.[p]) -> valid_spath S p.
-Proof. intros H. apply valid_get_node_sget_not_bot. inversion H; easy. Qed.
+Lemma is_integer_valid S p : is_integer (get_node (S.[p])) -> valid_spath S p.
+Proof. intros H. apply valid_get_node_sget_not_bot. destruct H; discriminate. Qed.
 Hint Resolve is_integer_valid : spath.
 
-Lemma is_integer_zeroary v : is_integer v -> arity (get_node v) = 0.
+Lemma is_integer_zeroary n : is_integer n -> arity n = 0.
 Proof. intros []; reflexivity. Qed.
 
 Lemma is_integer_sset S p q v :
-  valid_spath S p -> ~is_integer v -> is_integer (S.[p <- v].[q]) -> ~prefix q p.
+  valid_spath S p -> ~is_integer (get_node v) -> is_integer (get_node (S.[p <- v].[q])) ->
+  ~prefix q p.
 Proof.
   intros valid_p H G (r & <-). apply valid_spath_app in valid_p. destruct valid_p as (valid_q & valid_r).
   autorewrite with spath in G. destruct r.
@@ -3495,18 +3496,18 @@ Proof.
            (* If v is an integer, we must perform an extra relation step to turn it into a
             * symbolic value. Because when we end the region A, the anonymous binding introduced
             * is a symbolic value. *)
-           destruct Hv.
-           ++ reorg_done.
-              (* After reorganization, the borrow is introduced in an anonymous variable `b` that
-               * can be different than the anonymous variable `a` that were turned into a
-               * region. However, the states when we add a borrow in a and b are equivalent. *)
-              now apply leq_n_by_equivalence, add_anon_equivalence.
+           destruct v; inversion Hv.
            ++ reorg_done.
               eapply leq_n_step.
               { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
                 autorewrite with spath. reflexivity. }
               { easy. }
                autorewrite with spath. now apply leq_n_by_equivalence, add_anon_equivalence.
+           ++ reorg_done.
+              (* After reorganization, the borrow is introduced in an anonymous variable `b` that
+               * can be different than the anonymous variable `a` that were turned into a
+               * region. However, the states when we add a borrow in a and b are equivalent. *)
+              now apply leq_n_by_equivalence, add_anon_equivalence.
       * admit. (* separation *)
     + admit.
     + admit.
