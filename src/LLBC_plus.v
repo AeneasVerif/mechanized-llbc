@@ -692,6 +692,16 @@ Hint Rewrite abstraction_element_add_abstraction : spath.
 Hint Rewrite abstraction_element_add_abstraction_ne using congruence : spath.
 Hint Rewrite abstraction_element_fresh_abstraction using assumption : spath.
 
+Lemma not_in_borrow_add_borrow_anon S a l v p :
+  not_in_borrow (S,, a |-> borrow^m(l, v)) p -> p <> (anon_accessor a, []) ->
+  fst p <> anon_accessor a.
+Proof.
+  intros H G ?. autorewrite with spath in H. apply (H []); [constructor | ].
+  destruct p as (? & [ | ]).
+  - exfalso. cbn in * |-. subst. eauto.
+  - eexists _, _. reflexivity.
+Qed.
+
 (* Note: we use the variable names i' and j' instead of i and j that are used for leq_state_base.
  * We are also using the name A' instead of A, B or C for the region abstractions.
  *)
@@ -3513,10 +3523,9 @@ Proof.
         reflexivity.
     (* Case Leq_Fresh_MutLoan_n: *)
     + assert (fst q <> anon_accessor a).
-      { intros ?. autorewrite with spath in *.
-        eapply H2 with (q := []); [constructor | ].
-        destruct (snd q); [ | eexists _, _; reflexivity].
-        exfalso. cbn in *. inversion H0; subst. apply abstraction_element_is_sget in H.
+      { eapply not_in_borrow_add_borrow_anon; [eassumption | ].
+        intros ->. autorewrite with spath in H0. inversion H0; subst.
+        autorewrite with spath in H. apply abstraction_element_is_sget in H.
         eapply fresh_l'; [ | rewrite H; constructor]. validity. }
       rewrite sget_add_anon in * by assumption.
       assert (disj sp q). apply prove_disj.
@@ -3543,9 +3552,8 @@ Proof.
       apply reflexive_eq. states_eq.
     (* Case Leq_Reborrow_MutBorrow_n: *)
     + assert (fst q <> anon_accessor a).
-      { intros ?. autorewrite with spath in * |-.
-        eapply H2 with (q := []); [constructor | ].
-        destruct (snd q); [inversion H1 | eexists _, _; reflexivity]. }
+      { eapply not_in_borrow_add_borrow_anon; [eassumption | ].
+        intros ->. autorewrite with spath in H1. inversion H1. }
       rewrite sget_add_anon in * by assumption. autorewrite with spath in H.
       assert (disj q sp). apply prove_disj.
       (* The node q contains a borrow of loan identifier l <> l1 (freshness of l1). *)
