@@ -418,11 +418,12 @@ Proof.
   rewrite G in H. inversion H.
 Qed.
 
-Lemma anon_not_in_abstraction p a : fst p = encode_anon a -> not_in_abstraction p.
+Lemma anon_not_in_abstraction p a : fst p = anon_accessor a -> not_in_abstraction p.
 Proof.
   unfold not_in_abstraction, in_abstraction. intros H ? (? & G).
   rewrite G in H. inversion H.
 Qed.
+Hint Resolve anon_not_in_abstraction : spath.
 
 Definition add_abstraction S i A :=
   {|vars := vars S; anons := anons S; abstractions := insert i A (abstractions S)|}.
@@ -825,17 +826,19 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
     (Hmerge : merge_abstractions A B C) :
     i <> j -> leq_state_base (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
-| Leq_Fresh_MutLoan S sp l a
-    (fresh_l1 : is_fresh l S)
+| Leq_Fresh_MutLoan S sp l' a
+    (fresh_l' : is_fresh l' S)
     (fresh_a : fresh_anon S a)
     (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
        I am going a step further: there should not be bottoms in borrowed values. *)
-    (no_bot : not_contains_bot (S.[sp])) :
-    leq_state_base S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
+    (no_bot : not_contains_bot (S.[sp]))
+    (sp_not_in_abstraction : not_in_abstraction sp) :
+    leq_state_base S (S.[sp <- loan^m(l')],, a |-> borrow^m(l', S.[sp]))
 | Leq_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
     (fresh_l1 : is_fresh l1 S)
     (fresh_a : fresh_anon S a)
-    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
+    (get_borrow : get_node (S.[sp]) = borrowC^m(l0))
+    (sp_not_in_abstraction : not_in_abstraction sp) :
     leq_state_base S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(l1)))
 (* Note: this rule makes the size of the state increase from right to left.
    We should add a decreasing quantity. *)
@@ -850,6 +853,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 Lemma Leq_Reborrow_MutBorrow_Abs S sp l0 l1 i kb kl
     (fresh_l1 : is_fresh l1 S)
     (fresh_i : fresh_abstraction S i)
+    (sp_not_in_abstraction : not_in_abstraction sp)
     (get_borrow : get_node (S.[sp]) = borrowC^m(l0))
     (Hk : kb <> kl) :
     leq_state_base^* S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],,,
@@ -864,12 +868,13 @@ Proof.
   - autorewrite with spath. constructor. assumption.
 Qed.
 
-Lemma Leq_Fresh_MutLoan_Abs S sp l i k n
-    (fresh_l1 : is_fresh l S)
+Lemma Leq_Fresh_MutLoan_Abs S sp l' i k n
+    (fresh_l' : is_fresh l' S)
+    (sp_not_in_abstraction : not_in_abstraction sp)
     (fresh_i : fresh_abstraction S i)
     (is_int : get_node (S.[sp]) = LLBC_plus_intC n) :
-    leq_state_base^* S (S.[sp <- loan^m(l)],,,
-                        i |-> {[k := borrow^m(l, LLBC_plus_symbolic)]}%stdpp).
+    leq_state_base^* S (S.[sp <- loan^m(l')],,,
+                        i |-> {[k := borrow^m(l', LLBC_plus_symbolic)]}%stdpp).
 Proof.
   destruct (exists_fresh_anon S) as (a & fresh_a).
   etransitivity.
@@ -878,7 +883,8 @@ Proof.
   { constructor. apply Leq_Fresh_MutLoan with (sp := sp).
     - not_contains.
     - apply fresh_anon_sset. eassumption.
-    - autorewrite with spath. apply not_value_contains_zeroary; auto. }
+    - autorewrite with spath. apply not_value_contains_zeroary; auto.
+    - assumption. }
   etransitivity.
   { constructor. eapply Leq_ToAbs with (a := a) (i := i).
     - eauto with spath.
@@ -2647,17 +2653,17 @@ Proof.
       reflexivity.
     + execution_step. { constructor. }
       leq_val_state_add_anon.
-      { apply (Leq_Fresh_MutLoan _ sp l a).
+      { apply (Leq_Fresh_MutLoan _ sp l' a).
         apply not_state_contains_add_anon. assumption. not_contains.
         eassumption.
-        autorewrite with spath. assumption. }
+        autorewrite with spath. assumption. assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
       leq_val_state_add_anon.
       { apply (Leq_Reborrow_MutBorrow _ sp l0 l1 a).
         apply not_state_contains_add_anon. assumption. not_contains. eassumption.
-        autorewrite with spath. assumption. }
+        autorewrite with spath. assumption. assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
@@ -2766,10 +2772,10 @@ Proof.
       assert (disj pi sp) by reduce_comp. autorewrite with spath in *.
       execution_step. { apply Eval_move; eassumption. }
       leq_val_state_add_anon.
-      { apply Leq_Fresh_MutLoan with (sp := sp) (l := l).
+      { apply Leq_Fresh_MutLoan with (sp := sp) (l' := l').
         (* TODO: the tactic not_contains should solve it. *)
         apply not_state_contains_add_anon. not_contains. not_contains.
-        eassumption. autorewrite with spath. assumption. }
+        eassumption. autorewrite with spath. assumption. assumption. }
       { autorewrite with spath. reflexivity. }
       apply reflexive_eq. states_eq.
 
@@ -2789,7 +2795,7 @@ Proof.
          * the borrow is now in the anonymous value we evaluate a0, at path q. *)
          (* TODO: rename a0 *)
         { apply Leq_Reborrow_MutBorrow with (sp := (anon_accessor a0, q)) (l1 := l1).
-          not_contains. eassumption. autorewrite with spath. eassumption. }
+          not_contains. eassumption. autorewrite with spath. eassumption. eauto with spath. }
         { autorewrite with spath. reflexivity. }
         autorewrite with spath. reflexivity.
 
@@ -2799,7 +2805,7 @@ Proof.
           all: erewrite sget_reborrow_mut_borrow_not_prefix in * by eassumption; assumption. }
         leq_val_state_add_anon.
         { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1).
-          not_contains. eassumption. autorewrite with spath. eassumption. }
+          not_contains. eassumption. autorewrite with spath. eassumption. assumption. }
         { autorewrite with spath. reflexivity. }
         autorewrite with spath.
         erewrite sget_reborrow_mut_borrow_not_prefix by eassumption.
@@ -2861,17 +2867,19 @@ Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
     (Hmerge : merge_abstractions A B C) :
     i <> j -> leq_state_base_n (abs_measure A + abs_measure B - abs_measure C + 2) 
                                 (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
-| Leq_Fresh_MutLoan_n S sp l a
-    (fresh_l1 : is_fresh l S)
+| Leq_Fresh_MutLoan_n S sp l' a
+    (fresh_l' : is_fresh l' S)
     (fresh_a : fresh_anon S a)
     (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
        I am going a step further: there should not be bottoms in borrowed values. *)
-    (no_bot : not_contains_bot (S.[sp])) :
-    leq_state_base_n 0 S (S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp]))
+    (no_bot : not_contains_bot (S.[sp]))
+    (sp_not_in_abstraction : not_in_abstraction sp) :
+    leq_state_base_n 0 S (S.[sp <- loan^m(l')],, a |-> borrow^m(l', S.[sp]))
 | Leq_Reborrow_MutBorrow_n (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
     (fresh_l1 : is_fresh l1 S)
     (fresh_a : fresh_anon S a)
-    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) :
+    (get_borrow : get_node (S.[sp]) = borrowC^m(l0))
+    (sp_not_in_abstraction : not_in_abstraction sp) :
     leq_state_base_n 0 S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(l1)))
 | Leq_Abs_ClearValue_n S i j v
     (get_at_i_j : abstraction_element S i j  = Some v)
@@ -3103,7 +3111,7 @@ Proof.
     eapply prove_rel.
     { apply Leq_Fresh_MutLoan_n.
       rewrite not_state_contains_apply_permutation; eassumption.
-      eauto with spath. rewrite permutation_sget; eauto with spath. }
+      eauto with spath. rewrite permutation_sget; eauto with spath. auto with spath. }
     { autorewrite with spath. reflexivity. }
   - destruct Hequiv as (perm & valid_perm & ->). repeat process_state_equivalence.
     autorewrite with spath in fresh_b.
@@ -3112,7 +3120,7 @@ Proof.
     eapply prove_rel. {
       apply Leq_Reborrow_MutBorrow_n.
       rewrite not_state_contains_apply_permutation; eassumption.
-      eassumption. rewrite permutation_sget; eauto with spath. }
+      eassumption. rewrite permutation_sget; eauto with spath. eauto with spath. }
     autorewrite with spath. reflexivity.
   - destruct Hequiv as (perm & valid_perm & ->).
     eapply add_abstraction_value_perm_equivalence in valid_perm; [ | eassumption].
@@ -3787,11 +3795,12 @@ Section Eval_LLBC_plus_program.
     }
     simpl_state.
     eapply prove_leq.
-    { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive) (kb := 1%positive) (kl := 3%positive); try compute_done; reflexivity. }
+    { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive) (kb := 1%positive) (kl := 3%positive); try compute_done.
+      eapply var_not_in_abstraction; reflexivity. reflexivity. }
     simpl_state.
     eapply prove_leq.
-    { eapply Leq_Fresh_MutLoan_Abs with (sp := (encode_var y, [])) (l := ly) (i := 2%positive) (k := 2%positive);
-        [compute_done.. | reflexivity]. }
+    { eapply Leq_Fresh_MutLoan_Abs with (sp := (encode_var y, [])) (l' := ly) (i := 2%positive) (k := 2%positive);
+        [compute_done | now eapply var_not_in_abstraction | compute_done | reflexivity]. }
     simpl_state.
     eapply prove_leq; [constructor | ].
     { remove_abstraction 1%positive. remove_abstraction 2%positive.
@@ -3819,13 +3828,12 @@ Section Eval_LLBC_plus_program.
       - reflexivity.
     }
     simpl_state. eapply prove_leq.
-    { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive) (kb := 2%positive) (kl := 3%positive);
-        try compute_done; reflexivity.
-    }
+    { eapply Leq_Reborrow_MutBorrow_Abs with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive) (kb := 2%positive) (kl := 3%positive); try compute_done.
+      eapply var_not_in_abstraction; reflexivity. reflexivity. }
     simpl_state.
     eapply prove_leq.
-    { eapply Leq_Fresh_MutLoan_Abs with (sp := (encode_var x, [])) (l := lx) (i := 2%positive) (k := 1%positive);
-        [compute_done.. | reflexivity]. }
+    { eapply Leq_Fresh_MutLoan_Abs with (sp := (encode_var x, [])) (l' := lx) (i := 2%positive) (k := 1%positive);
+        [compute_done | now eapply var_not_in_abstraction | compute_done | reflexivity]. }
     simpl_state.
     eapply prove_leq; [constructor | ].
     { remove_abstraction 1%positive. remove_abstraction 2%positive.
