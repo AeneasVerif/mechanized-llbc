@@ -683,7 +683,7 @@ Proof.
 Qed.
 
 Lemma abstraction_element_fresh_abstraction S i j :
-  fresh_abstraction S i  -> abstraction_element S i j = None.
+  fresh_abstraction S i -> abstraction_element S i j = None.
 Proof. intros H. unfold abstraction_element. rewrite get_at_abstraction, H. reflexivity. Qed.
 
 Hint Rewrite abstraction_element_sset using eauto with spath; fail : spath.
@@ -3584,7 +3584,16 @@ Proof.
     (* Case Leq_Abs_ClearValue_n: *)
     + admit.
     (* Case Leq_AnonValue_n: *)
-    + admit.
+    + assert (fst q <> anon_accessor a).
+      { intros ?. autorewrite with spath in H0. rewrite vget_bot in H0. discriminate. }
+      autorewrite with spath in *.
+      reorg_step.
+      { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+        all: eauto with spath. }
+      reorg_done. eapply leq_n_step.
+      { apply Leq_AnonValue_n with (a := a). eauto with spath. }
+      { reflexivity. }
+      reflexivity.
 
   (* Case Reorg_end_abstraction: *)
   - intros ? Hleq. remember (S,,, i' |-> A') as _S eqn:EQN.
