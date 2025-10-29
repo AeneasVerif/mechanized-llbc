@@ -627,6 +627,22 @@ Proof. reflexivity. Qed.
 Hint Rewrite add_abstraction_add_anon : spath.
 Hint Rewrite remove_abstraction_value_add_anon : spath.
 
+Lemma valid_spath_remove_abstraction_value S i j sp :
+  valid_spath (remove_abstraction_value S i j) sp ->
+  valid_spath S sp /\ fst sp <> encode_abstraction (i, j).
+Proof.
+  unfold valid_spath. rewrite get_map_remove_abstraction_value.
+  intros (? & (? & ?)%lookup_delete_Some & ?). split; [eexists | ]; eauto.
+Qed.
+
+Lemma remove_abstraction_value_not_contains P S i j :
+  not_state_contains P S -> not_state_contains P (remove_abstraction_value S i j).
+Proof.
+  intros H ? (? & ?)%valid_spath_remove_abstraction_value. autorewrite with spath.
+  apply H. assumption.
+Qed.
+Hint Resolve remove_abstraction_value_not_contains : spath.
+
 (* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
 Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
 
@@ -639,6 +655,10 @@ Variant add_anons : LLBC_plus_state -> Pmap LLBC_plus_val -> LLBC_plus_state -> 
       add_anons S A {|vars := vars S; anons := anons'; abstractions := abstractions S|}.
 
 (* Rewriting lemmas for abstraction_element. *)
+Lemma abstraction_element_is_sget S i j v :
+  abstraction_element S i j = Some v -> S.[(encode_abstraction (i, j), [])] = v.
+Proof. unfold abstraction_element, sget. cbn. intros ->. reflexivity. Qed.
+
 Lemma abstraction_element_sset S i j p v :
   fst p <> encode_abstraction (i, j) ->
   abstraction_element (S.[p <- v]) i j = abstraction_element S i j.
@@ -2273,6 +2293,17 @@ Proof.
     intros G. apply H. erewrite valid_spath_rename_mut_borrow in G by eassumption. exact G.
 Qed.
 
+Lemma not_in_borrow_rename_mut_borrow S p q l0 l1 :
+  get_node (S.[p]) = borrowC^m(l0) ->
+  not_in_borrow (rename_mut_borrow S p l1) q -> not_in_borrow S q.
+Proof.
+  intros ? H r ?. apply H.
+  destruct (decidable_spath_eq p r) as [<- | ].
+  - autorewrite with spath. constructor.
+  - erewrite get_node_rename_mut_borrow; [ | eexists | ]; eassumption.
+Qed.
+Hint Resolve not_in_borrow_rename_mut_borrow : spath.
+
 Lemma eval_place_Reborrow_MutBorrow S sp l0 l1 a perm p
     (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) pi_r :
   (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1))) |-{p} p =>^{perm} pi_r ->
@@ -2542,14 +2573,14 @@ Lemma prove_add_anons S0 A S1 :
 Proof. intros (? & ? & ->). assumption. Qed.
 
 (* TODO: move *)
-Lemma valid_spath_remove_abstraction_value S sp i j :
+Lemma remove_abstraction_value_valid S sp i j :
   valid_spath S sp -> fst sp <> encode_abstraction (i, j) ->
   valid_spath (remove_abstraction_value S i j) sp.
 Proof.
   intros (v & ? & ?) ?. exists v. split; [ | assumption].
   rewrite get_map_remove_abstraction_value. simpl_map. reflexivity.
 Qed.
-Hint Resolve valid_spath_remove_abstraction_value : spath.
+Hint Resolve remove_abstraction_value_valid : spath.
 
 Lemma add_anons_assoc S0 S1 S2 S'2 A B C :
   union_maps A B C -> add_anons S0 B S1 -> add_anons S1 A S2 -> add_anons S0 C S'2 ->
@@ -2991,6 +3022,13 @@ Proof.
     inversion valid_r as [ | ? ? ? ? K%nth_error_length]; subst. rewrite G in K. lia.
 Qed.
 
+Lemma integer_does_not_contain_loan v : is_integer (get_node v) -> not_contains_loan v.
+Proof. destruct v; inversion 1; unfold not_contains_loan; not_contains. Qed.
+Hint Resolve integer_does_not_contain_loan : spath.
+
+Lemma integer_does_not_contain_borrow v : is_integer (get_node v) -> not_contains_borrow v.
+Proof. destruct v; inversion 1; unfold not_contains_borrow; not_contains. Qed.
+
 (* TODO: move *)
 Lemma not_in_borrow_add_abstraction S i A sp (H : ~in_abstraction i (fst sp)) :
   not_in_borrow (S,,, i |-> A) sp <-> not_in_borrow S sp.
@@ -3381,7 +3419,7 @@ Proof.
              eauto with spath.
              autorewrite with spath. reflexivity.
              autorewrite with spath. assumption.
-             autorewrite with spath. (* TODO: lemma *) inversion H1; unfold not_contains_loan; not_contains.
+             autorewrite with spath. eauto with spath.
              apply no_ancestor_add_anon; eauto with spath.
              eapply anon_not_in_abstraction. reflexivity.
              assumption. }
@@ -3466,16 +3504,78 @@ Proof.
         assert (i' <> j).
         { intros <-. autorewrite with spath in H. discriminate. }
         reorg_step.
-           { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
-             all: autorewrite with spath; eauto with spath. }
-           reorg_done. autorewrite with spath.
-           autorewrite with spath. eapply leq_n_step.
-           { apply Leq_MergeAbs_n; eauto with spath. }
-           { reflexivity. }
-           reflexivity.
+        { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+          all: autorewrite with spath; eauto with spath. }
+        reorg_done. autorewrite with spath.
+        autorewrite with spath. eapply leq_n_step.
+        { apply Leq_MergeAbs_n; eauto with spath. }
+        { reflexivity. }
+        reflexivity.
+    (* Case Leq_Fresh_MutLoan_n: *)
+    + assert (fst q <> anon_accessor a).
+      { intros ?. autorewrite with spath in *.
+        eapply H2 with (q := []); [constructor | ].
+        destruct (snd q); [ | eexists _, _; reflexivity].
+        exfalso. cbn in *. inversion H0; subst. apply abstraction_element_is_sget in H.
+        eapply fresh_l'; [ | rewrite H; constructor]. validity. }
+      rewrite sget_add_anon in * by assumption.
+      assert (disj sp q). apply prove_disj.
+      (* The node q contains a borrow, it cannot be in sp that contains a loan. *)
+      { intros <-. autorewrite with spath in H0. inversion H0. }
+      { eapply get_nil_prefix_right;
+          [ | apply valid_get_node_sget_not_bot; rewrite H0; discriminate].
+        autorewrite with spath. reflexivity. }
+      (* The node q +++ [0] is an integer, it cannot contain a loan. *)
+      { eapply not_prefix_one_child;
+          [rewrite length_children_is_arity, H0; reflexivity | validity | ].
+        eapply not_value_contains_not_prefix.
+        - apply integer_does_not_contain_loan. eassumption.
+        - autorewrite with spath. constructor.
+        - validity. }
+      autorewrite with spath in *.
+      reorg_step.
+      { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+        all: eauto with spath. }
+      reorg_done. eapply leq_n_step.
+      { apply Leq_Fresh_MutLoan_n with (l' := l'); eauto with spath.
+        all: autorewrite with spath; not_contains. }
+      { reflexivity. }
+      apply reflexive_eq. states_eq.
+    (* Case Leq_Reborrow_MutBorrow_n: *)
+    + assert (fst q <> anon_accessor a).
+      { intros ?. autorewrite with spath in * |-.
+        eapply H2 with (q := []); [constructor | ].
+        destruct (snd q); [inversion H1 | eexists _, _; reflexivity]. }
+      rewrite sget_add_anon in * by assumption. autorewrite with spath in H.
+      assert (disj q sp). apply prove_disj.
+      (* The node q contains a borrow of loan identifier l <> l1 (freshness of l1). *)
+      { intros <-. autorewrite with spath in H0. inversion H0; subst.
+        apply abstraction_element_is_sget in H.
+        eapply fresh_l1; [ | rewrite H; constructor]. validity. }
+      (* The node q +++ [0] is an integer, it cannot contain sp. *)
+      { eapply not_prefix_one_child;
+          [ rewrite length_children_is_arity, H0; reflexivity | validity | ].
+        eapply not_value_contains_not_prefix.
+        - apply integer_does_not_contain_borrow. eassumption.
+        - autorewrite with spath. constructor.
+        - validity. }
+      (* q is not in a borrow. *)
+      { intros (? & ? & <-). eapply H2 with (q := sp).
+        - autorewrite with spath. constructor.
+        - eexists _, _; reflexivity. }
+      assert (sp <> q +++ [0]). { intros ->. eapply not_prefix_disj; eauto with spath. }
+      autorewrite with spath in *.
+      reorg_step.
+      { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+        all: eauto with spath. }
+      reorg_done. eapply leq_n_step.
+      { apply Leq_Reborrow_MutBorrow_n with (l0 := l0) (l1 := l1) (a := a) (sp := sp).
+        not_contains. eauto with spath. autorewrite with spath. assumption. assumption. }
+      { reflexivity. }
+      apply reflexive_eq. states_eq.
+    (* Case Leq_Abs_ClearValue_n: *)
     + admit.
-    + admit.
-    + admit.
+    (* Case Leq_AnonValue_n: *)
     + admit.
 
   (* Case Reorg_end_abstraction: *)
