@@ -2186,14 +2186,12 @@ Qed.
 
 (* When changing the id of a mutable borrow at p, generally using the rule Leq_Reborrow_MutBorrow,
  * accessing any other node that the one in sp is unchanged. *)
-(* Note: in its current form, this lemma cannot be used with rewrite, but only with erewrite.
- * This is because the equality does not involve l0. Replacing H with an existential could make
- * this lemma amenable to rewrite and autorewrite. *)
-Lemma get_node_rename_mut_borrow S p q l0 l1
-  (H : get_node (S.[p]) = borrowC^m(l0)) (diff_p_q : p <> q) :
+(* Note: the existential is here so that this lemma can be used with rewrite and autorewrite. *)
+Lemma get_node_rename_mut_borrow S p q l1
+  (H : exists l0, get_node (S.[p]) = borrowC^m(l0)) (diff_p_q : p <> q) :
   get_node ((rename_mut_borrow S p l1).[q]) = get_node (S.[q]).
 Proof.
-  destruct (decidable_prefix p q).
+  destruct H as (l0 & H). destruct (decidable_prefix p q).
   - assert (strict_prefix p q) as (i & ? & <-) by auto with spath.
     autorewrite with spath. destruct i.
     + cbn. autorewrite with spath. reflexivity.
@@ -2205,6 +2203,14 @@ Proof.
   - autorewrite with spath. reflexivity.
 Qed.
 
+Ltac solve_get_node_rename_mut_borrow_hypothesis :=
+  match goal with
+  | |- exists l, get_node (?S.[?p]) = borrowC^m(l) => eexists; eassumption
+  | |- ?p <> ?q => congruence
+  end.
+Hint Rewrite get_node_rename_mut_borrow
+  using solve_get_node_rename_mut_borrow_hypothesis : spath.
+
 (* In the state `rename_mut_borrow S p l1`, compared to S, only the node at p is changed.
  * Thus, if we read at a place q that is not a prefix of p, no node is changed. *)
 Lemma sget_reborrow_mut_borrow_not_prefix S p q l0 l1
@@ -2213,7 +2219,7 @@ Lemma sget_reborrow_mut_borrow_not_prefix S p q l0 l1
 Proof.
   apply value_get_node_ext. intros r. rewrite <-!sget_app.
   eapply get_node_rename_mut_borrow.
-  - eassumption.
+  - exists l0. eassumption.
   - intros ->. apply G. exists r. reflexivity.
 Qed.
 
@@ -2259,7 +2265,7 @@ Proof.
     specialize (Hnot_contains r). rewrite <-!sget_app in *.
     destruct (decidable_spath_eq p (q +++ r)) as [-> | ].
     + autorewrite with spath. rewrite get_at_p. assumption.
-    + erewrite get_node_rename_mut_borrow in Hnot_contains; [ | eassumption..].
+    + autorewrite with spath in Hnot_contains.
       apply Hnot_contains. apply valid_spath_app.
       rewrite valid_spath_rename_mut_borrow by eassumption.
       rewrite valid_spath_app. auto.
@@ -2282,7 +2288,6 @@ Proof.
       * eapply Eval_Deref_MutBorrow; eassumption.
       * autorewrite with spath in get_q.
         (* Note: this rewrite take up to 2s, with 80% of time spent on eauto with spath. *)
-        erewrite get_node_rename_mut_borrow in get_q by eassumption.
         eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
