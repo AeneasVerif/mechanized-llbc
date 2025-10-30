@@ -614,9 +614,6 @@ Proof.
     reflexivity.
 Qed.
 
-Hint Rewrite sget_remove_abstraction_value using auto with spath : spath.
-Hint Rewrite sset_remove_abstraction_value using eauto with spath : spath.
-
 Lemma add_abstraction_add_anon S a v i A : (S,, a |-> v),,, i |-> A = (S,,, i |-> A),, a |-> v.
 Proof. reflexivity. Qed.
 
@@ -624,8 +621,38 @@ Lemma remove_abstraction_value_add_anon S a v i j :
   remove_abstraction_value (S,, a |-> v) i j = (remove_abstraction_value S i j),, a |-> v.
 Proof. reflexivity. Qed.
 
+Lemma abstraction_element_remove_abstraction_value_is_Some S i j i' j' v :
+  abstraction_element (remove_abstraction_value S i j) i' j' = Some v <->
+  abstraction_element S i' j' = Some v /\ (i, j) <> (i', j').
+Proof.
+  unfold abstraction_element. rewrite get_map_remove_abstraction_value. split.
+  - intros (? & ?)%lookup_delete_Some. split; congruence.
+  - intros (? & ?). rewrite lookup_delete_ne; [assumption | ]. intros [=-> ->]%encode_inj. auto.
+Qed.
+
+Lemma abstraction_element_remove_abstraction S i j i' j' :
+  (i, j) <> (i', j') ->
+  abstraction_element (remove_abstraction_value S i j) i' j' = abstraction_element S i' j'.
+Proof.
+  intros ?. unfold abstraction_element. rewrite get_map_remove_abstraction_value.
+  apply lookup_delete_ne. intros [=-> ->]%encode_inj. auto.
+Qed.
+
+Lemma remove_abstraction_value_commute S i j i' j' :
+  remove_abstraction_value (remove_abstraction_value S i j) i' j' =
+  remove_abstraction_value (remove_abstraction_value S i' j') i j.
+Proof.
+  apply state_eq_ext.
+  - rewrite !get_map_remove_abstraction_value. apply delete_commute.
+  - rewrite !get_extra_remove_abstraction_value. reflexivity.
+Qed.
+
+Hint Rewrite sget_remove_abstraction_value using auto with spath : spath.
+Hint Rewrite sset_remove_abstraction_value using eauto with spath : spath.
 Hint Rewrite add_abstraction_add_anon : spath.
 Hint Rewrite remove_abstraction_value_add_anon : spath.
+Hint Rewrite abstraction_element_remove_abstraction_value_is_Some : spath.
+Hint Rewrite abstraction_element_remove_abstraction using congruence : spath.
 
 Lemma valid_spath_remove_abstraction_value S i j sp :
   valid_spath (remove_abstraction_value S i j) sp ->
@@ -3055,16 +3082,20 @@ Proof.
 Qed.
 
 Lemma not_in_borrow_remove_abstraction_value S i j sp :
-  not_in_borrow S sp -> not_in_borrow (remove_abstraction_value S i j) sp.
+  fst sp <> encode_abstraction (i, j) ->
+  not_in_borrow (remove_abstraction_value S i j) sp <-> not_in_borrow S sp.
 Proof.
-  intros H q. destruct (decide (fst q = encode_abstraction (i, j))) as [e | ].
-  - unfold sget. rewrite get_map_remove_abstraction_value, e. simpl_map. inversion 1.
-  - rewrite sget_remove_abstraction_value by assumption. apply H.
+  intros H. split.
+  - intros G q K (? & ? & <-). eapply G; [ | eexists _, _; reflexivity].
+    rewrite sget_remove_abstraction_value by exact H. assumption.
+  - intros G q K (? & ? & <-). rewrite sget_remove_abstraction_value in K by exact H.
+    eapply G; [eassumption | eexists _, _; reflexivity].
 Qed.
 
 Hint Rewrite not_in_borrow_add_abstraction using eauto : spath.
 Hint Resolve <-not_in_borrow_add_abstraction : spath.
-Hint Resolve not_in_borrow_remove_abstraction_value : spath.
+Hint Resolve <-not_in_borrow_remove_abstraction_value : spath.
+Hint Rewrite not_in_borrow_remove_abstraction_value using eauto with spath : spath.
 
 Lemma remove_loans_contains_left A B A' B' i v (H : remove_loans A B A' B') :
   lookup i A' = Some v ->
@@ -3588,7 +3619,15 @@ Proof.
       { reflexivity. }
       apply reflexive_eq. states_eq.
     (* Case Leq_Abs_ClearValue_n: *)
-    + admit.
+    + autorewrite with spath in * |-. destruct get_loan.
+      reorg_step.
+      { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+        all: eauto with spath. }
+      reorg_done. eapply leq_n_step.
+      { apply Leq_Abs_ClearValue_n with (i := i) (j := j) (v := v).
+        autorewrite with spath. all: assumption. }
+      { reflexivity. }
+      autorewrite with spath. rewrite remove_abstraction_value_commute. reflexivity.
     (* Case Leq_AnonValue_n: *)
     + assert (fst q <> anon_accessor a).
       { intros ?. autorewrite with spath in get_borrow. rewrite vget_bot in get_borrow. discriminate. }
