@@ -707,17 +707,21 @@ Qed.
  *)
 Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Ends a borrow when it's not in an abstraction: *)
-| Reorg_end_borrow_m S (p q : spath) l :
-    disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
-    not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
-    not_in_abstraction p -> not_in_abstraction q ->
+| Reorg_end_borrow_m S (p q : spath) l (Hdisj : disj p q)
+    (get_loan : get_node (S.[p]) = loanC^m(l)) (get_borrow : get_node (S.[q]) = borrowC^m(l))
+    (Hno_loan : not_contains_loan (S.[q +++ [0] ])) (Hnot_in_borrow : not_in_borrow S q)
+    (loan_not_in_abstraction : not_in_abstraction p)
+    (borrow_not_in_abstraction : not_in_abstraction q) :
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
 (* Ends a borrow when it's in an abstraction: *)
 (* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
-| Reorg_end_borrow_m_in_abstraction S q i' j' l :
-    abstraction_element S i' j' = Some (loan^m(l)) ->
-    get_node (S.[q]) = borrowC^m(l) -> is_integer (get_node (S.[q +++ [0] ])) ->
-    not_in_borrow S q -> not_in_abstraction q ->
+| Reorg_end_borrow_m_in_abstraction S q i' j' l
+    (get_loan : abstraction_element S i' j' = Some (loan^m(l)))
+    (get_borrow : get_node (S.[q]) = borrowC^m(l))
+    (* We should replace this hypothesis by the fact that S.[q +++ [0]] doesn't have any loan or
+     * borrow. *)
+    (His_integer : is_integer (get_node (S.[q +++ [0] ])))
+    (Hnot_in_borrow : not_in_borrow S q) (borrow_not_in_abstraction : not_in_abstraction q) :
     reorg S ((remove_abstraction_value S i' j').[q <- bot])
 (* q refers to a path in abstraction A, at index j. *)
 | Reorg_end_abstraction S i' A' S'
@@ -829,8 +833,8 @@ Qed.
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Contrary to the article, symbolic values should be typed. Thus, only an integer can be converted
  * to a symbolic value for the moment. *)
-| Leq_ToSymbolic S sp n :
-    get_node (S.[sp]) = LLBC_plus_intC n -> leq_state_base S (S.[sp <- LLBC_plus_symbolic])
+| Leq_ToSymbolic S sp n (get_int : get_node (S.[sp]) = LLBC_plus_intC n) :
+    leq_state_base S (S.[sp <- LLBC_plus_symbolic])
 | Leq_ToAbs S a i v A
     (fresh_a : fresh_anon S a)
     (fresh_i : fresh_abstraction S i)
@@ -2739,10 +2743,10 @@ Proof.
           (* TODO: automatize *)
           eapply not_value_contains_vset_rev with (p := q).
           autorewrite with spath.
-          eapply not_value_contains_zeroary; rewrite H. reflexivity. easy. eassumption.
+          eapply not_value_contains_zeroary; rewrite get_int; easy. eassumption.
           eapply not_value_contains_vset_rev with (p := q).
           autorewrite with spath.
-          eapply not_value_contains_zeroary; rewrite H. reflexivity. discriminate. eassumption. }
+          eapply not_value_contains_zeroary; rewrite get_int; easy. eassumption. }
         leq_step_left.
         { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
           all: autorewrite with spath; assumption. }
@@ -2887,8 +2891,8 @@ Notation abs_measure S := (map_sum (vweight (fun c => node_measure c)) S).
 
 (* TODO: meaningful comment *)
 Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
-| Leq_ToSymbolic_n S sp x :
-    get_node (S.[sp]) = LLBC_plus_intC x -> leq_state_base_n 0 S (S.[sp <- LLBC_plus_symbolic])
+| Leq_ToSymbolic_n S sp x (get_int : get_node (S.[sp]) = LLBC_plus_intC x) :
+    leq_state_base_n 0 S (S.[sp <- LLBC_plus_symbolic])
 | Leq_ToAbs_n S a i v A
     (fresh_a : fresh_anon S a)
     (fresh_i : fresh_abstraction S i)
@@ -3397,7 +3401,7 @@ Proof.
         reorg_step.
         { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
           eapply not_value_contains_sset_rev. eassumption.
-          apply not_value_contains_zeroary; rewrite H6. reflexivity. easy. validity. }
+          apply not_value_contains_zeroary; rewrite get_int; easy. validity. }
         reorg_done.
         eapply leq_n_step.
         { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
@@ -3419,11 +3423,12 @@ Proof.
     (* Case Leq_ToAbs_n: *)
     + autorewrite with spath in * |-.
       destruct (decide (i' = i)) as [<- | ].
-      * autorewrite with spath in H. destruct Hto_abs.
+      * autorewrite with spath in get_loan. destruct Hto_abs.
         --  assert (j' = kl /\ l = l1) as (-> & <-).
-           { apply lookup_insert_Some in H. destruct H as [ | (_ & H)]; [easy | ].
-             rewrite lookup_singleton_Some in H. destruct H as (<- & H).
-             inversion H. auto. }
+           { apply lookup_insert_Some in get_loan.
+             destruct get_loan as [ | (_ & get_loan)]; [easy | ].
+             rewrite lookup_singleton_Some in get_loan.
+             destruct get_loan as (<- & get_loan). inversion get_loan. auto. }
            reorg_step.
            { eapply Reorg_end_borrow_m with (p := (anon_accessor a, []) +++ [0]) (q := q).
              eauto with spath.
@@ -3442,7 +3447,7 @@ Proof.
            apply reflexive_eq.
            rewrite delete_insert_ne, delete_singleton by congruence. reflexivity.
         (* The abstraction H does not contain loans, we can eliminate this case. *)
-        -- apply lookup_singleton_Some in H. destruct H. discriminate.
+        -- apply lookup_singleton_Some in get_loan. destruct get_loan. discriminate.
       * autorewrite with spath in * |-. reorg_step.
         { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
           all: autorewrite with spath; eauto with spath. }
@@ -3476,10 +3481,11 @@ Proof.
         { reflexivity. }
         autorewrite with spath. reflexivity.
       * assert (~prefix sp q).
-        { intros (? & <-). autorewrite with spath in H0. rewrite vget_bot in H0. inversion H0. }
-        autorewrite with spath in *.
+        { intros (? & <-). autorewrite with spath in get_borrow.
+          rewrite vget_bot in get_borrow. inversion get_borrow. }
+        autorewrite with spath in *. (* TODO: LONG *)
         assert (disj sp q).
-        { apply is_integer_sset in H1; [ | validity | inversion 1]. reduce_comp. }
+        { apply is_integer_sset in His_integer; [ | validity | inversion 1]. reduce_comp. }
         autorewrite with spath in * |-.
         reorg_step.
         { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
@@ -3500,7 +3506,7 @@ Proof.
            reorg_done.
            autorewrite with spath. eapply leq_n_step.
            { apply Leq_MergeAbs_n; eauto with spath. }
-           { eapply map_sum_delete in H, G. rewrite H, G. lia. }
+           { eapply map_sum_delete in get_loan, G. rewrite get_loan, G. lia. }
            reflexivity.
         -- reorg_step.
            { eapply Reorg_end_borrow_m_in_abstraction with (i' := j) (j' := k) (q := q).
@@ -3508,11 +3514,11 @@ Proof.
            reorg_done.
            autorewrite with spath. eapply leq_n_step.
            { apply Leq_MergeAbs_n; eauto with spath. }
-           { eapply map_sum_delete in H, G. rewrite H, G. lia. }
+           { eapply map_sum_delete in get_loan, G. rewrite get_loan, G. lia. }
            reflexivity.
       * autorewrite with spath in * |-.
         assert (i' <> j).
-        { intros <-. autorewrite with spath in H. discriminate. }
+        { intros <-. autorewrite with spath in get_loan. discriminate. }
         reorg_step.
         { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
           all: autorewrite with spath; eauto with spath. }
@@ -3524,19 +3530,19 @@ Proof.
     (* Case Leq_Fresh_MutLoan_n: *)
     + assert (fst q <> anon_accessor a).
       { eapply not_in_borrow_add_borrow_anon; [eassumption | ].
-        intros ->. autorewrite with spath in H0. inversion H0; subst.
-        autorewrite with spath in H. apply abstraction_element_is_sget in H.
-        eapply fresh_l'; [ | rewrite H; constructor]. validity. }
+        intros ->. autorewrite with spath in get_borrow, get_borrow. inversion get_borrow; subst.
+        autorewrite with spath in get_loan. apply abstraction_element_is_sget in get_loan.
+        eapply fresh_l'; [ | rewrite get_loan; constructor]. validity. }
       rewrite sget_add_anon in * by assumption.
       assert (disj sp q). apply prove_disj.
       (* The node q contains a borrow, it cannot be in sp that contains a loan. *)
-      { intros <-. autorewrite with spath in H0. inversion H0. }
+      { intros <-. autorewrite with spath in get_borrow. inversion get_borrow. }
       { eapply get_nil_prefix_right;
-          [ | apply valid_get_node_sget_not_bot; rewrite H0; discriminate].
+          [ | apply valid_get_node_sget_not_bot; rewrite get_borrow; discriminate].
         autorewrite with spath. reflexivity. }
       (* The node q +++ [0] is an integer, it cannot contain a loan. *)
       { eapply not_prefix_one_child;
-          [rewrite length_children_is_arity, H0; reflexivity | validity | ].
+          [rewrite length_children_is_arity, get_borrow; reflexivity | validity | ].
         eapply not_value_contains_not_prefix.
         - apply integer_does_not_contain_loan. eassumption.
         - autorewrite with spath. constructor.
@@ -3553,22 +3559,22 @@ Proof.
     (* Case Leq_Reborrow_MutBorrow_n: *)
     + assert (fst q <> anon_accessor a).
       { eapply not_in_borrow_add_borrow_anon; [eassumption | ].
-        intros ->. autorewrite with spath in H1. inversion H1. }
-      rewrite sget_add_anon in * by assumption. autorewrite with spath in H.
+        intros ->. autorewrite with spath in His_integer. inversion His_integer. }
+      rewrite sget_add_anon in * by assumption. autorewrite with spath in get_loan.
       assert (disj q sp). apply prove_disj.
       (* The node q contains a borrow of loan identifier l <> l1 (freshness of l1). *)
-      { intros <-. autorewrite with spath in H0. inversion H0; subst.
-        apply abstraction_element_is_sget in H.
-        eapply fresh_l1; [ | rewrite H; constructor]. validity. }
+      { intros <-. autorewrite with spath in get_borrow. inversion get_borrow; subst.
+        apply abstraction_element_is_sget in get_loan.
+        eapply fresh_l1; [ | rewrite get_loan; constructor]. validity. }
       (* The node q +++ [0] is an integer, it cannot contain sp. *)
       { eapply not_prefix_one_child;
-          [ rewrite length_children_is_arity, H0; reflexivity | validity | ].
+          [ rewrite length_children_is_arity, get_borrow; reflexivity | validity | ].
         eapply not_value_contains_not_prefix.
         - apply integer_does_not_contain_borrow. eassumption.
         - autorewrite with spath. constructor.
         - validity. }
       (* q is not in a borrow. *)
-      { intros (? & ? & <-). eapply H2 with (q := sp).
+      { intros (? & ? & <-). eapply Hnot_in_borrow with (q := sp).
         - autorewrite with spath. constructor.
         - eexists _, _; reflexivity. }
       assert (sp <> q +++ [0]). { intros ->. eapply not_prefix_disj; eauto with spath. }
@@ -3585,7 +3591,7 @@ Proof.
     + admit.
     (* Case Leq_AnonValue_n: *)
     + assert (fst q <> anon_accessor a).
-      { intros ?. autorewrite with spath in H0. rewrite vget_bot in H0. discriminate. }
+      { intros ?. autorewrite with spath in get_borrow. rewrite vget_bot in get_borrow. discriminate. }
       autorewrite with spath in *.
       reorg_step.
       { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
