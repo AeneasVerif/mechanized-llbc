@@ -3450,7 +3450,43 @@ Proof.
 
   (* Case Reorg_end_borrow_m_in_abstraction: *)
   - intros ? Hleq. destruct Hleq.
-    + admit.
+    (* Case Leq_ToSymbolic_n: *)
+    + (* TODO: lemma *)
+      assert (fst sp <> encode_abstraction (i', j')).
+      { apply abstraction_element_is_sget in get_loan. intros ?.
+        assert (prefix (encode_abstraction (i', j'), []) sp) as G%prefix_if_equal_or_strict_prefix.
+        { exists (snd sp). rewrite <-H. destruct sp. reflexivity. }
+        destruct G as [<- | G].
+        - autorewrite with spath in get_loan. discriminate.
+        - eapply get_nil_prefix_right; [ | | exact G].
+          + rewrite get_loan. reflexivity.
+          + validity.
+      }
+      autorewrite with spath in *.
+      destruct (decidable_spath_eq sp (q +++ [0])) as [-> | ].
+      * autorewrite with spath in *.
+        reorg_step.
+        { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
+          all: try eassumption. rewrite get_int. constructor. }
+        reorg_done. reflexivity.
+      * assert (disj sp q). apply prove_disj.
+        { congruence. }
+        { eapply get_nil_prefix_right.
+          - rewrite get_int. reflexivity.
+          - validity. }
+        { eapply not_prefix_one_child.
+          - rewrite length_children_is_arity, get_borrow. reflexivity.
+          - validity.
+          - apply prove_not_prefix; [congruence | ].  eapply get_nil_prefix_right.
+            + apply is_integer_zeroary. eassumption.
+            + validity. }
+        autorewrite with spath in His_integer.
+        reorg_step.
+        { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q); eassumption. }
+        reorg_done. eapply leq_n_step.
+        { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
+        { reflexivity. }
+        apply reflexive_eq. states_eq.
     (* Case Leq_ToAbs_n: *)
     + autorewrite with spath in * |-.
       destruct (decide (i' = i)) as [<- | ].
