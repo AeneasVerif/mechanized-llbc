@@ -3450,21 +3450,55 @@ Proof.
         { constructor. }
         apply reflexive_eq. states_eq.
     (* Case Leq_ToAbs_n: *)
-    + admit.
+    + autorewrite with spath in *. reorg_step.
+      { eapply Reorg_end_borrow_m with (p := p) (q := q).
+        all: autorewrite with spath; eauto with spath. }
+      reorg_done. autorewrite with spath. eapply leq_n_step.
+      { eapply Leq_ToAbs_n; eauto with spath. }
+      { reflexivity. }
+      reflexivity.
     (* Case Leq_RemoveAnon_n: *)
-    + admit.
+    + reorg_step.
+      { eapply Reorg_end_borrow_m with (p := p) (q := q).
+        all: autorewrite with spath; eauto with spath. }
+      reorg_done. autorewrite with spath. eapply leq_n_step.
+      { eapply Leq_RemoveAnon_n; eauto with spath. }
+      { reflexivity. }
+      reflexivity.
     (* Case Leq_MoveValue_n: *)
     + admit.
     (* Case Leq_MergeAbs_n: *)
-    + admit.
+    + autorewrite with spath in *. reorg_step.
+      { eapply Reorg_end_borrow_m with (p := p) (q := q); autorewrite with spath; eassumption. }
+      reorg_done. autorewrite with spath. eapply leq_n_step.
+      { eapply Leq_MergeAbs_n; eauto with spath. }
+      { reflexivity. }
+      reflexivity.
     (* Case Leq_Fresh_MutLoan_n: *)
     + admit.
     (* Case Leq_Reborrow_MutBorrow_n: *)
     + admit.
     (* Case Leq_Abs_ClearValue_n: *)
-    + admit.
+    + autorewrite with spath in *. reorg_step.
+      { eapply Reorg_end_borrow_m with (p := p) (q := q); eassumption. }
+      reorg_done. eapply leq_n_step.
+      { eapply Leq_Abs_ClearValue_n with (i := i) (j := j). autorewrite with spath.
+        all: eassumption. }
+      { reflexivity. }
+      autorewrite with spath. reflexivity.
     (* Case Leq_AnonValue_n: *)
-    + admit.
+    + (* TODO: automatize? *)
+      assert (fst q <> anon_accessor a).
+      { intros ?. autorewrite with spath in get_borrow. rewrite vget_bot in get_borrow. discriminate. }
+      assert (fst p <> anon_accessor a).
+      { intros ?. autorewrite with spath in get_loan. rewrite vget_bot in get_loan. discriminate. }
+      autorewrite with spath in *.
+      reorg_step.
+      { eapply Reorg_end_borrow_m with (p := p) (q := q); eauto with spath. }
+      reorg_done. eapply leq_n_step.
+      { apply Leq_AnonValue_n with (a := a). eauto with spath. }
+      { reflexivity. }
+      reflexivity.
 
   (* Case Reorg_end_borrow_m_in_abstraction: *)
   - intros ? Hleq. destruct Hleq.
