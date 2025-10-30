@@ -3424,10 +3424,21 @@ Proof.
   intros ? ? Hreorg. destruct Hreorg.
   (* Case Reorg_end_borrow_m: *)
   - intros ? Hleq. destruct Hleq.
+    (* Case Leq_ToSymbolic_n: *)
     + assert (disj sp p). reduce_comp. (* TODO: TOO LONG *)
       autorewrite with spath in *. (* TODO: takes a bit of time. *)
-      destruct (decidable_prefix q sp) as [(r & <-) | ].
-      * admit.
+      destruct (decidable_prefix (q +++ [0]) sp) as [(r & <-) | ].
+      * reorg_step.
+        (* TODO: automatize *)
+        { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
+          eapply not_value_contains_sset_rev. eassumption.
+          apply not_value_contains_zeroary; rewrite get_int; easy. validity. }
+        autorewrite with spath in *.
+        reorg_done.
+        eapply leq_n_step.
+        { eapply Leq_ToSymbolic_n with (sp := p +++ r). autorewrite with spath. eassumption. }
+        { reflexivity. }
+        apply reflexive_eq. states_eq.
       * assert (disj sp q). reduce_comp.
         reorg_step.
         { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
@@ -3438,14 +3449,21 @@ Proof.
         { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
         { constructor. }
         apply reflexive_eq. states_eq.
+    (* Case Leq_ToAbs_n: *)
     + admit.
+    (* Case Leq_RemoveAnon_n: *)
     + admit.
+    (* Case Leq_MoveValue_n: *)
     + admit.
     (* Case Leq_MergeAbs_n: *)
     + admit.
+    (* Case Leq_Fresh_MutLoan_n: *)
     + admit.
+    (* Case Leq_Reborrow_MutBorrow_n: *)
     + admit.
+    (* Case Leq_Abs_ClearValue_n: *)
     + admit.
+    (* Case Leq_AnonValue_n: *)
     + admit.
 
   (* Case Reorg_end_borrow_m_in_abstraction: *)
