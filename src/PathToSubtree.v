@@ -1267,13 +1267,23 @@ Section GetSetPath.
     fresh_anon S a -> valid_spath S (anon_accessor b, p) -> b <> a.
   Proof. intros ? (? & G & _). cbn in G. congruence. Qed.
 
-  Lemma get_nil_prefix_right S p q :
-  arity (get_node (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
+  Lemma get_zeroary_not_strict_prefix S p q :
+    arity (get_node (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
   Proof.
     intros arity_0 valid_q (i & r & <-). apply valid_spath_app in valid_q.
     destruct valid_q as (_ & valid_i_r). inversion valid_i_r.
     rewrite<- length_children_is_arity in arity_0. apply length_zero_iff_nil in arity_0.
     rewrite arity_0, nth_error_nil in * |-. discriminate.
+  Qed.
+
+  Corollary get_zeroary_not_strict_prefix' S p q v :
+    valid_spath (S.[p <- v]) q -> arity (get_node v) = 0 -> ~strict_prefix p q.
+  Proof.
+    destruct (decidable_valid_spath S p).
+    - intros valid_q ?. eapply get_zeroary_not_strict_prefix; [ | exact valid_q].
+      rewrite sset_sget_equal; assumption.
+    - rewrite sset_invalid by assumption. intros valid_q _ (? & <-)%strict_prefix_is_prefix.
+      apply valid_spath_app in valid_q. destruct valid_q. auto.
   Qed.
 
   (* This lemma is complicated, but it's used at least once in src/LLBC_plus.v *)
@@ -1289,7 +1299,7 @@ Section GetSetPath.
       rewrite <-sset_not_prefix_valid in valid_p; auto with spath. }
     apply prefix_if_equal_or_strict_prefix in Hprefix. destruct Hprefix as [<- | Hstrict_prefix].
     - rewrite sset_sget_equal in G by assumption. auto.
-    - apply get_nil_prefix_right with (S := S.[p <- v]) in Hstrict_prefix.
+    - apply get_zeroary_not_strict_prefix with (S := S.[p <- v]) in Hstrict_prefix.
       + assumption.
       + rewrite sset_sget_equal; assumption.
       + apply get_not_bot_valid_spath. congruence.
@@ -1836,7 +1846,7 @@ Hint Extern 5 (length (children ?v) = _) =>
 Hint Extern 5 (~strict_prefix ?p ?q) =>
   match goal with
   | H : get_node (?S.[?p]) = _ |- _ =>
-      simple apply (get_nil_prefix_right S); [rewrite H | ]
+      simple apply (get_zeroary_not_strict_prefix S); [rewrite H | ]
   end : spath.
 Hint Resolve disj_spath_add_anon : spath.
 Hint Resolve disj_spath_add_anon' : spath.

@@ -2112,7 +2112,7 @@ Proof.
   eapply eval_place_preservation with (R := eq) in H.
   - split.
     + destruct H as (? & -> & H). exact H.
-    + eapply get_nil_prefix_right; [ | eassumption]. autorewrite with spath. reflexivity.
+    + eapply get_zeroary_not_strict_prefix'; [eassumption | reflexivity].
   - reflexivity.
   - symmetry. apply sset_preserves_vars_dom.
   - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
@@ -3588,7 +3588,7 @@ Proof.
         { exists (snd sp). rewrite <-H. destruct sp. reflexivity. }
         destruct G as [<- | G].
         - autorewrite with spath in get_loan. discriminate.
-        - eapply get_nil_prefix_right; [ | | exact G].
+        - eapply get_zeroary_not_strict_prefix; [ | | exact G].
           + rewrite get_loan. reflexivity.
           + validity.
       }
@@ -3601,13 +3601,13 @@ Proof.
         reorg_done. reflexivity.
       * assert (disj sp q). apply prove_disj.
         { congruence. }
-        { eapply get_nil_prefix_right.
+        { eapply get_zeroary_not_strict_prefix.
           - rewrite get_int. reflexivity.
           - validity. }
         { eapply not_prefix_one_child.
           - rewrite length_children_is_arity, get_borrow. reflexivity.
           - validity.
-          - apply prove_not_prefix; [congruence | ].  eapply get_nil_prefix_right.
+          - apply prove_not_prefix; [congruence | ]. eapply get_zeroary_not_strict_prefix.
             + apply is_integer_zeroary. eassumption.
             + validity. }
         autorewrite with spath in His_integer.
@@ -3731,9 +3731,9 @@ Proof.
       assert (disj sp q). apply prove_disj.
       (* The node q contains a borrow, it cannot be in sp that contains a loan. *)
       { intros <-. autorewrite with spath in get_borrow. inversion get_borrow. }
-      { eapply get_nil_prefix_right;
-          [ | apply valid_get_node_sget_not_bot; rewrite get_borrow; discriminate].
-        autorewrite with spath. reflexivity. }
+      { eapply get_zeroary_not_strict_prefix'.
+        - apply valid_get_node_sget_not_bot. rewrite get_borrow. discriminate.
+        - reflexivity. }
       (* The node q +++ [0] is an integer, it cannot contain a loan. *)
       { eapply not_prefix_one_child;
           [rewrite length_children_is_arity, get_borrow; reflexivity | validity | ].
