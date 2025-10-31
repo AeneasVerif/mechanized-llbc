@@ -3490,7 +3490,61 @@ Proof.
       { reflexivity. }
       reflexivity.
     (* Case Leq_MoveValue_n: *)
-    + admit.
+    + destruct (decide (fst p = anon_accessor a)).
+      * destruct (decide (fst q = anon_accessor a)).
+        (* Case 1: the borrow and the loan are in the value we move. *)
+        -- destruct Hdisj as [ | (_ & Hdisj)]; [congruence | ].
+           autorewrite with spath in *.
+           reorg_step.
+           { eapply Reorg_end_borrow_m; try eassumption. eauto with spath.
+             autorewrite with spath. assumption. eauto with spath. }
+           reorg_done. eapply leq_n_step.
+           { eapply Leq_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
+             not_contains_outer. assumption. not_contains. assumption. assumption. }
+           { reflexivity. }
+           autorewrite with spath. reflexivity.
+        (* Case 2: the loan is in the value we move, not the borrow. *)
+        -- rewrite sget_add_anon in * by assumption.
+           assert (~prefix sp q) by eauto with spath.
+           autorewrite with spath in get_borrow.
+           (* TODO: automatize *)
+           assert (~strict_prefix q sp).
+           { apply sp_not_in_borrow. rewrite get_borrow. constructor. }
+           assert (disj sp q). reduce_comp. autorewrite with spath in *.
+           reorg_step.
+           { eapply Reorg_end_borrow_m; [ | eassumption..]. eauto with spath. }
+           reorg_done. eapply leq_n_step.
+           { eapply Leq_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
+             not_contains_outer. assumption. not_contains. assumption. assumption. }
+           { reflexivity. }
+           apply reflexive_eq. states_eq.
+      * rewrite sget_add_anon in get_loan by assumption.
+        assert (disj sp p). reduce_comp.
+        destruct (decide (fst q = anon_accessor a)).
+        (* Case 3: the borrow is in the value we move, not the loan. *)
+        -- autorewrite with spath in *.
+           reorg_step.
+           { eapply Reorg_end_borrow_m; [ | try eassumption..].
+             all: autorewrite with spath; eauto with spath. }
+           reorg_done. eapply leq_n_step.
+           { eapply Leq_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
+             not_contains_outer. assumption. not_contains. assumption. assumption. }
+           { reflexivity. }
+           apply reflexive_eq. states_eq.
+        (* Case 4: neither the borrow nor the loan is in the value we move. *)
+        -- rewrite sget_add_anon in * by eassumption.
+           assert (~prefix sp q) by eauto with spath. autorewrite with spath in get_borrow.
+           (* TODO: automatize *)
+           assert (~strict_prefix q sp).
+           { apply sp_not_in_borrow. rewrite get_borrow. constructor. }
+           assert (disj sp q) by reduce_comp. autorewrite with spath in *.
+           reorg_step.
+           { eapply Reorg_end_borrow_m with (p := p) (q := q); eassumption. }
+           reorg_done. eapply leq_n_step.
+           { eapply Leq_MoveValue_n with (sp := sp) (a := a).
+             all: autorewrite with spath; try assumption. validity. }
+           { reflexivity. }
+           apply reflexive_eq. states_eq.
     (* Case Leq_MergeAbs_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_end_borrow_m with (p := p) (q := q); autorewrite with spath; eassumption. }
