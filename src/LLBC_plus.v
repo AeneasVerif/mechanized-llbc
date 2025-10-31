@@ -339,6 +339,30 @@ Variant is_mut_borrow : LLBC_plus_nodes -> Prop :=
 Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 
 Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
+Ltac not_contains_outer :=
+  (* The values we use this tactic on are of the form
+     (S,, Anon |-> v) (.[ sp <- v])* .[sp]
+     where the path sp we read is a path of S. We first do some rewritings to commute
+     the read with the writes and the addition of the anonymous value. *)
+  autorewrite with spath;
+  try assumption;
+  match goal with
+  | |- not_contains_outer _ ?P (?v.[[?p <- ?w]]) =>
+      let H := fresh "H" in
+      assert (H : not_value_contains P w) by not_contains;
+      apply not_contains_outer_sset_no_contains;
+        [not_contains_outer | exact H | exact loan_is_not_bot]
+        (*
+  | no_outer_loan : not_contains_outer_loan (?S.[?q]),
+    loan_at_q : get_node (?S.[?q +++ ?p]) = loanC^m(?l)
+    |- not_contains_outer _ ?P (?S.[?q].[[?p <- ?w]]) =>
+    apply not_contains_outer_sset_in_borrow;
+     [ not_contains_outer |
+       apply no_outer_loan; rewrite<- (sget_app S q p), loan_at_q; constructor ]
+         *)
+  | |- not_contains_outer _ _ _ =>
+      idtac
+  end.
 
 Inductive copy_val : LLBC_plus_val -> LLBC_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (LLBC_plus_int n) (LLBC_plus_int n)
@@ -3593,10 +3617,7 @@ Proof.
           all: autorewrite with spath; eauto with spath. }
         reorg_done. eapply leq_n_step.
         { apply Leq_MoveValue_n with (sp := sp) (a := a).
-          all: autorewrite with spath; eauto with spath.
-          (* TODO: automatize *)
-          apply not_contains_outer_sset_no_contains. assumption. not_contains.
-          intros ? []. discriminate. }
+          all: autorewrite with spath; eauto with spath. not_contains_outer. }
         { reflexivity. }
         autorewrite with spath. reflexivity.
       * assert (~prefix sp q).
