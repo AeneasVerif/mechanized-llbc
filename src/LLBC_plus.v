@@ -3288,6 +3288,49 @@ Qed.
 Lemma leq_n_by_equivalence n S S' : equiv_states S S' -> leq_n n S S'.
 Proof. intros ?. exists S'. split; [assumption | reflexivity]. Qed.
 
+(* TODO: move *)
+Lemma sget_borrow l v : borrow^m(l, v).[[ [0] ]] = v.
+Proof. reflexivity. Qed.
+Hint Rewrite sget_borrow : spath.
+Lemma sget_borrow' l v p : borrow^m(l, v).[[ [0] ++ p]] = v.[[p]].
+Proof. reflexivity. Qed.
+Hint Rewrite sset_same : spath.
+Hint Rewrite app_nil_l : spath.
+
+(* Lemmas used to prove the local commutation between leq_state_base and reorg: *)
+
+(* TODO: move in PathToSubtree.v *)
+Lemma vpath_nil_or_not_nil p : p = [] \/ vstrict_prefix [] p.
+
+Proof. destruct p; auto. right. eexists _, _. reflexivity. Qed.
+(* This lemma is used once, when studying reorganizations and the rule Leq_Fresh_MutLoan. *)
+Lemma fresh_mut_loan_get_loan S l sp a p (fresh_l : is_fresh l S) :
+  get_node ((S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])).[p]) = loanC^m(l) ->
+  p = sp.
+Proof.
+  intros get_loan. destruct (decide (fst p = anon_accessor a)) as [H | ].
+  - autorewrite with spath in get_loan.
+    destruct (vpath_nil_or_not_nil (snd p)) as [G | G].
+    + rewrite G in get_loan. discriminate.
+    + exfalso. eapply vstrict_prefix_one_child in G;
+        [ | | apply valid_get_node_vget_not_bot; rewrite get_loan; discriminate];
+        [ | reflexivity].
+      cbn in G. destruct G as (q & G). rewrite <-G, sget_borrow', <-sget_app in get_loan.
+      eapply fresh_l; [ | rewrite get_loan].
+      * validity.
+      * constructor.
+  - autorewrite with spath in get_loan.
+    destruct (decidable_spath_eq p sp).
+    + assumption.
+    + exfalso.
+      (* TODO: automate *)
+      assert (~strict_prefix sp p).
+      { eapply get_zeroary_not_strict_prefix'. apply valid_get_node_sget_not_bot. rewrite get_loan. discriminate. reflexivity. }
+      autorewrite with spath in get_loan. eapply fresh_l; [ | rewrite get_loan].
+      * validity.
+      * reflexivity.
+Qed.
+
 Lemma add_anon_equivalence S a b v :
   fresh_anon S a -> fresh_anon S b -> equiv_states (S,, a |-> v) (S,, b |-> v).
 Proof.
@@ -3553,7 +3596,25 @@ Proof.
       { reflexivity. }
       reflexivity.
     (* Case Leq_Fresh_MutLoan_n: *)
-    + admit.
+    + destruct (decidable_spath_eq q (anon_accessor a, [])) as [-> | ].
+      (* Case 1: the borrow we end is the newly introduced borrow of identifier l'. *)
+      * (* We prove that l' = l. *)
+        autorewrite with spath in get_borrow. inversion get_borrow. subst.
+        (* The loan we end is the newly introduced loan. *)
+        apply fresh_mut_loan_get_loan in get_loan; [ | exact fresh_l']. subst.
+        autorewrite with spath in *.
+        (* The left state is just S,, a |-> bot. It does not contain the borrow of
+         * loan id l. Thus, we don't have to do any reorganization step. *)
+        reorg_done.
+        (* We just have to do one step: adding an anonymous binding a |-> bot. *)
+        eapply leq_n_step.
+        { apply Leq_AnonValue_n with (a := a). assumption. }
+        { reflexivity. }
+        reflexivity.
+      * assert (fst q <> anon_accessor a).
+        { eapply not_in_borrow_add_borrow_anon; eassumption. }
+        rewrite sget_add_anon in * by assumption.
+        admit.
     (* Case Leq_Reborrow_MutBorrow_n: *)
     + admit.
     (* Case Leq_Abs_ClearValue_n: *)
