@@ -1276,6 +1276,7 @@ Section GetSetPath.
     rewrite arity_0, nth_error_nil in * |-. discriminate.
   Qed.
 
+  (* A variant that is more useful for LLBC+ *)
   Corollary get_zeroary_not_strict_prefix' S p q v :
     valid_spath (S.[p <- v]) q -> arity (get_node v) = 0 -> ~strict_prefix p q.
   Proof.
@@ -1286,23 +1287,12 @@ Section GetSetPath.
       apply valid_spath_app in valid_q. destruct valid_q. auto.
   Qed.
 
-  (* This lemma is complicated, but it's used at least once in src/LLBC_plus.v *)
-  Lemma sget_sset_zeroary_not_prefix S p q v n :
-    get_node (S.[p <- v].[q]) = n ->
-    arity (get_node v) = 0 -> get_node v <> n -> n <> get_node bot -> ~prefix p q.
+  Lemma sset_sget_diff S p q v c :
+    get_node (S.[p <- v].[q]) = c -> get_node v <> c -> c <> get_node bot -> p <> q.
   Proof.
-    intros G ? ? ? Hprefix.
-    assert (valid_q : valid_spath (S.[p <- v]) q) by (apply get_not_bot_valid_spath; congruence).
-    assert (valid_spath S p). {
-      destruct Hprefix as (? & <-). apply valid_spath_app in valid_q.
-      destruct valid_q as (valid_p & _).
-      rewrite <-sset_not_prefix_valid in valid_p; auto with spath. }
-    apply prefix_if_equal_or_strict_prefix in Hprefix. destruct Hprefix as [<- | Hstrict_prefix].
+    intros G ? ? <-. destruct (decidable_valid_spath S p).
     - rewrite sset_sget_equal in G by assumption. auto.
-    - apply get_zeroary_not_strict_prefix with (S := S.[p <- v]) in Hstrict_prefix.
-      + assumption.
-      + rewrite sset_sget_equal; assumption.
-      + apply get_not_bot_valid_spath. congruence.
+    - rewrite sset_invalid, sget_invalid in G by assumption. auto.
   Qed.
 
   (* Setting up the definitions for judgements like "loan \notin v" or
@@ -1324,6 +1314,17 @@ Section GetSetPath.
   Proof.
     intros (r & <-). apply valid_spath_app in Hvalid. apply Hnot_contains with (p := r); [easy | ].
     rewrite<- sget_app. assumption.
+  Qed.
+
+  (* A variant of the previous lemma that is more useful for LLBC+. *)
+  Lemma not_value_contains_not_prefix' P S p q v :
+    not_value_contains P (S.[p <- v].[q]) -> valid_spath S p -> P (get_node v) ->
+    ~prefix q p.
+  Proof.
+    intros. eapply not_value_contains_not_prefix.
+    - eassumption.
+    - rewrite sset_sget_equal; assumption.
+    - apply sset_prefix_right_valid; [reflexivity | assumption].
   Qed.
 
   Lemma not_value_contains_vset P v w p : not_value_contains P v -> not_value_contains P w ->
@@ -1848,6 +1849,13 @@ Hint Extern 5 (~strict_prefix ?p ?q) =>
   | H : get_node (?S.[?p]) = _ |- _ =>
       simple apply (get_zeroary_not_strict_prefix S); [rewrite H | ]
   end : spath.
+Hint Extern 0 (~strict_prefix _ _) =>
+  lazymatch goal with
+  | H : get_node (?S.[?p <- _].[?q]) = _ |- ~strict_prefix ?p ?q =>
+      eapply get_zeroary_not_strict_prefix';
+        [apply valid_get_node_sget_not_bot; rewrite H; discriminate | reflexivity]
+  end : spath.
+Hint Resolve sset_sget_diff : spath.
 Hint Resolve disj_spath_add_anon : spath.
 Hint Resolve disj_spath_add_anon' : spath.
 (* If the goal contains a hypothesis `get_node (S.[p]) = cp` and a hypothesis `get_node (S.[q]) = cq`
@@ -2106,6 +2114,7 @@ Hint Extern 3 (~prefix ?p ?q) =>
   | H : get_node (?S.[?q]) = _ |- _ =>
     simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | validity]
   end : spath.
+Hint Resolve not_value_contains_not_prefix' : spath.
 
 (* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
    This tactic tries to solve this by applying the relevant lemmas, and never fails. *)

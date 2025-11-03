@@ -308,6 +308,7 @@ Variant is_loan : LLBC_plus_nodes -> Prop :=
 Hint Constructors is_loan : spath.
 Definition not_contains_loan := not_value_contains is_loan.
 Hint Unfold not_contains_loan : spath.
+Hint Extern 0 (is_loan (get_node loan^m(_))) => constructor : spath.
 Hint Extern 0 (~is_loan _) => intro; easy : spath.
 
 Variant is_borrow : LLBC_plus_nodes -> Prop :=
@@ -315,6 +316,7 @@ Variant is_borrow : LLBC_plus_nodes -> Prop :=
 Hint Constructors is_borrow : spath.
 Definition not_contains_borrow := not_value_contains is_borrow.
 Hint Unfold not_contains_borrow : spath.
+Hint Extern 0 (is_borrow (get_node borrow^m(_, _))) => constructor : spath.
 Hint Extern 0 (~is_borrow _) => intro; easy : spath.
 
 Definition not_contains_bot v :=
@@ -2101,8 +2103,6 @@ Qed.
 Lemma add_anon_preserves_vars_dom S a v : dom (vars (S,, a |-> v)) = dom (vars S).
 Proof. reflexivity. Qed.
 
-Hint Resolve sget_sset_zeroary_not_prefix : spath.
-
 Lemma eval_place_ToSymbolic S sp p pi perm n
   (His_integer : get_node (S.[sp]) = LLBC_plus_intC n)
   (H : (S.[sp <- LLBC_plus_symbolic]) |-{p} p =>^{perm} pi) :
@@ -2117,7 +2117,6 @@ Proof.
   - symmetry. apply sset_preserves_vars_dom.
   - intros proj pi_r pi_r' Heval_proj ? ->. eexists. split; [reflexivity | ].
     inversion Heval_proj; subst.
-    (* TODO: automate this. *)
     + autorewrite with spath in get_q. eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
@@ -3087,12 +3086,13 @@ Proof.
     inversion valid_r as [ | ? ? ? ? K%nth_error_length]; subst. rewrite G in K. lia.
 Qed.
 
-Lemma integer_does_not_contain_loan v : is_integer (get_node v) -> not_contains_loan v.
+Lemma integer_does_not_contain_loan v : is_integer (get_node v) -> not_value_contains is_loan v.
 Proof. destruct v; inversion 1; unfold not_contains_loan; not_contains. Qed.
 Hint Resolve integer_does_not_contain_loan : spath.
 
-Lemma integer_does_not_contain_borrow v : is_integer (get_node v) -> not_contains_borrow v.
+Lemma integer_does_not_contain_borrow v : is_integer (get_node v) -> not_value_contains is_borrow v.
 Proof. destruct v; inversion 1; unfold not_contains_borrow; not_contains. Qed.
+Hint Resolve integer_does_not_contain_borrow : spath.
 
 (* TODO: move *)
 Lemma not_in_borrow_add_abstraction S i A sp (H : ~in_abstraction i (fst sp)) :
@@ -3303,6 +3303,7 @@ Hint Rewrite app_nil_l : spath.
 Lemma vpath_nil_or_not_nil p : p = [] \/ vstrict_prefix [] p.
 
 Proof. destruct p; auto. right. eexists _, _. reflexivity. Qed.
+
 (* This lemma is used once, when studying reorganizations and the rule Leq_Fresh_MutLoan. *)
 Lemma fresh_mut_loan_get_loan S l sp a p (fresh_l : is_fresh l S) :
   get_node ((S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])).[p]) = loanC^m(l) ->
@@ -3324,8 +3325,7 @@ Proof.
     + assumption.
     + exfalso.
       (* TODO: automate *)
-      assert (~strict_prefix sp p).
-      { eapply get_zeroary_not_strict_prefix'. apply valid_get_node_sget_not_bot. rewrite get_loan. discriminate. reflexivity. }
+      assert (~strict_prefix sp p). eauto with spath.
       autorewrite with spath in get_loan. eapply fresh_l; [ | rewrite get_loan].
       * validity.
       * reflexivity.
@@ -3492,7 +3492,7 @@ Proof.
   (* Case Reorg_end_borrow_m: *)
   - intros ? Hleq. destruct Hleq.
     (* Case Leq_ToSymbolic_n: *)
-    + assert (disj sp p). reduce_comp. (* TODO: TOO LONG *)
+    + assert (disj sp p). reduce_comp.
       autorewrite with spath in *. (* TODO: takes a bit of time. *)
       destruct (decidable_prefix (q +++ [0]) sp) as [(r & <-) | ].
       * reorg_step.
@@ -3792,16 +3792,9 @@ Proof.
       assert (disj sp q). apply prove_disj.
       (* The node q contains a borrow, it cannot be in sp that contains a loan. *)
       { intros <-. autorewrite with spath in get_borrow. inversion get_borrow. }
-      { eapply get_zeroary_not_strict_prefix'.
-        - apply valid_get_node_sget_not_bot. rewrite get_borrow. discriminate.
-        - reflexivity. }
+      { eauto with spath. }
       (* The node q +++ [0] is an integer, it cannot contain a loan. *)
-      { eapply not_prefix_one_child;
-          [rewrite length_children_is_arity, get_borrow; reflexivity | validity | ].
-        eapply not_value_contains_not_prefix.
-        - apply integer_does_not_contain_loan. eassumption.
-        - autorewrite with spath. constructor.
-        - validity. }
+      { eauto 7 with spath. }
       autorewrite with spath in *.
       reorg_step.
       { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
@@ -3822,12 +3815,7 @@ Proof.
         apply abstraction_element_is_sget in get_loan.
         eapply fresh_l1; [ | rewrite get_loan; constructor]. validity. }
       (* The node q +++ [0] is an integer, it cannot contain sp. *)
-      { eapply not_prefix_one_child;
-          [ rewrite length_children_is_arity, get_borrow; reflexivity | validity | ].
-        eapply not_value_contains_not_prefix.
-        - apply integer_does_not_contain_borrow. eassumption.
-        - autorewrite with spath. constructor.
-        - validity. }
+      { eauto 7 with spath.  }
       (* q is not in a borrow. *)
       { intros (? & ? & <-). eapply Hnot_in_borrow with (q := sp).
         - autorewrite with spath. constructor.
