@@ -3289,6 +3289,7 @@ Proof. reflexivity. Qed.
 Hint Rewrite sget_borrow : spath.
 Lemma sget_borrow' l v p : borrow^m(l, v).[[ [0] ++ p]] = v.[[p]].
 Proof. reflexivity. Qed.
+Hint Rewrite sget_borrow' : spath.
 Hint Rewrite sset_same : spath.
 Hint Rewrite app_nil_l : spath.
 
@@ -3609,7 +3610,44 @@ Proof.
       * assert (fst q <> anon_accessor a).
         { eapply not_in_borrow_add_borrow_anon; eassumption. }
         rewrite sget_add_anon in * by assumption.
-        admit.
+        assert (~prefix sp q) by eauto with spath.
+        assert (~strict_prefix q sp) by eauto 6 with spath.
+        assert (disj sp q) by reduce_comp.
+        autorewrite with spath in *.
+        destruct (decide (fst p = anon_accessor a)).
+        (* Case 2: the loan we end is in the anonymous binding a, containing the value of
+         * the newly introduced loan. *)
+        -- (* TODO: automatize *)
+           autorewrite with spath in get_loan.
+           destruct (vpath_nil_or_not_nil (snd p)) as [G | G].
+           { rewrite G in get_loan. discriminate. }
+           eapply vstrict_prefix_one_child in G.
+           3: apply valid_get_node_vget_not_bot; rewrite get_loan; discriminate.
+           2: reflexivity.
+           cbn in G. destruct G as (r & G).
+           autorewrite with spath. rewrite <-G in *. autorewrite with spath in *.
+           reorg_step.
+           { eapply Reorg_end_borrow_m; [ | try eassumption..]. eauto with spath. }
+           reorg_done. eapply leq_n_step.
+           { eapply Leq_Fresh_MutLoan_n with (sp := sp) (l' := l') (a := a).
+             not_contains. eauto with spath. validity. eauto with spath. }
+           { reflexivity. }
+           apply reflexive_eq. states_eq.
+        (* Case 3: the loan we end is disjoint from the anonymous binding a, containing the
+           value of the newly introduced loan. *)
+        -- autorewrite with spath in *.
+           assert (disj sp p). reduce_comp.
+           (* TODO: automatize *)
+           { intros ->. autorewrite with spath in get_loan. inversion get_loan. subst.
+             eapply fresh_l'; [ | rewrite get_borrow]; auto with spath. }
+           autorewrite with spath in *.
+           reorg_step.
+           { eapply Reorg_end_borrow_m; [ | try eassumption..]. eauto with spath. }
+           reorg_done. eapply leq_n_step.
+           { eapply Leq_Fresh_MutLoan_n with (sp := sp) (l' := l') (a := a).
+             not_contains. eauto with spath. validity. assumption. }
+           { reflexivity. }
+           apply reflexive_eq. states_eq.
     (* Case Leq_Reborrow_MutBorrow_n: *)
     + admit.
     (* Case Leq_Abs_ClearValue_n: *)
