@@ -311,6 +311,9 @@ Hint Unfold not_contains_loan : spath.
 Hint Extern 0 (is_loan (get_node loan^m(_))) => constructor : spath.
 Hint Extern 0 (~is_loan _) => intro; easy : spath.
 
+Lemma is_loan_valid S sp : is_loan (get_node (S.[sp])) -> valid_spath S sp.
+Proof. intros H. apply valid_get_node_sget_not_bot. destruct H; discriminate. Qed.
+
 Variant is_borrow : LLBC_plus_nodes -> Prop :=
 | IsLoan_MutBorrow l : is_borrow (borrowC^m(l)).
 Hint Constructors is_borrow : spath.
@@ -922,7 +925,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
     (fresh_l1 : is_fresh l1 S)
     (fresh_a : fresh_anon S a)
-    (get_borrow : get_node (S.[sp]) = borrowC^m(l0))
+    (get_borrow_l0 : get_node (S.[sp]) = borrowC^m(l0))
     (sp_not_in_abstraction : not_in_abstraction sp) :
     leq_state_base S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(l1)))
 (* Note: this rule makes the size of the state increase from right to left.
@@ -939,7 +942,7 @@ Lemma Leq_Reborrow_MutBorrow_Abs S sp l0 l1 i kb kl
     (fresh_l1 : is_fresh l1 S)
     (fresh_i : fresh_abstraction S i)
     (sp_not_in_abstraction : not_in_abstraction sp)
-    (get_borrow : get_node (S.[sp]) = borrowC^m(l0))
+    (get_borrow_l0 : get_node (S.[sp]) = borrowC^m(l0))
     (Hk : kb <> kl) :
     leq_state_base^* S (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],,,
                         i |-> {[kb := (borrow^m(l0, LLBC_plus_symbolic)); kl := loan^m(l1)]}%stdpp).
@@ -2368,7 +2371,7 @@ Qed.
 Hint Resolve not_in_borrow_rename_mut_borrow : spath.
 
 Lemma eval_place_Reborrow_MutBorrow S sp l0 l1 a perm p
-    (get_borrow : get_node (S.[sp]) = borrowC^m(l0)) pi_r :
+    (get_borrow_l0 : get_node (S.[sp]) = borrowC^m(l0)) pi_r :
   (S.[sp <- borrow^m(l1, S.[sp +++ [0] ])],, a |-> borrow^m(l0, loan^m(l1))) |-{p} p =>^{perm} pi_r ->
   exists pi_l, rel_change_anon a pi_l pi_r /\ S |-{p} p =>^{perm} pi_l.
 Proof.
@@ -2879,7 +2882,7 @@ Proof.
       apply reflexive_eq. states_eq.
 
     (* Leq-Reborrow-MutBorrow *)
-    + apply eval_place_Reborrow_MutBorrow in Heval; [ | exact get_borrow].
+    + apply eval_place_Reborrow_MutBorrow in Heval; [ | exact get_borrow_l0].
       destruct Heval as (? & (-> & ?) & eval_p_in_Sl).
       autorewrite with spath in * |-.
       destruct (decidable_prefix pi sp) as [(q & <-) | ].
@@ -2975,7 +2978,7 @@ Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_Reborrow_MutBorrow_n (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
     (fresh_l1 : is_fresh l1 S)
     (fresh_a : fresh_anon S a)
-    (get_borrow : get_node (S.[sp]) = borrowC^m(l0))
+    (get_borrow_l0 : get_node (S.[sp]) = borrowC^m(l0))
     (sp_not_in_abstraction : not_in_abstraction sp) :
     leq_state_base_n 0 S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(l1)))
 | Leq_Abs_ClearValue_n S i j v
@@ -3284,31 +3287,43 @@ Lemma leq_n_by_equivalence n S S' : equiv_states S S' -> leq_n n S S'.
 Proof. intros ?. exists S'. split; [assumption | reflexivity]. Qed.
 
 (* TODO: move *)
-Lemma sget_borrow l v : borrow^m(l, v).[[ [0] ]] = v.
+Lemma vget_at_borrow l v : borrow^m(l, v).[[ [0] ]] = v.
 Proof. reflexivity. Qed.
-Hint Rewrite sget_borrow : spath.
-Lemma sget_borrow' l v p : borrow^m(l, v).[[ [0] ++ p]] = v.[[p]].
+Hint Rewrite vget_at_borrow : spath.
+Lemma vget_at_borrow' l v p : borrow^m(l, v).[[ [0] ++ p]] = v.[[p]].
 Proof. reflexivity. Qed.
-Hint Rewrite sget_borrow' : spath.
+Lemma vset_at_borrow l v w : borrow^m(l, v).[[ [0] <- w]] = borrow^m(l, w).
+Proof. reflexivity. Qed.
+
+Hint Rewrite vget_at_borrow' : spath.
 Hint Rewrite sset_same : spath.
 Hint Rewrite app_nil_l : spath.
+Hint Rewrite vset_at_borrow : spath.
 
 (* Lemmas used to prove the local commutation between leq_state_base and reorg: *)
-
-(* TODO: move in PathToSubtree.v *)
-Lemma vpath_nil_or_not_nil p : p = [] \/ vstrict_prefix [] p.
-
-Proof. destruct p; auto. right. eexists _, _. reflexivity. Qed.
 
 Lemma vget_borrow l v p c : get_node (borrow^m(l, v).[[p]]) = c -> c <> botC ->
   p = [] /\ borrowC^m(l) = c \/ exists q, p = [0] ++ q /\ get_node (v.[[q]]) = c.
 Proof.
-  intros H G. destruct (vpath_nil_or_not_nil p) as [-> | Hprefix].
+  intros H G. destruct p as [ | [ | ] q].
   - left. auto.
-  - eapply vstrict_prefix_one_child in Hprefix;
-      [ | | apply valid_get_node_vget_not_bot; rewrite H; assumption];
-      [ | reflexivity].
-    cbn in Hprefix. destruct Hprefix as (q & <-). right. exists q. auto.
+  - right. exists q. auto.
+  - exfalso. eapply G. rewrite <-H, vget_cons. cbn. rewrite nth_error_nil.
+    replace botC with (get_node bot) by reflexivity. f_equal. exact (vget_bot q).
+Qed.
+
+(* This variant is used for the commutation of the rule Leq_Reborrow_MutBorrow_n with the ending of
+ * a borrow. *)
+Lemma vget_borrow_loan l0 l1 p c :
+  get_node (borrow^m(l0, loan^m(l1)).[[p]]) = c -> c <> botC ->
+  p = [] /\ borrowC^m(l0) = c \/ p = [0] /\ loanC^m(l1) = c.
+Proof.
+  intros H G. apply vget_borrow in H; [ | assumption]. destruct H as [ | (q & -> & H)].
+  - left. assumption.
+  - right. destruct q.
+    + auto.
+    + exfalso. apply G. rewrite <-H. cbn. rewrite nth_error_nil.
+      replace botC with (get_node bot) by reflexivity. f_equal. exact (vget_bot q).
 Qed.
 
 (* This lemma is used once, when studying reorganizations and the rule Leq_Fresh_MutLoan. *)
@@ -3329,6 +3344,15 @@ Proof.
       autorewrite with spath in get_loan. eapply fresh_l; [ | rewrite get_loan].
       * validity.
       * reflexivity.
+Qed.
+
+Lemma get_borrow_rename_mut_borrow S p l l0 q :
+  get_node ((rename_mut_borrow S p l).[q]) = borrowC^m(l) -> is_fresh l S ->
+  get_node (S.[p]) = borrowC^m(l0) -> p = q.
+Proof.
+  intros get_borrow fresh_l ?. destruct (decidable_spath_eq p q); [assumption | ].
+  exfalso. autorewrite with spath in get_borrow.
+  eapply fresh_l; [ | rewrite get_borrow; reflexivity]. validity.
 Qed.
 
 Lemma add_anon_equivalence S a b v :
@@ -3648,7 +3672,34 @@ Proof.
            { reflexivity. }
            apply reflexive_eq. states_eq.
     (* Case Leq_Reborrow_MutBorrow_n: *)
-    + admit.
+    + (* The pointer we end cannot be in the anonymous binding a, because it contains a loan. *)
+      assert (fst q <> anon_accessor a).
+      { intros ?. autorewrite with spath in get_borrow, Hno_loan.
+        apply vget_borrow_loan in get_borrow; [ | discriminate].
+        destruct get_borrow as [(Hsnd_q & [=->]) | (_ & [=])].
+        eapply Hno_loan with (p := []); rewrite Hsnd_q; constructor. }
+      rewrite sget_add_anon in * by assumption.
+      destruct (decide (fst p = anon_accessor a)).
+      (* Case 1: the borrow we end is the renamed borrow. *)
+      * autorewrite with spath in get_loan. autorewrite with spath.
+        apply vget_borrow_loan in get_loan; [ | discriminate].
+        destruct get_loan as [(_ & [=]) | (-> & [=->])].
+        eapply (get_borrow_rename_mut_borrow S) in get_borrow; [ | eassumption..]. subst.
+        reorg_done. (* We don't have any reorganization step to perform. *)
+        autorewrite with spath in *. assert (not_contains_loan (S.[q])) as Hno_loan'.
+        { rewrite sget_app in Hno_loan. destruct (S.[q]); inversion get_borrow_l0.
+          eapply not_value_contains_unary; eauto with spath. }
+        eapply leq_n_step.
+        { apply Leq_MoveValue_n with (sp := q) (a := a).
+          (* We are just showing that not_contains_loan -> no_outer_loan.
+             TODO: lemmma. *)
+          intros ? ?. exfalso. eapply Hno_loan'; [ | eassumption].
+          validity. apply is_loan_valid. rewrite sget_app. assumption.
+          assumption. validity. assumption. assumption. }
+        { reflexivity. }
+        rewrite sget_app. destruct (S.[q]); inversion get_borrow_l0. reflexivity.
+      (* Case 2: the borrow we end is different to the renamed borrow. *)
+      * admit.
     (* Case Leq_Abs_ClearValue_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_end_borrow_m with (p := p) (q := q); eassumption. }
