@@ -916,9 +916,7 @@ Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_Fresh_MutLoan S sp l' a
     (fresh_l' : is_fresh l' S)
     (fresh_a : fresh_anon S a)
-    (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
-       I am going a step further: there should not be bottoms in borrowed values. *)
-    (no_bot : not_contains_bot (S.[sp]))
+    (valid_sp : valid_spath S sp)
     (sp_not_in_abstraction : not_in_abstraction sp) :
     leq_state_base S (S.[sp <- loan^m(l')],, a |-> borrow^m(l', S.[sp]))
 | Leq_Reborrow_MutBorrow (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
@@ -970,7 +968,7 @@ Proof.
   { constructor. apply Leq_Fresh_MutLoan with (sp := sp).
     - not_contains.
     - apply fresh_anon_sset. eassumption.
-    - autorewrite with spath. apply not_value_contains_zeroary; auto.
+    - validity.
     - assumption. }
   etransitivity.
   { constructor. eapply Leq_ToAbs with (a := a) (i := i).
@@ -1241,6 +1239,7 @@ Proof.
   intros (v & ? & ?). exists v. unfold permutation_spath.
   edestruct get_at_accessor_state_permutation as (? & -> & ->); auto.
 Qed.
+Hint Resolve permutation_valid_spath : spath.
 
 Lemma permutation_spath_app perm p q :
   (permutation_spath perm p) +++ q = permutation_spath perm (p +++ q).
@@ -2756,7 +2755,7 @@ Proof.
       { apply (Leq_Fresh_MutLoan _ sp l' a).
         apply not_state_contains_add_anon. assumption. not_contains.
         eassumption.
-        autorewrite with spath. assumption. assumption. }
+        autorewrite with spath. validity. assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
@@ -2875,7 +2874,7 @@ Proof.
       { apply Leq_Fresh_MutLoan with (sp := sp) (l' := l').
         (* TODO: the tactic not_contains should solve it. *)
         apply not_state_contains_add_anon. not_contains. not_contains.
-        eassumption. autorewrite with spath. assumption. assumption. }
+        eassumption. autorewrite with spath. validity. assumption. }
       { autorewrite with spath. reflexivity. }
       apply reflexive_eq. states_eq.
 
@@ -2970,9 +2969,7 @@ Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_Fresh_MutLoan_n S sp l' a
     (fresh_l' : is_fresh l' S)
     (fresh_a : fresh_anon S a)
-    (* We need a hypothesis that ensures that sp is valid. We could just add valid_spath S sp.
-       I am going a step further: there should not be bottoms in borrowed values. *)
-    (no_bot : not_contains_bot (S.[sp]))
+    (valid_sp : valid_spath S sp)
     (sp_not_in_abstraction : not_in_abstraction sp) :
     leq_state_base_n 0 S (S.[sp <- loan^m(l')],, a |-> borrow^m(l', S.[sp]))
 | Leq_Reborrow_MutBorrow_n (S : LLBC_plus_state) (sp : spath) (l0 l1 : loan_id) (a : anon)
@@ -3207,8 +3204,7 @@ Proof.
     autorewrite with spath in fresh_b.
     execution_step. { eexists. eauto. }
     eapply prove_rel.
-    { apply Leq_MoveValue_n; rewrite ?permutation_sget; eauto with spath.
-      apply permutation_valid_spath; assumption. }
+    { apply Leq_MoveValue_n; rewrite ?permutation_sget; eauto with spath. }
     autorewrite with spath. reflexivity.
   - process_state_equivalence.
     eapply merge_abstractions_equiv in Hmerge; [ | eassumption].
@@ -3223,8 +3219,7 @@ Proof.
     autorewrite with spath; [ | autorewrite with spath; eauto with spath].
     eapply prove_rel.
     { apply Leq_Fresh_MutLoan_n.
-      rewrite not_state_contains_apply_permutation; eassumption.
-      eauto with spath. rewrite permutation_sget; eauto with spath. auto with spath. }
+      rewrite not_state_contains_apply_permutation. eassumption. all: eauto with spath. }
     { autorewrite with spath. reflexivity. }
   - destruct Hequiv as (perm & valid_perm & ->). repeat process_state_equivalence.
     autorewrite with spath in fresh_b.
@@ -3800,8 +3795,8 @@ Proof.
       { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
         all: eauto with spath. }
       reorg_done. eapply leq_n_step.
-      { apply Leq_Fresh_MutLoan_n with (l' := l'); eauto with spath.
-        all: autorewrite with spath; not_contains. }
+      { apply Leq_Fresh_MutLoan_n with (l' := l') (a := a) (sp := sp); eauto with spath.
+        not_contains. }
       { reflexivity. }
       apply reflexive_eq. states_eq.
     (* Case Leq_Reborrow_MutBorrow_n: *)
