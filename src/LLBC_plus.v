@@ -3300,28 +3300,32 @@ Lemma vpath_nil_or_not_nil p : p = [] \/ vstrict_prefix [] p.
 
 Proof. destruct p; auto. right. eexists _, _. reflexivity. Qed.
 
+Lemma vget_borrow l v p c : get_node (borrow^m(l, v).[[p]]) = c -> c <> botC ->
+  p = [] /\ borrowC^m(l) = c \/ exists q, p = [0] ++ q /\ get_node (v.[[q]]) = c.
+Proof.
+  intros H G. destruct (vpath_nil_or_not_nil p) as [-> | Hprefix].
+  - left. auto.
+  - eapply vstrict_prefix_one_child in Hprefix;
+      [ | | apply valid_get_node_vget_not_bot; rewrite H; assumption];
+      [ | reflexivity].
+    cbn in Hprefix. destruct Hprefix as (q & <-). right. exists q. auto.
+Qed.
+
 (* This lemma is used once, when studying reorganizations and the rule Leq_Fresh_MutLoan. *)
 Lemma fresh_mut_loan_get_loan S l sp a p (fresh_l : is_fresh l S) :
   get_node ((S.[sp <- loan^m(l)],, a |-> borrow^m(l, S.[sp])).[p]) = loanC^m(l) ->
   p = sp.
 Proof.
   intros get_loan. destruct (decide (fst p = anon_accessor a)) as [H | ].
-  - autorewrite with spath in get_loan.
-    destruct (vpath_nil_or_not_nil (snd p)) as [G | G].
-    + rewrite G in get_loan. discriminate.
-    + exfalso. eapply vstrict_prefix_one_child in G;
-        [ | | apply valid_get_node_vget_not_bot; rewrite get_loan; discriminate];
-        [ | reflexivity].
-      cbn in G. destruct G as (q & G). rewrite <-G, sget_borrow', <-sget_app in get_loan.
-      eapply fresh_l; [ | rewrite get_loan].
-      * validity.
-      * constructor.
+  - autorewrite with spath in get_loan. apply vget_borrow in get_loan; [ | discriminate].
+    destruct get_loan as [(_ & ?) | (q & ? & get_loan)].
+    + discriminate.
+    + autorewrite with spath in get_loan. exfalso.
+      eapply fresh_l; [ | rewrite get_loan]; auto with spath.
   - autorewrite with spath in get_loan.
     destruct (decidable_spath_eq p sp).
     + assumption.
-    + exfalso.
-      (* TODO: automate *)
-      assert (~strict_prefix sp p). eauto with spath.
+    + exfalso. assert (~strict_prefix sp p) by eauto with spath.
       autorewrite with spath in get_loan. eapply fresh_l; [ | rewrite get_loan].
       * validity.
       * reflexivity.
@@ -3617,15 +3621,10 @@ Proof.
         destruct (decide (fst p = anon_accessor a)).
         (* Case 2: the loan we end is in the anonymous binding a, containing the value of
          * the newly introduced loan. *)
-        -- (* TODO: automatize *)
-           autorewrite with spath in get_loan.
-           destruct (vpath_nil_or_not_nil (snd p)) as [G | G].
-           { rewrite G in get_loan. discriminate. }
-           eapply vstrict_prefix_one_child in G.
-           3: apply valid_get_node_vget_not_bot; rewrite get_loan; discriminate.
-           2: reflexivity.
-           cbn in G. destruct G as (r & G).
-           autorewrite with spath. rewrite <-G in *. autorewrite with spath in *.
+        -- autorewrite with spath in get_loan.
+           apply vget_borrow in get_loan; [ | discriminate].
+           destruct get_loan as [(_ & [=]) | (r & G & get_loan)].
+           autorewrite with spath in *. rewrite G.
            reorg_step.
            { eapply Reorg_end_borrow_m; [ | try eassumption..]. eauto with spath. }
            reorg_done. eapply leq_n_step.
