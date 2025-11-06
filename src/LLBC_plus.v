@@ -2330,17 +2330,25 @@ Proof.
     + rewrite <-sset_not_prefix_valid by eauto with spath. assumption.
 Qed.
 
-Lemma sset_reborrow_mut_borrow_not_prefix S p q l0 l1 v
-  (H : get_node (S.[p]) = borrowC^m(l0)) (G : ~prefix q p) :
+Lemma sset_reborrow_mut_borrow_not_prefix S p q l1 v
+  (H : exists l0, get_node (S.[p]) = borrowC^m(l0)) (G : ~prefix q p) :
   (rename_mut_borrow S p l1).[q <- v] = rename_mut_borrow (S.[q <- v]) p l1.
 Proof.
-  destruct (decidable_valid_spath S q).
+  destruct H as (l0 & H). destruct (decidable_valid_spath S q).
   - destruct (decidable_prefix p q) as [ | ].
     + assert (prefix (p +++ [0]) q) as (r & <-) by eauto with spath.
       autorewrite with spath. reflexivity.
     + assert (disj p q) by reduce_comp. states_eq.
   - rewrite !(sset_invalid _ q); erewrite ?valid_spath_rename_mut_borrow; eauto.
 Qed.
+
+Ltac solve_sset_reborrow_mut_borrow_not_prefix_hypothesis :=
+  match goal with
+  | |- exists l, get_node (?S.[?p]) = borrowC^m(l) => eexists; eassumption
+  | |- ~prefix ?p ?q => eauto with spath; fail
+  end.
+Hint Rewrite sset_reborrow_mut_borrow_not_prefix
+  using solve_sset_reborrow_mut_borrow_not_prefix_hypothesis : spath.
 
 Lemma not_contains_rename_mut_borrow S p q l0 l1 P :
   get_node (S.[p]) = borrowC^m(l0) -> ~P (borrowC^m(l0)) ->
@@ -2910,8 +2918,7 @@ Proof.
           not_contains. eassumption. autorewrite with spath. eassumption. assumption. }
         { autorewrite with spath. reflexivity. }
         autorewrite with spath.
-        erewrite sget_reborrow_mut_borrow_not_prefix by eassumption.
-        erewrite sset_reborrow_mut_borrow_not_prefix by eauto with spath. reflexivity.
+        erewrite sget_reborrow_mut_borrow_not_prefix by eassumption. reflexivity.
 
     (* Leq-Abs-ClearValue *)
     + eval_place_preservation. autorewrite with spath in *.
@@ -3699,7 +3706,35 @@ Proof.
         { reflexivity. }
         rewrite sget_app. destruct (S.[q]); inversion get_borrow_l0. reflexivity.
       (* Case 2: the borrow we end is different to the renamed borrow. *)
-      * admit.
+      * assert (sp <> p).
+        { intros <-. autorewrite with spath in get_loan. discriminate. }
+        autorewrite with spath in get_loan, Hnot_in_borrow.
+        assert (l1 <> l).
+        { intros ->. eapply fresh_l1; [ | rewrite get_loan; reflexivity]. validity. }
+        assert (~prefix sp q). eapply prove_not_prefix.
+        (* TODO: automatize *)
+        { eapply sset_sget_diff; [eassumption | cbn; congruence | discriminate]. }
+        { eapply Hnot_in_borrow. autorewrite with spath. constructor. }
+        autorewrite with spath in *.
+        reorg_step.
+        { apply Reorg_end_borrow_m with (p := p) (q := q) (l := l); try assumption.
+          eapply not_contains_rename_mut_borrow; try eassumption. inversion 1. }
+        reorg_done.
+        destruct (decidable_prefix (q +++ [0]) sp) as [(r & <-) | ].
+        (* Case 2a: the renamed borrow is in the ended borrow. *)
+        -- autorewrite with spath in get_borrow_l0. eapply leq_n_step.
+           { apply Leq_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := p +++ r).
+             not_contains. eauto with spath. autorewrite with spath. eassumption. assumption. }
+           { reflexivity. }
+           apply reflexive_eq. states_eq.
+           (* Case 2b: the renamed borrow is disjoint from the from the ended borrow. *)
+        -- assert (disj sp q) by reduce_comp. autorewrite with spath. eapply leq_n_step.
+           { apply Leq_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := sp).
+             not_contains. eauto with spath. autorewrite with spath. eassumption. assumption. }
+           { reflexivity. }
+           (* TODO: autorewrite *)
+           erewrite sget_reborrow_mut_borrow_not_prefix by eauto with spath.
+           apply reflexive_eq. states_eq.
     (* Case Leq_Abs_ClearValue_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_end_borrow_m with (p := p) (q := q); eassumption. }
