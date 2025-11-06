@@ -3525,23 +3525,19 @@ Proof.
     (* Case Leq_ToSymbolic_n: *)
     + assert (disj sp p). reduce_comp.
       autorewrite with spath in *. (* TODO: takes a bit of time. *)
+      reorg_step.
+      (* TODO: automatize *)
+      { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
+        eapply not_value_contains_sset_rev. eassumption.
+        apply not_value_contains_zeroary; rewrite get_int; easy. validity. }
       destruct (decidable_prefix (q +++ [0]) sp) as [(r & <-) | ].
-      * reorg_step.
-        (* TODO: automatize *)
-        { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
-          eapply not_value_contains_sset_rev. eassumption.
-          apply not_value_contains_zeroary; rewrite get_int; easy. validity. }
-        autorewrite with spath in *.
+      * autorewrite with spath in *.
         reorg_done.
         eapply leq_n_step.
         { eapply Leq_ToSymbolic_n with (sp := p +++ r). autorewrite with spath. eassumption. }
         { reflexivity. }
         apply reflexive_eq. states_eq.
       * assert (disj sp q). reduce_comp.
-        reorg_step.
-        { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
-          eapply not_value_contains_sset_rev. eassumption.
-          apply not_value_contains_zeroary; rewrite get_int; easy. validity. }
         reorg_done.
         eapply leq_n_step.
         { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
