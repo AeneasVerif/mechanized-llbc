@@ -168,6 +168,21 @@ Proof.
   - apply (strict_prefix_irrefl p). assumption.
 Qed.
 
+Lemma not_prefix_var_equal_or_not_vprefix :
+  forall p q,
+    ~ prefix p q -> p.1 <> q.1 \/ p.1 = q.1 /\ ~ vprefix p.2 q.2.
+Proof.
+  intros p q Hpref.
+  destruct (Positive_as_DT.eqb_spec p.1 q.1).
+  - right ; split ; auto. intros (r & H).
+    assert (prefix p q).
+    {
+      exists r. unfold "+++". rewrite e, H. by rewrite surjective_pairing with (p := q).
+    }
+    contradiction.
+  - left ; auto.
+Qed.
+
 Lemma not_vprefix_left_vstrict_prefix_right p q : vstrict_prefix q p -> ~vprefix p q.
 Proof.
   intros (? & ? & H) (q' & G). rewrite <-(app_nil_r p), <-G, <-app_assoc in H.
@@ -334,19 +349,29 @@ Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
 Lemma prove_disj (p q : spath) : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
 Proof. destruct (comparable_spaths p q); easy. Qed.
 
-Lemma vstrict_prefix_app_last p q i : vstrict_prefix p (q ++ i :: nil) -> vprefix p q.
+Lemma vstrict_prefix_app_last p q i : vstrict_prefix p (q ++ [i]) <-> vprefix p q.
 Proof.
-  intros (j & r & ?).
-  destruct exists_last with (l := j :: r) as (r' & j' & G). { symmetry. apply nil_cons. }
-  rewrite G in H. apply f_equal with (f := @removelast _) in H.
-  rewrite app_assoc in H. rewrite !removelast_last in H. exists r'. exact H.
+  split.
+  {
+    intros (j & r & ?).
+    destruct exists_last with (l := j :: r) as (r' & j' & G).
+    { symmetry. apply nil_cons. }
+    rewrite G in H. apply f_equal with (f := @removelast _) in H.
+    rewrite app_assoc in H. rewrite !removelast_last in H. exists r'. exact H.
+  }
+  {
+    intros (r & ?). rewrite <- H, <- !app_assoc.
+    destruct (r ++ [i]) eqn:E.
+    * apply app_nil in E as [E1 E2]. congruence.
+    * by exists n, l.
+  }
 Qed.
 
 Corollary strict_prefix_app_last p q i : strict_prefix p (q +++ [i]) <-> prefix p q.
 Proof.
   split.
   - intros (j & r & H). inversion H.
-    destruct (vstrict_prefix_app_last (snd p) (snd q) i) as (r' & ?).
+    destruct (proj1 (vstrict_prefix_app_last (snd p) (snd q) i)) as (r' & ?).
     + exists j, r. assumption.
     + exists r'. apply injective_projections; assumption.
   - intros (r & <-). rewrite<- app_spath_vpath_assoc. destruct (r ++ [i]) eqn:EQN.
@@ -372,6 +397,12 @@ Lemma not_prefix_app p q i :
   ~prefix p (q +++ [i]) -> ~ prefix p q.
 Proof.
   intros H G. eapply strict_prefix_app_last, strict_prefix_is_prefix in G. eauto.
+Qed.
+
+Lemma not_vprefix_app p q i :
+  ~vprefix p (q ++ [i]) -> ~ vprefix p q.
+Proof.
+  intros H G. by eapply vstrict_prefix_app_last, vstrict_prefix_is_vprefix in G.
 Qed.
 
 (* Automatically solving a comparison C p q using the hypotheses. *)
