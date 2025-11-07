@@ -781,7 +781,7 @@ Variant reorg : LLBC_plus_state -> LLBC_plus_state -> Prop :=
     reorg S ((remove_abstraction_value S i' j').[q <- bot])
 (* q refers to a path in abstraction A, at index j. *)
 | Reorg_end_abstraction S i' A' S'
-    (fresh_i : fresh_abstraction S i')
+    (fresh_i' : fresh_abstraction S i')
     (A_no_loans : map_Forall (fun _ => not_contains_loan) A')
     (Hadd_anons : add_anons S A' S') : reorg (S,,, i' |-> A') S'
 .
@@ -3371,10 +3371,41 @@ Proof.
   - intros ?. reflexivity.
 Qed.
 
-Lemma exists_add_anon S A : exists S', add_anons S A S'.
+Lemma exists_add_anons S A : exists S', add_anons S A S'.
 Proof.
   destruct (exists_union_maps A (anons S)) as (anons' & ?).
   eexists. constructor. eassumption.
+Qed.
+
+(* TODO: move *)
+Definition remove_anon a S :=
+  {| vars := vars S; anons := delete a (anons S); abstractions := abstractions S|}.
+
+Lemma add_anon_remove_anon S a v :
+  lookup (anon_accessor a) (get_map S) = Some v -> (remove_anon a S),, a |-> v = S.
+Proof.
+  intros ?. destruct S. unfold add_anon, remove_anon. cbn. f_equal.
+  apply insert_delete. rewrite get_at_anon in H. exact H.
+Qed.
+
+Lemma remove_anon_is_fresh S a : fresh_anon (remove_anon a S) a.
+Proof. unfold fresh_anon. rewrite get_at_anon. apply lookup_delete. Qed.
+
+Lemma add_anons_add_anon S A S' a v :
+  add_anons S A S' -> fresh_anon S a ->
+  exists S'', equiv_states S' S'' /\ add_anons (S,, a |-> v) A (S'',, a |-> v) /\ fresh_anon S'' a.
+Proof.
+  unfold fresh_anon. rewrite get_at_anon. intros H fresh_a.
+  destruct (exists_add_anons (S,, a |-> v) A) as (S'' & G).
+  exists (remove_anon a S''). repeat split.
+  - rewrite <-equiv_states_perm. destruct H. inversion G; subst.
+    split; [reflexivity | ]. split.
+    + cbn. eapply union_maps_unique; [eassumption | ].
+      apply union_maps_delete_l with (v := v); assumption.
+    + cbn. intros ?. reflexivity.
+  - rewrite add_anon_remove_anon; [assumption | ]. inversion G; subst. rewrite get_at_anon.
+    eapply union_contains_left; [eassumption | ]. cbn. simpl_map. reflexivity.
+  - apply remove_anon_is_fresh.
 Qed.
 
 Inductive add_anonymous_bots : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
@@ -3973,30 +4004,48 @@ Proof.
     + admit.
     (* Case Leq_ToAbs *)
     + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
+      (* Case 1: we end the abstraction we just introduced. *)
       * destruct EQN as (<- & -> & <-). destruct Hto_abs.
-        (* First case: a reborrow is turned into a region. But we can't end a region that
+        (* Case 1.a: a reborrow is turned into a region. But we can't end a region that
          * contains a loan. We eliminate this case by contradiction. *)
         -- exfalso. rewrite map_Forall_lookup in A_no_loans.
            eapply A_no_loans with (i := kl).
            simpl_map. reflexivity. constructor. constructor.
-       (* On one side we turn the anonymous binding *)
+           (* Case 1.b. *)
         -- apply add_anons_singleton in Hadd_anons. destruct Hadd_anons as (b & fresh_b & ->).
            (* If v is an integer, we must perform an extra relation step to turn it into a
             * symbolic value. Because when we end the region A, the anonymous binding introduced
             * is a symbolic value. *)
-           destruct v; inversion Hv.
-           ++ reorg_done.
-              eapply leq_n_step.
+           reorg_done. destruct v; inversion Hv.
+           ++ eapply leq_n_step.
               { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
                 autorewrite with spath. reflexivity. }
               { easy. }
                autorewrite with spath. now apply leq_n_by_equivalence, add_anon_equivalence.
-           ++ reorg_done.
-              (* After reorganization, the borrow is introduced in an anonymous variable `b` that
+           ++ (* After reorganization, the borrow is introduced in an anonymous variable `b` that
                * can be different than the anonymous variable `a` that were turned into a
                * region. However, the states when we add a borrow in a and b are equivalent. *)
               now apply leq_n_by_equivalence, add_anon_equivalence.
-      * admit. (* separation *)
+      (* Case 2: the abstraction we introduce and the abstraction we end are
+       * different. *)
+      * destruct EQN as (_ & S1 & -> & ->).
+        apply fresh_abstraction_add_abstraction_rev in fresh_i', fresh_i.
+        destruct fresh_i'. destruct fresh_i as (fresh_i & _).
+        apply add_anons_add_abstraction in Hadd_anons.
+        destruct Hadd_anons as (? & -> & Hadd_anons).
+        rewrite fresh_anon_add_abstraction in fresh_a.
+        apply add_anons_add_anon with (a := a) (v := v) in Hadd_anons; [ | assumption].
+        destruct Hadd_anons as (S'1 & ? & Hadd_anons & ?).
+        assert (fresh_abstraction S'1 i).
+        { apply add_anons_fresh_abstraction with (i := i) in Hadd_anons; eauto with spath. }
+        reorg_step.
+        { rewrite <-add_abstraction_add_anon.
+          apply Reorg_end_abstraction; eauto with spath. }
+        reorg_done. eapply leq_n_step.
+        { eapply Leq_ToAbs_n; eassumption. }
+        { reflexivity. }
+        apply leq_n_by_equivalence, equiv_states_add_abstraction;
+          [symmetry; assumption | reflexivity | assumption].
     + admit.
     + admit.
     (* Case Leq_MergeAbs_n: *)
@@ -4004,7 +4053,7 @@ Proof.
       * destruct EQN as (<- & -> & <-).
         assert (map_Forall (fun _ => not_contains_loan) B) by eauto using merge_no_loan.
         destruct Hmerge as (A' & B' & Hremove_loans & union_A'_B').
-        destruct (exists_add_anon (S,,, i |-> A) B) as (Sl1 & HSl1).
+        destruct (exists_add_anons (S,,, i |-> A) B) as (Sl1 & HSl1).
         (* Ending the region B: *)
         reorg_step.
         { eapply Reorg_end_abstraction. eauto with spath. assumption. exact HSl1. }
@@ -4015,7 +4064,7 @@ Proof.
         reorg_steps. { exact reorg_Sl2. }
         apply add_anons_add_abstraction in Hadd_anons_Sl2.
         destruct Hadd_anons_Sl2 as (Sl2 & -> & Hadd_anons_Sl2).
-        destruct (exists_add_anon Sl2 A') as (Sl3 & HSl3).
+        destruct (exists_add_anons Sl2 A') as (Sl3 & HSl3).
         (* Ending the region A: *)
         reorg_step.
         { apply Reorg_end_abstraction. eauto with spath.
@@ -4076,7 +4125,7 @@ Proof.
       erewrite permutation_remove_abstraction_value by eassumption. reflexivity.
 
     + symmetry in Hequiv. process_state_equivalence.
-      destruct (exists_add_anon S0 B) as (S'0 & Hadd_anons').
+      destruct (exists_add_anons S0 B) as (S'0 & Hadd_anons').
       execution_step.
       { apply Reorg_end_abstraction.
         auto with spath. eapply equiv_map_forall; eassumption. exact Hadd_anons'. }
@@ -4223,23 +4272,12 @@ Defined.
 Ltac eval_var :=
   split; [eexists; split; [reflexivity | constructor] | ].
 
-Definition remove_anon a S :=
-  {| vars := vars S; anons := delete a (anons S); abstractions := abstractions S|}.
-
 Ltac remove_abstraction i :=
   lazymatch goal with
   | |- ?leq_star ?S _ =>
       erewrite<- (add_remove_abstraction i _ S) by reflexivity;
       rewrite ?remove_add_abstraction_ne by congruence
   end.
-
-Lemma add_anon_remove_anon S a v :
-  lookup (anon_accessor a) (get_map S) = Some v -> (remove_anon a S),, a |-> v = S.
-Proof.
-  intros ?. destruct S. unfold add_anon, remove_anon. cbn. f_equal.
-  apply insert_delete. revert H.
-  cbn. unfold encode_anon. rewrite sum_maps_lookup_l, sum_maps_lookup_r. auto.
-Qed.
 
 Ltac remove_anon a :=
   lazymatch goal with
