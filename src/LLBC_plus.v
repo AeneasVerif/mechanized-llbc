@@ -4046,7 +4046,18 @@ Proof.
         { reflexivity. }
         apply leq_n_by_equivalence, equiv_states_add_abstraction;
           [symmetry; assumption | reflexivity | assumption].
-    + admit.
+    (* Case Leq_RemoveAnon_n: *)
+    + subst. rewrite fresh_anon_add_abstraction in fresh_a.
+        apply add_anons_add_anon with (a := a) (v := v) in Hadd_anons; [ | assumption].
+        destruct Hadd_anons as (S'' & ? & Hadd_anons & ?).
+      reorg_step.
+        { rewrite <-add_abstraction_add_anon.
+          apply Reorg_end_abstraction; eauto with spath. }
+        reorg_done. eapply leq_n_step.
+        { eapply Leq_RemoveAnon_n; eassumption. }
+        { reflexivity. }
+        apply leq_n_by_equivalence. symmetry. assumption.
+    (* Case Leq_MoveValue_n: *)
     + admit.
     (* Case Leq_MergeAbs_n: *)
     + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
