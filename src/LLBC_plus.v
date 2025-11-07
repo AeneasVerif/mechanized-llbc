@@ -2272,42 +2272,43 @@ Qed.
 
 (* When changing the id of a mutable borrow at p, generally using the rule Leq_Reborrow_MutBorrow,
  * accessing any other node that the one in sp is unchanged. *)
-(* Note: the existential is here so that this lemma can be used with rewrite and autorewrite. *)
 Lemma get_node_rename_mut_borrow S p q l1
-  (H : exists l0, get_node (S.[p]) = borrowC^m(l0)) (diff_p_q : p <> q) :
+  (H : is_mut_borrow (get_node (S.[p]))) (diff_p_q : p <> q) :
   get_node ((rename_mut_borrow S p l1).[q]) = get_node (S.[q]).
 Proof.
-  destruct H as (l0 & H). destruct (decidable_prefix p q).
+  destruct (get_node (S.[p])) eqn:G; inversion H. subst.
+  destruct (decidable_prefix p q).
   - assert (strict_prefix p q) as (i & ? & <-) by auto with spath.
     autorewrite with spath. destruct i.
     + cbn. autorewrite with spath. reflexivity.
     (* If i > 0, then the path q is invalid. *)
     + cbn. rewrite sget_app.
-      apply (f_equal arity) in H. rewrite<- length_children_is_arity in H.
-      apply length_1_is_singleton in H. cbn - [children]. destruct H as (? & ->).
+      apply (f_equal arity) in G. rewrite<- length_children_is_arity in G.
+      apply length_1_is_singleton in G. cbn - [children]. destruct G as (? & ->).
       reflexivity.
   - autorewrite with spath. reflexivity.
 Qed.
 
-Ltac solve_get_node_rename_mut_borrow_hypothesis :=
-  match goal with
-  | |- exists l, get_node (?S.[?p]) = borrowC^m(l) => eexists; eassumption
-  | |- ?p <> ?q => congruence
-  end.
-Hint Rewrite get_node_rename_mut_borrow
-  using solve_get_node_rename_mut_borrow_hypothesis : spath.
+Hint Extern 0 (is_mut_borrow (get_node (?S.[?sp]))) =>
+  lazymatch goal with
+  | H : get_node (?S.[?sp]) = borrowC^m(_) |- is_mut_borrow (get_node (?S.[?sp])) =>
+      rewrite H; constructor
+  end : spath.
+Hint Rewrite get_node_rename_mut_borrow using eauto with spath; fail : spath.
 
 (* In the state `rename_mut_borrow S p l1`, compared to S, only the node at p is changed.
  * Thus, if we read at a place q that is not a prefix of p, no node is changed. *)
-Lemma sget_reborrow_mut_borrow_not_prefix S p q l0 l1
-  (H : get_node (S.[p]) = borrowC^m(l0)) (G : ~prefix q p) :
+Lemma sget_reborrow_mut_borrow_not_prefix S p q l1
+  (H : is_mut_borrow (get_node (S.[p]))) (G : ~prefix q p) :
   (rename_mut_borrow S p l1).[q] = S.[q].
 Proof.
+  destruct (get_node (S.[p])) eqn:?; inversion H. subst.
   apply value_get_node_ext. intros r. rewrite <-!sget_app.
   eapply get_node_rename_mut_borrow.
-  - exists l0. eassumption.
+  - auto with spath.
   - intros ->. apply G. exists r. reflexivity.
 Qed.
+Hint Rewrite sget_reborrow_mut_borrow_not_prefix using eauto with spath; fail : spath.
 
 Lemma valid_spath_rename_mut_borrow S p q l0 l1
   (H : get_node (S.[p]) = borrowC^m(l0)) :
@@ -2331,24 +2332,17 @@ Proof.
 Qed.
 
 Lemma sset_reborrow_mut_borrow_not_prefix S p q l1 v
-  (H : exists l0, get_node (S.[p]) = borrowC^m(l0)) (G : ~prefix q p) :
+  (H : is_mut_borrow (get_node (S.[p]))) (G : ~prefix q p) :
   (rename_mut_borrow S p l1).[q <- v] = rename_mut_borrow (S.[q <- v]) p l1.
 Proof.
-  destruct H as (l0 & H). destruct (decidable_valid_spath S q).
+  destruct (get_node (S.[p])) eqn:?; inversion H. subst. destruct (decidable_valid_spath S q).
   - destruct (decidable_prefix p q) as [ | ].
     + assert (prefix (p +++ [0]) q) as (r & <-) by eauto with spath.
       autorewrite with spath. reflexivity.
     + assert (disj p q) by reduce_comp. states_eq.
   - rewrite !(sset_invalid _ q); erewrite ?valid_spath_rename_mut_borrow; eauto.
 Qed.
-
-Ltac solve_sset_reborrow_mut_borrow_not_prefix_hypothesis :=
-  match goal with
-  | |- exists l, get_node (?S.[?p]) = borrowC^m(l) => eexists; eassumption
-  | |- ~prefix ?p ?q => eauto with spath; fail
-  end.
-Hint Rewrite sset_reborrow_mut_borrow_not_prefix
-  using solve_sset_reborrow_mut_borrow_not_prefix_hypothesis : spath.
+Hint Rewrite sset_reborrow_mut_borrow_not_prefix using eauto with spath; fail : spath.
 
 Lemma not_contains_rename_mut_borrow S p q l0 l1 P :
   get_node (S.[p]) = borrowC^m(l0) -> ~P (borrowC^m(l0)) ->
@@ -2374,7 +2368,7 @@ Proof.
   intros ? H r ?. apply H.
   destruct (decidable_spath_eq p r) as [<- | ].
   - autorewrite with spath. constructor.
-  - erewrite get_node_rename_mut_borrow; [ | eexists | ]; eassumption.
+  - erewrite get_node_rename_mut_borrow; auto with spath.
 Qed.
 Hint Resolve not_in_borrow_rename_mut_borrow : spath.
 
@@ -2910,15 +2904,13 @@ Proof.
         autorewrite with spath. reflexivity.
 
        (* Case 2: the spath sp we reborrow is not in the place pi we move. *)
-      * execution_step.
-        { apply Eval_move. eassumption.
-          all: erewrite sget_reborrow_mut_borrow_not_prefix in * by eassumption; assumption. }
+         * autorewrite with spath in * |-. execution_step.
+        { apply Eval_move; eassumption. }
         leq_val_state_add_anon.
         { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1).
           not_contains. eassumption. autorewrite with spath. eassumption. assumption. }
         { autorewrite with spath. reflexivity. }
-        autorewrite with spath.
-        erewrite sget_reborrow_mut_borrow_not_prefix by eassumption. reflexivity.
+        autorewrite with spath. reflexivity.
 
     (* Leq-Abs-ClearValue *)
     + eval_place_preservation. autorewrite with spath in *.
@@ -3759,8 +3751,6 @@ Proof.
            { apply Leq_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := sp).
              not_contains. eauto with spath. autorewrite with spath. eassumption. assumption. }
            { reflexivity. }
-           (* TODO: autorewrite *)
-           erewrite sget_reborrow_mut_borrow_not_prefix by eauto with spath.
            apply reflexive_eq. states_eq.
     (* Case Leq_Abs_ClearValue_n: *)
     + autorewrite with spath in *. reorg_step.
