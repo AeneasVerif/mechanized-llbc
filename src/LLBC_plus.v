@@ -2588,6 +2588,18 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma add_anons_sset_rev S S' A p v :
+  add_anons (S.[p <- v]) A S' -> valid_spath S p ->
+  exists S'', add_anons S A S'' /\ S' = S''.[p <- v].
+Proof.
+  intros. exists (S'.[p <- S.[p] ]). split.
+  - rewrite <-(sset_same S p) at 1. erewrite <-(sset_twice_equal S p) at 1.
+    apply add_anons_sset; [eassumption | validity].
+  - replace v with (S'.[p]).
+    + rewrite sset_twice_equal, sset_same. reflexivity.
+    + erewrite add_anons_sget by eauto with spath. autorewrite with spath. reflexivity.
+Qed.
+
 Lemma add_anons_add_abstraction S A B S' i :
   add_anons (S,,, i |-> B) A S' ->
       exists S'', S' = S'',,, i |-> B /\ add_anons S A S''.
@@ -2696,6 +2708,14 @@ Proof.
   eapply H. rewrite decode'_is_Some in * |-. eexists. symmetry. eassumption.
 Qed.
 Hint Rewrite get_abstraction_sset using assumption : spath.
+
+Lemma add_anons_valid_spath S A S' sp :
+  valid_spath S sp -> add_anons S A S' -> valid_spath S' sp.
+Proof. rewrite add_anons_alt. induction 2; auto using valid_spath_add_anon. Qed.
+
+Lemma not_in_borrow_add_anons S A S' sp :
+  add_anons S A S' -> not_in_borrow S sp -> valid_spath S sp -> not_in_borrow S' sp.
+Proof. rewrite add_anons_alt. induction 1; eauto with spath. Qed.
 
 Ltac leq_step_left :=
   let a := fresh "a" in
@@ -3400,6 +3420,30 @@ Proof.
   - apply remove_anon_is_fresh.
 Qed.
 
+Lemma add_anons_remove_anon S A S' a v :
+  add_anons (S,, a |-> v) A S' -> fresh_anon S a ->
+  exists S'', S' = S'',, a |-> v /\ fresh_anon S'' a /\ add_anons S A S''.
+Proof.
+  intros H fresh_a. exists (remove_anon a S'). repeat split.
+  - symmetry. apply add_anon_remove_anon.
+    remember (S,, a |-> v). destruct H; subst. rewrite get_at_anon.
+    eapply union_contains_left; [eassumption | ]. cbn. simpl_map. reflexivity.
+  - apply remove_anon_is_fresh.
+  - remember (S,, a |-> v). destruct H; subst. unfold remove_anon. cbn. constructor.
+    apply union_maps_delete_l with (v := v); [exact H | ].
+    unfold fresh_anon in fresh_a. rewrite get_at_anon in fresh_a. exact fresh_a.
+Qed.
+
+Lemma add_anons_remove_anon_sset S S' A a p v w :
+  add_anons (S.[p <- v],, a |-> w) A S' -> fresh_anon S a -> valid_spath S p ->
+  exists S'', add_anons S A S'' /\ S' = S''.[p <- v],, a |-> w /\ fresh_anon S'' a.
+Proof.
+  intros H ? ?.
+  apply add_anons_remove_anon in H; [ | auto with spath]. destruct H as (S'' & -> & ? & H).
+  apply add_anons_sset_rev in H; [ | assumption]. destruct H as (S''' & H & ->).
+  exists S'''. repeat split; auto. erewrite fresh_anon_sset. eassumption.
+Qed.
+
 Inductive add_anonymous_bots : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
   | Add_no_bots S : add_anonymous_bots 0 S S
   | Add_anonymous_bot n S a S' :
@@ -3538,6 +3582,49 @@ Qed.
 Lemma add_abstraction_commute S i j A B :
   i <> j -> S,,, i |-> A,,, j |-> B = S,,, j |-> B,,, i |-> A.
 Proof. intros ?. unfold add_abstraction. cbn. f_equal. apply insert_commute. congruence. Qed.
+
+Lemma eq_add_anon_add_abstraction S S' a v i A
+  (fresh_a : fresh_anon S a) (fresh_i : fresh_abstraction S' i)
+  (H : S,, a |-> v = S',,, i |-> A) :
+  exists S0, S = S0,,, i |-> A /\ S' = S0,, a |-> v /\
+             fresh_abstraction S0 i /\ fresh_anon S0 a.
+Proof.
+  exists (remove_abstraction i S). repeat split.
+  - symmetry. apply add_remove_abstraction.
+    apply (f_equal abstractions), (f_equal (lookup i)) in H. cbn in H. simpl_map.
+    reflexivity.
+  - apply (f_equal (remove_abstraction i)) in H.
+    rewrite remove_add_abstraction in H by assumption.
+    unfold add_anon, remove_anon in *. destruct S'. cbn in *. inversion H. congruence.
+  - apply remove_abstraction_fresh.
+  - unfold fresh_anon, remove_abstraction in *. rewrite get_at_anon in *. assumption.
+Qed.
+
+Corollary eq_sset_add_anon_add_abstraction S S' sp a v w i A
+  (fresh_a : fresh_anon S a) (fresh_i : fresh_abstraction S' i)
+  (sp_not_in_abstraction : not_in_abstraction sp)
+  (H : S.[sp <- w],, a |-> v = S',,, i |-> A) :
+  exists S0, S = S0,,, i |-> A /\ S' = S0.[sp <- w],, a |-> v /\
+             fresh_abstraction S0 i /\ fresh_anon S0 a.
+Proof.
+  destruct (decidable_valid_spath S sp) as [ | Hinvalid].
+  - apply eq_add_anon_add_abstraction in H; eauto with spath.
+    destruct H as (S0 & H & -> & ? & ?).
+    exists (S0.[sp <- S.[sp] ]). repeat split.
+    + apply (f_equal (sset sp (S.[sp]))) in H. autorewrite with spath in H. exact H.
+    + apply (f_equal (sget sp)) in H. autorewrite with spath in H. rewrite H.
+      autorewrite with spath. reflexivity.
+    + eauto with spath.
+    + eauto with spath.
+  - rewrite sset_invalid in H by assumption.
+    apply eq_add_anon_add_abstraction in H; eauto with spath.
+    destruct H as (S0 & -> & -> & ? & G). exists S0. repeat split; try easy.
+    rewrite sset_invalid.
+    + reflexivity.
+    + intros K. apply Hinvalid.
+      destruct K as (u & ?). exists u.
+      rewrite get_at_accessor_add_abstraction_notin by eauto. assumption.
+Qed.
 
 Lemma reorg_local_preservation n :
   forward_simulation (leq_state_base_n n) (leq_n n) reorg reorg^*.
@@ -4048,7 +4135,22 @@ Proof.
         { reflexivity. }
         apply leq_n_by_equivalence. symmetry. assumption.
     (* Case Leq_MoveValue_n: *)
-    + admit.
+    + apply eq_sset_add_anon_add_abstraction in EQN; [ | eauto with spath..].
+      destruct EQN as (S1 & -> & -> & ? & ?). autorewrite with spath in *.
+      apply valid_spath_add_abstraction in valid_sp; [ | eauto].
+      apply add_anons_remove_anon_sset in Hadd_anons; [ | assumption..].
+      destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
+      reorg_step.
+      { apply Reorg_end_abstraction; eauto with spath. }
+      reorg_done. eapply leq_n_step.
+      (* TODO: eauto? *)
+      { apply Leq_MoveValue_n with (sp := sp) (a := a).
+        all: autorewrite with spath; eauto with spath.
+        erewrite add_anons_sget by eauto with spath. eassumption.
+        eapply add_anons_valid_spath; eassumption.
+        eapply not_in_borrow_add_anons; eauto with spath. }
+      { reflexivity. }
+      erewrite add_anons_sget by eassumption. reflexivity.
     (* Case Leq_MergeAbs_n: *)
     + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
       * destruct EQN as (<- & -> & <-).
