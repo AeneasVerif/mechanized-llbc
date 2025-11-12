@@ -2543,7 +2543,8 @@ Ltac eval_place_preservation :=
   end.
 
 (* Lemmas about add_anon. *)
-Lemma add_anons_insert S i A v S' :
+(* TODO: name *)
+Lemma add_anons_delete' S i A v S' :
   lookup i A = None -> add_anons S (insert i v A) S' ->
   exists a, fresh_anon S a /\ add_anons (S,, a |-> v) A S'.
 Proof.
@@ -2559,9 +2560,21 @@ Corollary add_anons_delete S i A v S' :
   lookup i A = Some v -> add_anons S A S' ->
   exists a, fresh_anon S a /\ add_anons (S,, a |-> v) (delete i A) S'.
 Proof.
-  intros H G. apply add_anons_insert with (i := i).
+  intros H G. apply add_anons_delete' with (i := i).
   - apply lookup_delete.
   - rewrite insert_delete; assumption.
+Qed.
+
+Lemma add_anons_insert S A S' i v a :
+  fresh_anon S' a -> lookup i A = None -> add_anons S A S' ->
+  add_anons S (insert i v A) (S',, a |-> v).
+Proof.
+  unfold fresh_anon. rewrite get_at_anon. intros fresh_a ? H. inversion H. subst.
+  unfold add_anon. cbn in *. constructor. eapply UnionInsert with (j := a).
+  - rewrite eq_None_not_Some. intros (w & G). eapply union_contains_left in G; [ | eassumption]. 
+    assert (Some w = None). { rewrite <-fresh_a, <-G. reflexivity. } discriminate.
+  - assumption.
+  - apply union_maps_insert_l; assumption.
 Qed.
 
 Lemma add_anons_empty S S' : add_anons S empty S' -> S = S'.
@@ -2574,7 +2587,7 @@ Qed.
 Lemma add_anons_singleton S i v S' : add_anons S (singletonM i v) S' ->
   exists a, fresh_anon S a /\ S' = S,, a |-> v.
 Proof.
-  intros (a & fresh_a & H)%add_anons_insert; [ | now simpl_map].
+  intros (a & fresh_a & H)%add_anons_delete'; [ | now simpl_map].
   exists a. split; [assumption | ]. apply add_anons_empty in H. congruence.
 Qed.
 
@@ -2673,6 +2686,20 @@ Proof.
   - constructor.
   - autorewrite with spath in * |-. econstructor; [assumption | | eassumption].
     apply fresh_anon_remove_abstraction_value. assumption.
+Qed.
+
+Lemma add_anons_add_abstraction_value S A S' i j :
+  add_anons (remove_abstraction_value S i j) A S' ->
+  exists S'', add_anons S A S'' /\ S' = (remove_abstraction_value S'' i j).
+Proof.
+  setoid_rewrite add_anons_alt. intros H.
+  remember (remove_abstraction_value S i j) as S0 eqn:EQN. revert S EQN. induction H.
+  - eexists. split; [constructor | assumption].
+  - intros ? ->.
+    edestruct IHadd_anons' as (? & ? & ->).
+    { rewrite <-remove_abstraction_value_add_anon. reflexivity. }
+    rewrite fresh_anon_remove_abstraction_value in * |-.
+    eexists. split; [ | reflexivity]. econstructor; eassumption.
 Qed.
 
 Lemma add_anons_fresh_abstraction S A S' i :
@@ -4286,7 +4313,60 @@ Proof.
       { reflexivity. }
       erewrite add_anons_sget by eauto with spath. reflexivity.
     (* Case Leq_Abs_ClearValue_n: *)
-    + admit.
+    + destruct (decide (i = i')) as [<- | ].
+      * replace S0 with (S,,, i |-> insert j v A') in *. (* Note: should be a lemma. *)
+        2: { apply state_eq_ext.
+          - apply map_eq. intros k. destruct (decide (k = encode_abstraction (i, j))) as [-> | ].
+            + rewrite get_at_abstraction. cbn. simpl_map. cbn. simpl_map. reflexivity.
+            + apply (f_equal get_map) in EQN. apply (f_equal (lookup k)) in EQN.
+              rewrite get_map_remove_abstraction_value in EQN. simpl_map. rewrite EQN.
+              cbn. rewrite !flatten_insert by assumption.
+              rewrite kmap_insert by typeclasses eauto.
+              rewrite <-insert_union_l, <-sum_maps_insert_inr.
+              apply lookup_insert_ne. symmetry. assumption.
+          - apply (f_equal get_extra) in EQN.
+            rewrite get_extra_remove_abstraction_value in EQN.
+            cbn in *. rewrite dom_insert_L in *. auto. }
+        assert (lookup j A' = None).
+        { autorewrite with spath in EQN.
+          apply (f_equal abstractions), (f_equal (lookup i)) in EQN.
+          cbn in EQN. simpl_map. injection EQN as <-. simpl_map. reflexivity. }
+        destruct (exists_fresh_anon S') as (a & fresh_a).
+        eapply add_anons_insert with (v := v) in Hadd_anons; [ | eassumption..].
+        reorg_step.
+        { eapply Reorg_end_abstraction; try eassumption. apply map_Forall_insert_2; auto. }
+        reorg_done.
+        eapply leq_n_step.
+        { apply Leq_RemoveAnon_n; assumption. }
+        { reflexivity. }
+        reflexivity.
+      * assert (exists S1,
+          S0 = S1,,, i' |-> A' /\
+          S = remove_abstraction_value S1 i j /\
+          abstraction_element S1 i j = Some v /\ fresh_abstraction S1 i')
+        as (S1 & -> & -> & ? & ?).
+        (* Note: should be a lemma. *)
+        { exists (remove_abstraction i' S0). repeat split.
+          - symmetry. apply add_remove_abstraction.
+            apply (f_equal abstractions), (f_equal (lookup i')) in EQN. cbn in EQN. simpl_map.
+            reflexivity.
+          - apply (f_equal (remove_abstraction i')) in EQN.
+            rewrite remove_add_abstraction in EQN by assumption.
+            unfold remove_abstraction, remove_abstraction_value in *. cbn in *.
+            rewrite <-delete_alter_ne; congruence.
+          - unfold abstraction_element in *. rewrite get_at_abstraction in *.
+            unfold remove_abstraction. cbn. simpl_map. assumption.
+          - apply remove_abstraction_fresh. }
+        autorewrite with spath in get_at_i_j.
+        apply add_anons_add_abstraction_value in Hadd_anons.
+        destruct Hadd_anons as (? & Hadd_anons & ->).
+        reorg_step.
+        { apply Reorg_end_abstraction; eassumption. }
+        reorg_done. eapply leq_n_step.
+        { eapply Leq_Abs_ClearValue_n with (v := v); try eassumption.
+          eapply add_anons_abstraction_element; eassumption. }
+        { reflexivity. }
+        reflexivity.
     (* Case Leq_AnonValue_n: *)
     + apply eq_add_anon_add_abstraction in EQN; [ | assumption..].
       destruct EQN as (S1 & -> & -> & ? & ?).

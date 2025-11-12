@@ -1212,6 +1212,20 @@ Section UnionMaps.
       + simpl_map. assumption.
   Qed.
 
+  Lemma union_maps_insert_l X Y Z k v (H : union_maps X Y Z) :
+    lookup k Z = None -> union_maps (insert k v X) Y (insert k v Z).
+  Proof.
+    intros G. induction H as [ | ? ? ? ? j ? ? ? Hunion].
+    - constructor.
+    - assert (j <> k).
+      { intros <-. eapply union_contains_left in Hunion; [ | apply lookup_insert].
+        congruence. }
+      apply UnionInsert with (j := j).
+      + simpl_map. assumption.
+      + assumption.
+      + rewrite insert_commute by congruence. auto.
+  Qed.
+
   Lemma union_contains C i x (Hunion : union_maps A B C) :
     lookup i C = Some x ->
     lookup i A = Some x \/ (exists j, lookup j B = Some x /\ union_maps A (delete j B) (delete i C)).
