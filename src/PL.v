@@ -120,10 +120,10 @@ Proof.
   - destruct (le_gt_dec (addr.2 + sizeof t) (length vl)).
     * left ; exists vl ; auto.
     * right. intros (vl' & Hlu & Hsize).
-      replace (S !!h addr.1) with (Some vl') in Elu.
-      injection Elu ; intros ->. lia.
+      unfold "!!h" in *. assert (vl = vl') by congruence.
+      subst. lia.
   - right. intros (vl & Hlu & _).
-    replace (S !!h addr.1) with (Some vl) in Elu. congruence.
+    unfold "!!h" in *. congruence.
 Defined.
 
 Ltac is_valid_access S addr t :=
@@ -506,6 +506,13 @@ Section Concretization.
     apply concr_val_implies_concr_val_comp. apply concr_val_comp_implies_concr_val.
   Qed.
 
+  Lemma concr_val_deterministic :
+    forall v t vl0 vl1,
+      concr_hlpl_val v t vl0 ->
+      concr_hlpl_val v t vl1 ->
+      vl0 = vl1.
+  Proof. intros. apply concr_val_implies_concr_val_comp in H, H0. congruence. Qed.
+
   Definition concr_hlpl_heap (S : HLPL_state) (h : Pmap pl_val) : Prop :=
     forall enc_x bi t v,
       valid_spath S (enc_x, []) ->
@@ -590,6 +597,12 @@ Section Concretization.
 
   Definition addr_spath_equiv_fin S addr sp :=
     exists t, addr_spath_equiv S addr t sp.
+
+  Lemma off_vpath_equiv_sizeof :
+    forall vi ti t off vp,
+      off_vpath_equiv vi ti off t vp ->
+      off + sizeof t <= sizeof ti.
+  Proof. intros. induction H ; simpl in * ; try lia. Qed.
 
   Lemma off_vpath_equiv_eval_type :
     forall v vp tinit t,
@@ -1545,6 +1558,92 @@ Lemma concr_val_TInt_implies_PL_int :
     apply le_pl_write_at_addr ; auto.
   Qed.
 
+  Lemma concr_val_off_vpath_equiv_equiv :
+    forall vi ti vli,
+      length vli = sizeof ti ->
+      (concr_hlpl_val vi ti vli <->
+         forall off vp t,
+           off_vpath_equiv vi ti off t vp ->
+           concr_hlpl_val (vi.[[ vp ]]) t (take (sizeof t) (drop off vli))).
+  Proof.
+    intros. split ; intros.
+    {
+      apply concr_val_size in H0 as Hleni. induction H1 ; nodes_to_val.
+      - simpl ; by rewrite drop_0, Hleni, firstn_all.
+      - inversion IHoff_vpath_equiv ; subst.
+        rewrite vget_app, Heqh. simpl.
+        apply concr_val_size in H6 as Hlen0.
+        apply f_equal with (f := (take (sizeof t0))) in H8.
+        rewrite Hlen0, take_app_length, take_take in H8.
+        replace (length vl0 `min` _ ) with (length vl0) in H8 by lia.
+        congruence.
+      - inversion IHoff_vpath_equiv ; subst.
+        rewrite vget_app, Heqh. simpl.
+        apply concr_val_size in H6 as Hlen0. apply concr_val_size in H9 as Hlen1.
+        apply f_equal with (f := (drop (sizeof t0))) in H8.
+        rewrite Hlen0, drop_app_length, <- Hlen0, <- take_drop_commute, drop_drop in H8.
+        congruence.
+      - inversion IHoff_vpath_equiv ; subst.
+        rewrite vget_app, Heqh. by simpl.
+    }
+    {
+      assert (off_vpath_equiv vi ti 0 ti []) by constructor.
+      specialize (H0 0 [] ti H1). simpl in H0.
+      by rewrite drop_0, <- H, firstn_all in H0.
+    }
+  Qed.
+
+  Lemma concr_val_implies_exists_concr_val_vp :
+    forall vi ti t off vp vli,
+      off_vpath_equiv vi ti off t vp ->
+      concr_hlpl_val vi ti vli ->
+      exists vl, concr_hlpl_val (vi.[[ vp ]]) t vl.
+  Proof.
+    intros. apply concr_val_size in H0 as Hlen. symmetry in Hlen.
+    pose proof (proj1 (concr_val_off_vpath_equiv_equiv _ _ _ Hlen) H0 _ _ _ H).
+    eexists ; eauto.
+  Qed.
+
+  Lemma concr_val_write :
+    forall vp vi v ti t vli vl off,
+      off_vpath_equiv vi ti off t vp ->
+      concr_hlpl_val vi ti vli ->
+      concr_hlpl_val v t vl ->
+      concr_hlpl_val
+        (vi.[[ vp <- v ]]) ti (take off vli ++ vl ++ drop (off + sizeof t) vli).
+  Proof.
+    intros. apply concr_val_size in H0 as Hleni. symmetry in Hleni.
+    generalize dependent v. generalize dependent vl. induction H ; intros vl v Hconcr.
+    - simpl. by rewrite <- Hleni, drop_all, app_nil_r.
+    - nodes_to_val.
+      assert (off_vpath_equiv vi ti (off + sizeof t0) t1 (vp ++ [1]))
+        by (eapply Offset_vpath_pair_second ; eauto).
+      eapply (proj1 (concr_val_off_vpath_equiv_equiv _ _ _ Hleni)) in H0 as G; eauto.
+      rewrite vget_app, Heqh in G. simpl in G.
+      remember (take (sizeof t1) (drop (off + sizeof t0) vli)) as vl1.
+      assert (concr_hlpl_val (HLPL_pair v h2) (TPair t0 t1) (vl ++ vl1))
+        by (eapply Concr_pair ; eauto).
+      rewrite vset_app_split, Heqh. simpl.
+      specialize (IHoff_vpath_equiv _ _ H3). rewrite Heqvl1 in IHoff_vpath_equiv.
+      rewrite <- !app_assoc in IHoff_vpath_equiv. simpl in *.
+      by rewrite <- (take_drop (sizeof t1) (drop _ _)), drop_drop, <- Nat.add_assoc.
+    - nodes_to_val. simpl in *.
+      assert (off_vpath_equiv vi ti off t0 (vp ++ [0]))
+        by (eapply Offset_vpath_pair_first ; eauto).
+      eapply (proj1 (concr_val_off_vpath_equiv_equiv _ _ _ Hleni)) in H0 as G; eauto.
+      rewrite vget_app, Heqh in G. simpl in G.
+      remember (take (sizeof t0) (drop off vli)) as vl0.
+      assert (concr_hlpl_val (HLPL_pair h1 v) (TPair t0 t1) (vl0 ++ vl)).
+        by (eapply Concr_pair ; eauto).
+      rewrite vset_app_split, Heqh. simpl.
+      specialize (IHoff_vpath_equiv _ _ H3). rewrite Heqvl0 in IHoff_vpath_equiv.
+      by rewrite !app_assoc, take_take_drop, <- !app_assoc, Nat.add_assoc
+        in IHoff_vpath_equiv.
+    - nodes_to_val. simpl in *. rewrite vset_app_split, Heqh. simpl.
+      assert (concr_hlpl_val (loc (l, v)) t' vl) by (apply Concr_loc ; auto).
+      by specialize (IHoff_vpath_equiv _ _ H2).
+  Qed.
+
   Lemma concr_state_write_at_addr :
     forall S Spl sp addr v t vl,
       concr_hlpl S Spl ->
@@ -1567,7 +1666,11 @@ Lemma concr_val_TInt_implies_PL_int :
       + destruct (Hconcr_heap sp.1 bi' t' (S .[ (sp.1, [])]) Hvsp eq_refl Hbo')
                    as (vl'' & Hconcr_val' & Hbi'').
         replace (Spl !!h bi') with (Some vl') in Hbi'' ; injection Hbi'' as ->.
-        admit.
+        replace sp with ((sp.1, []) +++ sp.2) by
+          (unfold "+++" ; rewrite surjective_pairing with (p := sp) ; by simpl).
+        rewrite sset_sget_prefix ; auto.
+        apply concr_val_write; auto. inversion Hequiv ; subst ; simpl in *.
+        by replace t' with tinit by congruence.
       + unfold write_at_addr. simpl. rewrite lookup_alter.
         replace (Spl !!h bi') with (Some vl'). simpl. congruence.
       * unfold write_at_addr ; simpl ; rewrite lookup_alter_ne ; auto.
@@ -1577,9 +1680,22 @@ Lemma concr_val_TInt_implies_PL_int :
     - intros enc_x bi' t0 Hvsp Hbo. rewrite env_stable_by_write_at_addr.
       apply sset_not_prefix_valid in Hvsp ; try apply not_strict_prefix_nil.
       by specialize (Hconcr_env enc_x bi' t0 Hvsp Hbo).
-  Admitted.
+  Qed.
 
 End Concretization.
+
+Definition WellTypedOperand S bo op :=
+  match op with
+  | IntConst t _ => t = TInt
+  | Move t p =>
+      forall perm sp,
+      eval_place S perm p sp ->
+      eval_type bo S sp t
+  | Copy t p =>
+      forall perm sp,
+      eval_place S perm p sp ->
+      eval_type bo S sp t
+  end.
 
 Lemma HLPL_PL_Read :
   forall blockof addrof S Spl perm p sp v t,
@@ -1671,6 +1787,7 @@ Qed.
 Lemma Op_Preserves_PL_HLPL_Rel :
   forall blockof addrof S Spl op vS1,
     le_pl_hlpl blockof addrof Spl S ->
+    WellTypedOperand S blockof op ->
     S |-{op} op => vS1 ->
     exists blockof1 addrof1 vl vl' t,
       Spl |-{op-pl} op => vl /\
@@ -1678,7 +1795,7 @@ Lemma Op_Preserves_PL_HLPL_Rel :
       concr_hlpl_val addrof1 vS1.1 t vl' /\
       le_block vl vl'.
 Proof.
-  intros bo ao S Spl op vS1 Hle Heval.
+  intros bo ao S Spl op vS1 Hle HWTO Heval.
   pose proof Hle as Htemp ;
     destruct Htemp as (Spl' & HComp & Hconcr & (Hle_env & Hle_heap)).
   pose proof proj1 Hconcr as Hconcr_heap.
@@ -1686,14 +1803,14 @@ Proof.
   induction Heval eqn:E.
   - exists bo, ao, [PL_int n], [PL_int n], TInt. repeat split ; try constructor ; auto.
     econstructor.
-  - assert (Hevt : eval_type bo S pi t) by admit.
-    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ _ Hle Heval_place Hevt eq_refl)
+  - specialize (HWTO _ _ Heval_place).
+    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ _ Hle Heval_place HWTO eq_refl)
     as (vl & vl' & Hread & Hconcr_val & Hle_val).
     exists bo, ao, vl, vl', t ; repeat split ; simpl ; auto.
     * constructor ; auto.
     * by apply (concr_val_equiv_concr_copy_val ao _ _ _ _ Hcopy_val).
-  - assert (Hevt : eval_type bo S pi t) by admit.
-    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ _ Hle e Hevt eq_refl)
+  - specialize (HWTO _ _ e).
+    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ _ Hle e HWTO eq_refl)
     as (vl & vl' & Hread & Hconcr_val & Hle_block).
     exists bo, ao, vl, vl', t ; repeat split ; auto.
     * constructor ; auto.
@@ -1703,13 +1820,13 @@ Proof.
       + apply sset_preserves_compatibility ; auto. 
         ++ unfold not_contains_loc. not_contains.
       + apply concr_state_write_at_addr ; auto ; [ by apply Concr_bot | idtac ].
-        admit.
+        eapply read_addr_spath_equiv_equiv ; eauto.
       + etransitivity ; eauto.
         eapply le_pl_write_at_addr_r ; eauto ; try reflexivity.
         eapply le_pl_write_at_addr ; try constructor ; eauto .
         apply le_block_poison. apply Forall2_length in Hle_block.
         apply lookup_heap_size in Hlu. congruence.
-Admitted.
+Qed.
         
 
 Lemma Rvalue_Preserves_PL_HLPL_Rel :
