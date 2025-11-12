@@ -527,8 +527,15 @@ Proof.
   - apply _get_at_accessor_add_abstraction_notin; assumption.
 Qed.
 
-Lemma sget_add_abstraction S i A p : ~in_abstraction i (fst p) -> (S,,, i |-> A).[p] = S.[p].
+Lemma sget_add_abstraction_notin S i A p : ~in_abstraction i (fst p) -> (S,,, i |-> A).[p] = S.[p].
 Proof. intros H. unfold sget. rewrite get_at_accessor_add_abstraction_notin; auto. Qed.
+
+Lemma sget_add_abstraction S i j A v p :
+  lookup j A = Some v -> (S,,, i |-> A).[(encode_abstraction (i, j), p)] = v.[[p]].
+Proof.
+  unfold sget. replace (fst _) with (encode_abstraction (i, j)) by reflexivity.
+  rewrite get_at_accessor_add_abstraction. intros ->. reflexivity.
+Qed.
 
 Lemma get_extra_add_abstraction S i A :
   get_extra (S,,, i |-> A) = (union (singleton i) (get_extra S)).
@@ -592,7 +599,7 @@ Proof. split; intros H; exact H. Qed.
 Hint Resolve-> fresh_abstraction_sset : spath.
 Hint Resolve-> fresh_abstraction_add_anon : spath.
 
-Hint Rewrite sget_add_abstraction using auto; fail : spath.
+Hint Rewrite sget_add_abstraction_notin using auto; fail : spath.
 Hint Rewrite sset_add_abstraction using auto with spath; fail : spath.
 
 Lemma abstractions_remove_abstraction_value S i j :
@@ -691,13 +698,57 @@ Proof.
   intros (? & (? & ?)%lookup_delete_Some & ?). split; [eexists | ]; eauto.
 Qed.
 
-Lemma remove_abstraction_value_not_contains P S i j :
+Lemma remove_abstraction_not_state_contains P S i j :
   not_state_contains P S -> not_state_contains P (remove_abstraction_value S i j).
 Proof.
   intros H ? (? & ?)%valid_spath_remove_abstraction_value. autorewrite with spath.
   apply H. assumption.
 Qed.
-Hint Resolve remove_abstraction_value_not_contains : spath.
+Hint Resolve remove_abstraction_not_state_contains : spath.
+
+(* TODO: move *)
+Lemma valid_spath_add_abstraction S i A sp :
+  valid_spath (S,,, i |->  A) sp -> ~in_abstraction i (fst sp) -> valid_spath S sp.
+Proof.
+  unfold not_in_abstraction. intros (v & H & ?) ?.
+  exists v. split; [ | assumption].
+  rewrite <-H, get_at_accessor_add_abstraction_notin; auto.
+Qed.
+
+(* TODO: name *)
+Lemma valid_spath_add_abstraction' S i A sp :
+  valid_spath S sp -> fresh_abstraction S i ->
+  valid_spath (S,,, i |-> A) sp /\ ~in_abstraction i (fst sp).
+Proof.
+  intros (v & get_v & ?) fresh_i. assert (~in_abstraction i (fst sp)).
+  { intros (j & Hj). rewrite Hj in get_v. rewrite get_at_abstraction, fresh_i in get_v.
+    discriminate. }
+  split; [ | assumption].
+  exists v. split; [ | assumption]. rewrite get_at_accessor_add_abstraction_notin; auto.
+Qed.
+
+Lemma not_state_contains_add_abstraction P S i A (fresh_i : fresh_abstraction S i) :
+  not_state_contains P (S,,, i |-> A) <->
+  (not_state_contains P S /\ map_Forall (fun _ => not_value_contains P) A).
+Proof.
+  split.
+  - intros H. split.
+    + intros p valid_p.
+      eapply valid_spath_add_abstraction' in valid_p; [ | exact fresh_i]. destruct valid_p.
+      erewrite <-sget_add_abstraction_notin; eauto.
+    + intros j v ? p valid_p.
+      specialize (H (encode_abstraction (i, j), p)).
+      erewrite sget_add_abstraction in H by eassumption. apply H.
+      exists v. split; [ | assumption].
+      etransitivity; [apply get_at_abstraction | ]. cbn. simpl_map. assumption.
+  - intros (H & G) p valid_p. destruct (decide (in_abstraction i (fst p))) as [(j & Hj) | ].
+    + destruct p. cbn in Hj. subst. destruct valid_p as (w & K & ?).
+      replace (fst _) with (encode_abstraction (i, j)) in K by reflexivity.
+      rewrite get_at_abstraction in K. cbn in K. simpl_map.
+      erewrite sget_add_abstraction; [ | exact K]. eapply G; eassumption.
+    + rewrite sget_add_abstraction_notin by assumption. apply H.
+      eapply valid_spath_add_abstraction; eassumption.
+Qed.
 
 (* Used to change a mutable borrow from borrow^m(l', v) to borrow^m(l, v). *)
 Notation rename_mut_borrow S sp l := (S.[sp <- borrow^m(l, S.[sp +++ [0] ])]).
@@ -2419,15 +2470,6 @@ Proof.
       eapply Eval_Deref_MutBorrow; eassumption.
 Qed.
 
-(* TODO: move *)
-Lemma valid_spath_add_abstraction S i A sp :
-  valid_spath (S,,, i |->  A) sp -> ~in_abstraction i (fst sp) -> valid_spath S sp.
-Proof.
-  unfold not_in_abstraction. intros (v & H & ?) ?.
-  exists v. split; [ | assumption].
-  rewrite <-H, get_at_accessor_add_abstraction_notin; auto.
-Qed.
-
 (* Suppose that Sl <= Sr (with a base case), and that p evaluates to a spath pi in Sr
    (Sr |-{p} p =>^{perm} pi).
    This tactic chooses the right lemmas to apply in order to prove that p reduces to a spath pi' in Sl, and generates facts about pi'.
@@ -2646,6 +2688,19 @@ Corollary add_anons_abstraction_element S S' A i j v :
   add_anons S A S' ->
   abstraction_element S i j = Some v -> abstraction_element S' i j = Some v.
 Proof. apply add_anons_get_at_accessor. Qed.
+
+Lemma is_fresh_add_anons S S' i A l :
+  fresh_abstraction S i -> is_fresh l (S,,, i |-> A) -> add_anons S A S' ->
+  is_fresh l S'.
+Proof.
+  intros fresh_i. rewrite not_state_contains_add_abstraction by exact fresh_i.
+  intros (H & G). rewrite add_anons_alt. induction 1 as [ | ? ? ? ? i'].
+  - assumption.
+  - apply IHadd_anons'.
+    + auto with spath.
+    + not_contains. specialize (G i'). simpl_map. apply G. reflexivity.
+    + eapply map_Forall_insert_1_2; eassumption.
+Qed.
 
 (* Note: this could be made into a tactic. *)
 Lemma prove_add_anons S0 A S1 :
@@ -3119,9 +3174,9 @@ Lemma not_in_borrow_add_abstraction S i A sp (H : ~in_abstraction i (fst sp)) :
 Proof.
   split.
   - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
-    rewrite sget_add_abstraction; assumption.
+    rewrite sget_add_abstraction_notin; assumption.
   - intros G ? ? K. eapply G; [ | exact K]. destruct K as (? & ? & <-).
-    rewrite sget_add_abstraction in *; assumption.
+    rewrite sget_add_abstraction_notin in *; assumption.
 Qed.
 
 Lemma not_in_borrow_remove_abstraction_value S i j sp :
@@ -4201,6 +4256,48 @@ Proof.
         eapply leq_n_step.
         { apply Leq_MergeAbs_n; eauto with spath. } { reflexivity. }
         reflexivity.
+    (* Case Leq_Fresh_MutLoan_n: *)
+    + apply eq_sset_add_anon_add_abstraction in EQN; [ | eauto with spath..].
+      destruct EQN as (S1 & -> & -> & ? & ?). autorewrite with spath in *.
+      apply valid_spath_add_abstraction in valid_sp; [ | eauto].
+      apply add_anons_remove_anon_sset in Hadd_anons; [ | assumption..].
+      destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
+      reorg_step.
+      { apply Reorg_end_abstraction; eauto with spath. }
+      reorg_done. eapply leq_n_step.
+      { apply Leq_Fresh_MutLoan_n with (sp := sp) (a := a) (l' := l').
+        all: autorewrite with spath; eauto with spath.
+        eapply is_fresh_add_anons; eassumption.
+        eapply add_anons_valid_spath; eassumption. }
+      { reflexivity. }
+      erewrite add_anons_sget by eassumption. reflexivity.
+    (* Case Leq_Reborrow_MutBorrow_n: *)
+    + apply eq_sset_add_anon_add_abstraction in EQN; [ | eauto with spath..].
+      destruct EQN as (S1 & -> & -> & ? & ?). autorewrite with spath in *.
+      apply add_anons_remove_anon_sset in Hadd_anons; [ | eauto with spath..].
+      destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
+      reorg_step.
+      { apply Reorg_end_abstraction; eauto with spath. }
+      reorg_done. eapply leq_n_step.
+      { apply Leq_Reborrow_MutBorrow_n with (sp := sp) (a := a) (l0 := l0) (l1 := l1).
+        all: autorewrite with spath; eauto with spath.
+        eapply is_fresh_add_anons; eassumption.
+        erewrite add_anons_sget; eauto with spath. }
+      { reflexivity. }
+      erewrite add_anons_sget by eauto with spath. reflexivity.
+    (* Case Leq_Abs_ClearValue_n: *)
+    + admit.
+    (* Case Leq_AnonValue_n: *)
+    + apply eq_add_anon_add_abstraction in EQN; [ | assumption..].
+      destruct EQN as (S1 & -> & -> & ? & ?).
+      apply add_anons_remove_anon in Hadd_anons; [ | assumption].
+      destruct Hadd_anons as (S'' & -> & ? & Hadd_anons).
+      reorg_step.
+      { eapply Reorg_end_abstraction; eassumption. }
+      reorg_done. eapply leq_n_step.
+      { eapply Leq_AnonValue_n. eassumption. }
+      { reflexivity. }
+      reflexivity.
 Admitted.
 
 Lemma reorg_preservation : forward_simulation leq leq reorg^* reorg^*.
