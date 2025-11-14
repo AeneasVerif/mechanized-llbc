@@ -1281,3 +1281,11 @@ Proof.
       rewrite insert_delete; assumption.
     + assumption.
 Qed.
+
+(* TODO: should be a part of std++ *)
+Lemma alter_insert_delete {K M A} `{FinMap K M} (m : M A) (k : K) (a : A) (f : A -> A) :
+  lookup k m = Some a -> alter f k m = insert k (f a) (delete k m).
+Proof.
+  intros G. apply map_eq. intros k'.
+  destruct (decide (k' = k)) as [-> | ]; simpl_map; reflexivity.
+Qed.
