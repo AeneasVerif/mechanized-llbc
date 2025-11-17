@@ -214,6 +214,12 @@ Proof.
   apply app_inv_head_iff in G. injection G. auto.
 Qed.
 
+Lemma not_vstrict_prefix_vdisj p q : vdisj p q -> ~vstrict_prefix p q.
+Proof.
+  intros (r' & p' & q' & i & j & diff & H & G) (r & n & <-). rewrite H, <-app_assoc in G.
+  apply app_inv_head_iff in G. injection G. auto.
+Qed.
+
 Lemma not_prefix_disj p q : disj p q -> ~prefix p q.
 Proof.
   intros [ | (? & ?)] (? & <-).
