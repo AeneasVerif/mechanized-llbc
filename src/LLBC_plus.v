@@ -360,7 +360,7 @@ Variant is_integer : LLBC_plus_nodes -> Prop :=
   | Integer_is_integer n : is_integer (LLBC_plus_intC n).
 
 (* << add_anons S A S' >> : when we end an abstraction region A, we need to add its values as anonymous
- * binding in a state S. The property << add_anons S A S' >> relates this state S and this 
+ * binding in a state S. The property << add_anons S A S' >> relates this state S and this
  * abstraction A to a state S' with anonymous bindings added. *)
 Variant add_anons : LLBC_plus_state -> Pmap LLBC_plus_val -> LLBC_plus_state -> Prop :=
   | AddAnons S A anons' : union_maps (anons S) A anons' ->
@@ -562,6 +562,9 @@ Qed.
 
 Definition equiv_states S0 S1 :=
   exists perm, is_state_equivalence perm S0 /\ S1 = apply_state_permutation perm S0.
+
+Definition equiv_val_state (vS0 vS1 : LLBC_plus_val * LLBC_plus_state) :=
+  fst vS0 = fst vS1 /\ equiv_states (snd vS0) (snd vS1).
 
 (* An alternative definition. *)
 Definition equiv_states' (S0 S1 : LLBC_plus_state) :=
@@ -2936,6 +2939,23 @@ Ltac eval_place_preservation :=
         destruct Heval as (? & (-> & ?) & eval_p_in_Sl)
   end.
 
+Lemma eval_place_permutation S permission P sp permutation
+  (valid_permutation : is_state_equivalence permutation S) :
+  S |-{p} P =>^{permission} sp ->
+  apply_state_permutation permutation S |-{p} P =>^{permission} permutation_spath permutation sp.
+Proof.
+  intros ((v & get_v & _) & H). split.
+  { exists v. split; [ | constructor]. rewrite fst_pair, get_at_var in *. exact get_v. }
+  remember (encode_var (fst P), []) as sp0 eqn:EQN.
+  replace sp0 with (permutation_spath permutation sp0)
+    by (unfold permutation_spath; now rewrite EQN, fst_pair, perm_at_var).
+  clear EQN get_v. induction H.
+  - constructor.
+  - econstructor; [ | eassumption]. destruct Heval_proj.
+    + rewrite <-permutation_spath_app. eapply Eval_Deref_MutBorrow; [assumption | ].
+      autorewrite with spath. eassumption.
+Qed.
+
 (** ** Simulation proofs for operand evaluation. *)
 Ltac leq_step_left :=
   let a := fresh "a" in
@@ -3171,6 +3191,27 @@ Proof.
       { reflexivity. }
       reflexivity.
 Abort.
+
+Lemma operand_preserves_equiv op :
+  forward_simulation equiv_states equiv_val_state (eval_operand op) (eval_operand op).
+Proof.
+  intros S0 S1 Heval S'0 Hequiv. destruct Heval.
+  - execution_step. { constructor. } split; auto.
+  - symmetry in Hequiv. destruct Hequiv as (? & ? & ->).
+    assert (valid_spath S pi) by eauto with spath.
+    eapply eval_place_permutation in Heval_place; [ | eassumption].
+    execution_step.
+    { econstructor. eassumption. autorewrite with spath. eassumption. }
+    split; [reflexivity | ]. symmetry. eexists. eauto.
+  - symmetry in Hequiv. destruct Hequiv as (? & ? & ->).
+    assert (valid_spath S pi) by eauto with spath.
+    eapply eval_place_permutation in Heval; [ | eassumption].
+    execution_step.
+    { econstructor. eassumption. all: autorewrite with spath; assumption. }
+    split; [now autorewrite with spath | ].
+    symmetry. eexists. autorewrite with spath. eauto with spath.
+Qed.
+
 
 (** ** Simulation proofs for reorganizations. *)
 Notation node_measure n :=
