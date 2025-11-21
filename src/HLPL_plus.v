@@ -713,7 +713,7 @@ Proof.
                                          (sp_borrow := (anon_accessor a, q)).
           eauto with spath. all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
-        eapply reflexive_eq. states_eq.
+        states_eq.
       (* Case 2: the mutable borrow we're transforming to a pointer is disjoint to the moved value.
        *)
       * assert (disj pi sp_borrow) by reduce_comp.
@@ -723,7 +723,7 @@ Proof.
         { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
           assumption. all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
-        apply reflexive_eq. states_eq.
+        states_eq.
 Admitted.
 
 (* TODO: move in base.v *)
@@ -819,7 +819,7 @@ Proof.
         leq_step_right.
          { apply Leq_MutBorrow_To_Ptr. eassumption. all: autorewrite with spath; eassumption. }
          { autorewrite with spath. reflexivity. }
-        apply reflexive_eq. states_eq.
+        states_eq.
       (* Case 2: *)
       * assert (disj sp_loan pi) by reduce_comp.
         destruct (decidable_prefix pi sp_borrow) as [(r & <-) | ].
@@ -830,7 +830,7 @@ Proof.
            { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := pi +++ [0] ++ r).
              auto with spath. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
         -- assert (disj sp_borrow pi) by reduce_comp.
            execution_step.
            { apply Eval_pointer_no_loc with (l := l). eassumption.
@@ -839,7 +839,7 @@ Proof.
            { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
 Admitted.
 
 Lemma well_formed_state_value_implies_well_formed_state v S :
@@ -1064,7 +1064,7 @@ Proof.
       leq_step_right.
       { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
         assumption. all: autorewrite with spath; eassumption. }
-      apply reflexive_eq. states_eq.
+      states_eq.
     + assert (valid_sp_borrow : valid_spath (Sr,, a |-> vr) sp_borrow) by validity.
       apply valid_spath_add_anon_cases in valid_sp_borrow.
       destruct valid_sp_borrow as [(_ & valid_sp_borrow) | (? & _)];
@@ -1093,7 +1093,7 @@ Proof.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                                 (sp_borrow := (anon_accessor a, r_borrow)).
                 eauto with spath. all: autorewrite with spath; eassumption. }
-              apply reflexive_eq. states_eq.
+              states_eq.
         (* Case 3: the borrow is disjoint from the place we write in. *)
         -- assert (disj sp sp_borrow) by reduce_comp.
            destruct (decidable_prefix sp sp_loan) as [(r_loan & <-) | ].
@@ -1105,7 +1105,7 @@ Proof.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := (anon_accessor a, r_loan))
                                                 (sp_borrow := sp_borrow).
                 eauto with spath. all: autorewrite with spath; eassumption. }
-              apply reflexive_eq. states_eq.
+              states_eq.
           (* Case 3b: the loan is disjoint to the place we write in. *)
            ++ assert (disj sp sp_loan) by reduce_comp.
               execution_step.
@@ -1114,7 +1114,7 @@ Proof.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
                                                 (sp_borrow := sp_borrow).
                 auto with spath. all: autorewrite with spath; eassumption. }
-              apply reflexive_eq. states_eq.
+              states_eq.
       (* Case 4: the borrow is inside the evaluated value. *)
       * destruct sp_borrow as (i & q). replace (fst (i, q)) with i in * |- by reflexivity. subst i.
         autorewrite with spath in HS_borrow.
@@ -1138,7 +1138,7 @@ Proof.
            leq_step_right.
            { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp +++ q).
              auto with spath. all: autorewrite with spath; eassumption. }
-           apply reflexive_eq. states_eq.
+           states_eq.
 Qed.
 
 Lemma store_preserves_well_formedness p vS S' :
@@ -1225,7 +1225,7 @@ Proof.
           { eapply no_mut_loan_ptr. eassumption. rewrite HS_loan. reflexivity. }
           autorewrite with spath. not_contains. }
         reorg_done.
-        apply reflexive_eq. states_eq.
+        states_eq.
       * assert (q <> sp_borrow) by congruence.
         assert (~strict_prefix sp_borrow q). { apply H3. rewrite HS_borrow. constructor. }
         assert (disj p sp_loan) by reduce_comp.
@@ -1243,7 +1243,7 @@ Proof.
            leq_step_right.
            { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ r).
              auto with spath. all: autorewrite with spath; eassumption. }
-           apply reflexive_eq. states_eq.
+           states_eq.
         -- assert (disj q sp_borrow) by reduce_comp.
            destruct (decidable_prefix sp_borrow p).
            (* Case 3: the loan that we end is is the borrow that we turn into a pointer. *)
@@ -1258,7 +1258,7 @@ Proof.
               leq_step_right.
               { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                 assumption. all: autorewrite with spath; eassumption. }
-              apply reflexive_eq. states_eq.
+              states_eq.
            (* Case 4: the loan that we end is disjoint from the borrow that we turn into a pointer.
            *)
            ++ assert (disj sp_borrow p) by reduce_comp.
@@ -1270,7 +1270,7 @@ Proof.
               leq_step_right.
               { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                 assumption. all: autorewrite with spath; eassumption. }
-              apply reflexive_eq. states_eq.
+              states_eq.
   - intros ? Hle. destruct Hle.
     + destruct (decidable_prefix sp_borrow p).
       * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by eauto with spath.
@@ -1282,7 +1282,7 @@ Proof.
         leq_step_right.
         { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
           assumption. all: autorewrite with spath; eassumption. }
-        apply reflexive_eq. states_eq.
+        states_eq.
       * assert (disj sp_borrow p) by reduce_comp.
         assert (disj sp_loan p) by reduce_comp.
         reorg_step.
@@ -1291,7 +1291,7 @@ Proof.
         leq_step_right.
          { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
            assumption. all: autorewrite with spath; eassumption. }
-        apply reflexive_eq. states_eq.
+        states_eq.
   - intros ? Hle. destruct Hle.
     + assert (l <> l0).
       { intros <-. eapply no_mut_loan_loc; [ eassumption.. | | symmetry; eassumption].
@@ -1307,7 +1307,7 @@ Proof.
         leq_step_right.
         { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
           assumption. all: autorewrite with spath; eassumption. }
-        apply reflexive_eq. states_eq.
+        states_eq.
       * destruct (decidable_prefix p sp_borrow).
         -- assert (prefix (p +++ [0]) sp_borrow) as (q & <-) by eauto with spath.
            destruct (decidable_prefix p sp_loan).
@@ -1339,7 +1339,7 @@ Proof.
               leq_step_right.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ q).
                 auto with spath. all: autorewrite with spath; eassumption. }
-              apply reflexive_eq. states_eq.
+              states_eq.
         -- assert (disj p sp_borrow) by reduce_comp.
            destruct (decidable_prefix p sp_loan).
            (* Case 4: the loan we turn into a location is in the location we end, but the borrow we
@@ -1355,7 +1355,7 @@ Proof.
               leq_step_right.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := sp_borrow).
                 eauto with spath. all: autorewrite with spath; eassumption. }
-              apply reflexive_eq. states_eq.
+              states_eq.
            (* Case 5: the loan and the borrow we turn into a location and a pointer are in the loc
             * we end. *)
            ++ assert (disj p sp_loan) by reduce_comp.
@@ -1368,7 +1368,7 @@ Proof.
               leq_step_right.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                 assumption. all: autorewrite with spath; eassumption. }
-              apply reflexive_eq. states_eq.
+              states_eq.
 Qed.
 
 Lemma stmt_preserves_well_formedness S s r S' :

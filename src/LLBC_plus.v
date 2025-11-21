@@ -3065,7 +3065,7 @@ Proof.
         { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
           all: autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
-        apply reflexive_eq. states_eq.
+        states_eq.
 
       (* Case 2: the value we turn into a symbolic value is disjoint to the place we move. *)
       * assert (disj sp pi) by reduce_comp.
@@ -3075,7 +3075,7 @@ Proof.
         { apply Leq_ToSymbolic with (sp := sp) (n := n).
           all: autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
-        apply reflexive_eq. states_eq.
+        states_eq.
 
     (* Leq-ToAbs *)
     + eval_place_preservation.
@@ -3112,7 +3112,7 @@ Proof.
        { apply Leq_MoveValue with (sp := sp) (a := a).
          all: autorewrite with spath; eauto 7 with spath. }
        { autorewrite with spath. reflexivity. }
-      apply reflexive_eq. states_eq.
+      states_eq.
 
     (* Leq-MergeAbs *)
     + eval_place_preservation.
@@ -3141,7 +3141,7 @@ Proof.
         apply not_state_contains_add_anon. not_contains. not_contains.
         eassumption. autorewrite with spath. validity. assumption. }
       { autorewrite with spath. reflexivity. }
-      apply reflexive_eq. states_eq.
+      states_eq.
 
     (* Leq-Reborrow-MutBorrow *)
     + apply eval_place_Reborrow_MutBorrow in Heval; [ | exact get_borrow_l0].
@@ -3211,7 +3211,6 @@ Proof.
     split; [now autorewrite with spath | ].
     symmetry. eexists. autorewrite with spath. eauto with spath.
 Qed.
-
 
 (** ** Simulation proofs for reorganizations. *)
 Notation node_measure n :=
@@ -3755,13 +3754,13 @@ Proof.
         eapply leq_n_step.
         { eapply Leq_ToSymbolic_n with (sp := p +++ r). autorewrite with spath. eassumption. }
         { reflexivity. }
-        apply reflexive_eq. states_eq.
+        states_eq.
       * assert (disj sp q). reduce_comp.
         reorg_done.
         eapply leq_n_step.
         { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
         { constructor. }
-        apply reflexive_eq. states_eq.
+        states_eq.
     (* Case Leq_ToAbs_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_end_borrow_m with (p := p) (q := q).
@@ -3806,7 +3805,7 @@ Proof.
            { eapply Leq_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
              not_contains_outer. assumption. not_contains. assumption. assumption. }
            { reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
       * rewrite sget_add_anon in get_loan by assumption.
         assert (disj sp p). reduce_comp.
         destruct (decide (fst q = anon_accessor a)).
@@ -3819,7 +3818,7 @@ Proof.
            { eapply Leq_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
              not_contains_outer. assumption. not_contains. assumption. assumption. }
            { reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
         (* Case 4: neither the borrow nor the loan is in the value we move. *)
         -- rewrite sget_add_anon in * by eassumption.
            assert (~prefix sp q) by eauto with spath. autorewrite with spath in get_borrow.
@@ -3833,7 +3832,7 @@ Proof.
            { eapply Leq_MoveValue_n with (sp := sp) (a := a).
              all: autorewrite with spath; try assumption. validity. }
            { reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
     (* Case Leq_MergeAbs_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_end_borrow_m with (p := p) (q := q); autorewrite with spath; eassumption. }
@@ -3877,7 +3876,7 @@ Proof.
            { eapply Leq_Fresh_MutLoan_n with (sp := sp) (l' := l') (a := a).
              not_contains. eauto with spath. validity. eauto with spath. }
            { reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
         (* Case 3: the loan we end is disjoint from the anonymous binding a, containing the
            value of the newly introduced loan. *)
         -- autorewrite with spath in *.
@@ -3892,7 +3891,7 @@ Proof.
            { eapply Leq_Fresh_MutLoan_n with (sp := sp) (l' := l') (a := a).
              not_contains. eauto with spath. validity. assumption. }
            { reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
     (* Case Leq_Reborrow_MutBorrow_n: *)
     + (* The pointer we end cannot be in the anonymous binding a, because it contains a loan. *)
       assert (fst q <> anon_accessor a).
@@ -3941,13 +3940,13 @@ Proof.
            { apply Leq_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := p +++ r).
              not_contains. eauto with spath. autorewrite with spath. eassumption. assumption. }
            { reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
            (* Case 2b: the renamed borrow is disjoint from the from the ended borrow. *)
         -- assert (disj sp q) by reduce_comp. autorewrite with spath. eapply leq_n_step.
            { apply Leq_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := sp).
              not_contains. eauto with spath. autorewrite with spath. eassumption. assumption. }
            { reflexivity. }
-           apply reflexive_eq. states_eq.
+           states_eq.
     (* Case Leq_Abs_ClearValue_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_end_borrow_m with (p := p) (q := q); eassumption. }
@@ -4008,7 +4007,7 @@ Proof.
         reorg_done. eapply leq_n_step.
         { eapply Leq_ToSymbolic_n with (sp := sp). autorewrite with spath. eassumption. }
         { reflexivity. }
-        apply reflexive_eq. states_eq.
+        states_eq.
     (* Case Leq_ToAbs_n: *)
     + autorewrite with spath in * |-.
       destruct (decide (i' = i)) as [<- | ].
@@ -4080,7 +4079,7 @@ Proof.
         { apply Leq_MoveValue_n with (sp := sp) (a := a).
           all: autorewrite with spath; eauto with spath. }
         { reflexivity. }
-        apply reflexive_eq. states_eq.
+        states_eq.
     (* Case Leq_MergeAbs_n: *)
     + destruct (decide (i = i')) as [<- | ].
       * autorewrite with spath in *.
@@ -4134,7 +4133,7 @@ Proof.
       { apply Leq_Fresh_MutLoan_n with (l' := l') (a := a) (sp := sp); eauto with spath.
         not_contains. }
       { reflexivity. }
-      apply reflexive_eq. states_eq.
+      states_eq.
     (* Case Leq_Reborrow_MutBorrow_n: *)
     + assert (fst q <> anon_accessor a).
       { eapply not_in_borrow_add_borrow_anon; [eassumption | ].
@@ -4160,7 +4159,7 @@ Proof.
       { apply Leq_Reborrow_MutBorrow_n with (l0 := l0) (l1 := l1) (a := a) (sp := sp).
         not_contains. eauto with spath. autorewrite with spath. assumption. assumption. }
       { reflexivity. }
-      apply reflexive_eq. states_eq.
+      states_eq.
     (* Case Leq_Abs_ClearValue_n: *)
     + autorewrite with spath in * |-. destruct get_loan.
       reorg_step.

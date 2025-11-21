@@ -1979,8 +1979,9 @@ Proof. intros. validity. Qed.
 
 (* When we want to prove an equality of the form Sl = Sr.[p <- v] or Sl = Sr.[p +++ q <- v],
    we perform commutations so that all of the writes [p <- v] or [p +++ r <- v] are at the end.
+   We also reorder anonymous bindings.
  *)
-Ltac commute_ssets :=
+Ltac perform_commutation :=
   lazymatch goal with
   | |- _ = _.[?p +++ ?q <- _] =>
     lazymatch goal with
@@ -1994,6 +1995,8 @@ Ltac commute_ssets :=
     | |- context [ _.[p +++ ?q <- _].[_ <- _] ] =>
       rewrite (sset_twice_disj_commute _ (p +++ q)) by eauto with spath
     end
+  | |- ?Sl,, ?a |-> _,, ?b |-> _ = ?Sr,, ?a |-> _ =>
+      rewrite (add_anon_commute Sl a b) by congruence
   end
 .
 
@@ -2002,6 +2005,7 @@ Ltac commute_ssets :=
  * S.[p0 <- v0] ... .[pm <- vm] = S.[q0 <- w0] ... .[qn <- vn]
  *)
 Ltac states_eq :=
+  apply reflexive_eq;
   autorewrite with spath;
   (* In case we want to prove equality between pairs (v, S), we prove the equality between the
    * values by reflexivity, and leave as a goal the proof of equality between the states. *)
@@ -2009,7 +2013,7 @@ Ltac states_eq :=
   | |- (_, _) = (_, _) => refine (proj2 (pair_equal_spec _ _ _ _) _); split; [reflexivity | ]
   | _ => idtac
   end;
-  repeat (repeat (commute_ssets; autorewrite with spath); f_equal)
+  repeat (repeat (perform_commutation; autorewrite with spath); f_equal)
 .
 
 (* Note: not really maintained. *)
