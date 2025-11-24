@@ -351,7 +351,7 @@ Qed.
 Lemma decide_not_contains_outer_loan_correct v :
   is_true (decide_not_contains_outer_loan v) -> not_contains_outer_loan v.
 Proof.
-  intros no_outer_loan [ | ] H.
+  intros no_outer_loan [ | ] _ H.
   - destruct v; inversion H. discriminate.
   - destruct v; rewrite vget_cons, ?nth_error_nil, ?vget_bot in H; inversion H.
     exists []. split.

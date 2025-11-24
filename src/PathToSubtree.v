@@ -1304,7 +1304,7 @@ Section GetSetPath.
     forall p, valid_spath S p -> ~P (get_node (S.[p])).
 
   Definition not_contains_outer (is_mut_borrow P : nodes -> Prop) v :=
-    forall p, P (get_node (v.[[p]]))
+    forall p, valid_vpath v p -> P (get_node (v.[[p]]))
     -> exists q, vstrict_prefix q p /\ is_mut_borrow (get_node (v.[[q]])).
 
   Lemma not_value_contains_not_prefix P (S : state) p q
@@ -1580,35 +1580,66 @@ Section GetSetPath.
     eapply not_contains; [ | exact G]. apply valid_spath_app. split; assumption.
   Qed.
 
-  Lemma not_contains_outer_sset_no_contains is_mut_borrow P v p w :
-    not_contains_outer is_mut_borrow P v -> not_value_contains P w
-    -> (forall v, P v -> v <> get_node bot)
+  Lemma not_contains_implies_not_contains_outer v P is_mut_borrow :
+    not_value_contains P v -> not_contains_outer is_mut_borrow P v.
+  Proof. intros Hnot_contains ? ? ?. exfalso. eapply Hnot_contains; eassumption. Qed.
+
+  Lemma not_contains_outer_vset is_mut_borrow P v p w :
+    not_contains_outer is_mut_borrow P v -> not_contains_outer is_mut_borrow P w
     -> not_contains_outer is_mut_borrow P (v.[[p <- w]]).
   Proof.
-    intros Hv Hw Pnot_bot. destruct (valid_or_invalid p v).
-    - intros q Hq. destruct (decidable_vprefix p q) as [(r & <-) | not_prefix].
-      + exfalso.
-        rewrite vset_vget_prefix_right in Hq by assumption. eapply Hw; [ | eassumption].
-        apply get_not_bot_valid_vpath. intro wr. apply (Pnot_bot _ Hq). rewrite wr. reflexivity.
+    intros Hv Hw. destruct (valid_or_invalid p v).
+    - intros q valid_q Hq. destruct (decidable_vprefix p q) as [(r & <-) | not_prefix].
+      + rewrite vset_vget_prefix_right in Hq by assumption.
+        apply valid_vpath_app in valid_q. destruct valid_q as (_ & valid_q).
+        rewrite vset_vget_equal in valid_q by assumption.
+        apply Hw in Hq; [ | assumption]. destruct Hq as (q & (? & ? & <-) & Hq).
+        exists (p ++ q). split.
+        * eexists _, _. rewrite !app_assoc. reflexivity.
+        * rewrite vset_vget_prefix_right by assumption. assumption.
       + destruct (Hv q) as (r & ? & ?).
-        * rewrite get_node_vset_vget_not_prefix in Hq; assumption.
-        * exists r. split; [assumption | ]. rewrite get_node_vset_vget_not_prefix.
-          assumption. intro. apply not_prefix. transitivity r; auto with spath.
+        * eapply vset_not_prefix_valid_rev; [ | exact valid_q].
+          eapply not_vprefix_implies_not_vstrict_prefix; eassumption.
+        * rewrite get_node_vset_vget_not_prefix in Hq by assumption. exact Hq.
+        * exists r. split; [assumption | ].
+          rewrite get_node_vset_vget_not_prefix; [assumption | ].
+          intro. apply not_prefix. transitivity r; auto with spath.
     - rewrite vset_invalid by assumption. assumption.
   Qed.
 
-  Lemma not_contains_outer_sset_in_borrow is_mut_borrow P v p w :
+  Lemma not_contains_outer_sset_no_contains is_mut_borrow P S v p q :
+    not_contains_outer is_mut_borrow P (S.[q <- v].[p]) ->
+    not_contains_outer is_mut_borrow P (S.[q]) ->
+    ~strict_prefix q p ->
+    not_contains_outer is_mut_borrow P (S.[p]).
+  Proof.
+    intros G ? ?. destruct (decidable_valid_spath S p).
+    - destruct (decidable_prefix p q) as [(r & <-) | ].
+      + rewrite sset_sget_prefix in G by assumption.
+        erewrite <-(vset_same _ r), <-vset_twice_equal, <-sget_app.
+        apply not_contains_outer_vset; eassumption.
+      + assert (disj p q)
+          by auto using prove_disj, neq_implies_not_prefix, not_prefix_implies_not_strict_prefix.
+        rewrite sset_sget_disj in G by (symmetry; assumption).
+        assumption.
+    - rewrite sget_invalid by assumption. rewrite sget_invalid in G; [exact G | ].
+      rewrite <-sset_not_prefix_valid; assumption.
+  Qed.
+
+  Lemma not_contains_outer_vset_in_borrow is_mut_borrow P v p w :
     not_contains_outer is_mut_borrow P v
     -> (exists q, vstrict_prefix q p /\ is_mut_borrow (get_node (v.[[q]])))
     -> not_contains_outer is_mut_borrow P (v.[[p <- w]]).
   Proof.
     intros Hv (q & strict_prefix & ?). destruct (valid_or_invalid p v).
-    - intros r Hr. destruct (decidable_vprefix p r) as [(r' & <-) | not_prefix].
+    - intros r ? Hr. destruct (decidable_vprefix p r) as [(r' & <-) | not_prefix].
       + exists q.
         split.
         * destruct strict_prefix as (i & ? & <-). eexists i, _. rewrite<- app_assoc. reflexivity.
         * rewrite get_node_vset_vget_not_prefix by auto with spath. assumption.
       + destruct (Hv r) as (q' & ? & ?).
+        * eapply vset_not_prefix_valid_rev; [ | eassumption].
+          eapply not_vprefix_implies_not_vstrict_prefix; eassumption.
         * rewrite get_node_vset_vget_not_prefix in Hr; assumption.
         * exists q'. split; [assumption | ]. rewrite get_node_vset_vget_not_prefix.
           assumption. intro. apply not_prefix. transitivity q'; auto with spath.
@@ -2119,38 +2150,6 @@ Hint Extern 3 (~prefix ?p ?q) =>
     simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | validity]
   end : spath.
 Hint Resolve not_value_contains_not_prefix' : spath.
-
-(* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
-   This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
-(* TODO: this should not be a tactic, this should be solved with auto/eauto *)
-Ltac not_contains0 :=
-  try assumption;
-  match goal with
-  | |- True => auto
-  | |- not_state_contains ?P (?S,, ?a |-> ?v) =>
-      simple apply not_state_contains_add_anon; not_contains0
-  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
-      simple apply not_state_contains_sset;
-      not_contains0
-  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
-      simple apply not_value_contains_sset_disj;
-        [auto with spath; fail | not_contains0]
-  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
-      simple apply not_value_contains_sset;
-       [ not_contains0 | not_contains0 | validity0]
-  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
-      simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
-      validity0
-  | |- not_value_contains ?P (?v.[[?p <- ?w]]) =>
-      simple apply not_value_contains_vset; not_contains0
-  | |- not_value_contains ?P (?S.[?p]) => idtac
-  | |- not_value_contains ?P ?v =>
-      simple apply not_value_contains_zeroary; [reflexivity | ]
-  | |- not_value_contains ?P ?v =>
-      simple eapply not_value_contains_unary; [reflexivity | | not_contains0]
-  | |- _ => idtac
-  end.
-Ltac not_contains := not_contains0; eauto with spath.
 
 (* Populating the "weight" rewrite database: *)
 (* These hints turn operations on naturals onto operations on relatives, so to rewrite

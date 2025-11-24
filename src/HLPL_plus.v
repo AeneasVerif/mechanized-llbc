@@ -279,8 +279,38 @@ Notation not_contains_outer_loc := (not_contains_outer is_mut_borrow is_loc).
 
 Notation not_in_borrow := (no_ancestor is_mut_borrow).
 
-Lemma loc_is_not_bot x : is_loc x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
-Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
+(* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
+   This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
+(* Note: Can we remove the automatic rewriting out of this tactic? *)
+(* TODO: precise the "workflow" of this tactic. *)
+Ltac not_contains0 :=
+  try assumption;
+  match goal with
+  | |- True => auto
+  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
+      simple apply not_state_contains_sset;
+      not_contains0
+  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
+      simple apply not_value_contains_sset_disj;
+        [auto with spath; fail | not_contains0]
+  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
+      simple apply not_value_contains_sset;
+       [ not_contains0 | not_contains0 | validity0]
+  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
+      validity0
+  | |- not_value_contains ?P (?v.[[?p <- ?w]]) =>
+      simple apply not_value_contains_vset; not_contains0
+  | |- not_value_contains ?P (?S.[?p]) => idtac
+
+  | |- not_value_contains ?P ?v =>
+      simple apply not_value_contains_zeroary; [reflexivity | ]
+  | |- not_value_contains ?P ?v =>
+      simple eapply not_value_contains_unary; [reflexivity | | not_contains0]
+  | |- _ => idtac
+  end.
+Ltac not_contains := not_contains0; eauto with spath.
+
 Ltac not_contains_outer :=
   (* The values we use this tactic on are of the form
      (S,, Anon |-> v) (.[ sp <- v])* .[sp]
@@ -292,14 +322,16 @@ Ltac not_contains_outer :=
   | |- not_contains_outer _ ?P (?v.[[?p <- ?w]]) =>
       let H := fresh "H" in
       assert (H : not_value_contains P w) by auto with spath;
-      apply not_contains_outer_sset_no_contains;
-        [not_contains_outer | exact H | exact loc_is_not_bot || exact loan_is_not_bot]
+      eapply not_contains_implies_not_contains_outer in H;
+      apply not_contains_outer_vset;
+        [not_contains_outer | exact H]
   | no_outer_loan : not_contains_outer_loan (?S.[?q]),
     loan_at_q : get_node (?S.[?q +++ ?p]) = loanC^m(?l)
     |- not_contains_outer _ ?P (?S.[?q].[[?p <- ?w]]) =>
-    apply not_contains_outer_sset_in_borrow;
+    apply not_contains_outer_vset_in_borrow;
      [ not_contains_outer |
-       apply no_outer_loan; rewrite<- (sget_app S q p), loan_at_q; constructor ]
+       apply no_outer_loan;
+         [ validity | rewrite<- (sget_app S q p), loan_at_q; constructor] ]
   | |- not_contains_outer _ _ _ =>
       idtac
   end.

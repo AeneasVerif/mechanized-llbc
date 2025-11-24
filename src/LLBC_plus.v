@@ -305,28 +305,48 @@ Variant is_mut_borrow : LLBC_plus_nodes -> Prop :=
 | IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
 Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 
-Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
+(* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
+   This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
+(* Note: Can we remove the automatic rewriting out of this tactic? *)
+(* TODO: precise the "workflow" of this tactic. *)
+Ltac not_contains0 :=
+  try assumption;
+  autounfold with spath in *;
+  lazymatch goal with
+  | |- not_state_contains ?P (?S,, ?a |-> ?v) =>
+      simple apply not_state_contains_add_anon
+  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
+      simple apply not_state_contains_sset
+  | H : not_value_contains ?P (?S.[?q <- ?v].[?p]) |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_value_contains_sset_rev _ _ _ _ _ H); [ | validity]
+  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
+      validity0
+  | H : get_node (?S.[?p]) = _ |- not_value_contains ?P (?S.[?p]) =>
+      simple apply not_value_contains_zeroary; rewrite H; [reflexivity | ]
+  | |- not_value_contains ?P (?S.[?p]) => idtac
+
+  | |- not_value_contains ?P ?v =>
+      first [
+        apply not_value_contains_zeroary; [reflexivity | ] |
+        eapply not_value_contains_unary; [reflexivity | | ]
+      ]
+  end.
+Ltac not_contains := repeat not_contains0; eauto with spath.
+
+(* TODO: document. *)
 Ltac not_contains_outer :=
-  (* The values we use this tactic on are of the form
-     (S,, Anon |-> v) (.[ sp <- v])* .[sp]
-     where the path sp we read is a path of S. We first do some rewritings to commute
-     the read with the writes and the addition of the anonymous value. *)
   autorewrite with spath;
   try assumption;
-  match goal with
+  lazymatch goal with
   | |- not_contains_outer _ ?P (?v.[[?p <- ?w]]) =>
-      let H := fresh "H" in
-      assert (H : not_value_contains P w) by not_contains;
-      apply not_contains_outer_sset_no_contains;
-        [not_contains_outer | exact H | exact loan_is_not_bot]
-        (*
-  | no_outer_loan : not_contains_outer_loan (?S.[?q]),
-    loan_at_q : get_node (?S.[?q +++ ?p]) = loanC^m(?l)
-    |- not_contains_outer _ ?P (?S.[?q].[[?p <- ?w]]) =>
-    apply not_contains_outer_sset_in_borrow;
-     [ not_contains_outer |
-       apply no_outer_loan; rewrite<- (sget_app S q p), loan_at_q; constructor ]
-         *)
+      apply not_contains_outer_vset; not_contains_outer
+  | no_outer : not_contains_outer _ ?P (?S.[?q <- ?v].[?p])
+    |- not_contains_outer _ ?P (?S.[?p]) =>
+      eapply not_contains_outer_sset_no_contains;
+        [exact no_outer | not_contains_outer | eauto with spath]
+  | |- not_contains_outer _ _ _ =>
+      apply not_contains_implies_not_contains_outer; not_contains; fail
   | |- not_contains_outer _ _ _ =>
       idtac
   end.
@@ -3048,19 +3068,12 @@ Proof.
   - destruct Hle.
     (* Leq-ToSymbolic *)
     + eval_place_preservation.
+      execution_step.
+      { constructor. eassumption. not_contains. not_contains. }
       destruct (decidable_prefix pi sp) as [(q & <-) | ].
 
       (* Case 1: the value we turn into a symbolic value is in the place we move. *)
       * autorewrite with spath in * |-.
-        execution_step.
-        { constructor. eassumption.
-          (* TODO: automatize *)
-          eapply not_value_contains_vset_rev with (p := q).
-          autorewrite with spath.
-          eapply not_value_contains_zeroary; rewrite get_int; easy. eassumption.
-          eapply not_value_contains_vset_rev with (p := q).
-          autorewrite with spath.
-          eapply not_value_contains_zeroary; rewrite get_int; easy. eassumption. }
         leq_step_left.
         { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
           all: autorewrite with spath; assumption. }
@@ -3070,7 +3083,6 @@ Proof.
       (* Case 2: the value we turn into a symbolic value is disjoint to the place we move. *)
       * assert (disj sp pi) by reduce_comp.
         autorewrite with spath in * |-.
-        execution_step. { apply Eval_move; eassumption. }
         leq_step_left.
         { apply Leq_ToSymbolic with (sp := sp) (n := n).
           all: autorewrite with spath; assumption. }
@@ -3745,9 +3757,7 @@ Proof.
       autorewrite with spath in *. (* TODO: takes a bit of time. *)
       reorg_step.
       (* TODO: automatize *)
-      { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption.
-        eapply not_value_contains_sset_rev. eassumption.
-        apply not_value_contains_zeroary; rewrite get_int; easy. validity. }
+      { eapply Reorg_end_borrow_m with (p := p) (q := q); try eassumption. not_contains. }
       destruct (decidable_prefix (q +++ [0]) sp) as [(r & <-) | ].
       * autorewrite with spath in *.
         reorg_done.
@@ -3911,11 +3921,7 @@ Proof.
         { rewrite sget_app in Hno_loan. destruct (S.[q]); inversion get_borrow_l0.
           eapply not_value_contains_unary; eauto with spath. }
         eapply leq_n_step.
-        { apply Leq_MoveValue_n with (sp := q) (a := a).
-          (* We are just showing that not_contains_loan -> no_outer_loan.
-             TODO: lemmma. *)
-          intros ? ?. exfalso. eapply Hno_loan'; [ | eassumption].
-          validity. apply is_loan_valid. rewrite sget_app. assumption.
+        { apply Leq_MoveValue_n with (sp := q) (a := a). not_contains_outer.
           assumption. validity. assumption. assumption. }
         { reflexivity. }
         rewrite sget_app. destruct (S.[q]); inversion get_borrow_l0. reflexivity.
@@ -4582,7 +4588,7 @@ Qed.
 Lemma decide_not_contains_outer_loan_correct v :
   is_true (decide_not_contains_outer_loan v) -> not_contains_outer_loan v.
 Proof.
-  intros no_outer_loan [ | ] H.
+  intros no_outer_loan [ | ] _ H.
   - destruct v; inversion H. discriminate.
   - destruct v; rewrite vget_cons, ?nth_error_nil, ?vget_bot in H; inversion H.
     exists []. split.
