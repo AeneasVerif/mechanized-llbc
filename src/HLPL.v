@@ -189,6 +189,17 @@ Proof.
   - inversion Hvp ; subst. simpl in *. rewrite nth_error_nil in H2. easy.
 Qed.
 
+Lemma valid_vpath_loc (vp : vpath) (v : HLPL_val) : 
+  forall l,
+  valid_vpath (HLPL_loc l v) vp ->
+  (vp = []) \/ (exists vp', vp = 0 :: vp' ).
+Proof.
+  intros ? Hvp. destruct vp as [ _ | [ | n' ] vp' ].
+  - left; reflexivity.
+  - right. exists vp'; reflexivity.
+  - inversion Hvp ; subst. simpl in H2. rewrite nth_error_nil in H2. easy.
+Qed.
+
 Lemma not_value_contains_struct (v1 v2 : HLPL_val) (f : HLPL_nodes -> Prop) :
   not_value_contains f (HLPL_pair v1 v2)
   <-> not_value_contains f v1 /\ not_value_contains f v2 /\ ~ f HLPL_pairC.
@@ -207,6 +218,25 @@ Proof.
     - assumption.
     - apply H1. inversion Hvp; subst. injection H4 as Eq. congruence.
     - apply H2. inversion Hvp; subst. injection H4 as Eq. congruence.
+  }
+Qed.
+
+Lemma not_value_contains_struct_loc (v : HLPL_val) (f : HLPL_nodes -> Prop) :
+  forall l,
+  not_value_contains f (HLPL_loc l v)
+  <-> not_value_contains f v /\ ~ f (HLPL_locC l).
+Proof.
+  split.
+  {
+    intros H. split.
+    - intros p Hvp. apply (H (0 :: p)). eapply valid_cons ; auto.
+    - apply (H []). apply valid_nil.
+  }
+  {
+    intros [H1 Hp ] p Hvp.
+    simpl. 
+    destruct (valid_vpath_loc p v l) as [ Hempty | [vp' ?] ] ; subst ; simpl ; auto.
+    apply H1. inversion Hvp ; subst. simpl in H3. congruence.
   }
 Qed.
 
