@@ -1030,16 +1030,6 @@ Proof.
   - auto with spath.
 Qed.
 
-Lemma fresh_anon_add_anon S a v b :
-  fresh_anon (S,, a |-> v) b  <-> fresh_anon S b /\ anon_accessor a <> anon_accessor b.
-Proof.
-  unfold fresh_anon. rewrite get_map_add_anon. split.
-  - intros H. assert (anon_accessor a <> anon_accessor b).
-    { intros G. rewrite <-G, lookup_insert in H. discriminate. }
-    split; [ | assumption]. rewrite lookup_insert_ne in H; assumption.
-  - intros (? & ?). rewrite lookup_insert_ne; assumption.
-Qed.
-
 Lemma leq_val_state_base_specialize_anon a vl Sl vr Sr :
   fresh_anon Sr a -> leq_val_state_base leq_base (vl, Sl) (vr, Sr) ->
   leq_base (Sl,, a |-> vl) (Sr,, a |-> vr).
