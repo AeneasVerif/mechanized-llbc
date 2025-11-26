@@ -290,6 +290,11 @@ Proof.
   destruct H; validity.
 Qed.
 
+Lemma eval_loc_valid S perm q r (H : eval_loc S perm q r) : valid_spath S r.
+Proof.
+  destruct H; validity.
+Qed.
+
 Lemma eval_path_valid (s : HLPL_state) P perm q r
   (valid_q : valid_spath s q) (eval_q_r : eval_path s perm P q r) :
   valid_spath s r.
