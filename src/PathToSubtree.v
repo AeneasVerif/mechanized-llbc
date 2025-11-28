@@ -177,7 +177,7 @@ Qed.
 Lemma not_prefix_implies_not_strict_prefix p q : ~prefix p q -> ~strict_prefix p q.
 Proof. intros ? ?%strict_prefix_is_prefix. auto. Qed.
 
-Local Instance : Reflexive vprefix.
+Global Instance : Reflexive vprefix.
 Proof. intro p. exists nil. apply app_nil_r. Qed.
 
 Global Instance vprefix_trans : Transitive vprefix.
@@ -280,6 +280,13 @@ Qed.
 
 Lemma prefix_trans' p q r : prefix (p +++ q) r -> prefix p r.
 Proof. transitivity (p +++ q); [ | assumption]. exists q. reflexivity. Qed.
+
+Lemma vprefix_and_neq_implies_vstrict_prefix p q : vprefix p q -> p <> q -> vstrict_prefix p q.
+Proof.
+  intros ([ | ] & <-) H.
+  - rewrite app_nil_r in H. easy.
+  - eexists _, _. reflexivity.
+Qed.
 
 Lemma prefix_and_neq_implies_strict_prefix p q : prefix p q -> p <> q -> strict_prefix p q.
 Proof.
@@ -1089,6 +1096,16 @@ Section GetSetPath.
     - rewrite vset_vget_prefix by assumption. apply vset_disj_valid_aux; assumption.
   Qed.
 
+  Lemma vset_not_prefix_valid v p q w :
+    ~vstrict_prefix q p -> valid_vpath v p -> valid_vpath (v.[[q <- w]]) p.
+  Proof.
+    intros ? G. destruct (comparable_vpaths p q) as [<- |(? & ? & <-) | | ].
+    - eapply vset_same_valid; exact G.
+    - rewrite vset_app_split. eapply vset_same_valid; exact G.
+    - contradiction.
+    - apply vset_disj_valid; assumption.
+  Qed.
+
   Lemma vset_same_valid_rev v p w : valid_vpath (v.[[p <- w]]) p -> valid_vpath v p.
   Proof.
     intro. rewrite <-(vset_same v p). rewrite <-(vset_twice_equal p w _ v).
@@ -1098,12 +1115,8 @@ Section GetSetPath.
   Lemma vset_not_prefix_valid_rev v p q w :
     ~vstrict_prefix q p -> valid_vpath (v.[[q <- w]]) p -> valid_vpath v p.
   Proof.
-    intros ? G. destruct (comparable_vpaths p q) as [<- |(? & ? & <-) | | ].
-    - eapply vset_same_valid_rev; exact G.
-    - rewrite vset_app_split in G. eapply vset_same_valid_rev; exact G.
-    - contradiction.
-    - rewrite <-(vset_same v q). rewrite <-(vset_twice_equal q w _ v).
-      apply vset_disj_valid; assumption.
+    intros. erewrite <-(vset_same v q), <-vset_twice_equal.
+    apply vset_not_prefix_valid; eassumption.
   Qed.
 
   Lemma sset_prefix_right_valid (S : state) p q v :
@@ -1516,6 +1529,19 @@ Section GetSetPath.
     - rewrite sget_anon by assumption. now apply not_in_v.
   Qed.
 
+  Lemma not_state_contains_add_anon_rev P S v a :
+    not_state_contains P (S,, a |-> v) -> fresh_anon S a ->
+    not_state_contains P S /\ not_value_contains P v.
+  Proof.
+    intros G fresh_a. split.
+    - intros q valid_q. specialize (G q). rewrite sget_add_anon in G.
+      + apply G. apply valid_spath_add_anon; assumption.
+      + eapply valid_spath_diff_fresh_anon; eassumption.
+    - intros q valid_q. specialize (G (anon_accessor a, q)).
+      rewrite sget_anon in G by reflexivity. apply G.
+      apply valid_spath_anon. assumption.
+  Qed.
+
   Lemma not_value_contains_sset P S v p q
     (not_in_Sp : not_value_contains P (S.[p]))
     (not_in_v : not_value_contains P v)
@@ -1644,6 +1670,41 @@ Section GetSetPath.
         * exists q'. split; [assumption | ]. rewrite get_node_vset_vget_not_prefix.
           assumption. intro. apply not_prefix. transitivity q'; auto with spath.
     - rewrite vset_invalid by assumption. assumption.
+  Qed.
+
+  (* If the value S.[p <- v].[q] does not contains outer loans, and v is a loan, then the value
+   * S.[q] does not contain outer loans. Indeed, if q is a prefix of p, then this means that the
+   * path p has a mutable borrow ancestor (because the value v stored there is a loan). We don't
+   * even have to check that the value in S.[p] does not contain outer loans. *)
+  Lemma not_contains_outer_sset_contains is_mut_borrow P S p q v :
+    not_contains_outer is_mut_borrow P (S.[p <- v].[q]) -> P (get_node v) ->
+    ~strict_prefix p q -> not_contains_outer is_mut_borrow P (S.[q]).
+  Proof.
+    destruct (decidable_valid_spath S p) as [valid_p | ].
+    - destruct (decidable_prefix q p) as [(r & <-) | ].
+      + intros no_outer Pv _. rewrite valid_spath_app in valid_p. destruct valid_p.
+        rewrite sset_sget_prefix in no_outer by assumption.
+        intros p' valid_p' Pp'. destruct (decidable_vprefix r p') as [Hprefix | Hnot_prefix].
+        * destruct (no_outer r) as (q' & Hstrict_prefix & Pq').
+          -- apply vset_same_valid. assumption.
+          -- rewrite vset_vget_equal; assumption.
+          -- exists q'. rewrite get_node_vset_vget_strict_prefix in Pq' by assumption.
+             split; [ | exact Pq'].
+             destruct Hprefix as (? & <-). destruct Hstrict_prefix as (? & ? & <-).
+             eexists _, _. rewrite <-!app_assoc. reflexivity.
+        * destruct (no_outer p') as (q' & Hstrict_prefix & Pq').
+          -- apply vset_not_prefix_valid; [ | assumption].
+             apply not_vprefix_implies_not_vstrict_prefix. assumption.
+          -- rewrite get_node_vset_vget_not_prefix; assumption.
+          -- exists q'. split; [assumption | ].
+             rewrite get_node_vset_vget_not_prefix in Pq'; [assumption | ].
+             intros (? & <-). apply Hnot_prefix. destruct Hstrict_prefix as (? & ? & <-).
+             rewrite <-!app_assoc. eexists. reflexivity.
+      + intros no_outer _ ?. rewrite sset_sget_disj in no_outer.
+        * exact no_outer.
+        * symmetry. apply prove_disj.
+          all: auto using neq_implies_not_prefix, not_prefix_implies_not_strict_prefix.
+    - rewrite sset_invalid; auto.
   Qed.
 
   Definition sweight (S : state) := map_sum vweight_ (get_map S).

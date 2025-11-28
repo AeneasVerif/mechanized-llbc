@@ -213,6 +213,9 @@ End LeqValStateUtils.
 Lemma leq_step_right {S} {R : relation S} Sl Sm Sr : R Sm Sr -> R^* Sl Sm -> R^* Sl Sr.
 Proof. intros. transitivity Sm; [ | constructor]; assumption. Qed.
 
+Lemma leq_step_left {S} {R : relation S} Sl Sm Sr : R Sl Sm -> R^* Sm Sr -> R^* Sl Sr.
+Proof. intros. transitivity Sm; [constructor | ]; assumption. Qed.
+
 (* This lemma is used to prove a goal of the form ?vSl < (vr, Sr) or (vl, Sl) < ?vSr without
  * exhibiting the existential variable ?vSl or ?vSr. *)
 Ltac leq_step_right :=
