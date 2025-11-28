@@ -2457,25 +2457,25 @@ Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 Variant eval_rvalue : rvalue -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_state) -> Prop :=
   | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' op_l op_r m n :
-      (S |-{op} op_l => (LLBC_plus_int m, S')) ->
-      (S' |-{op} op_r => (LLBC_plus_int n, S'')) ->
+  | Eval_bin_op S S' S'' op_l op_r m n
+      (eval_op_l : S |-{op} op_l => (LLBC_plus_int m, S'))
+      (eval_op_r : S' |-{op} op_r => (LLBC_plus_int n, S'')) :
       S |-{rv} (BinOp op_l op_r) => ((LLBC_plus_int (m + n)), S'')
   (* Additional rules to evaluate the "+" operator with a symbolic value. *)
-  | Eval_bin_op_symbolic_int S S' S'' op_l op_r n :
-      (S |-{op} op_l => (LLBC_plus_symbolic, S')) ->
-      (S' |-{op} op_r => (LLBC_plus_int n, S'')) ->
+  | Eval_bin_op_symbolic_int S S' S'' op_l op_r n
+      (eval_op_l : S |-{op} op_l => (LLBC_plus_symbolic, S'))
+      (eval_op_r : S' |-{op} op_r => (LLBC_plus_int n, S'')) :
       S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
-  | Eval_bin_op_int_symbolic S S' S'' op_l op_r m :
-      (S |-{op} op_l => (LLBC_plus_int m, S')) ->
-      (S' |-{op} op_r => (LLBC_plus_symbolic, S'')) ->
+  | Eval_bin_op_int_symbolic S S' S'' op_l op_r m
+      (eval_op_l : S |-{op} op_l => (LLBC_plus_int m, S'))
+      (eval_op_r : S' |-{op} op_r => (LLBC_plus_symbolic, S'')) :
       S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
-  | Eval_bin_op_symbolic_symbolic S S' S'' op_l op_r :
-      (S |-{op} op_l => (LLBC_plus_symbolic, S')) ->
-      (S' |-{op} op_r => (LLBC_plus_symbolic, S'')) ->
+  | Eval_bin_op_symbolic_symbolic S S' S'' op_l op_r
+      (eval_op_l : S |-{op} op_l => (LLBC_plus_symbolic, S'))
+      (eval_op_r : S' |-{op} op_r => (LLBC_plus_symbolic, S'')) :
       S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
 
-  | Eval_mut_borrow S p pi l : S |-{p} p =>^{Mut} pi ->
+  | Eval_mut_borrow S p pi l (eval_p : S |-{p} p =>^{Mut} pi) :
       not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) -> is_fresh l S ->
       S |-{rv} (&mut p) => (borrow^m(l, S.[pi]), S.[pi <- loan^m(l)])
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
@@ -3508,6 +3508,43 @@ Proof.
 Qed.
 
 (** ** Simulation proofs for rvalue evaluation. *)
+Lemma rvalue_preserves_equiv rv :
+  forward_simulation equiv_states equiv_val_state (eval_rvalue rv) (eval_rvalue rv).
+Proof.
+  intros S0 S1 Heval S'0 Hequiv. destruct Heval.
+  - apply operand_preserves_equiv in Heval_op.
+    edestruct Heval_op as (vS'' & ? & ?); [exact Hequiv | ].
+    execution_step. { constructor. eassumption. } assumption.
+  - apply operand_preserves_equiv in eval_op_l, eval_op_r.
+    edestruct eval_op_l as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
+    edestruct eval_op_r as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
+    cbn in * |-. subst.
+    execution_step. { eapply Eval_bin_op; eassumption. } split; easy.
+  - apply operand_preserves_equiv in eval_op_l, eval_op_r.
+    edestruct eval_op_l as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
+    edestruct eval_op_r as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
+    cbn in * |-. subst.
+    execution_step. { eapply Eval_bin_op_symbolic_int; eassumption. } split; easy.
+  - apply operand_preserves_equiv in eval_op_l, eval_op_r.
+    edestruct eval_op_l as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
+    edestruct eval_op_r as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
+    cbn in * |-. subst.
+    execution_step. { eapply Eval_bin_op_int_symbolic; eassumption. } split; easy.
+  - apply operand_preserves_equiv in eval_op_l, eval_op_r.
+    edestruct eval_op_l as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
+    edestruct eval_op_r as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
+    cbn in * |-. subst.
+    execution_step. { eapply Eval_bin_op_symbolic_symbolic; eassumption. } split; easy.
+  - symmetry in Hequiv. destruct Hequiv as (? & ? & ->).
+    eapply eval_place_permutation in eval_p; [ | eassumption].
+    execution_step.
+    { econstructor. eassumption.
+      all: autorewrite with spath. assumption. assumption.
+      apply not_state_contains_apply_permutation; eassumption. }
+    split; [cbn; now autorewrite with spath | ].
+    symmetry. autorewrite with spath. eexists. split; eauto with spath.
+    autorewrite with spath. reflexivity.
+Qed.
 
 (** ** Simulation proofs for the store operation. *)
 (* We only store values that come from rvalue evaluations, and these values do not contain loans or
