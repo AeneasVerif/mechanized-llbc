@@ -1519,6 +1519,14 @@ Section GetSetPath.
       apply not_in_S. eapply sset_not_prefix_valid; [ | exact valid_q]. auto with spath.
   Qed.
 
+  Lemma not_state_contains_sset_rev P S v p
+    (not_in_S : not_state_contains P (S.[p <- v]))
+    (not_in_v : not_value_contains P (S.[p])) :
+    not_state_contains P S.
+  Proof.
+    erewrite <-(sset_same S p), <-sset_twice_equal. apply not_state_contains_sset; eassumption.
+  Qed.
+
   Lemma not_state_contains_add_anon P S v a
     (not_in_S : not_state_contains P S)
     (not_in_v : not_value_contains P v) :

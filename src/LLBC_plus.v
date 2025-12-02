@@ -305,52 +305,6 @@ Variant is_mut_borrow : LLBC_plus_nodes -> Prop :=
 | IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
 Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 
-(* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
-   This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
-(* Note: Can we remove the automatic rewriting out of this tactic? *)
-(* TODO: precise the "workflow" of this tactic. *)
-Ltac not_contains0 :=
-  try assumption;
-  autounfold with spath in *;
-  lazymatch goal with
-  | |- not_state_contains ?P (?S,, ?a |-> ?v) =>
-      simple apply not_state_contains_add_anon
-  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
-      simple apply not_state_contains_sset
-  | H : not_value_contains ?P (?S.[?q <- ?v].[?p]) |- not_value_contains ?P (?S.[?p]) =>
-      simple apply (not_value_contains_sset_rev _ _ _ _ _ H); [ | validity]
-  | H : not_value_contains ?P (?v.[[?p <- ?w]]) |- not_value_contains ?P ?v =>
-      eapply not_value_contains_vset_rev; [ | exact H]
-  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
-      simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
-      validity0
-  | H : get_node ?v = _ |- not_value_contains ?P ?v =>
-      simple apply not_value_contains_zeroary; rewrite H; [reflexivity | ]
-  | |- not_value_contains ?P ?v =>
-      first [
-        apply not_value_contains_zeroary; [reflexivity | ] |
-        eapply not_value_contains_unary; [reflexivity | | ]
-      ]
-  end.
-Ltac not_contains := repeat not_contains0; eauto with spath.
-
-(* TODO: document. *)
-Ltac not_contains_outer :=
-  autorewrite with spath;
-  try assumption;
-  lazymatch goal with
-  | |- not_contains_outer _ ?P (?v.[[?p <- ?w]]) =>
-      apply not_contains_outer_vset; not_contains_outer
-  | no_outer : not_contains_outer _ ?P (?S.[?q <- ?v].[?p])
-    |- not_contains_outer _ ?P (?S.[?p]) =>
-      eapply not_contains_outer_sset_no_contains;
-        [exact no_outer | not_contains_outer | eauto with spath]
-  | |- not_contains_outer _ _ _ =>
-      apply not_contains_implies_not_contains_outer; not_contains; fail
-  | |- not_contains_outer _ _ _ =>
-      idtac
-  end.
-
 Notation not_in_borrow := (no_ancestor is_mut_borrow).
 
 Definition in_abstraction i x := exists j, x = encode_abstraction (i, j).
@@ -393,7 +347,10 @@ Definition get_loan_id c :=
   | _ => None
   end.
 
-Notation is_fresh l S := (not_state_contains (fun c => get_loan_id c = Some l) S).
+Definition is_loan_id l c := get_loan_id c = Some l.
+Notation is_fresh l S := (not_state_contains (is_loan_id l) S).
+Hint Extern 0 (~is_loan_id _ _) => unfold is_loan_id; cbn; congruence : spath.
+Hint Extern 0 (is_loan_id _ _) => reflexivity : spath.
 
 Inductive remove_loans A B : Pmap LLBC_plus_val -> Pmap LLBC_plus_val-> Prop :=
   | Remove_nothing : remove_loans A B A B
@@ -1070,6 +1027,16 @@ Proof.
     intros G. apply H. erewrite valid_spath_rename_mut_borrow in G by eassumption. exact G.
 Qed.
 
+Lemma is_fresh_rename_mut_borrow S p l l0 l1 :
+  get_node (S.[p]) = borrowC^m(l0) -> l <> l0 ->
+  is_fresh l (rename_mut_borrow S p l1) -> is_fresh l S.
+Proof.
+  intros get_l0 Hdiff fresh_l q valid_q. destruct (decidable_spath_eq p q) as [<- | ].
+  - rewrite get_l0. eauto with spath.
+  - specialize (fresh_l q). autorewrite with spath in fresh_l. apply fresh_l.
+    erewrite valid_spath_rename_mut_borrow; eassumption.
+Qed.
+
 Lemma not_in_borrow_rename_mut_borrow S p q l0 l1 :
   get_node (S.[p]) = borrowC^m(l0) ->
   not_in_borrow (rename_mut_borrow S p l1) q -> not_in_borrow S q.
@@ -1264,7 +1231,8 @@ Proof.
   - assumption.
   - apply IHadd_anons'.
     + auto with spath.
-    + not_contains. specialize (G i'). simpl_map. apply G. reflexivity.
+    + apply not_state_contains_add_anon; [assumption | ].
+      specialize (G i'). simpl_map. apply G. reflexivity.
     + eapply map_Forall_insert_1_2; eassumption.
 Qed.
 
@@ -1385,11 +1353,15 @@ Proof.
 Qed.
 
 Lemma integer_does_not_contain_loan v : is_integer (get_node v) -> not_value_contains is_loan v.
-Proof. destruct v; inversion 1; unfold not_contains_loan; not_contains. Qed.
+Proof.
+  destruct v; inversion 1; unfold not_contains_loan; now apply not_value_contains_zeroary.
+Qed.
 Hint Resolve integer_does_not_contain_loan : spath.
 
 Lemma integer_does_not_contain_borrow v : is_integer (get_node v) -> not_value_contains is_borrow v.
-Proof. destruct v; inversion 1; unfold not_contains_borrow; not_contains. Qed.
+Proof.
+  destruct v; inversion 1; unfold not_contains_loan; now apply not_value_contains_zeroary.
+Qed.
 Hint Resolve integer_does_not_contain_borrow : spath.
 
 Lemma not_in_borrow_add_abstraction S i A sp (H : ~in_abstraction i (fst sp)) :
@@ -1475,7 +1447,8 @@ Proof.
   destruct H as [-> | (l & ->) ].
   - intros v ?.  eapply union_contains_right in Hunion; [ | eassumption].
     destruct Hunion as (? & ?). eapply G. eassumption.
-  - intros ? [=<-]. unfold not_contains_loan. not_contains.
+  - intros ? [=<-]. unfold not_contains_loan.
+    eapply not_value_contains_unary; [.. | apply not_value_contains_zeroary]; easy.
 Qed.
 
 Lemma vget_at_borrow l v : borrow^m(l, v).[[ [0] ]] = v.
@@ -1662,6 +1635,89 @@ Proof.
       destruct K as (u & ?). exists u.
       rewrite get_at_accessor_add_abstraction_notin by eauto. assumption.
 Qed.
+
+(** *** Tactics to prove simple goals << is_fresh >>, << not_contains >> and
+   << not_contains_outer_loan >>. *)
+Lemma not_value_contains_loan_id_loan l0 l1 :
+  not_value_contains (is_loan_id l0) (loan^m(l1)) -> l0 <> l1.
+Proof. intros H <-. apply (H []); [constructor | reflexivity]. Qed.
+
+Lemma not_value_contains_loan_id_borrow l0 l1 v :
+  not_value_contains (is_loan_id l0) (borrow^m(l1, v)) ->
+  l0 <> l1 /\ not_value_contains (is_loan_id l0) v.
+Proof.
+  intros H. split.
+  - intros <-. apply (H []); [constructor | reflexivity].
+  - intros p ?. apply (H ([0] ++ p)). validity.
+Qed.
+
+(* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
+   This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
+(* Note: Can we remove the automatic rewriting out of this tactic? *)
+(* TODO: precise the "workflow" of this tactic. *)
+Ltac not_contains0 :=
+  try assumption;
+  autounfold with spath in *;
+  lazymatch goal with
+  (* Processing freshess hypotheses. We don't change the goal, we just pre-process the context. *)
+  | H : is_fresh ?l (?S,,, ?i |-> ?A) |- is_fresh ?l' ?S' =>
+      rewrite not_state_contains_add_abstraction in H by eauto with spath;
+      destruct H
+  | H : is_fresh ?l (?S,, ?a |-> ?v) |- is_fresh ?l' ?S' =>
+      apply not_state_contains_add_anon_rev in H;
+        [destruct H | eauto with spath; fail]
+  | H : not_value_contains ?l0 (borrow^m(?l1, ?v)) |- is_fresh ?l' ?S =>
+      apply not_value_contains_loan_id_borrow in H; destruct H
+  | H : not_value_contains ?l0 (loan^m(?l1)) |- is_fresh ?l' ?S =>
+      apply not_value_contains_loan_id_loan in H
+
+  (* Proving freshness. *)
+  | |- is_fresh ?l (?S,, ?a |-> ?v) =>
+      simple apply not_state_contains_add_anon
+  | |- is_fresh ?l (?S.[?p <- ?v]) =>
+      simple apply not_state_contains_sset
+  | H : is_fresh ?l (rename_mut_borrow ?S ?p ?l') |- is_fresh ?l ?S =>
+      eapply is_fresh_rename_mut_borrow; [eassumption | congruence | exact H]
+  | H : is_fresh ?l (?S.[?p <- ?v]) |- is_fresh ?l ?S =>
+      eapply not_state_contains_sset_rev; [exact H | ]
+
+  (* Proof of not_value_contains goals (like not_contains_loan or not_contains_bot). *)
+  | H : not_value_contains ?P ((rename_mut_borrow ?S ?q ?l).[?p]) |- not_value_contains ?P (?S.[?p]) =>
+      eapply not_contains_rename_mut_borrow;
+        [eassumption | eauto with spath; fail | exact H]
+  | H : not_value_contains ?P (?S.[?q <- ?v].[?p]) |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_value_contains_sset_rev _ _ _ _ _ H); [ | validity]
+  | H : not_value_contains ?P (?v.[[?p <- ?w]]) |- not_value_contains ?P ?v =>
+      eapply not_value_contains_vset_rev; [ | exact H]
+  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
+      validity0
+  | H : get_node ?v = _ |- not_value_contains ?P ?v =>
+      simple apply not_value_contains_zeroary; rewrite H; [reflexivity | ]
+  | |- not_value_contains ?P ?v =>
+      first [
+        apply not_value_contains_zeroary; [reflexivity | ] |
+        eapply not_value_contains_unary; [reflexivity | | ]
+      ]
+  end.
+Ltac not_contains := repeat not_contains0; eauto with spath.
+
+(* TODO: document. *)
+Ltac not_contains_outer :=
+  autorewrite with spath;
+  try assumption;
+  lazymatch goal with
+  | |- not_contains_outer _ ?P (?v.[[?p <- ?w]]) =>
+      apply not_contains_outer_vset; not_contains_outer
+  | no_outer : not_contains_outer _ ?P (?S.[?q <- ?v].[?p])
+    |- not_contains_outer _ ?P (?S.[?p]) =>
+      eapply not_contains_outer_sset_no_contains;
+        [exact no_outer | not_contains_outer | eauto with spath]
+  | |- not_contains_outer _ _ _ =>
+      apply not_contains_implies_not_contains_outer; not_contains; fail
+  | |- not_contains_outer _ _ _ =>
+      idtac
+  end.
 
 (** * Effect of permutation on LLBC+ operations. *)
 Lemma permutation_valid_spath S sp perm (H : is_state_equivalence perm S) :
@@ -3659,7 +3715,7 @@ Proof.
   intros Hle Hno_loan Hno_loc.
   apply proj1 with (B := (not_contains_bot (fst vSl)) /\ (not_contains_loan (fst vSl))).
   induction Hle.
-  - split. 
+  - split.
     + constructor. repeat split; assumption.
     + eapply leq_base_does_not_insert_bot_loan. repeat split; eassumption.
   - repeat split; [reflexivity | assumption..].
@@ -3668,7 +3724,7 @@ Proof.
     repeat split; [ | assumption..]. etransitivity; eassumption.
 Qed.
 
-Lemma not_contains_outer_loan_rename_mut_borrow S sp l0 l1 sp_store : 
+Lemma not_contains_outer_loan_rename_mut_borrow S sp l0 l1 sp_store :
   get_node (S.[sp]) = borrowC^m(l0) ->
   not_contains_outer_loan (rename_mut_borrow S sp l1.[sp_store]) ->
   not_contains_outer_loan (S.[sp_store]).
@@ -3862,9 +3918,8 @@ Proof.
     eval_place_preservation.
     rewrite sget_add_anon in no_outer_loan by assumption.
     execution_step.
-    { eapply Store with (a := b); try eassumption. 
+    { eapply Store with (a := b); try eassumption.
       eapply not_contains_outer_sset_contains; try eassumption. constructor. }
-    apply not_state_contains_add_anon_rev in fresh_l'; [ | assumption]. destruct fresh_l'.
     destruct (decidable_prefix sp_store sp) as [(q & <-) | ].
     (* Case 1: the fresh mutable loan is introduced in the value we overwrite. *)
     + leq_step_left.
@@ -3880,7 +3935,6 @@ Proof.
 
   (* Case Leq_Reborrow_MutBorrow: *)
   - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    apply not_state_contains_add_anon_rev in fresh_l1; [ | assumption]. destruct fresh_l1.
     destruct (decide (fst sp = anon_accessor b)).
     all: autorewrite with spath in EQN_r. all: rewrite add_anon_commute in EQN_r by congruence.
     all: apply states_add_anon_eq in EQN_r; eauto with spath. all: destruct EQN_r as (<- & <-).
@@ -5096,10 +5150,11 @@ Proof. destruct v; first [left; easy | right; easy]. Defined.
 Instance LLBC_plus_val_EqDec : EqDecision LLBC_plus_nodes.
 Proof. intros ? ?. unfold Decision. repeat decide equality. Defined.
 
-Instance decide_not_state_contains P `(forall v, Decision (P v)) S :
-  Decision (not_state_contains P S).
+Instance decide_is_fresh l S : Decision (is_fresh l S).
 Proof.
-  destruct (decide (map_Forall (fun _ => not_value_contains P) (get_map S)));
+  destruct (decide (map_Forall
+    (fun _ => not_value_contains (fun c => get_loan_id c = Some l))
+    (get_map S)));
   rewrite <-not_state_contains_map_Forall in * |-; [left | right]; assumption.
 Defined.
 
