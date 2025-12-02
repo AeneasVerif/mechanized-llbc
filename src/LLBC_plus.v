@@ -1273,6 +1273,10 @@ Lemma abstraction_element_is_sget S i j v :
   abstraction_element S i j = Some v -> S.[(encode_abstraction (i, j), [])] = v.
 Proof. unfold abstraction_element, sget. cbn. intros ->. reflexivity. Qed.
 
+Lemma abstraction_element_is_sget' S i j v p :
+  abstraction_element S i j = Some v -> fst p = encode_abstraction (i, j) -> S.[p] = v.[[snd p]].
+Proof. unfold abstraction_element, sget. intros H ->. rewrite H. reflexivity. Qed.
+
 Lemma abstraction_element_sset S i j p v :
   fst p <> encode_abstraction (i, j) ->
   abstraction_element (S.[p <- v]) i j = abstraction_element S i j.
@@ -2531,8 +2535,10 @@ Variant eval_rvalue : rvalue -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_st
       (eval_op_r : S' |-{op} op_r => (LLBC_plus_symbolic, S'')) :
       S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
 
-  | Eval_mut_borrow S p pi l (eval_p : S |-{p} p =>^{Mut} pi) :
-      not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) -> is_fresh l S ->
+  | Eval_mut_borrow S p pi l (eval_p : S |-{p} p =>^{Mut} pi)
+      (borrow_no_loan : not_contains_loan (S.[pi]))
+      (borrow_no_bot : not_contains_bot (S.[pi]))
+      (fresh_l : is_fresh l S) :
       S |-{rv} (&mut p) => (borrow^m(l, S.[pi]), S.[pi <- loan^m(l)])
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
@@ -3541,7 +3547,7 @@ Proof.
       { apply Leq_AnonValue; eassumption. }
       { reflexivity. }
       reflexivity.
-Abort.
+Admitted.
 
 Lemma operand_preserves_equiv op :
   forward_simulation equiv_states equiv_val_state (eval_operand op) (eval_operand op).
@@ -3564,6 +3570,170 @@ Proof.
 Qed.
 
 (** ** Simulation proofs for rvalue evaluation. *)
+Lemma to_abs_not_contains v A l :
+  map_Forall (fun _ => not_value_contains (is_loan_id l)) A -> to_abs v A ->
+  not_value_contains (is_loan_id l) v.
+Proof.
+  intros G. induction 1.
+  - rewrite map_Forall_insert in G by now simpl_map.
+    destruct G as ((? & ?)%not_value_contains_loan_id_borrow & G).
+    rewrite map_Forall_singleton in G by now simpl_map.
+    apply not_value_contains_loan_id_loan in G.
+    not_contains.
+  - rewrite map_Forall_singleton in G by now simpl_map.
+    apply not_value_contains_loan_id_borrow in G. destruct G as (? & _).
+    not_contains. destruct v; inversion Hv; not_contains.
+Qed.
+
+Lemma rvalue_preserves_LLBC_plus_rel rv :
+  forward_simulation leq_state_base^* (leq_val_state_base leq_state_base)^* (eval_rvalue rv) (eval_rvalue rv).
+Proof.
+  (* TODO: this lemma should be local. *)
+  apply preservation_by_base_case.
+  intros Sr vSr eval_rv Sl Hleq. destruct eval_rv.
+  (*
+  - apply operand_preserves_LLBC_plus_rel in Heval_op.
+    edestruct Heval_op as (vS'l & ? & ?); [eassumption | ].
+    exists vS'l. split; [assumption | ]. constructor. assumption.
+   *)
+  - admit.
+
+  - admit.
+
+  - admit.
+
+  - admit.
+
+  - admit.
+
+  - destruct Hleq.
+    (* Case Leq_ToSymbolic: *)
+    + eval_place_preservation.
+      execution_step.
+      { eapply Eval_mut_borrow with (l := l). eassumption. all: not_contains. }
+      destruct (decidable_prefix pi sp) as [(q & <-) | ].
+      (* Case 1: the symbolic value is in the borrowed value. *)
+      * leq_step_left.
+        { eapply Leq_ToSymbolic with (sp := (anon_accessor a, [0] ++ q)).
+          autorewrite with spath. eassumption. }
+        { autorewrite with spath. reflexivity. }
+        autorewrite with spath. reflexivity.
+      (* Case 2: the symbolic value is out of the borrowed value, the place where it is and
+       * the borrowed place are disjoint. *)
+      * assert (disj sp pi) by reduce_comp.
+        leq_step_left.
+        { eapply Leq_ToSymbolic with (sp := sp). autorewrite with spath. eassumption. }
+        { autorewrite with spath. reflexivity. }
+        states_eq.
+    (* Case Leq_ToAbs: *)
+    + eval_place_preservation. autorewrite with spath in *.
+      execution_step.
+      { eapply Eval_mut_borrow with (l := l); autorewrite with spath; try eassumption.
+        not_contains. eapply to_abs_not_contains; eassumption. }
+      autorewrite with spath. leq_step_left.
+      { apply Leq_ToAbs with (i := i); eauto with spath. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    (* Case Leq_RemoveAnon: *)
+    + eval_place_preservation.
+      execution_step.
+      { eapply Eval_mut_borrow with (l := l). eassumption.
+        all: autorewrite with spath; not_contains.
+        (* If v does not contain any loan or borrow, then l is fresh in v. *)
+        (* TODO: lemma? *)
+        intros q valid_q ?. destruct (get_node (v.[[q]])) eqn:EQN; try discriminate.
+        - eapply no_loan. exact valid_q. rewrite EQN. constructor.
+        - eapply no_borrow. exact valid_q. rewrite EQN. constructor. }
+      autorewrite with spath. leq_step_left.
+      { apply Leq_RemoveAnon; eauto with spath. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    (* Case Leq_MoveValue: *)
+    + eval_place_preservation.
+      (* The moved value cannot be in the borrowed value, because it does not contain
+       * uninitialized values. *)
+      assert (~prefix pi sp).
+      { intros (q & <-). autorewrite with spath in borrow_no_bot.
+        eapply borrow_no_bot with (p := q).
+        - apply vset_same_valid. validity.
+        - autorewrite with spath. reflexivity. }
+      assert (disj sp pi) by reduce_comp. autorewrite with spath in *.
+      execution_step.
+      { eapply Eval_mut_borrow with (l := l); try eassumption. not_contains. }
+      leq_val_state_add_anon.
+      { apply Leq_MoveValue with (a := a) (sp := sp). not_contains_outer.
+        eauto with spath. validity. eauto 7 with spath. assumption. }
+      { autorewrite with spath. reflexivity. }
+      states_eq.
+    (* Case Leq_MergeAbs: *)
+    + eval_place_preservation. autorewrite with spath in *.
+      execution_step.
+      { eapply Eval_mut_borrow with (l := l). eassumption.
+        all: autorewrite with spath; not_contains.
+        (* Actually impossible to prove, we need to change the definitions. *) admit. }
+      autorewrite with spath. leq_step_left.
+      { eapply Leq_MergeAbs; eauto with spath. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    (* Case Leq_Fresh_MutLoan: *)
+    + eval_place_preservation.
+      (* The loan cannot be in the borrowed value. *)
+      assert (~prefix pi sp).
+      { intros (q & <-). autorewrite with spath in borrow_no_loan.
+        eapply borrow_no_loan with (p := q).
+        - apply vset_same_valid. validity.
+        - autorewrite with spath. constructor. }
+      assert (disj sp pi) by reduce_comp. autorewrite with spath in *.
+      execution_step.
+      { eapply Eval_mut_borrow with (l := l); try eassumption. not_contains. }
+      leq_val_state_add_anon.
+      { apply Leq_Fresh_MutLoan with (a := a) (sp := sp) (l' := l'). not_contains.
+        eauto with spath. validity. eauto 7 with spath. }
+      { autorewrite with spath. reflexivity. }
+      states_eq.
+    (* Case Leq_Reborrow_MutBorrow: *)
+    + eval_place_preservation. rewrite sget_add_anon in * by assumption.
+      execution_step.
+      { eapply Eval_mut_borrow with (l := l). eassumption. all: not_contains. }
+      destruct (decidable_prefix pi sp) as [(q & <-) | ].
+      (* Case 1: the reborrow is in the borrowed value. *)
+      * leq_val_state_add_anon.
+        { eapply Leq_Reborrow_MutBorrow
+            with (sp := (anon_accessor a0, [0] ++ q)) (l1 := l1) (a := a).
+          not_contains. eauto with spath. autorewrite with spath. eassumption. eauto with spath. }
+        { autorewrite with spath. reflexivity. }
+        autorewrite with spath. reflexivity.
+      (* Case 1: the reborrow is not in the borrowed value. *)
+      * leq_val_state_add_anon.
+        { eapply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1) (a := a).
+          not_contains. eauto with spath. autorewrite with spath. eassumption. eauto with spath. }
+        { autorewrite with spath. reflexivity. }
+        autorewrite with spath. reflexivity.
+    (* Case Leq_Abs_ClearValue: *)
+    + eval_place_preservation. autorewrite with spath in *.
+      execution_step.
+      { eapply Eval_mut_borrow with (l := l); try eassumption.
+        (* TODO: lemma. *)
+        intros q valid_q. destruct (decide (fst q = encode_abstraction (i, j))).
+        - erewrite abstraction_element_is_sget' by eassumption.
+          intros G. destruct (v.[[snd q]]) eqn:EQN; inversion G.
+          + eapply no_loan; [ | rewrite EQN; constructor]. validity.
+          + eapply no_borrow; [ | rewrite EQN; constructor]. validity.
+        - specialize (fresh_l q). autorewrite with spath in fresh_l. apply fresh_l. validity. }
+      leq_step_left.
+      { eapply Leq_Abs_ClearValue with (i := i) (j := j). autorewrite with spath. all: eassumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+    (* Case Leq_AnonValue: *)
+    + eval_place_preservation. autorewrite with spath in *.
+      execution_step.
+      { apply Eval_mut_borrow with (l := l); [eassumption.. | ]. not_contains. }
+      leq_val_state_add_anon.
+      { eapply Leq_AnonValue with (a := a). eauto with spath. }
+      { reflexivity. }
+      reflexivity.
+Abort.
+
 Lemma rvalue_preserves_equiv rv :
   forward_simulation equiv_states equiv_val_state (eval_rvalue rv) (eval_rvalue rv).
 Proof.
