@@ -1640,8 +1640,7 @@ Proof.
       rewrite get_at_accessor_add_abstraction_notin by eauto. assumption.
 Qed.
 
-(** *** Tactics to prove simple goals << is_fresh >>, << not_contains >> and
-   << not_contains_outer_loan >>. *)
+(** ** Some tactics *)
 Lemma not_value_contains_loan_id_loan l0 l1 :
   not_value_contains (is_loan_id l0) (loan^m(l1)) -> l0 <> l1.
 Proof. intros H <-. apply (H []); [constructor | reflexivity]. Qed.
@@ -1722,6 +1721,36 @@ Ltac not_contains_outer :=
   | |- not_contains_outer _ _ _ =>
       idtac
   end.
+
+Hint Resolve <-fresh_anon_add_anon : spath.
+
+(* Frequently, after the combination of tactics << remember >> and << destruct >>, we have
+ * hypotheses of the form << E[Sl] = F[Sr] >>, with E and F expressions over states Sl and Sr
+ * (adding anonymous bindings, abstractions and sset).
+ * This tactic finds a common unificator S such that Sl are expressions over S, replaces Sl and
+ * Sr, with the relevant hypotheses in the context. *)
+Ltac process_state_eq0 :=
+  let S := fresh "S" in
+  let eq_val := fresh "eq_val" in
+  lazymatch goal with
+  | H : context [ (?S0,, ?a |-> ?v),,, ?i |-> ?A ] |- _ =>
+      rewrite !add_abstraction_add_anon in H
+  | H : ?Sl,,, ?i |-> ?A = ?Sr,, ?a |-> ?v |- _ => symmetry in H
+  | H : ?Sl.[?sp <- ?w],, ?a |-> ?v = ?Sr,,, ?i |-> ?A |- _ =>
+      apply eq_sset_add_anon_add_abstraction in H; [ | eauto with spath; fail..];
+      destruct H as (S & -> & -> & ? & ?)
+  | H : ?Sl,, ?a |-> ?v = ?Sr,,, ?i |-> ?A |- _ =>
+      apply eq_add_anon_add_abstraction in H; [ | eauto with spath; fail..];
+      first [ destruct H as (S & -> & -> & ? & ?) | destruct H as (S & ? & -> & ? & ?)]
+  | H : fresh_anon (_,, ?a |-> ?v) ?b |- _ =>
+      rewrite fresh_anon_add_anon in H; destruct H as (H & ?)
+  | H : ?S0,, ?a |-> ?v0,, ?b |-> ?v1  = ?S1,, ?a |-> ?v2 |- _ =>
+    rewrite add_anon_commute in H by congruence
+  | H : ?Sl,, ?a |-> ?vl = ?Sr,, ?a |-> ?vr |- _ =>
+      apply states_add_anon_eq in H; [ | auto with spath; fail..];
+      destruct H as (H & eq_val); subst
+  end.
+Ltac process_state_eq := repeat process_state_eq0.
 
 (** * Effect of permutation on LLBC+ operations. *)
 Lemma permutation_valid_spath S sp perm (H : is_state_equivalence perm S) :
@@ -3810,54 +3839,29 @@ Proof.
   remember ((vSr.2),, a |-> vSr.1) eqn:EQN_r.
   destruct Hle; subst.
   - destruct (decide (fst sp = anon_accessor a)).
-    all: autorewrite with spath in * |-;
-      apply states_add_anon_eq in EQN_r; auto with spath;
-      destruct EQN_r as (_ & G); rewrite <-G in *; split; not_contains.
-  - symmetry in EQN_r. apply eq_add_anon_add_abstraction in EQN_r; [ | assumption..].
-    destruct EQN_r as (S0 & _ & -> & ? & ?).
-    rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a as (? & ?).
-    rewrite add_anon_commute in EQN_l by congruence.
-    apply states_add_anon_eq in EQN_l; rewrite ?fresh_anon_add_anon; auto with spath.
-    destruct EQN_l as (_ & <-);  auto.
-  - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a as (? & ?).
-    rewrite add_anon_commute in EQN_l by congruence.
-    apply states_add_anon_eq in EQN_l; rewrite ?fresh_anon_add_anon; auto with spath.
-    destruct EQN_l as (_ & <-);  auto.
-  - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    apply valid_spath_add_anon_cases in valid_sp.
-    destruct valid_sp as [(? & _) | (? & ?)].
-    all: autorewrite with spath in EQN_r. all: rewrite add_anon_commute in EQN_r by congruence.
-    all: apply states_add_anon_eq in EQN_r; rewrite ?fresh_anon_add_anon; auto with spath.
-    all: destruct EQN_r as (_ & G).
-    + rewrite !G. auto.
-    + exfalso. eapply Hno_bot with (p := snd sp); rewrite <-G.
+    all: autorewrite with spath in * |-; process_state_eq.
+    all: rewrite <-eq_val in *; split; not_contains.
+  - process_state_eq. rewrite <-!eq_val. auto.
+  - process_state_eq. rewrite <-!eq_val. auto.
+  - apply valid_spath_add_anon_cases in valid_sp. destruct valid_sp as [(? & _) | (? & ?)].
+    + autorewrite with spath in EQN_r. process_state_eq. rewrite !eq_val. auto.
+    + autorewrite with spath in EQN_r. process_state_eq.
+      exfalso. eapply Hno_bot with (p := snd sp); rewrite <-eq_val.
       * apply vset_same_valid. assumption.
       * autorewrite with spath. reflexivity.
-  - symmetry in EQN_r. apply eq_add_anon_add_abstraction in EQN_r; [ | assumption..].
-    destruct EQN_r as (S0 & _ & -> & ? & ?).
-    autorewrite with spath in EQN_l.
-    apply states_add_anon_eq in EQN_l; rewrite ?fresh_anon_add_anon; auto with spath.
-    destruct EQN_l as (_ & <-);  auto.
-  - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    apply valid_spath_add_anon_cases in valid_sp.
-    destruct valid_sp as [(? & _) | (? & ?)].
-    all: autorewrite with spath in EQN_r. all: rewrite add_anon_commute in EQN_r by congruence.
-    all: apply states_add_anon_eq in EQN_r; rewrite ?fresh_anon_add_anon; auto with spath.
-    all: destruct EQN_r as (_ & G).
-    + rewrite !G. auto.
-    + exfalso. eapply Hno_loan with (p := snd sp); rewrite <-G.
+  - process_state_eq. rewrite !eq_val. auto.
+  - apply valid_spath_add_anon_cases in valid_sp. destruct valid_sp as [(? & _) | (? & ?)].
+    + autorewrite with spath in EQN_r. process_state_eq. rewrite !eq_val. auto.
+    + autorewrite with spath in EQN_r. process_state_eq.
+      exfalso. eapply Hno_loan with (p := snd sp); rewrite <-eq_val.
       * apply vset_same_valid. assumption.
       * autorewrite with spath. constructor.
-  - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    destruct (decide (fst sp = anon_accessor a)).
-    all: autorewrite with spath in EQN_r. all: rewrite add_anon_commute in EQN_r by congruence.
-    all: apply states_add_anon_eq in EQN_r; rewrite ?fresh_anon_add_anon; auto with spath.
-    all: destruct EQN_r as (_ & G).
-    + autorewrite with spath in get_borrow_l0.
+  - destruct (decide (fst sp = anon_accessor a)).
+    + autorewrite with spath in *. process_state_eq.
       replace (fst vSl) with ((fst vSr).[[snd sp <- borrow^m(l0, (fst vSr).[[snd sp ++ [0] ]])]]).
       * (* Note: the validity proofs could be better automated. *)
         assert (valid_vpath (fst vSr) (sp.2 ++ [0])).
-        { rewrite <-G. apply valid_vpath_app. split.
+        { rewrite <-eq_val. apply valid_vpath_app. split.
           - apply vset_same_valid. validity.
           - rewrite vset_vget_equal by validity. econstructor; [reflexivity | constructor].
         }
@@ -3866,16 +3870,12 @@ Proof.
            rewrite app_assoc, valid_vpath_app. split; assumption.
         -- intros q valid_q. autorewrite with spath. eapply Hno_loan.
            rewrite app_assoc, valid_vpath_app. split; assumption.
-      * rewrite <-G. autorewrite with spath. rewrite vset_twice_equal.
+      * rewrite <-eq_val. autorewrite with spath. rewrite vset_twice_equal.
         etransitivity; [ | eapply vset_same]. f_equal. rewrite vget_app.
         destruct ((fst vSl).[[snd sp]]); inversion get_borrow_l0. reflexivity.
-    + rewrite !G. auto.
-  - autorewrite with spath in EQN_r.
-    apply states_add_anon_eq in EQN_r; auto with spath. destruct EQN_r as (_ & ->). auto.
-  - rewrite fresh_anon_add_anon in is_fresh. destruct is_fresh.
-    rewrite add_anon_commute in EQN_r by congruence.
-    apply states_add_anon_eq in EQN_r; rewrite ?fresh_anon_add_anon; auto with spath.
-    destruct EQN_r as (_ & ->). auto.
+    + autorewrite with spath in *. process_state_eq. rewrite !eq_val. auto.
+  - autorewrite with spath in EQN_r. process_state_eq. rewrite !eq_val. auto.
+  - process_state_eq. rewrite !eq_val. auto.
 Qed.
 
 Lemma leq_val_state_no_bot_loan_right vSl vSr :
@@ -3932,8 +3932,6 @@ Proof.
   - apply IHeval_path. destruct Heval_proj. assumption.
 Qed.
 
-Hint Resolve <-fresh_anon_add_anon : spath.
-
 (* Note: there is a lot of "boilerplate lemmas" like << states_add_anon_eq >>,
  * << not_state_contains_add_anon_rev >> or << add_anon_commute >> that we could automatize the
  * usage. *)
@@ -3966,8 +3964,7 @@ Proof.
   (* Case Leq_ToSymbolic: *)
   - destruct (decide (fst sp = anon_accessor b)).
     (* Case 1: the symbolic value is introduced in the value vr we store. *)
-    + autorewrite with spath in EQN_r.
-      apply states_add_anon_eq in EQN_r; [ | assumption..]. destruct EQN_r as (<- & <-).
+    + autorewrite with spath in EQN_r. process_state_eq.
       autorewrite with spath in get_int.
       execution_step. { econstructor; eassumption. }
       eapply leq_step_left.
@@ -3975,8 +3972,7 @@ Proof.
         autorewrite with spath. eassumption. }
       autorewrite with spath. reflexivity.
     (* Case 2: the symbolic value in introduced in the state Sr. *)
-    + autorewrite with spath in * |-.
-      apply states_add_anon_eq in EQN_r; eauto with spath. destruct EQN_r as (<- & <-).
+    + autorewrite with spath in * |-. process_state_eq.
       eval_place_preservation.
       execution_step.
       { eapply Store; try eassumption. not_contains_outer. }
@@ -3993,46 +3989,39 @@ Proof.
         states_eq.
 
   (* Case Leq_ToAbs: *)
-  - symmetry in EQN_r. apply eq_add_anon_add_abstraction in EQN_r; [ | assumption..].
-    destruct EQN_r as (S0 & -> & -> & ? & ?).
-    rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    rewrite add_anon_commute in EQN_l by congruence.
-    apply states_add_anon_eq in EQN_l; eauto with spath. destruct EQN_l as (<- & <-).
-    eval_place_preservation. autorewrite with spath in *.
+  - process_state_eq.
+    assert (fresh_anon (S0,, a |-> v) b) by eauto with spath.
+    clear fresh_b_l fresh_b_r. eval_place_preservation. autorewrite with spath in *.
     execution_step.
-    { eapply Store. eassumption. autorewrite with spath. assumption. eassumption. }
+    { eapply Store with (a := b). eassumption. autorewrite with spath. assumption. eassumption. }
     autorewrite with spath.
     rewrite add_anon_commute by congruence. eapply leq_step_left.
     { apply Leq_ToAbs with (i := i); eauto with spath. }
     autorewrite with spath. reflexivity.
 
   (* Case Leq_RemoveAnon: *)
-  - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    rewrite add_anon_commute in EQN_l by congruence.
-    apply states_add_anon_eq in EQN_l; eauto with spath. destruct EQN_l as (<- & <-).
-    clear val_no_loan fresh_b_r. eval_place_preservation.
+  - process_state_eq.
+    assert (fresh_anon (Sr,, a |-> v) b) by auto with spath.
+    clear val_no_loan fresh_b_r fresh_b_l. eval_place_preservation.
     execution_step.
-    { apply Store. eassumption. autorewrite with spath. eassumption. eassumption. }
+    { apply Store with (a := b). eassumption. autorewrite with spath. all: assumption. }
     autorewrite with spath.
     rewrite add_anon_commute by congruence. eapply leq_step_left.
     { apply Leq_RemoveAnon; eauto with spath. }
     reflexivity.
 
   (* Case Leq_MoveValue: *)
-  - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    apply valid_spath_add_anon_cases in valid_sp.
+  - apply valid_spath_add_anon_cases in valid_sp.
     (* Because vr does not contain any unitialized value, the moved value cannot be in it (that
      * means it cannot be in the anonymous binding b). *)
     destruct valid_sp as [(? & valid_sp) | (? & ?)].
-    2: { autorewrite with spath in EQN_r.
-        rewrite add_anon_commute in EQN_r by congruence.
-        apply states_add_anon_eq in EQN_r; eauto with spath. destruct EQN_r as (_ & <-).
+    2: { autorewrite with spath in EQN_r. process_state_eq.
         exfalso. eapply val_no_bot with (p := snd sp).
         (* TODO: automatize. *)
         - apply vset_same_valid. assumption.
         - autorewrite with spath. reflexivity. }
-    autorewrite with spath in *. rewrite add_anon_commute in EQN_r by congruence.
-    apply states_add_anon_eq in EQN_r; eauto with spath. destruct EQN_r as (<- & <-).
+    autorewrite with spath in EQN_r. process_state_eq.
+    autorewrite with spath in no_outer_loan0.
     eval_place_preservation. autorewrite with spath in no_outer_loan.
     execution_step.
     { eapply Store with (a := b); try eassumption. not_contains_outer. }
@@ -4058,11 +4047,7 @@ Proof.
       states_eq.
 
   (* Case Leq_MergeAbs: *)
-  - symmetry in EQN_r.
-    apply eq_add_anon_add_abstraction in EQN_r; auto with spath.
-    destruct EQN_r as (S0 & -> & -> & t & ?).
-    autorewrite with spath in *.
-    apply states_add_anon_eq in EQN_l; eauto with spath. destruct EQN_l as (<- & <-).
+  - process_state_eq. autorewrite with spath in *.
     eval_place_preservation.
     execution_step.
     { apply Store. eassumption. autorewrite with spath in *. assumption. eassumption. }
@@ -4071,20 +4056,16 @@ Proof.
     reflexivity.
 
   (* Case Leq_Fresh_MutLoan: *)
-  - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    apply valid_spath_add_anon_cases in valid_sp.
+  - apply valid_spath_add_anon_cases in valid_sp.
     destruct valid_sp as [(? & valid_sp) | (? & ?)].
     (* Because vr does not contain any loan, the moved value cannot be in it (that
      * means it cannot be in the anonymous binding b). *)
-    2: { autorewrite with spath in EQN_r.
-        rewrite add_anon_commute in EQN_r by congruence.
-        apply states_add_anon_eq in EQN_r; eauto with spath. destruct EQN_r as (_ & <-).
+    2: { autorewrite with spath in EQN_r. process_state_eq.
         exfalso. eapply val_no_loan with (p := snd sp).
         (* TODO: automate. *)
         - apply vset_same_valid. assumption.
         - autorewrite with spath. constructor. }
-    autorewrite with spath in *. rewrite add_anon_commute in EQN_r by congruence.
-    apply states_add_anon_eq in EQN_r; eauto with spath. destruct EQN_r as (<- & <-).
+    autorewrite with spath in *. process_state_eq.
     eval_place_preservation.
     rewrite sget_add_anon in no_outer_loan by assumption.
     execution_step.
@@ -4104,12 +4085,10 @@ Proof.
       assert (disj sp_store sp) by reduce_comp. states_eq.
 
   (* Case Leq_Reborrow_MutBorrow: *)
-  - rewrite fresh_anon_add_anon in fresh_a. destruct fresh_a.
-    destruct (decide (fst sp = anon_accessor b)).
-    all: autorewrite with spath in EQN_r. all: rewrite add_anon_commute in EQN_r by congruence.
-    all: apply states_add_anon_eq in EQN_r; eauto with spath. all: destruct EQN_r as (<- & <-).
+  - destruct (decide (fst sp = anon_accessor b)).
     (* Case 1: the renamed borrow is in the value vl we store. *)
-    + apply eval_place_add_anon in eval_p. destruct eval_p as (? & (-> & ?) & eval_p_in_Sl).
+    + autorewrite with spath in EQN_r. process_state_eq.
+      apply eval_place_add_anon in eval_p. destruct eval_p as (? & (-> & ?) & eval_p_in_Sl).
       autorewrite with spath in * |-. execution_step.
       { apply Store with (a := b); eassumption. }
       leq_step_left.
@@ -4117,7 +4096,7 @@ Proof.
         not_contains. auto with spath. autorewrite with spath. eassumption. assumption. }
       states_eq.
     (* Case 2: the renamed borrow is in the state Sl. *)
-    + autorewrite with spath in get_borrow_l0.
+    + autorewrite with spath in *. process_state_eq.
       eval_place_preservation.
       rewrite sget_add_anon in no_outer_loan by assumption.
       execution_step.
@@ -4138,8 +4117,7 @@ Proof.
         states_eq.
 
   (* Case Leq_Abs_ClearValue: *)
-  - autorewrite with spath in EQN_r, get_at_i_j.
-    apply states_add_anon_eq in EQN_r; eauto with spath. destruct EQN_r as (<- & <-).
+  - autorewrite with spath in EQN_r, get_at_i_j. process_state_eq.
     eval_place_preservation. autorewrite with spath in no_outer_loan.
     execution_step.
     { eapply Store with (a := b); eassumption. }
@@ -4149,9 +4127,7 @@ Proof.
     states_eq.
 
   (* Case Leq_AnonValue: *)
-  - rewrite fresh_anon_add_anon in is_fresh. destruct is_fresh.
-    rewrite add_anon_commute in EQN_r by congruence.
-    apply states_add_anon_eq in EQN_r; eauto with spath. destruct EQN_r as (<- & <-).
+  - process_state_eq.
     eval_place_preservation. autorewrite with spath in no_outer_loan.
     execution_step. { eapply Store with (a := b); eassumption. }
     leq_step_left.
@@ -4999,8 +4975,7 @@ Proof.
         { reflexivity. }
         apply leq_n_by_equivalence. symmetry. assumption.
     (* Case Leq_MoveValue_n: *)
-    + apply eq_sset_add_anon_add_abstraction in EQN; [ | eauto with spath..].
-      destruct EQN as (S1 & -> & -> & ? & ?). autorewrite with spath in *.
+    + process_state_eq. autorewrite with spath in * |-.
       apply valid_spath_add_abstraction in valid_sp; [ | eauto].
       apply add_anons_remove_anon_sset in Hadd_anons; [ | assumption..].
       destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
@@ -5066,8 +5041,7 @@ Proof.
         { apply Leq_MergeAbs_n; eauto with spath. } { reflexivity. }
         reflexivity.
     (* Case Leq_Fresh_MutLoan_n: *)
-    + apply eq_sset_add_anon_add_abstraction in EQN; [ | eauto with spath..].
-      destruct EQN as (S1 & -> & -> & ? & ?). autorewrite with spath in *.
+    + process_state_eq.
       apply valid_spath_add_abstraction in valid_sp; [ | eauto].
       apply add_anons_remove_anon_sset in Hadd_anons; [ | assumption..].
       destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
@@ -5079,10 +5053,9 @@ Proof.
         eapply is_fresh_add_anons; eassumption.
         eapply add_anons_valid_spath; eassumption. }
       { reflexivity. }
-      erewrite add_anons_sget by eassumption. reflexivity.
+      erewrite add_anons_sget by eassumption. autorewrite with spath. reflexivity.
     (* Case Leq_Reborrow_MutBorrow_n: *)
-    + apply eq_sset_add_anon_add_abstraction in EQN; [ | eauto with spath..].
-      destruct EQN as (S1 & -> & -> & ? & ?). autorewrite with spath in *.
+    + process_state_eq. autorewrite with spath in *.
       apply add_anons_remove_anon_sset in Hadd_anons; [ | eauto with spath..].
       destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
       reorg_step.
@@ -5150,8 +5123,7 @@ Proof.
         { reflexivity. }
         reflexivity.
     (* Case Leq_AnonValue_n: *)
-    + apply eq_add_anon_add_abstraction in EQN; [ | assumption..].
-      destruct EQN as (S1 & -> & -> & ? & ?).
+    + process_state_eq.
       apply add_anons_remove_anon in Hadd_anons; [ | assumption].
       destruct Hadd_anons as (S'' & -> & ? & Hadd_anons).
       reorg_step.
