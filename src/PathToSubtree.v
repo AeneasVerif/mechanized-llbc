@@ -342,6 +342,10 @@ Proof.
   - right. apply not_prefix_disj. assumption.
 Qed.
 
+Lemma decidable_prefix' p q : {r & p +++ r = q } + {~prefix p q}.
+Proof.
+Admitted.
+
 Lemma prefix_if_equal_or_strict_prefix (p q : spath) : prefix p q -> p = q \/ strict_prefix p q.
 Proof.
   intros ([ | i r] & <-).
