@@ -46,6 +46,10 @@ Definition app_spath_vpath (p : spath) (q : vpath) := (fst p, snd p ++ q).
 (* TODO: place the notation in a scope? *)
 Notation "p +++ q" := (app_spath_vpath p q) (right associativity, at level 60).
 
+Lemma spath_var_app_vpath :
+  forall p, p = (p.1, []) +++ p.2.
+Proof. intros (?, ?). reflexivity. Qed.
+
 Lemma app_spath_vpath_nil_r (p : spath) : p +++ nil = p.
 Proof. apply injective_projections; reflexivity || apply app_nil_r. Qed.
 
@@ -932,6 +936,12 @@ Section GetSetPath.
       + apply valid_vpath_app. unfold sget in valid_q. rewrite get_S_p in valid_q. auto.
   Qed.
 
+  Lemma valid_spath_implies_valid_spath_var (S : state) p :
+    valid_spath S p -> valid_spath S (p.1, []).
+  Proof.
+    intros. rewrite spath_var_app_vpath in H0. eapply valid_spath_app ; eauto.
+  Qed.
+
   Lemma get_not_bot_valid_spath (S : state) p : S.[p] <> bot -> valid_spath S p.
   Proof.
     unfold sget. intros ?. destruct (get_at_accessor S (fst p)) as [v | ] eqn:EQN.
@@ -1001,6 +1011,21 @@ Section GetSetPath.
     - apply vget_invalid. destruct (valid_or_invalid (snd p) v); [ | assumption].
       exfalso. eapply G. exists v. auto.
     - reflexivity.
+  Qed.
+ 
+  Lemma prefix_bot_is_bot' (S : state) p r:
+    S.[p] = bot -> S.[p +++ r] = bot.
+  Proof.
+    intros Hbot. induction r using rev_ind.
+    - by rewrite app_spath_vpath_nil_r.
+    - rewrite app_spath_vpath_assoc, sget_app, IHr. by rewrite vget_bot.
+  Qed.
+
+  Lemma prefix_bot_is_bot :
+    forall S p q,
+      prefix p q -> S.[p] = bot -> S.[q] = bot.
+  Proof.
+    intros S p q [r Heq] Hbot. rewrite <- Heq. by apply prefix_bot_is_bot'.
   Qed.
 
   Lemma sset_invalid S p v : ~valid_spath S p -> S.[p <- v] = S.
@@ -1279,6 +1304,28 @@ Section GetSetPath.
   Lemma disj_spath_add_anon' S a p q :
     fresh_anon S a -> valid_spath S p -> disj (anon_accessor a, q) p.
   Proof. symmetry. eapply disj_spath_add_anon; eassumption. Qed.
+
+  Lemma valid_spath_write_bot (S : state) p p':
+      valid_spath (S .[ p' <- bot]) p -> valid_spath S p.
+  Proof.
+  intros. destruct (comparable_spaths p p').
+  - subst. eapply sset_not_prefix_valid ; eauto. apply strict_prefix_irrefl.
+  - eapply sset_not_prefix_valid ; eauto.
+    apply not_prefix_left_strict_prefix_right in H1.
+    intros ?%strict_prefix_is_prefix. auto. 
+  - destruct H1 as (n & r & ?) ; subst.
+    apply valid_spath_app in H0 as (? & ?).
+    assert (S .[ p' <- bot] .[ p'] = bot). {
+      destruct (decidable_valid_spath S p').
+      * rewrite sset_sget_equal ; auto.
+      * rewrite sget_invalid ; auto. rewrite <- sset_not_prefix_valid ; auto.
+        apply strict_prefix_irrefl.
+    }
+    rewrite H2 in H1. inversion H1 ; subst. 
+    rewrite children_bot, nth_error_nil in H6. congruence.
+  - eapply sset_not_prefix_valid ; eauto.
+    symmetry in H1. apply not_disj_strict_prefix ; auto.
+  Qed.
 
   Lemma valid_spath_add_anon S a p v :
     valid_spath S p -> fresh_anon S a -> valid_spath (S,, a |-> v) p.
