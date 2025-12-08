@@ -5,7 +5,6 @@ From Stdlib Require Import Relations.
 Import ListNotations.
 
 Require Import PathToSubtree.
-Require Import HLPL.
 
 Theorem state_path_back_ind : forall (P : spath -> Prop) (Hbase : forall enc_x, P (enc_x, [])) (Hrec : (forall (n : nat) (sp : spath), P sp -> P (sp +++ [n]))), forall (sp : spath), P sp.
 Proof.
