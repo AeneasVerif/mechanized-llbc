@@ -385,10 +385,10 @@ Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
   | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' op_l op_r m n :
-      (S |-{op} op_l => (HLPL_plus_int m, S')) ->
-      (S' |-{op} op_r => (HLPL_plus_int n, S'')) ->
-      S |-{rv} (BinOp op_l op_r) => ((HLPL_plus_int (m + n)), S'')
+  | Eval_bin_op S S' S'' op_0 op_1 m n
+      (eval_op_0 : S |-{op} op_0 => (HLPL_plus_int m, S'))
+      (eval_op_1 : S' |-{op} op_1 => (HLPL_plus_int n, S'')) :
+      S |-{rv} (BinOp op_0 op_1) => (HLPL_plus_int (m + n), S'')
   | Eval_pointer_loc S p pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
       (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
@@ -852,6 +852,55 @@ Proof.
     split; weight_inequality.
 Qed.
 
+Lemma leq_val_state_integer v n Sl Sr :
+  (leq_val_state_base leq_base)^* (v, Sl) (HLPL_plus_int n, Sr) ->
+  v = HLPL_plus_int n /\ leq_base^* Sl Sr.
+Proof.
+  intros H.
+  remember (v, Sl) as vSl eqn:EQN_l. remember (HLPL_plus_int n, Sr) as vSr eqn:EQN_r.
+  revert v n Sl Sr EQN_l EQN_r.
+  induction H as [? ? H | | ]; intros v n Sl Sr EQN_l EQN_r; subst.
+  - destruct (exists_fresh_anon2 Sl Sr) as (a & fresh_a_l & fresh_a_r).
+    specialize (H a fresh_a_l fresh_a_r). rewrite !fst_pair, !snd_pair in H.
+    remember (Sl,, a |-> v) eqn:EQN. remember (Sr,, a |-> HLPL_plus_int n).
+    destruct H; subst.
+    + assert (fst sp_borrow <> anon_accessor a). (* TODO: separate lemma. *)
+      { intros ?. autorewrite with spath in HS_borrow.
+        replace (snd sp_borrow) with ([] : vpath) in *.
+        - discriminate.
+        - symmetry. eapply valid_vpath_zeroary;
+            [ | apply valid_get_node_vget_not_bot; rewrite HS_borrow; discriminate].
+          reflexivity. }
+      assert (fst sp_loan <> anon_accessor a). (* TODO: separate lemma. *)
+      { intros ?. autorewrite with spath in HS_loan.
+        replace (snd sp_loan) with ([] : vpath) in *.
+        - discriminate.
+        - symmetry. eapply valid_vpath_zeroary;
+            [ | apply valid_get_node_vget_not_bot; rewrite HS_loan; discriminate].
+          reflexivity. }
+      autorewrite with spath in * |-.
+      apply states_add_anon_eq in EQN; auto with spath. destruct EQN as (<- & ?).
+      split; [congruence | ]. constructor. constructor; assumption.
+  - inversion EQN_r. subst. split; reflexivity.
+  - (* TODO: name variables. *)
+    destruct y.
+    edestruct IHclos_refl_trans2. reflexivity. reflexivity. subst.
+    edestruct IHclos_refl_trans1. reflexivity. reflexivity. subst.
+    split; [reflexivity | ]. etransitivity; eassumption.
+Qed.
+
+Lemma leq_base_implies_leq_val_state_base Sl Sr v :
+  leq_base^* Sl Sr -> (leq_val_state_base leq_base)^* (v, Sl) (v, Sr).
+Proof.
+  induction 1 as [Sl Sr H | | ].
+  - constructor. intros a fresh_a_l fresh_a_r. rewrite !fst_pair, !snd_pair in *.
+    destruct H.
+    + rewrite <-!sset_add_anon by eauto with spath. erewrite <-sget_add_anon by eauto with spath.
+      constructor. assumption. all: autorewrite with spath; assumption.
+  - reflexivity.
+  - etransitivity; eassumption.
+Qed.
+
 Lemma rvalue_preserves_HLPL_plus_rel rv :
   forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_rvalue rv) (eval_rvalue rv).
 Proof.
@@ -860,10 +909,16 @@ Proof.
   (* rv = just op *)
   - apply operand_preserves_HLPL_plus_rel in Heval_op. intros ? ?%rt_step.
     firstorder using Eval_just.
+
   (* rv = op + op *)
-  - apply operand_preserves_HLPL_plus_rel in H, H0.
-    intros S0 Hle%rt_step.
-    admit.
+  - intros Sl Hle. apply operand_preserves_HLPL_plus_rel in eval_op_0, eval_op_1.
+    edestruct eval_op_0 as ((v0l & S'l) & leq_S'l_S' & H); [constructor; eassumption | ].
+    apply leq_val_state_integer in leq_S'l_S'. destruct leq_S'l_S' as (-> & leq_S'l_S').
+    edestruct eval_op_1 as ((v1l & S''l) & leq_S''l_S'' & ?); [exact leq_S'l_S' | ].
+    apply leq_val_state_integer in leq_S''l_S''. destruct leq_S''l_S'' as (-> & leq_S''l_S'').
+    execution_step. { econstructor; eassumption. }
+    apply leq_base_implies_leq_val_state_base. assumption.
+
   (* rv = &mut p *)
   (* The place p evaluates to a spath under a loc. *)
   - intros Sl Hle. destruct Hle.
@@ -918,7 +973,7 @@ Proof.
              assumption. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            states_eq.
-Admitted.
+Qed.
 
 Lemma well_formed_state_value_implies_well_formed_state v S :
   not_contains_loc v -> well_formed_state_value (v, S) -> well_formed S.
@@ -955,10 +1010,10 @@ Lemma rvalue_preserves_well_formedness rv S vS :
 Proof.
   intros eval_rv WF. destruct eval_rv.
   - eauto using operand_preserves_well_formedness.
-  - apply operand_preserves_well_formedness' in H; [ | assumption].
-    apply operand_preserves_well_formedness' in H0; [ | assumption].
+  - apply operand_preserves_well_formedness' in eval_op_0; [ | assumption].
+    apply operand_preserves_well_formedness' in eval_op_1; [ | assumption].
     constructor. intros ? ?. rewrite well_formedness_equiv in *.
-    intros l0. specialize (H0 l0). destruct H0. split; weight_inequality.
+    intros l0. specialize (eval_op_1 l0). destruct eval_op_1. split; weight_inequality.
   - apply eval_place_valid in Heval_place.
     apply weight_sget_node_le with (weight := indicator (locC(l))) in Heval_place.
     rewrite Hloc, indicator_same in Heval_place.
