@@ -1280,6 +1280,14 @@ Section GetSetPath.
     fresh_anon S a -> valid_spath S (anon_accessor b, p) -> b <> a.
   Proof. intros ? (? & G & _). cbn in G. congruence. Qed.
 
+  Lemma valid_vpath_zeroary v p :
+    arity (get_node v) = 0 -> valid_vpath v p -> p = [].
+  Proof.
+    intros G. inversion 1; [reflexivity | ]. subst.
+    rewrite <-length_children_is_arity, length_zero_iff_nil in G.
+    rewrite G, nth_error_nil in * |-. discriminate.
+  Qed.
+
   Lemma get_zeroary_not_strict_prefix S p q :
     arity (get_node (S .[ p])) = 0 -> valid_spath S q -> ~strict_prefix p q.
   Proof.

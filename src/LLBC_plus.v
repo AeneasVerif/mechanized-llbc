@@ -2559,27 +2559,20 @@ where "S |-{op} op => r" := (eval_operand op S r).
 
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
+Variant LLBC_plus_sum : LLBC_plus_val -> LLBC_plus_val -> LLBC_plus_val -> Prop :=
+  | Sum_int m n : LLBC_plus_sum (LLBC_plus_int m) (LLBC_plus_int n) (LLBC_plus_int (m + n))
+  | Sum_int_symbolic m : LLBC_plus_sum (LLBC_plus_int m) LLBC_plus_symbolic LLBC_plus_symbolic
+  | Sum_symbolic_int n : LLBC_plus_sum LLBC_plus_symbolic (LLBC_plus_int n) LLBC_plus_symbolic
+  | Sum_symbolic_symbolic : LLBC_plus_sum LLBC_plus_symbolic LLBC_plus_symbolic LLBC_plus_symbolic
+.
+
 Variant eval_rvalue : rvalue -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_state) -> Prop :=
   | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' op_l op_r m n
-      (eval_op_l : S |-{op} op_l => (LLBC_plus_int m, S'))
-      (eval_op_r : S' |-{op} op_r => (LLBC_plus_int n, S'')) :
-      S |-{rv} (BinOp op_l op_r) => ((LLBC_plus_int (m + n)), S'')
-  (* Additional rules to evaluate the "+" operator with a symbolic value. *)
-  | Eval_bin_op_symbolic_int S S' S'' op_l op_r n
-      (eval_op_l : S |-{op} op_l => (LLBC_plus_symbolic, S'))
-      (eval_op_r : S' |-{op} op_r => (LLBC_plus_int n, S'')) :
-      S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
-  | Eval_bin_op_int_symbolic S S' S'' op_l op_r m
-      (eval_op_l : S |-{op} op_l => (LLBC_plus_int m, S'))
-      (eval_op_r : S' |-{op} op_r => (LLBC_plus_symbolic, S'')) :
-      S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
-  | Eval_bin_op_symbolic_symbolic S S' S'' op_l op_r
-      (eval_op_l : S |-{op} op_l => (LLBC_plus_symbolic, S'))
-      (eval_op_r : S' |-{op} op_r => (LLBC_plus_symbolic, S'')) :
-      S |-{rv} (BinOp op_l op_r) => (LLBC_plus_symbolic, S'')
-
+  | Eval_bin_op S S' S'' op_0 op_1 v0 v1 w
+      (eval_op_0 : S |-{op} op_0 => (v0, S')) (eval_op_1 : S' |-{op} op_1 => (v1, S''))
+      (sum_m_n : LLBC_plus_sum v0 v1 w) :
+      S |-{rv} (BinOp op_0 op_1) => (w, S'')
   | Eval_mut_borrow S p pi l (eval_p : S |-{p} p =>^{Mut} pi)
       (borrow_no_loan : not_contains_loan (S.[pi]))
       (borrow_no_bot : not_contains_bot (S.[pi]))
@@ -3609,6 +3602,79 @@ Proof.
 Qed.
 
 (** ** Simulation proofs for rvalue evaluation. *)
+Definition leq_integer_state (vSl vSr : LLBC_plus_val * LLBC_plus_state) :=
+  let (vl, Sl) := vSl in
+  let (vr, Sr) := vSr in
+  (vl = vr \/ is_integer (get_node vl) /\ vr = LLBC_plus_symbolic) /\ leq_state_base^* Sl Sr.
+
+Lemma leq_val_state_base_integer_base vl Sl vr Sr :
+  leq_val_state_base leq_state_base (vl, Sl) (vr, Sr) -> is_integer (get_node vr) ->
+  (vl = vr /\ leq_state_base Sl Sr) \/
+  (is_integer (get_node vl) /\ vr = LLBC_plus_symbolic /\ Sl = Sr).
+Proof.
+  destruct (exists_fresh_anon2 Sl Sr) as (a & fresh_a_l & fresh_a_r).
+  intros H int_vr. specialize (H a fresh_a_l fresh_a_r). rewrite !fst_pair, !snd_pair in H.
+  remember (Sl,, a |-> vl) eqn:EQN_l. remember (Sr,, a |-> vr) eqn:EQN_r.
+  destruct H; subst.
+  - destruct (decide (fst sp = anon_accessor a)).
+    + right. autorewrite with spath in * |-. process_state_eq.
+      assert (snd sp = []) as G.
+      { eapply valid_vpath_zeroary.
+        - apply is_integer_zeroary. eassumption.
+        - apply vset_same_valid. auto with spath. }
+      rewrite G in *. cbn in get_int. destruct vl; inversion get_int; auto.
+    + left. autorewrite with spath in *.
+      process_state_eq. split; [reflexivity | ]. econstructor. eassumption.
+  - process_state_eq. left. split; [reflexivity | ]. constructor; assumption.
+  - process_state_eq. left. split; [reflexivity | ]. constructor; assumption.
+  - apply valid_spath_add_anon_cases in valid_sp.
+    destruct valid_sp as [(? & ?) | (? & ?)].
+    2: { autorewrite with spath in * |-. process_state_eq.
+      exfalso. eapply integer_does_not_contain_bot.
+      - eassumption.
+      - apply vset_same_valid. validity.
+      - autorewrite with spath. reflexivity. }
+    autorewrite with spath in *. process_state_eq. autorewrite with spath in *.
+    left. split; [reflexivity | ]. constructor; assumption.
+  - process_state_eq. left. split; [reflexivity | ]. constructor; auto with spath.
+  - apply valid_spath_add_anon_cases in valid_sp.
+    destruct valid_sp as [(? & ?) | (? & ?)].
+    2: { autorewrite with spath in * |-. process_state_eq.
+      exfalso. eapply integer_does_not_contain_loan.
+      - eassumption.
+      - apply vset_same_valid. validity.
+      - autorewrite with spath. constructor. }
+    autorewrite with spath in *. process_state_eq.
+    left. split; [reflexivity | ]. apply Leq_Fresh_MutLoan; auto. not_contains.
+  - destruct (decide (fst sp = anon_accessor a)).
+    { autorewrite with spath in * |-. process_state_eq.
+      exfalso. eapply integer_does_not_contain_borrow.
+      - eassumption.
+      - apply vset_same_valid. validity.
+      - autorewrite with spath. constructor. }
+    autorewrite with spath in *. process_state_eq.
+    left. split; [reflexivity | ]. apply Leq_Reborrow_MutBorrow; auto. not_contains.
+  - autorewrite with spath in *. process_state_eq.
+    left. split; [reflexivity | ]. econstructor; eassumption.
+  - process_state_eq. left. split; [reflexivity | ]. constructor. assumption.
+Qed.
+
+Lemma leq_val_state_integer vSl vSr :
+  (leq_val_state_base leq_state_base)^* vSl vSr -> is_integer (get_node (fst vSr)) ->
+  leq_integer_state vSl vSr.
+Proof.
+  intros H v_is_integer.
+  induction H as [(v & S) | (vl & Sl) (vm & Sm) (vr & Sr) ? ? leq_step]
+    using clos_refl_trans_ind_left'.
+  - split; [ | reflexivity]. left. reflexivity.
+  - apply leq_val_state_base_integer_base in leq_step; [ | assumption].
+    destruct leq_step as [(? & ?) | (? & ? & ?)]; subst.
+    + destruct IHclos_refl_trans; [assumption | ]. split; [assumption | ].
+      transitivity Sm; [ | constructor]; assumption.
+    + destruct IHclos_refl_trans as ([ | (? & ?)] & ?); [assumption | | ];
+        subst; unfold leq_integer_state; auto.
+Qed.
+
 Lemma to_abs_not_contains v A l :
   map_Forall (fun _ => not_value_contains (is_loan_id l)) A -> to_abs v A ->
   not_value_contains (is_loan_id l) v.
@@ -3620,30 +3686,106 @@ Proof.
     apply not_value_contains_loan_id_loan in G.
     not_contains.
   - rewrite map_Forall_singleton in G by now simpl_map.
-    apply not_value_contains_loan_id_borrow in G. destruct G as (? & _).
-    not_contains. destruct v; inversion Hv; not_contains.
+    apply not_value_contains_loan_id_borrow in G. destruct G as (? & _). not_contains.
+Qed.
+
+Lemma sum_is_integer v0 v1 w (H : LLBC_plus_sum v0 v1 w) :
+  is_integer (get_node v0) /\ is_integer (get_node v1) /\ is_integer (get_node w).
+Proof. destruct H; repeat split; constructor. Qed.
+
+Lemma leq_base_implies_leq_val_state_base Sl Sr v
+  (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
+  leq_state_base^* Sl Sr -> (leq_val_state_base leq_state_base)^* (v, Sl) (v, Sr).
+Proof.
+  induction 1 as [Sl Sr H | | ].
+  - constructor. intros a fresh_a_l fresh_a_r. rewrite !fst_pair, !snd_pair in *.
+    destruct H.
+    + rewrite <-sset_add_anon by eauto with spath.
+      econstructor. autorewrite with spath. eassumption.
+    + rewrite fresh_anon_add_anon in fresh_a_l. destruct fresh_a_l.
+      rewrite <-add_abstraction_add_anon, add_anon_commute by congruence.
+      constructor; auto with spath.
+    + rewrite fresh_anon_add_anon in fresh_a_l. destruct fresh_a_l.
+      rewrite add_anon_commute by congruence. constructor; auto with spath.
+    + rewrite fresh_anon_add_anon in fresh_a_r. destruct fresh_a_r.
+      rewrite <-add_anon_commute, <-sset_add_anon by congruence || eauto with spath.
+      erewrite <-(sget_add_anon _ a) by eauto with spath.
+      apply Leq_MoveValue ; eauto with spath. autorewrite with spath. assumption.
+    + rewrite <-!add_abstraction_add_anon. constructor; auto with spath.
+    + rewrite fresh_anon_add_anon in fresh_a_r. destruct fresh_a_r.
+      rewrite <-add_anon_commute, <-sset_add_anon by congruence || eauto with spath.
+      erewrite <-(sget_add_anon _ a) by eauto with spath.
+      apply Leq_Fresh_MutLoan; eauto with spath. not_contains.
+      (* TODO: lemma. *)
+      intros q valid_q. specialize (no_loan q valid_q). specialize (no_borrow q valid_q).
+      destruct (get_node (v.[[q]])); auto with spath.
+    + rewrite fresh_anon_add_anon in fresh_a_r. destruct fresh_a_r.
+      rewrite <-add_anon_commute, <-sset_add_anon by congruence || eauto with spath.
+      erewrite <-(sget_add_anon _ a) by eauto with spath.
+      apply Leq_Reborrow_MutBorrow; autorewrite with spath; auto with spath. not_contains.
+      (* TODO: lemma. *)
+      intros q valid_q. specialize (no_loan q valid_q). specialize (no_borrow q valid_q).
+      destruct (get_node (v.[[q]])); auto with spath.
+    + rewrite <- remove_abstraction_value_add_anon.
+      econstructor; autorewrite with spath; eassumption.
+    + rewrite fresh_anon_add_anon in fresh_a_r. destruct fresh_a_r.
+      rewrite <-add_anon_commute by congruence. constructor. eauto with spath.
+  - reflexivity.
+  - etransitivity; eassumption.
+Qed.
+
+Lemma sum_integers v0 v1 :
+  is_integer (get_node v0) -> is_integer (get_node v1) -> exists w, LLBC_plus_sum v0 v1 w.
+Proof.
+  intros H G. destruct v0; inversion H; destruct v1; inversion G; eexists; constructor.
 Qed.
 
 Lemma rvalue_preserves_LLBC_plus_rel rv :
   forward_simulation leq_state_base^* (leq_val_state_base leq_state_base)^* (eval_rvalue rv) (eval_rvalue rv).
 Proof.
-  (* TODO: this lemma should be local. *)
   apply preservation_by_base_case.
   intros Sr vSr eval_rv Sl Hleq. destruct eval_rv.
-  (*
   - apply operand_preserves_LLBC_plus_rel in Heval_op.
-    edestruct Heval_op as (vS'l & ? & ?); [eassumption | ].
+    edestruct Heval_op as (vS'l & ? & ?); [constructor; eassumption | ].
     exists vS'l. split; [assumption | ]. constructor. assumption.
-   *)
-  - admit.
 
-  - admit.
-
-  - admit.
-
-  - admit.
-
-  - admit.
+  - apply operand_preserves_LLBC_plus_rel in eval_op_0, eval_op_1.
+    edestruct eval_op_0 as ((v0l & S'l) & leq_S'l_S' & H); [constructor; eassumption | ].
+    destruct (sum_is_integer _ _ _ sum_m_n) as (? & ? & ?).
+    apply leq_val_state_integer in leq_S'l_S'; [ | assumption].
+    destruct leq_S'l_S' as (Hv0 & leq_S'l_S').
+    edestruct eval_op_1 as ((v1l & S''l) & leq_S''l_S'' & ?); [exact leq_S'l_S' | ].
+    apply leq_val_state_integer in leq_S''l_S''; [ | assumption].
+    destruct leq_S''l_S'' as (Hv1 & leq_S''l_S'').
+    destruct Hv0 as [-> | (? & ->)]; destruct Hv1 as [-> | (? & ->)].
+    (* La somme d'un entier et d'un symbolique est symbolique *)
+    (* La somme de deux entiers est bien définie *)
+    + execution_step. { econstructor; eassumption. }
+      apply leq_base_implies_leq_val_state_base; auto with spath.
+    + assert (exists wl, LLBC_plus_sum v0 v1l wl) as (wl & Hwl) by now apply sum_integers.
+      execution_step. { econstructor; eassumption. }
+      leq_step_left.
+      { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        autorewrite with spath. eapply sum_is_integer. eassumption. }
+      { autorewrite with spath. reflexivity. }
+      replace w with LLBC_plus_symbolic by  now inversion sum_m_n.
+      apply leq_base_implies_leq_val_state_base; auto with spath.
+    + assert (exists wl, LLBC_plus_sum v0l v1 wl) as (wl & Hwl) by now apply sum_integers.
+      execution_step. { econstructor; eassumption. }
+      leq_step_left.
+      { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        autorewrite with spath. eapply sum_is_integer. eassumption. }
+      { autorewrite with spath. reflexivity. }
+      replace w with LLBC_plus_symbolic by  now inversion sum_m_n.
+      apply leq_base_implies_leq_val_state_base; auto with spath.
+    + assert (exists wl, LLBC_plus_sum v0l v1l wl) as (wl & Hwl) by now apply sum_integers.
+      execution_step. { econstructor; eassumption. }
+      leq_step_left.
+      { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        autorewrite with spath. eapply sum_is_integer. eassumption. }
+      { autorewrite with spath. reflexivity. }
+      replace w with LLBC_plus_symbolic by  now inversion sum_m_n.
+      apply leq_base_implies_leq_val_state_base; auto with spath.
 
   - destruct Hleq.
     (* Case Leq_ToSymbolic: *)
@@ -3780,26 +3922,11 @@ Proof.
   - apply operand_preserves_equiv in Heval_op.
     edestruct Heval_op as (vS'' & ? & ?); [exact Hequiv | ].
     execution_step. { constructor. eassumption. } assumption.
-  - apply operand_preserves_equiv in eval_op_l, eval_op_r.
-    edestruct eval_op_l as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
-    edestruct eval_op_r as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
+  - apply operand_preserves_equiv in eval_op_0, eval_op_1.
+    edestruct eval_op_0 as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
+    edestruct eval_op_1 as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
     cbn in * |-. subst.
-    execution_step. { eapply Eval_bin_op; eassumption. } split; easy.
-  - apply operand_preserves_equiv in eval_op_l, eval_op_r.
-    edestruct eval_op_l as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
-    edestruct eval_op_r as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
-    cbn in * |-. subst.
-    execution_step. { eapply Eval_bin_op_symbolic_int; eassumption. } split; easy.
-  - apply operand_preserves_equiv in eval_op_l, eval_op_r.
-    edestruct eval_op_l as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
-    edestruct eval_op_r as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
-    cbn in * |-. subst.
-    execution_step. { eapply Eval_bin_op_int_symbolic; eassumption. } split; easy.
-  - apply operand_preserves_equiv in eval_op_l, eval_op_r.
-    edestruct eval_op_l as ((? & ?) & (? & Hequiv') & ?); [exact Hequiv | ].
-    edestruct eval_op_r as ((? & ?) & (? & Hequiv'') & ?); [exact Hequiv' | ].
-    cbn in * |-. subst.
-    execution_step. { eapply Eval_bin_op_symbolic_symbolic; eassumption. } split; easy.
+    execution_step. { econstructor; eassumption. } split; easy.
   - symmetry in Hequiv. destruct Hequiv as (? & ? & ->).
     eapply eval_place_permutation in eval_p; [ | eassumption].
     execution_step.
@@ -3816,7 +3943,8 @@ Qed.
  * unitialized values. This can be used to prune cases. *)
 Lemma eval_rvalue_no_bot S S' rv v : S |-{rv} rv => (v, S') -> not_contains_bot v.
 Proof.
-  inversion 1; subst; [ | not_contains..]. inversion Heval_op; subst.
+  inversion 1; subst; [ | inversion sum_m_n; not_contains | not_contains].
+  inversion Heval_op; subst.
   + not_contains.
   + induction Hcopy_val; not_contains.
   + assumption.
@@ -3824,7 +3952,8 @@ Qed.
 
 Lemma eval_rvalue_no_loan S S' rv v : S |-{rv} rv => (v, S') -> not_contains_loan v.
 Proof.
-  inversion 1; subst; [ | not_contains..]. inversion Heval_op; subst.
+  inversion 1; subst; [ | inversion sum_m_n; not_contains | not_contains].
+  inversion Heval_op; subst.
   + not_contains.
   + induction Hcopy_val; not_contains.
   + assumption.
