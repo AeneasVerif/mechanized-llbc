@@ -1341,6 +1341,10 @@ Lemma is_integer_valid S p : is_integer (get_node (S.[p])) -> valid_spath S p.
 Proof. intros H. apply valid_get_node_sget_not_bot. destruct H; discriminate. Qed.
 Hint Resolve is_integer_valid : spath.
 
+Lemma is_integer_valid_vpath v p : is_integer (get_node (v.[[p]])) -> valid_vpath v p.
+Proof. intros H. apply valid_get_node_vget_not_bot. destruct H; discriminate. Qed.
+Hint Resolve is_integer_valid_vpath : spath.
+
 Lemma is_integer_zeroary n : is_integer n -> arity n = 0.
 Proof. intros []; reflexivity. Qed.
 
@@ -1356,11 +1360,23 @@ Proof.
     inversion valid_r as [ | ? ? ? ? K%nth_error_length]; subst. rewrite G in K. lia.
 Qed.
 
+Lemma integer_does_not_contain_bot v :
+  is_integer (get_node v) -> not_value_contains (fun c => c = botC) v.
+Proof. destruct v; inversion 1; now apply not_value_contains_zeroary. Qed.
+Hint Resolve integer_does_not_contain_bot : spath.
+
 Lemma integer_does_not_contain_loan v : is_integer (get_node v) -> not_value_contains is_loan v.
 Proof.
   destruct v; inversion 1; unfold not_contains_loan; now apply not_value_contains_zeroary.
 Qed.
 Hint Resolve integer_does_not_contain_loan : spath.
+
+Lemma integer_does_not_contain_loan_id v l :
+  is_integer (get_node v) -> not_value_contains (is_loan_id l) v.
+Proof.
+  destruct v; inversion 1; unfold not_contains_loan; now apply not_value_contains_zeroary.
+Qed.
+Hint Resolve integer_does_not_contain_loan_id : spath.
 
 Lemma integer_does_not_contain_borrow v : is_integer (get_node v) -> not_value_contains is_borrow v.
 Proof.
@@ -2688,7 +2704,7 @@ Qed.
 Variant leq_state_base : LLBC_plus_state -> LLBC_plus_state -> Prop :=
 (* Contrary to the article, symbolic values should be typed. Thus, only an integer can be converted
  * to a symbolic value for the moment. *)
-| Leq_ToSymbolic S sp n (get_int : get_node (S.[sp]) = LLBC_plus_intC n) :
+| Leq_ToSymbolic S sp (get_int : is_integer (get_node (S.[sp]))) :
     leq_state_base S (S.[sp <- LLBC_plus_symbolic])
 | Leq_ToAbs S a i v A
     (fresh_a : fresh_anon S a)
@@ -2758,11 +2774,11 @@ Proof.
   - autorewrite with spath. constructor. assumption.
 Qed.
 
-Lemma Leq_Fresh_MutLoan_Abs S sp l' i k n
+Lemma Leq_Fresh_MutLoan_Abs S sp l' i k
     (fresh_l' : is_fresh l' S)
     (sp_not_in_abstraction : not_in_abstraction sp)
     (fresh_i : fresh_abstraction S i)
-    (is_int : get_node (S.[sp]) = LLBC_plus_intC n) :
+    (is_int : is_integer (get_node (S.[sp]))) :
     leq_state_base^* S (S.[sp <- loan^m(l')],,,
                         i |-> {[k := borrow^m(l', LLBC_plus_symbolic)]}%stdpp).
 Proof.
@@ -2784,30 +2800,25 @@ Proof.
 Qed.
 
 (** * Simulation proofs. *)
-(** ** leq_state_base is preserved by equivalenc. *)
-Notation node_measure n :=
-  match n with
-  | LLBC_plus_symbolicC => 2
-  | _ => 1
-  end.
-Definition measure S := sweight (fun c => node_measure c) S + size (abstractions S).
-Notation abs_measure S := (map_sum (vweight (fun c => node_measure c)) S).
+(** ** leq_state_base is preserved by equivalence. *)
+Definition measure S := sweight (fun _ => 1) S + size (abstractions S).
+Notation abs_measure S := (map_sum (vweight (fun _ => 1)) S).
 
 Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
-| Leq_ToSymbolic_n S sp x (get_int : get_node (S.[sp]) = LLBC_plus_intC x) :
-    leq_state_base_n 0 S (S.[sp <- LLBC_plus_symbolic])
+| Leq_ToSymbolic_n S sp (get_int : is_integer (get_node (S.[sp]))) :
+    leq_state_base_n 1 S (S.[sp <- LLBC_plus_symbolic])
 | Leq_ToAbs_n S a i v A
     (fresh_a : fresh_anon S a)
     (fresh_i : fresh_abstraction S i)
     (Hto_abs : to_abs v A) :
-    leq_state_base_n 0 (S,, a |-> v) (S,,, i |-> A)
+    leq_state_base_n 1 (S,, a |-> v) (S,,, i |-> A)
 (* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
  * contain any loan or borrow, no region abstraction is created. *)
 | Leq_RemoveAnon_n S a v
     (fresh_a : fresh_anon S a)
     (no_loan : not_contains_loan v)
     (no_borrow : not_contains_borrow v) :
-    leq_state_base_n (1 + vweight (fun c => node_measure c) v) (S,, a |-> v) S
+    leq_state_base_n (1 + vweight (fun _ => 1) v) (S,, a |-> v) S
 | Leq_MoveValue_n S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
@@ -2835,7 +2846,7 @@ Variant leq_state_base_n : nat -> LLBC_plus_state -> LLBC_plus_state -> Prop :=
 | Leq_Abs_ClearValue_n S i j v
     (get_at_i_j : abstraction_element S i j  = Some v)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
-    leq_state_base_n (1 + vweight (fun c => node_measure c) v) S (remove_abstraction_value S i j)
+    leq_state_base_n (1 + vweight (fun _ => 1) v) S (remove_abstraction_value S i j)
 | Leq_AnonValue_n S a (is_fresh : fresh_anon S a) :
     leq_state_base_n 0 S (S,, a |-> bot)
 .
@@ -3039,8 +3050,8 @@ Qed.
 Lemma add_anon_preserves_vars_dom S a v : dom (vars (S,, a |-> v)) = dom (vars S).
 Proof. reflexivity. Qed.
 
-Lemma eval_place_ToSymbolic S sp p pi perm n
-  (His_integer : get_node (S.[sp]) = LLBC_plus_intC n)
+Lemma eval_place_ToSymbolic S sp p pi perm
+  (His_integer : is_integer (get_node (S.[sp])))
   (H : (S.[sp <- LLBC_plus_symbolic]) |-{p} p =>^{perm} pi) :
   S |-{p} p =>^{perm} pi /\ ~strict_prefix sp pi.
 Proof.
@@ -3263,9 +3274,9 @@ Ltac eval_place_preservation :=
   let pi_l := fresh "pi_l" in
   let rel_pi_l_pi_r := fresh "rel_pi_l_pi_r" in
   lazymatch goal with
-  | get_integer : get_node (?S.[?sp]) = LLBC_plus_intC ?n,
+  | get_integer : (is_integer (get_node (?S.[?sp]))),
     H : (?S.[?sp <- LLBC_plus_symbolic]) |-{p} ?p =>^{?perm} ?pi |- _ =>
-        apply (eval_place_ToSymbolic _ _ _ _ _ _ get_integer) in H;
+        apply (eval_place_ToSymbolic _ _ _ _ _ get_integer) in H;
         destruct H as (eval_p_in_Sl & ?)
   | fresh_a : fresh_anon ?S ?a,
     fresh_i : fresh_abstraction ?S ?i,
@@ -3451,7 +3462,7 @@ Proof.
       (* Case 1: the value we turn into a symbolic value is in the place we move. *)
       * autorewrite with spath in * |-.
         leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)) (n := n).
+        { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)).
           all: autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
         states_eq.
@@ -3460,8 +3471,7 @@ Proof.
       * assert (disj sp pi) by reduce_comp.
         autorewrite with spath in * |-.
         leq_step_left.
-        { apply Leq_ToSymbolic with (sp := sp) (n := n).
-          all: autorewrite with spath; assumption. }
+        { apply Leq_ToSymbolic with (sp := sp). all: autorewrite with spath; assumption. }
         { autorewrite with spath. reflexivity. }
         states_eq.
 
@@ -4187,7 +4197,7 @@ Lemma leq_state_base_n_decreases n Sl Sr (H : leq_state_base_n n Sl Sr) :
   measure Sl < measure Sr + n.
 Proof.
   unfold measure. destruct H.
-  - weight_inequality.
+  - destruct (get_node (S.[sp])) eqn:?; inversion get_int; weight_inequality.
   - autorewrite with weight. destruct Hto_abs.
     + autorewrite with weight. lia. simpl_map. reflexivity.
     + autorewrite with weight. destruct v; inversion Hv; cbn; lia.
@@ -4325,7 +4335,7 @@ Proof.
   - auto.
   - repeat lazymatch goal with
     | H : lookup ?i ?A = Some ?v |- _ =>
-        apply (map_sum_delete (vweight (fun c => node_measure c))) in H
+        apply (map_sum_delete (vweight (fun _ => 1))) in H
     end.
     lia.
 Qed.
@@ -4358,7 +4368,7 @@ Proof.
     split.
     { econstructor; eassumption. }
     split.
-    { apply (map_sum_delete (vweight (fun c => node_measure c))) in HA', HB'.
+    { apply (map_sum_delete (vweight (fun _ => 1))) in HA', HB'.
       remember (vweight _ _) eqn:EQN. cbn in EQN. subst.
       remember (vweight _ _) eqn:EQN. cbn in EQN. subst.
       apply abs_measure_remove_loans in Hremove_loans. lia. }
@@ -4401,7 +4411,7 @@ Proof.
   - reflexivity.
   - intros m ?. replace m with (2 + (m - 2)) by lia. eapply MC_trans.
     + constructor.
-      replace 2 with (1 + vweight (fun c => node_measure c) bot) by reflexivity.
+      replace 2 with (1 + vweight (fun _ => 1) bot) by reflexivity.
       apply Leq_RemoveAnon_n; autorewrite with spath.
       assumption. unfold not_contains_loan. not_contains. unfold not_contains_borrow. not_contains.
     + apply IHadd_anonymous_bots. lia.
@@ -4655,12 +4665,12 @@ Proof.
       * autorewrite with spath in *.
         reorg_step.
         { eapply Reorg_end_borrow_m_in_abstraction with (i' := i') (j' := j') (q := q).
-          all: try eassumption. rewrite get_int. constructor. }
+          all: eassumption. }
         reorg_done. reflexivity.
       * assert (disj sp q). apply prove_disj.
-        { congruence. }
+        { inversion get_int; cbn in *; congruence. }
         { eapply get_zeroary_not_strict_prefix.
-          - rewrite get_int. reflexivity.
+          - apply is_integer_zeroary. eassumption.
           - validity. }
         { eapply not_prefix_one_child.
           - rewrite length_children_is_arity, get_borrow. reflexivity.
@@ -4853,14 +4863,15 @@ Proof.
   - intros ? Hleq. remember (S,,, i' |-> A') as _S eqn:EQN.
     destruct Hleq as [ | | | | _S | | | | ].
     (* Case Leq_ToSymbolic *)
+    (* TODO: ugly proof. *)
     + destruct (decide (in_abstraction i' (fst sp))) as [(j & Hj) | ].
       * destruct sp as (? & q) eqn:Hsp. cbn in Hj. rewrite Hj in *.
         assert (exists A, S0 = S,,, i' |-> A /\ A' = alter (vset q (LLBC_plus_symbolic)) j A)
           as (A & -> & ->).
-        { exists (alter (vset q (LLBC_plus_int x)) j A'). split.
+        { exists (alter (vset q (S0 .[ (encode_abstraction (i', j), q)])) j A'). split.
           - apply (f_equal (sset sp (S0.[sp]))) in EQN. subst.
             autorewrite with spath in EQN. erewrite sset_add_abstraction in EQN.
-            destruct (sget _ S0); inversion get_int; subst. reflexivity.
+            destruct (sget _ S0); inversion get_int; subst; reflexivity.
           - rewrite <-alter_compose. apply map_eq. intros k. destruct (decide (k = j)) as [-> | ].
             + simpl_map. destruct (lookup j A') as [w | ] eqn:?; [ | reflexivity]. cbn.
               apply (f_equal (sget sp)) in EQN. subst.
@@ -4870,18 +4881,16 @@ Proof.
         (* Note: this should be a lemma. *)
         unfold sget in get_int. rewrite fst_pair, snd_pair, get_at_abstraction in get_int.
         cbn in get_int. simpl_map. cbn in get_int.
-        destruct (lookup j A) as [w | ] eqn:EQN'; [ | discriminate].
+        destruct (lookup j A) as [w | ] eqn:EQN'; [ | inversion get_int].
         (* Note: this should be a lemma. *)
         erewrite alter_insert_delete in Hadd_anons by eassumption.
         apply add_anons_delete' in Hadd_anons; [ | now simpl_map].
         destruct Hadd_anons as (a & fresh_a & Hadd_anons).
         assert (valid_spath (S,, a |-> w.[[q <- LLBC_plus_symbolic]]) (encode_anon a, q)).
         { apply not_contains_bot_valid. autorewrite with spath.
-          - apply not_value_contains_zeroary; easy.
-          - apply valid_get_node_vget_not_bot; cbn; rewrite get_int. discriminate. }
+          apply not_value_contains_zeroary; easy. }
         assert (S'.[(encode_anon a, q)] = LLBC_plus_symbolic) as get_symbolic.
-        { erewrite add_anons_sget by eassumption. autorewrite with spath; [reflexivity | ].
-          apply valid_get_node_vget_not_bot; cbn; rewrite get_int. discriminate. }
+        { erewrite add_anons_sget by eassumption. autorewrite with spath. reflexivity. }
         apply add_anons_sset with (p := (encode_anon a, q)) (v := w.[[q]]) in Hadd_anons;
           [ | eassumption].
         autorewrite with spath in Hadd_anons. rewrite vset_twice_equal, vset_same in Hadd_anons.
@@ -4894,11 +4903,11 @@ Proof.
           intros k. specialize (A_no_loans k). destruct (decide (k = j)) as [-> | ].
           simpl_map. intros ? [=->].
           eapply not_value_contains_vset_rev. 2: apply A_no_loans; rewrite EQN'; reflexivity.
-          apply not_value_contains_zeroary; cbn; rewrite get_int; easy.
+          apply integer_does_not_contain_loan. assumption.
           simpl_map. assumption.
           eassumption. }
         reorg_done. eapply leq_n_step.
-        { apply Leq_ToSymbolic_n with (x := x). rewrite sset_sget_equal. assumption. validity. }
+        { apply Leq_ToSymbolic_n. rewrite sset_sget_equal. assumption. validity. }
         { reflexivity. }
         rewrite <-get_symbolic. autorewrite with spath. reflexivity.
       * assert (exists S1, S = S1.[sp <- LLBC_plus_symbolic] /\ S0 = S1,,, i' |-> A' /\
@@ -4933,16 +4942,12 @@ Proof.
            (* If v is an integer, we must perform an extra relation step to turn it into a
             * symbolic value. Because when we end the region A, the anonymous binding introduced
             * is a symbolic value. *)
-           reorg_done. destruct v; inversion Hv.
-           ++ eapply leq_n_step.
-              { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
-                autorewrite with spath. reflexivity. }
-              { easy. }
-               autorewrite with spath. now apply leq_n_by_equivalence, add_anon_equivalence.
-           ++ (* After reorganization, the borrow is introduced in an anonymous variable `b` that
-               * can be different than the anonymous variable `a` that were turned into a
-               * region. However, the states when we add a borrow in a and b are equivalent. *)
-              now apply leq_n_by_equivalence, add_anon_equivalence.
+           reorg_done.
+           eapply leq_n_step.
+           { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
+             autorewrite with spath. assumption. }
+           { reflexivity. }
+           autorewrite with spath. now apply leq_n_by_equivalence, add_anon_equivalence.
       (* Case 2: the abstraction we introduce and the abstraction we end are
        * different. *)
       * destruct EQN as (_ & S1 & -> & ->).
@@ -5367,7 +5372,7 @@ Section Eval_LLBC_plus_program.
     simpl_state.
     eapply prove_leq.
     { eapply Leq_Fresh_MutLoan_Abs with (sp := (encode_var y, [])) (l' := ly) (i := 2%positive) (k := 2%positive);
-        [compute_done | now eapply var_not_in_abstraction | compute_done | reflexivity]. }
+        [compute_done | now eapply var_not_in_abstraction | compute_done | constructor]. }
     simpl_state.
     eapply prove_leq; [constructor | ].
     { remove_abstraction 1%positive. remove_abstraction 2%positive.
@@ -5377,7 +5382,7 @@ Section Eval_LLBC_plus_program.
       apply UnionEmpty. }
     simpl_state.
     eapply prove_leq; [constructor | ].
-    { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
+    { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). constructor. }
     simpl_state.
     eapply prove_leq; [constructor | ].
     { remove_anon 1%positive. apply Leq_RemoveAnon. all: compute_done. }
@@ -5400,7 +5405,7 @@ Section Eval_LLBC_plus_program.
     simpl_state.
     eapply prove_leq.
     { eapply Leq_Fresh_MutLoan_Abs with (sp := (encode_var x, [])) (l' := lx) (i := 2%positive) (k := 1%positive);
-        [compute_done | now eapply var_not_in_abstraction | compute_done | reflexivity]. }
+        [compute_done | now eapply var_not_in_abstraction | compute_done | constructor]. }
     simpl_state.
     eapply prove_leq; [constructor | ].
     { remove_abstraction 1%positive. remove_abstraction 2%positive.
@@ -5410,7 +5415,7 @@ Section Eval_LLBC_plus_program.
       apply UnionEmpty. }
     simpl_state.
     eapply prove_leq; [constructor | ].
-    { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). reflexivity. }
+    { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). constructor. }
     simpl_state.
     eapply prove_leq; [constructor | ].
     { remove_anon 1%positive. apply Leq_RemoveAnon. all: compute_done. }
@@ -5423,11 +5428,12 @@ Section Eval_LLBC_plus_program.
     eexists.
     eapply Eval_seq_unit.
     { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
-      - eapply Eval_bin_op_symbolic_int.
+      - econstructor.
         + eapply Eval_copy.
           * eval_var. repeat econstructor || easy.
           * constructor.
         + apply Eval_IntConst.
+        + constructor.
       - eval_var. repeat econstructor || easy.
       - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
       - reflexivity.
@@ -5471,8 +5477,9 @@ Section Eval_LLBC_plus_program.
     simpl_state.
     (* Finally, we can copy and overwrite x: *)
     eapply Eval_assign; [ | apply Store with (a := 5%positive)].
-    - eapply Eval_bin_op_symbolic_int.
+    - econstructor.
       + eapply Eval_copy; [eval_var | ]; constructor.
+      + constructor.
       + constructor.
     - eval_var. constructor.
     - apply decide_not_contains_outer_loan_correct. reflexivity.
