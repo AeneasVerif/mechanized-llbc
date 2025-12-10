@@ -716,6 +716,22 @@ Ltac eval_place_preservation :=
       destruct eval_p_in_Sr as (pi_l & rel_pi_l_pi_r & eval_p_in_Sl)
   end.
 
+Lemma copy_val_no_mut_loan v w : copy_val v w -> not_contains_loan v.
+Proof.
+  induction 1.
+  - apply not_value_contains_zeroary; easy.
+  - apply not_value_contains_zeroary; easy.
+  - eapply not_value_contains_unary; [reflexivity | easy | assumption].
+Qed.
+
+Lemma copy_val_no_mut_borrow v w : copy_val v w -> not_value_contains is_mut_borrow v.
+Proof.
+  induction 1.
+  - apply not_value_contains_zeroary; easy.
+  - apply not_value_contains_zeroary; easy.
+  - eapply not_value_contains_unary; [reflexivity | easy | assumption].
+Qed.
+
 Lemma operand_preserves_HLPL_plus_rel op :
   forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op).
 Proof.
@@ -729,8 +745,38 @@ Proof.
         assumption. all: autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
+
   (* op = copy p *)
-  - admit.
+  - destruct Hle.
+    + eval_place_preservation.
+      assert (~prefix pi sp_loan).
+      { eapply not_value_contains_not_prefix.
+        - eapply copy_val_no_mut_loan. eassumption.
+        - rewrite HS_loan. constructor.
+        - validity. }
+      assert (disj pi sp_loan) by reduce_comp.
+      assert (~prefix pi sp_borrow).
+      { eapply not_value_contains_not_prefix.
+        - eapply copy_val_no_mut_borrow. eassumption.
+        - rewrite HS_borrow. constructor.
+        - validity. }
+      destruct rel_pi_l_pi_r as [(r & -> & ->) | (-> & ?)].
+      * execution_step.
+        { econstructor. eassumption. autorewrite with spath. eassumption. }
+        leq_step_right.
+        { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+          assumption. all: autorewrite with spath; eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * assert (disj pi sp_borrow) by reduce_comp.
+        execution_step.
+        { econstructor. eassumption. autorewrite with spath. eassumption. }
+        leq_step_right.
+        { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+          assumption. all: autorewrite with spath; eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+
   (* op = move p *)
   - destruct Hle.
     (* Le-MutBorrow-To-Ptr *)
@@ -756,7 +802,7 @@ Proof.
           assumption. all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         states_eq.
-Admitted.
+Qed.
 
 (* TODO: move in base.v *)
 Inductive well_formed_state_value : HLPL_plus_val * HLPL_plus_state -> Prop :=
