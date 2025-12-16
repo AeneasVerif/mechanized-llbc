@@ -56,6 +56,22 @@ Proof. apply injective_projections; reflexivity || apply app_nil_r. Qed.
 Lemma app_spath_vpath_assoc (p : spath) q r : p +++ q ++ r = (p +++ q) +++ r.
 Proof. unfold app_spath_vpath. rewrite app_assoc. reflexivity. Qed.
 
+Lemma app_spath_vpath_inv_head (p : spath) q1 q2 : p +++ q1 = p +++ q2 <-> q1 = q2.
+Proof.
+  split ; intros.
+  - unfold "+++" in H. injection H as H. by apply app_inv_head in H.
+  - unfold "+++". congruence.
+Qed.
+
+Lemma app_spath_vpath_inv_tail (p1 p2 : spath) q : p1 +++ q = p2 +++ q <-> p1 = p2.
+Proof.
+  split ; intros.
+  - unfold "+++" in H. injection H as H. apply app_inv_tail in H0.
+    rewrite surjective_pairing with (p := p1), surjective_pairing with (p := p2).
+    congruence.
+  - unfold "+++". congruence.
+Qed.
+
 (* The large and strict prefix relations between two paths. *)
 Definition vprefix (p q : vpath) := exists r, p ++ r = q.
 Definition vstrict_prefix (p q : vpath) := exists i r, p ++ i :: r = q.
