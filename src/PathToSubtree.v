@@ -344,7 +344,7 @@ Proof.
   destruct (decide (i = j)); destruct (decidable_vpath_eq p' q'); intuition congruence.
 Qed.
 
-Lemma decidable_vprefix p q : vprefix p q \/ ~vprefix p q.
+Lemma decidable_vprefix (p q : vpath) : vprefix p q \/ ~vprefix p q.
 Proof.
   destruct (comparable_vpaths p q) as [<- | | | ].
   - left. reflexivity.
@@ -353,7 +353,7 @@ Proof.
   - right. apply not_vprefix_vdisj. assumption.
 Qed.
 
-Lemma decidable_prefix p q : prefix p q \/ ~prefix p q.
+Lemma decidable_prefix (p q : spath) : prefix p q \/ ~prefix p q.
 Proof.
   destruct (comparable_spaths p q) as [<- | | | ].
   - left. reflexivity.
@@ -362,7 +362,7 @@ Proof.
   - right. apply not_prefix_disj. assumption.
 Qed.
 
-Lemma decidable_prefix' p q : {r & p +++ r = q } + {~prefix p q}.
+Lemma decidable_prefix' (p q : spath) : {r & p +++ r = q } + {~prefix p q}.
 Proof.
 Admitted.
 
