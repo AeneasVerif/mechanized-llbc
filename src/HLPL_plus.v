@@ -349,34 +349,34 @@ Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
-| Eval_IntConst S n : S |-{op} IntConst n => (HLPL_plus_int n, S)
-| Eval_copy S (p : place) pi v
+| Eval_IntConst S n : S |-{op} IntConst TInt n => (HLPL_plus_int n, S)
+| Eval_copy S (p : place) t pi v
     (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
-    S |-{op} Copy p => (v, S)
-| Eval_move S (p : place) pi : eval_place S Mov p pi ->
+    S |-{op} Copy t p => (v, S)
+| Eval_move S (p : place) t pi : eval_place S Mov p pi ->
     not_contains_loan (S.[pi]) -> not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
-    S |-{op} Move p => (S.[pi], S.[pi <- bot])
+    S |-{op} Move t p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
-  | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
+  | Eval_just op S vS' (Heval_op : S |-{op} op => vS') t : S |-{rv} (Just t op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' op_l op_r m n :
+  | Eval_bin_op S S' S'' op_l op_r t_l t_r m n :
       (S |-{op} op_l => (HLPL_plus_int m, S')) ->
       (S' |-{op} op_r => (HLPL_plus_int n, S'')) ->
-      S |-{rv} (BinOp op_l op_r) => ((HLPL_plus_int (m + n)), S'')
-  | Eval_pointer_loc S p pi l
+      S |-{rv} (BinOp (TPair t_l t_r) op_l op_r) => ((HLPL_plus_int (m + n)), S'')
+  | Eval_pointer_loc S p t pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
-      (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
-  | Eval_pointer_no_loc S p pi l
+      (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p : t => (ptr(l), S)
+  | Eval_pointer_no_loc S p t pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
       (* This hypothesis is not necessary for the proof of preservation of HLPL+, but it is
          useful in that it can help us eliminate cases. *)
       (Hno_loan : not_contains_loan (S.[pi])) :
       is_fresh l S ->
-      S |-{rv} (&mut p) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
+      S |-{rv} (&mut p : t) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
 Inductive reorg : HLPL_plus_state -> HLPL_plus_state -> Prop :=
