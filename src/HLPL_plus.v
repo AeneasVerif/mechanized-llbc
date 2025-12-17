@@ -633,12 +633,12 @@ Proof.
               { econstructor; autorewrite with spath; easy. }
               apply Eval_nil.
            ++ left. exists []. split; reflexivity.
-        -- assert (~prefix sp_borrow q) by reduce_comp.
+        -- assert (~prefix sp_borrow q) by solve_comp.
            execution_step.
            ++ eapply Eval_cons.
               { eapply Eval_Deref_MutBorrow; autorewrite with spath; eassumption. }
               apply Eval_nil.
-           ++ right. split; [reflexivity | eauto with spath].
+           ++ right. split; [reflexivity | solve_comp].
     (* Case Eval_Deref_Ptr_Locs: *)
     + intros q_l H.
       assert (get_at_q_l : get_node (S_l.[q_l]) = ptrC(l)).
@@ -652,7 +652,7 @@ Proof.
               autorewrite with spath. assumption.
            ++ apply Eval_nil.
       * exists q'. split.
-        -- right. eauto with spath.
+        -- right. split; [reflexivity | solve_comp].
         -- eapply Eval_cons.
            { eapply Eval_Deref_Ptr_Locs with (q' := q'); [assumption | exact get_at_q_l | ].
              autorewrite with spath. assumption. }
@@ -662,7 +662,7 @@ Proof.
       * econstructor; autorewrite with spath; eassumption.
       * autorewrite with spath. left. eexists. split; reflexivity.
     + exists (q +++ [0]). split.
-      * right. eauto with spath.
+      * right. split; [reflexivity | solve_comp].
       * econstructor; autorewrite with spath; eassumption.
 Qed.
 
@@ -681,6 +681,22 @@ Proof.
   (* Going under a loc cannot be performed in move Mov. *)
   - intros ? ? eval_pi_r. destruct eval_pi_r; contradiction.
 Qed.
+
+(* This lemma is used to prove a goal of the form ?vSl < (vr, Sr) or (vl, Sl) < ?vSr without
+ * exhibiting the existential variable ?vSl or ?vSr. *)
+Ltac leq_step_right :=
+  lazymatch goal with
+  (* When proving a goal `leq ?vSl (vr, Sr)`, using this tactic creates three subgoals:
+     1. leq_base ?vSm (Sr,, a |-> v)
+     2. ?vSm = ?Sm,, a |-> ?vm
+     3. leq ?vSl (?vm, ?Sm) *)
+  | |- ?leq_star ?vSl (?vr, ?Sr) =>
+      let a := fresh "a" in
+      let H := fresh "H" in
+      eapply prove_leq_val_state_right_to_left;
+        [intros a H; rewrite <-?fresh_anon_sset in H; eexists; split | ]
+  | |- ?leq_star ?Sl ?Sr => eapply leq_step_right
+  end.
 
 (* Suppose that Sl <= Sr (with a base case), and that p evaluates to a spath pi in Sr
    (Sr |-{p} p =>^{perm} pi).
@@ -754,7 +770,7 @@ Proof.
         - eapply copy_val_no_mut_loan. eassumption.
         - rewrite HS_loan. constructor.
         - validity. }
-      assert (disj pi sp_loan) by reduce_comp.
+      assert (disj pi sp_loan) by solve_comp.
       assert (~prefix pi sp_borrow).
       { eapply not_value_contains_not_prefix.
         - eapply copy_val_no_mut_borrow. eassumption.
@@ -768,7 +784,7 @@ Proof.
           assumption. all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
-      * assert (disj pi sp_borrow) by reduce_comp.
+      * assert (disj pi sp_borrow) by solve_comp.
         execution_step.
         { econstructor. eassumption. autorewrite with spath. eassumption. }
         leq_step_right.
@@ -781,7 +797,7 @@ Proof.
   - destruct Hle.
     (* Le-MutBorrow-To-Ptr *)
     + eval_place_preservation.
-      assert (disj pi sp_loan) by reduce_comp.
+      assert (disj pi sp_loan) by solve_comp.
       destruct (decidable_prefix pi sp_borrow) as [(q & <-) | ].
       (* Case 1: the mutable borrow we're transforming to a pointer is in the moved value. *)
       * execution_step.
@@ -794,7 +810,7 @@ Proof.
         states_eq.
       (* Case 2: the mutable borrow we're transforming to a pointer is disjoint to the moved value.
        *)
-      * assert (disj pi sp_borrow) by reduce_comp.
+      * assert (disj pi sp_borrow) by solve_comp.
         execution_step.
         { constructor. eassumption. all: autorewrite with spath; assumption. }
         leq_step_right.
@@ -954,17 +970,17 @@ Proof.
          { autorewrite with spath. reflexivity. }
         states_eq.
       (* Case 2: *)
-      * assert (disj sp_loan pi) by reduce_comp.
+      * assert (disj pi sp_loan) by solve_comp.
         destruct (decidable_prefix pi sp_borrow) as [(r & <-) | ].
         -- execution_step.
            { apply Eval_pointer_no_loc with (l := l). eassumption.
              autorewrite with spath. all: autounfold with spath; not_contains. }
            leq_step_right.
            { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := pi +++ [0] ++ r).
-             auto with spath. all: autorewrite with spath; eassumption. }
+             solve_comp. all: autorewrite with spath; eassumption. }
            { autorewrite with spath. reflexivity. }
            states_eq.
-        -- assert (disj sp_borrow pi) by reduce_comp.
+        -- assert (disj pi sp_borrow) by solve_comp.
            execution_step.
            { apply Eval_pointer_no_loc with (l := l). eassumption.
              autorewrite with spath. assumption. all: autounfold with spath; not_contains. }
@@ -1206,10 +1222,11 @@ Proof.
               leq_step_right.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := (anon_accessor a, r_loan))
                                                 (sp_borrow := (anon_accessor a, r_borrow)).
-                 eauto with spath. all: autorewrite with spath; eassumption. }
+                 (* TODO: long *)
+                 solve_comp. all: autorewrite with spath; eassumption. }
               autorewrite with spath. reflexivity.
           (* Case 3b: the loan is disjoint to the place we write in. *)
-           ++ assert (disj sp sp_loan) by reduce_comp.
+           ++ assert (disj sp sp_loan) by solve_comp.
               execution_step.
               { constructor. eassumption. not_contains_outer. not_contains_outer. auto. }
               leq_step_right.
@@ -1218,7 +1235,7 @@ Proof.
                 eauto with spath. all: autorewrite with spath; eassumption. }
               states_eq.
         (* Case 3: the borrow is disjoint from the place we write in. *)
-        -- assert (disj sp sp_borrow) by reduce_comp.
+        -- assert (disj sp sp_borrow) by solve_comp.
            destruct (decidable_prefix sp sp_loan) as [(r_loan & <-) | ].
            (* Case 3a: the loan is in the place we write in. *)
            ++ execution_step.
@@ -1230,7 +1247,7 @@ Proof.
                 eauto with spath. all: autorewrite with spath; eassumption. }
               states_eq.
           (* Case 3b: the loan is disjoint to the place we write in. *)
-           ++ assert (disj sp sp_loan) by reduce_comp.
+           ++ assert (disj sp sp_loan) by solve_comp.
               execution_step.
               { constructor. eassumption. not_contains_outer. not_contains_outer. auto. }
               leq_step_right.
@@ -1255,12 +1272,12 @@ Proof.
              eauto with spath. all: autorewrite with spath; eassumption. }
            autorewrite with spath. reflexivity.
         (* Case 4b: the loan is disjoint to the place we write in. *)
-        -- assert (disj sp sp_loan) by reduce_comp.
+        -- assert (disj sp sp_loan) by solve_comp.
            execution_step.
            { constructor. eassumption. not_contains_outer. not_contains_outer. auto. }
            leq_step_right.
            { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp +++ q).
-             auto with spath. all: autorewrite with spath; eassumption. }
+             solve_comp. all: autorewrite with spath; eassumption. }
            states_eq.
 Qed.
 
@@ -1349,14 +1366,12 @@ Proof.
           autorewrite with spath. not_contains. }
         reorg_done.
         states_eq.
-      * assert (q <> sp_borrow) by congruence.
-        assert (~strict_prefix sp_borrow q). { apply H3. rewrite HS_borrow. constructor. }
-        assert (disj p sp_loan) by reduce_comp.
-        assert (disj q sp_loan) by reduce_comp.
+      * assert (~strict_prefix sp_borrow q). { apply H3. rewrite HS_borrow. constructor. }
+        assert (disj p sp_loan) by solve_comp.
+        assert (disj q sp_loan) by solve_comp.
         destruct (decidable_prefix q sp_borrow).
         (* Case 2: the borrow we turn into a pointer is inside the borrow we end. *)
-        -- assert (strict_prefix q sp_borrow) by auto with spath.
-           assert (prefix (q +++ [0]) sp_borrow) as (r & <-) by eauto with spath.
+        -- assert (prefix (q +++ [0]) sp_borrow) as (r & <-) by solve_comp.
            autorewrite with spath in *.
            reorg_step.
            { eapply Reorg_end_borrow_m with (p := p) (q := q).
@@ -1365,17 +1380,16 @@ Proof.
            reorg_done.
            leq_step_right.
            { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ r).
-             auto with spath. all: autorewrite with spath; eassumption. }
+             solve_comp. all: autorewrite with spath; eassumption. }
            states_eq.
-        -- assert (disj q sp_borrow) by reduce_comp.
+        -- assert (disj q sp_borrow) by solve_comp.
            destruct (decidable_prefix sp_borrow p).
            (* Case 3: the loan that we end is is the borrow that we turn into a pointer. *)
-           ++ assert (strict_prefix sp_borrow p)  by auto with spath.
-              assert (prefix (sp_borrow +++ [0]) p) as (r & <-) by eauto with spath.
+           ++ assert (prefix (sp_borrow +++ [0]) p) as (r & <-) by solve_comp.
               rewrite<- (app_spath_vpath_assoc sp_borrow [0] r) in * |-.
               reorg_step.
               { eapply Reorg_end_borrow_m with (p := sp_loan +++ [0] ++ r) (q := q).
-                auto with spath. all: autorewrite with spath. eassumption.
+                solve_comp. all: autorewrite with spath. eassumption.
                 assumption. assumption. auto with spath. }
               reorg_done.
               leq_step_right.
@@ -1384,7 +1398,7 @@ Proof.
               states_eq.
            (* Case 4: the loan that we end is disjoint from the borrow that we turn into a pointer.
            *)
-           ++ assert (disj sp_borrow p) by reduce_comp.
+           ++ assert (disj sp_borrow p) by solve_comp.
               reorg_step.
               { eapply Reorg_end_borrow_m with (p := p) (q := q).
                 assumption. all: autorewrite with spath. eassumption.
@@ -1396,7 +1410,7 @@ Proof.
               states_eq.
   - intros ? Hle. destruct Hle.
     + destruct (decidable_prefix sp_borrow p).
-      * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by eauto with spath.
+      * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by solve_comp.
         rewrite<- (app_spath_vpath_assoc sp_borrow [0] q) in *.
         reorg_step.
         { eapply Reorg_end_ptr with (p := sp_loan +++ [0] ++ q).
@@ -1406,8 +1420,8 @@ Proof.
         { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
           assumption. all: autorewrite with spath; eassumption. }
         states_eq.
-      * assert (disj sp_borrow p) by reduce_comp.
-        assert (disj sp_loan p) by reduce_comp.
+      * assert (disj sp_borrow p) by solve_comp.
+        assert (disj sp_loan p) by solve_comp.
         reorg_step.
         { eapply Reorg_end_ptr with (p := p). autorewrite with spath. eassumption. }
         reorg_done.
@@ -1421,7 +1435,7 @@ Proof.
         validity. }
       destruct (decidable_prefix sp_borrow p).
       (* Case 1: the loc we end is is the borrow we turn into a pointer. *)
-      * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by eauto with spath.
+      * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by solve_comp.
         autorewrite with spath in *.
         reorg_step.
         { eapply Reorg_end_loc with (p := sp_loan +++ [0] ++ q).
@@ -1432,12 +1446,12 @@ Proof.
           assumption. all: autorewrite with spath; eassumption. }
         states_eq.
       * destruct (decidable_prefix p sp_borrow).
-        -- assert (prefix (p +++ [0]) sp_borrow) as (q & <-) by eauto with spath.
+        -- assert (prefix (p +++ [0]) sp_borrow) as (q & <-) by solve_comp.
            destruct (decidable_prefix p sp_loan).
            (* Case 2: the loan and the borrow we turn into a location and a pointer are in the loc
             * we end. *)
-           ++ assert (prefix (p +++ [0]) sp_loan) as (r & <-) by eauto with spath.
-              assert (vdisj q r) by eauto with spath.
+           ++ assert (prefix (p +++ [0]) sp_loan) as (r & <-) by solve_comp.
+              assert (vdisj q r) by solve_comp.
               autorewrite with spath in *.
               reorg_step.
               { eapply Reorg_end_loc with (p := p).
@@ -1447,11 +1461,11 @@ Proof.
               reorg_done.
               leq_step_right.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := p +++ q).
-                eauto with spath. all: autorewrite with spath; eassumption. }
+                solve_comp. all: autorewrite with spath; eassumption. }
               autorewrite with spath. reflexivity.
            (* Case 3: the borrow we turn into a pointer is in the location we end, but the loan we
             * turn into a location is disjoint. *)
-           ++ assert (disj p sp_loan) by reduce_comp.
+           ++ assert (disj p sp_loan) by solve_comp.
               autorewrite with spath in *.
               reorg_step.
               { eapply Reorg_end_loc with (p := p).
@@ -1461,13 +1475,13 @@ Proof.
               reorg_done.
               leq_step_right.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := p +++ q).
-                auto with spath. all: autorewrite with spath; eassumption. }
+                solve_comp. all: autorewrite with spath; eassumption. }
               states_eq.
-        -- assert (disj p sp_borrow) by reduce_comp.
+        -- assert (disj p sp_borrow) by solve_comp.
            destruct (decidable_prefix p sp_loan).
            (* Case 4: the loan we turn into a location is in the location we end, but the borrow we
             * turn into a pointer is disjoint. *)
-           ++ assert (prefix (p +++ [0]) sp_loan) as (r & <-) by eauto with spath.
+           ++ assert (prefix (p +++ [0]) sp_loan) as (r & <-) by solve_comp.
               rewrite<- app_spath_vpath_assoc in *.
               reorg_step.
               { eapply Reorg_end_loc with (p := p).
@@ -1477,11 +1491,11 @@ Proof.
               reorg_done.
               leq_step_right.
               { eapply Leq_MutBorrow_To_Ptr with (sp_loan := p +++ r) (sp_borrow := sp_borrow).
-                eauto with spath. all: autorewrite with spath; eassumption. }
+                solve_comp. all: autorewrite with spath; eassumption. }
               states_eq.
            (* Case 5: the loan and the borrow we turn into a location and a pointer are in the loc
             * we end. *)
-           ++ assert (disj p sp_loan) by reduce_comp.
+           ++ assert (disj p sp_loan) by solve_comp.
               reorg_step.
               { eapply Reorg_end_loc with (p := p).
                 autorewrite with spath; eassumption.

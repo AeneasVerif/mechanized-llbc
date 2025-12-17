@@ -209,6 +209,9 @@ Qed.
 Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
 Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
 
+Corollary not_disj_strict_prefix' p q : disj q p -> ~strict_prefix p q.
+Proof. intros H. symmetry in H. apply not_disj_strict_prefix. exact H. Qed.
+
 Lemma vdisj_common_prefix p q r : vdisj (p ++ q) (p ++ r) <-> vdisj q r.
 Proof.
   split.
@@ -347,6 +350,11 @@ Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
 Lemma prove_disj (p q : spath) : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
 Proof. destruct (comparable_spaths p q); easy. Qed.
 
+Lemma prove_disj' (p q : spath) : ~strict_prefix q p -> ~prefix p q -> disj p q.
+Proof.
+  intros. apply prove_disj; auto using not_prefix_implies_not_strict_prefix, neq_implies_not_prefix.
+Qed.
+
 Lemma vstrict_prefix_app_last p q i : vstrict_prefix p (q ++ i :: nil) -> vprefix p q.
 Proof.
   intros (j & r & ?).
@@ -392,37 +400,12 @@ Lemma app_spath_vpath_inv_head p q r : p +++ q = p +++ r -> q = r.
 Proof. intros H%(f_equal snd). eapply app_inv_head. exact H. Qed.
 
 (* Automatically solving a comparison C p q using the hypotheses. *)
-Hint Immediate vdisj_symmetric : spath.
-Hint Resolve strict_prefix_is_prefix : spath.
-Hint Resolve-> disj_common_prefix : spath.
-Hint Resolve<- disj_common_prefix : spath.
-Hint Resolve<- disj_common_index : spath.
 Hint Resolve disj_diff_fst : spath.
 Hint Resolve disj_diff_fst' : spath.
-Hint Immediate vstrict_prefix_is_vprefix : spath.
-Hint Immediate not_vprefix_left_vstrict_prefix_right : spath.
-Hint Resolve strict_prefix_irrefl : spath.
-Hint Resolve not_prefix_left_strict_prefix_right : spath.
-Hint Resolve not_disj_strict_prefix : spath.
-Hint Immediate symmetric_disj : spath.
-Hint Resolve not_prefix_implies_not_strict_prefix : spath.
-Hint Immediate not_vprefix_implies_not_vstrict_prefix : spath.
-Hint Resolve neq_implies_not_prefix : spath.
-Hint Resolve neq_implies_not_prefix' : spath.
-Hint Resolve disj_if_left_disj_prefix : spath.
-Hint Resolve disj_if_right_disj_prefix : spath.
-Hint Resolve prefix_and_strict_prefix_implies_strict_prefix : spath.
-Hint Resolve<- strict_prefix_app_last : spath.
 Hint Resolve not_strict_prefix_nil : spath.
 Hint Extern 0 (prefix ?p (?p +++ ?q)) => exists q; reflexivity : spath.
 Hint Extern 0 (prefix (?p +++ ?q) (?p +++ ?q ++ ?r)) =>
     exists r; symmetry; apply app_spath_vpath_assoc : spath.
-Hint Resolve prefix_trans' : spath.
-Hint Resolve prefix_and_neq_implies_strict_prefix : spath.
-Hint Resolve not_prefix_left_strict_prefix_right' : spath.
-Hint Resolve prove_not_prefix : spath.
-Hint Resolve<- not_strict_prefix_app_last : spath.
-Hint Resolve prefix_of_disj_implies_not_prefix : spath.
 
 Declare Scope GetSetPath_scope.
 Open Scope GetSetPath_scope.
@@ -1524,7 +1507,8 @@ Section GetSetPath.
       rewrite sset_sget_equal in valid_r by assumption.
       rewrite sset_sget_prefix_right by assumption. apply not_in_v. assumption.
     - rewrite get_node_sset_sget_not_prefix by assumption.
-      apply not_in_S. eapply sset_not_prefix_valid; [ | exact valid_q]. auto with spath.
+      apply not_in_S. eapply sset_not_prefix_valid; [ | exact valid_q].
+      apply not_prefix_implies_not_strict_prefix. assumption.
   Qed.
 
   Lemma not_state_contains_sset_rev P S v p
@@ -1576,6 +1560,7 @@ Section GetSetPath.
     - rewrite get_node_sset_sget_not_prefix by assumption. rewrite sget_app. apply not_in_Sp.
       apply sset_not_prefix_valid in valid_pr; [ | auto with spath].
       apply valid_spath_app in valid_pr as (_ & ?). assumption.
+      apply not_prefix_implies_not_strict_prefix. assumption.
   Qed.
 
   Lemma not_value_contains_sset_rev P S v p q
@@ -1593,7 +1578,8 @@ Section GetSetPath.
     (not_in_Sp : not_value_contains P (S.[p])) :
     not_value_contains P (S.[q <- v].[p]).
   Proof.
-    intros r valid_r. rewrite<- sget_app. rewrite sset_sget_disj by auto with spath.
+    intros r valid_r. rewrite<- sget_app.
+    rewrite sset_sget_disj by now apply disj_if_left_disj_prefix.
     rewrite sget_app. apply not_in_Sp.
     rewrite sset_sget_disj in valid_r; assumption.
   Qed.
@@ -1645,7 +1631,8 @@ Section GetSetPath.
         * rewrite get_node_vset_vget_not_prefix in Hq by assumption. exact Hq.
         * exists r. split; [assumption | ].
           rewrite get_node_vset_vget_not_prefix; [assumption | ].
-          intro. apply not_prefix. transitivity r; auto with spath.
+          intro. apply not_prefix.
+          transitivity r; [ | apply vstrict_prefix_is_vprefix]; assumption.
     - rewrite vset_invalid by assumption. assumption.
   Qed.
 
@@ -1678,13 +1665,16 @@ Section GetSetPath.
       + exists q.
         split.
         * destruct strict_prefix as (i & ? & <-). eexists i, _. rewrite<- app_assoc. reflexivity.
-        * rewrite get_node_vset_vget_not_prefix by auto with spath. assumption.
+        * rewrite get_node_vset_vget_not_prefix
+            by now apply not_vprefix_left_vstrict_prefix_right.
+          assumption.
       + destruct (Hv r) as (q' & ? & ?).
         * eapply vset_not_prefix_valid_rev; [ | eassumption].
           eapply not_vprefix_implies_not_vstrict_prefix; eassumption.
         * rewrite get_node_vset_vget_not_prefix in Hr; assumption.
         * exists q'. split; [assumption | ]. rewrite get_node_vset_vget_not_prefix.
-          assumption. intro. apply not_prefix. transitivity q'; auto with spath.
+          assumption. intro. apply not_prefix.
+          transitivity q'; [ | apply vstrict_prefix_is_vprefix]; assumption.
     - rewrite vset_invalid by assumption. assumption.
   Qed.
 
@@ -1824,9 +1814,12 @@ Section GetSetPath.
   Proof.
     intros not_prefix. split.
     - intros G r K ?. eapply G; [ | eassumption].
-      rewrite get_node_sset_sget_not_prefix; eauto with spath.
-    - intros G r K ?. rewrite get_node_sset_sget_not_prefix in K by eauto with spath.
-      eapply G; eassumption.
+      rewrite get_node_sset_sget_not_prefix; [assumption | ].
+      intros ?. apply not_prefix.
+      eapply prefix_and_strict_prefix_implies_strict_prefix; eassumption.
+    - intros G r K ?.
+      rewrite get_node_sset_sget_not_prefix in K; [eapply G; eassumption | ].
+      intros ?. eapply not_prefix, prefix_and_strict_prefix_implies_strict_prefix; eassumption.
   Qed.
 
   Lemma no_ancestor_add_anon P S p a v :
@@ -1945,8 +1938,6 @@ Section StateUniqueConstructor.
 End StateUniqueConstructor.
 
 (* Automatically solving comparisons using environment information. *)
-Hint Resolve strict_prefix_one_child : spath.
-Hint Resolve not_prefix_one_child : spath.
 Hint Extern 5 (length (children ?v) = _) =>
   match goal with
   | H : get_node (?S.[?p]) = _ |- _ =>
@@ -1972,14 +1963,15 @@ Hint Extern 0 (~ (@eq spath _ _)) => congruence : spath.
 
 (* Solving goals for anons freshness: *)
 Hint Resolve-> fresh_anon_sset : spath weight.
+Hint Rewrite<- @fresh_anon_sset : spath.
 
 (* Resolving goals of the form "fst p <> anon_accessor a".
  * They are used to solve the conditions of the rewrite lemmas sget_add_anon and sset_add_anon. *)
 Hint Resolve valid_spath_diff_fresh_anon : spath.
 Hint Resolve valid_spath_diff_fresh_anon' : spath.
-Lemma diff_fist_app_spath_vpath p q x : fst p <> x -> fst (p +++ q) <> x.
+Lemma diff_first_app_spath_vpath p q x : fst p <> x -> fst (p +++ q) <> x.
 Proof. easy. Qed.
-Hint Resolve diff_fist_app_spath_vpath : spath.
+Hint Resolve diff_first_app_spath_vpath : spath.
 
 (* Hints for no_ancestor: *)
 Hint Resolve <-no_ancestor_add_anon : spath.
@@ -2066,24 +2058,70 @@ Ltac validity0 :=
 Hint Extern 5 (valid_spath _ _) =>
   repeat rewrite <-app_spath_vpath_assoc;
   validity0 : spath.
+
+(** ** Automation for comparisons (prefix, strict_prefix, disj, =, and the negations). *)
+(* The issue with proving comparisons is that the lemma required can be cyclic. We sometimes need
+ * to prove a strict prefix to obtain a prefix, and sometimes it's the opposite. If we just dump
+ * all of comparison lemmas in the database, the tactic auto can become cyclic and a lot of times
+ * can be lost. That's why these lemmas must be used immediatly. *)
+Hint Immediate symmetric_disj : spath.
+Hint Immediate vdisj_symmetric : spath.
+Hint Immediate strict_prefix_irrefl : spath.
+Hint Immediate not_prefix_implies_not_strict_prefix : spath.
+Hint Immediate not_disj_strict_prefix : spath.
+Hint Immediate not_disj_strict_prefix' : spath.
+Hint Immediate vstrict_prefix_is_vprefix : spath.
+
+(* Why is it impossible to add an arrow for Hint Resolve? *)
+Lemma _disj_common_prefix p q r : vdisj q r -> disj (p +++ q) (p +++ r).
+Proof. rewrite disj_common_prefix. auto. Qed.
+Hint Immediate _disj_common_prefix : spath.
+
+Lemma _disj_common_index i p q : vdisj p q -> disj (i, p) (i, q).
+Proof. rewrite disj_common_index. auto. Qed.
+Hint Immediate _disj_common_index : spath.
+
+(* In case the where the immediate hints don't suffice, this tactic helps reduce the goal. It
+ * selects one of the available lemma. Importantly, it does not backtrack. *)
+Ltac reduce_comp :=
+  eauto with spath;
+  lazymatch goal with
+  (* Note: shouldn't I use automatic rewriting instead? *)
+  | H : vdisj (?p ++ ?q) (?p ++ ?r) |- _ => rewrite vdisj_common_prefix in H
+  | H : disj (?p +++ ?q) (?p +++ ?r) |- _ => rewrite disj_common_prefix in H
+
+  | |- prefix (?p +++ [0]) ?q =>
+      eapply strict_prefix_one_child;
+        [ eauto with spath |
+          apply prefix_and_neq_implies_strict_prefix; [eauto with spath; fail | ] |
+        ]
+
+  | |- strict_prefix ?p ?q =>
+      apply prefix_and_neq_implies_strict_prefix; eauto with spath; fail
+
+  (* Note: shouldn't I use automatic rewriting instead? *)
+  | |- disj ?p (?q +++ ?r) => apply disj_if_left_disj_prefix; eauto with spath; fail
+  | |- disj (?p +++ ?r) ?q => apply disj_if_right_disj_prefix; eauto with spath; fail
+  | |- disj ?p ?q => apply prove_disj'
+
+  | |- ?p <> ?q => apply neq_implies_not_prefix; eauto with spath; fail
+
+  | |- ~prefix ?p ?q => apply prove_not_prefix
+
+  | |- ~strict_prefix ?p (?q +++ [?i]) =>
+      rewrite strict_prefix_app_last
+  | |- ~strict_prefix ?p ?q =>
+      first [
+        eapply not_prefix_one_child; [eauto with spath | | eauto with spath; fail] |
+        rewrite not_strict_prefix_app_last; eauto with spath; fail
+      ]
+  end
+.
+Ltac solve_comp := repeat reduce_comp.
 Ltac validity :=
   repeat rewrite <-app_spath_vpath_assoc;
   validity0;
-  eauto with spath.
-
-(* Testing that I can automatically prove validity: *)
-(* TODO: rewrite or delete. *)
-(*
-Goal forall (S : HLPL_plus_state) p l, S.[p] = ptr(l) -> valid_spath S p.
-Proof. intros. validity. Qed.
-
-Goal forall (S : HLPL_plus_state) p l, get_node (S.[p]) = locC(l) -> valid_spath S p.
-Proof. intros. validity. Qed.
-
-Goal forall (S : HLPL_plus_state) v w p q r l, disj p r -> ~strict_prefix q r -> S.[r] = loan^m(l)
-  -> valid_spath (S.[p <- v].[q <- w]) r.
-Proof. intros. validity. Qed.
- *)
+  solve_comp.
 
 (* When we want to prove an equality of the form Sl = Sr.[p <- v] or Sl = Sr.[p +++ q <- v],
    we perform commutations so that all of the writes [p <- v] or [p +++ r <- v] are at the end.
@@ -2094,14 +2132,14 @@ Ltac perform_commutation :=
   | |- _ = _.[?p +++ ?q <- _] =>
     lazymatch goal with
     | |- context [ _.[p <- _].[_ <- _] ] =>
-      rewrite (sset_twice_disj_commute _ p) by eauto with spath
+      rewrite (sset_twice_disj_commute _ p) by solve_comp
     end
   | |- _ = _.[?p <- _] =>
     lazymatch goal with
     | |- context [ _.[p <- _].[_ <- _] ] =>
-      rewrite (sset_twice_disj_commute _ p) by eauto with spath
+      rewrite (sset_twice_disj_commute _ p) by solve_comp
     | |- context [ _.[p +++ ?q <- _].[_ <- _] ] =>
-      rewrite (sset_twice_disj_commute _ (p +++ q)) by eauto with spath
+      rewrite (sset_twice_disj_commute _ (p +++ q)) by solve_comp
     end
   | |- ?Sl,, ?a |-> _,, ?b |-> _ = ?Sr,, ?a |-> _ =>
       rewrite (add_anon_commute Sl a b) by congruence
@@ -2124,46 +2162,6 @@ Ltac states_eq :=
   repeat (repeat (perform_commutation; autorewrite with spath); f_equal)
 .
 
-(* Note: not really maintained. *)
-(* A _comparison_ `C p q` between is one of those relation:
-   - `p = q` or `p <> q`
-   - `prefix p q` or `~prefix p q`
-   - `strict_prefix p q` or `~strict_prefix p q`
-   - `disj p q` or `~disj p q`
- *)
-(* We are going to define a tactic called "reduce_comp" to assist the proof of comparisons between
- * two paths p and q, using comparisons in the hypotheses as much as possible.
- *
- * The key idea is that there are four possible "atomic" comparisons: p = q, strict_prefix p q,
- * strict_prefix q p and disj p q. These comparisons are atomic in the sense that for any p and q,
- * exactly one of those is true.
- *
- * Every comparison C p q is equivalent to a disjunction of atomic comparisons. By contraposition,
- * this means that every comparison C p q is equivalent to the conjuction of the negation of
- * atomas. For example:
- * - prefix p q <-> (p = q \/ strict_prefix p q) <-> (~strict_prefix q p /\ ~disj p q)
- * - ~prefix p q <-> (strict_prefix q p \/ ~disj p q) <-> (p <> q /\ ~strict_prefix p q)
- * - disj p q <-> disj p q <-> (p <> q /\ ~strict_prefix p q /\ ~strict_prefix q p)
- *
- * Thus, to prove a comparison C p q in the goal, reduce_comp works the following way:
- * - It generates the negative atomic relations necessary to prove C p q
- * - For each negative atomic relation, it tries to prove it automatically using the hypotheses.
- * The negative atomic relations that could not be automatically proven are left as subgoals. This
- * tactic never fails (as long as the goal is a comparison).
- *
- * Note: this tactic is not complete yet, more comparisons have to be added. It's also subject to
- * change.
- *)
-
-(* TODO: remove this tactic? *)
-Ltac reduce_comp :=
-  unfold not; (* Used to prove both negations of the form ~C p q and C p q -> False *)
-  match goal with
-  | |- prefix ?p ?q -> False => apply prove_not_prefix
-  | |- disj ?p ?q => apply prove_disj
-  end;
-  eauto with spath.
-
 (* Automatic rewriting. *)
 (* Informally, here are the normal forms for the main objects: *)
 (* Normal form for vpaths : p ++ (p ++ ...) *)
@@ -2185,12 +2183,12 @@ Hint Rewrite <- @app_spath_vpath_assoc : spath.
 (* When the term to rewrite contains a subterm of the form S.[q <- v].[v], it is not in normal
    form. We apply one of the following rewrite rules to commute the get and the set, or to
    remove the set operation entirely. *)
-Hint Rewrite @get_node_sset_sget_not_prefix using eauto with spath; fail : spath.
+Hint Rewrite @get_node_sset_sget_not_prefix using solve_comp; fail : spath.
 Hint Rewrite @sset_sget_equal using validity : spath.
 Hint Rewrite @sset_sget_prefix using validity : spath.
 Hint Rewrite @sset_sget_prefix_right using validity : spath.
 Hint Rewrite @sset_sget_common_prefix using validity : spath.
-Hint Rewrite @sset_sget_disj using eauto with spath; fail : spath.
+Hint Rewrite @sset_sget_disj using solve_comp; fail : spath.
 
 (* Idem for vpaths: *)
 Hint Rewrite @vset_vget_equal using validity : spath.

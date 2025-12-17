@@ -162,7 +162,7 @@ Section LeqValStateUtils.
 
   (* The following two lemmas are used by the tactic `leq_val_state_step`. *)
   Lemma prove_leq_val_state_right_to_left vSl vm Sm vr Sr
-    (G : forall a, fresh_anon Sm a -> fresh_anon Sr a ->
+    (G : forall a, fresh_anon Sr a ->
          exists vSm, leq_base vSm (Sr,, a |-> vr) /\ vSm = Sm,, a |-> vm) :
     leq_val_state_base^* vSl (vm, Sm) ->
     leq_val_state_base^* vSl (vr, Sr).
@@ -172,7 +172,7 @@ Section LeqValStateUtils.
   Qed.
 
   Lemma prove_leq_val_state_left_to_right vl Sl vm Sm vSr
-    (G : forall a, fresh_anon Sm a -> fresh_anon Sl a ->
+    (G : forall a, fresh_anon Sl a ->
          exists vSm, leq_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm) :
     leq_val_state_base^* (vm, Sm) vSr ->
     leq_val_state_base^* (vl, Sl) vSr.
@@ -183,7 +183,7 @@ Section LeqValStateUtils.
 
   Lemma prove_leq_val_state_anon_left vl Sl vm Sm vSr b w
     (fresh_b : fresh_anon Sl b)
-    (G : forall a, fresh_anon Sm a -> fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
+    (G : forall a, fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
          exists vSm, leq_base (Sl,, a |-> vl,, b |-> w) vSm /\ vSm = Sm,, a |-> vm) :
     leq_val_state_base^* (vm, Sm) vSr ->
     leq_val_state_base^* (vl, Sl,, b |-> w) vSr.
@@ -215,47 +215,6 @@ Proof. intros. transitivity Sm; [ | constructor]; assumption. Qed.
 
 Lemma leq_step_left {S} {R : relation S} Sl Sm Sr : R Sl Sm -> R^* Sm Sr -> R^* Sl Sr.
 Proof. intros. transitivity Sm; [constructor | ]; assumption. Qed.
-
-(* This lemma is used to prove a goal of the form ?vSl < (vr, Sr) or (vl, Sl) < ?vSr without
- * exhibiting the existential variable ?vSl or ?vSr. *)
-Ltac leq_step_right :=
-  lazymatch goal with
-  (* When proving a goal `leq ?vSl (vr, Sr)`, using this tactic creates three subgoals:
-     1. leq_base ?vSm (Sr,, a |-> v)
-     2. ?vSm = ?Sm,, a |-> ?vm
-     3. leq ?vSl (?vm, ?Sm) *)
-  | |- ?leq_star ?vSl (?vr, ?Sr) =>
-      let a := fresh "a" in
-      eapply prove_leq_val_state_right_to_left; [intros a ? ?; eexists; split | ]
-  | |- ?leq_star ?Sl ?Sr => eapply leq_step_right
-  end.
-
-(* In LLBC+, some base rules are of the form S < S',, b |-> w (with b fresh in S). The presence of
- * two anonymous variables, we need to do a special case.
- * Let a be a fresh anon. We prove that
- * 1. Sl,, a |-> vl < ?vSm
- * 2. ?vSm = Sm,, a |-> vm,, b |-> w
- * 3. (?vm, ?Sm) <* ?vSr
- *
- * To apply the base rule in (1), we need a hypothesis that b is fresh in Sl,, a |-> vl. This is
- * true because a and b are two different fresh variables.
- *
- * Because a and b are fresh, we can perform the following commutation:
- * Sm,, a |-> vm,, b |-> w = Sm,, b |-> w,, a |-> vm
- * Using (2), that shows that (vl, Sl) < (vm, Sm,, b |-> w).
- *)
-Ltac leq_val_state_add_anon :=
-  let a := fresh "a" in
-  lazymatch goal with
-  |  |- ?leq_star (?vl, ?Sl) ?vSr =>
-      eapply prove_leq_val_state_add_anon;
-        (* The hypothesis fresh_anon Sl b should be resolved automatically, because there should be
-         * a single hypothesis of the form "fresh_anon Sr b" in the context, with Sr an expression
-         * of Sl, that can be used. *)
-        [eauto with spath; fail |
-         intros a ? ?; eexists; split |
-        ]
-  end.
 
 (* Tactics to prove the commutation of reorganizations. *)
 (* TODO: document it *)
