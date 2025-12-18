@@ -362,10 +362,6 @@ Proof.
   - right. apply not_prefix_disj. assumption.
 Qed.
 
-Lemma decidable_prefix' (p q : spath) : {r & p +++ r = q } + {~prefix p q}.
-Proof.
-Admitted.
-
 Lemma prefix_if_equal_or_strict_prefix (p q : spath) : prefix p q -> p = q \/ strict_prefix p q.
 Proof.
   intros ([ | i r] & <-).
@@ -2189,3 +2185,42 @@ Lemma lookup_alter_at_accessor_None {state} {val} `{IsState : State state val} :
     intros S sp vset ; split ; intros Hget_map ;
     rewrite get_map_alter in *; rewrite lookup_alter_None in * ; auto.
   Qed.
+
+Lemma decidable_prefix' (p q : spath) : {r & p +++ r = q } + {~prefix p q}.
+Proof.
+  destruct p. rewrite <- rev_involutive with (l := v).
+  remember (rev v) as rev_v. generalize dependent v. induction rev_v ; intros v Heq.
+  - apply f_equal with (f := @rev nat) in Heq. rewrite rev_involutive in Heq.
+    simpl in Heq. subst.
+    destruct (decide (p = q.1)).
+    * left. subst. apply existT with (x := q.2). by rewrite surjective_pairing.
+    * right. destruct (decidable_prefix (p, []) q) ; auto.
+      destruct H as (r & ?). apply f_equal with (f := fst) in H. simpl in H. auto.
+  - apply f_equal with (f := @rev nat) in Heq. simpl in Heq.
+    rewrite rev_involutive in Heq. 
+    specialize (IHrev_v (rev rev_v)). rewrite rev_involutive in IHrev_v.
+    simpl.
+    destruct (IHrev_v eq_refl) as [(r & ?) | ].
+    * destruct r.
+      ** rewrite Heq. rewrite app_spath_vpath_nil_r in e. right.
+         replace (p, v) with ((p, rev rev_v) +++ [a]) by (rewrite <- Heq ; reflexivity).
+         rewrite <- e. intros ?. destruct H. apply f_equal with (f := snd) in H.
+         simpl in H. apply f_equal with (f := length) in H. rewrite !length_app in H.
+         simpl in H. lia.
+      ** destruct (decide (a = n)).
+         *** rewrite e0 in *. left. apply existT with (x := r).
+             rewrite Heq.
+             replace (p, v) with ((p, rev rev_v) +++ [n]) by (rewrite <- Heq ; easy). 
+             rewrite <- app_spath_vpath_assoc. by simpl.
+         *** right. rewrite Heq. intros (? & ?).
+             replace (p, v) with ((p, rev rev_v) +++ [a]) in H
+                 by (rewrite <- Heq ; easy).
+             rewrite <- app_spath_vpath_assoc, <- e in H.
+             apply app_spath_vpath_inv_head in H. simpl in H.
+             apply f_equal with (f := head) in H. injection H as [=]. auto.
+    * right. simpl. intros (r & ?).
+      assert (prefix (p, rev rev_v) q).
+      { exists (a :: r). unfold "+++" in *. simpl in *. rewrite <- app_assoc in H.
+        by simpl in *. }
+      auto.
+Qed.
