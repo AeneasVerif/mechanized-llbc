@@ -531,7 +531,7 @@ Lemma leq_base_preserves_wf_r Sl Sr : well_formed Sr -> leq_base Sl Sr -> well_f
 Proof.
   rewrite !well_formedness_equiv.
   intros H G l0. specialize (H l0). destruct H. destruct G.
-  - destruct (Nat.eq_dec l0 l) as [<- | ]; split; weight_inequality.
+  - destruct (decide (l0 = l)) as [<- | ]; split; weight_inequality.
 Qed.
 
 (* Simulation proofs. *)
@@ -851,7 +851,7 @@ Proof.
     * assert (valid_p : valid_spath S p) by validity.
       pose proof (weight_sget_node_le (indicator (ptrC(l))) _ _ valid_p) as G.
       rewrite get_S_p in G. cbn in G. autorewrite with weight in G.
-      destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
+      destruct (decide (l = l0)) as [<- | ]; weight_inequality.
   + apply (f_equal (vget [0])) in get_S_p. autorewrite with spath in get_S_p.
     specialize (IHeval_copy _ get_S_p l0). inversion IHeval_copy. auto.
 Qed.
@@ -1037,7 +1037,7 @@ Proof.
     intros l0. specialize (WF l0). destruct WF. split.
     + weight_inequality.
     + weight_inequality.
-    + destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
+    + destruct (decide (l = l0)) as [<- | ]; weight_inequality.
   - apply eval_place_valid in Heval_place.
     assert (scount (locC(l)) S = 0).
     { eapply not_state_contains_implies_weight_zero; [ | exact H].
@@ -1048,8 +1048,8 @@ Proof.
     constructor. intros ? ?. rewrite well_formedness_equiv in *.
     intros l0. specialize (WF l0). destruct WF. split.
     + weight_inequality.
-    + destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
-    + destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
+    + destruct (decide (l = l0)) as [<- | ]; weight_inequality.
+    + destruct (decide (l = l0)) as [<- | ]; weight_inequality.
 Qed.
 
 Hint Extern 0 (not_value_contains _ _) => not_contains0 : spath.
@@ -1302,13 +1302,13 @@ Proof.
   - split.
     + weight_inequality.
     + weight_inequality.
-    + destruct (Nat.eq_dec l l0); weight_inequality.
+    + destruct (decide (l = l0)); weight_inequality.
   - split.
     + weight_inequality.
     + weight_inequality.
     + apply not_state_contains_implies_weight_zero with (weight := (indicator ptrC(l0))) in H0;
        [ | intro; apply indicator_non_zero].
-       destruct (Nat.eq_dec l l0) as [<- | ]; weight_inequality.
+       destruct (decide (l = l0)) as [<- | ]; weight_inequality.
 Qed.
 
 Corollary reorgs_preserve_well_formedness S S' :
@@ -1346,7 +1346,7 @@ Proof.
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
   (* Case Reorg_end_borrow_m: *)
   - intros ? Hle. destruct Hle.
-    + destruct (Nat.eq_dec l l0) as [<- | ].
+    + destruct (decide (l = l0)) as [<- | ].
       (* Case 1: l = l0. By well-formedness, that means that the loan that we end at p is the loan
          that we turn into a loc at sp_loan, and that the borrow that we end at q is the
          borrow we turn into a pointer at sp_borrow. *)

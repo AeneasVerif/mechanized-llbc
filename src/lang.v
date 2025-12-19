@@ -51,7 +51,7 @@ Check (ASSIGN (1, nil) <- Just (IntConst 3)).
 Check (ASSIGN (1, nil) <- Just (IntConst 3) ;; ((ASSIGN (2, nil) <- &mut (1, nil)) ;; Panic)).
 
 (* These definitions are not part of the grammar, but they are common for several (all?) semantics of the LLBC. *)
-Definition loan_id := nat.
+Definition loan_id := positive.
 
 Variant permission := Imm | Mut | Mov.
 

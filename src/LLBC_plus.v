@@ -36,7 +36,7 @@ Variant LLBC_plus_nodes :=
 .
 
 Instance EqDecision_LLBC_plus_nodes : EqDecision LLBC_plus_nodes.
-Proof. unfold RelDecision, Decision. repeat decide equality. Qed.
+Proof. unfold RelDecision, Decision. repeat decide equality. Defined.
 
 Definition LLBC_plus_arity c := match c with
 | LLBC_plus_botC => 0
@@ -365,6 +365,9 @@ Definition remove_anon a S :=
 (** * Permutation of LLBC+ states.
     * A state permutation is a permutation of the anonymous variables and the elemnts of each regions.
  * It does not affect the variables. *)
+
+(** ** First, let us introduce renaming of loan identifiers. *)
+
 Record state_perm := {
   anons_perm : Pmap positive;
   abstractions_perm : Pmap (Pmap positive);
@@ -5368,9 +5371,9 @@ Definition cond_state := {|
   abstractions := empty;
 |}.
 
-Definition lx : loan_id := 0.
-Definition ly : loan_id := 1.
-Definition lz : loan_id := 2.
+Definition lx : loan_id := 1%positive.
+Definition ly : loan_id := 2%positive.
+Definition lz : loan_id := 3%positive.
 
 Definition A : positive := 1.
 
@@ -5409,30 +5412,6 @@ Proof.
     * constructor.
 Qed.
 
-Lemma decidable_not_value_contains_zeroary P (P_dec : forall n, Decision (P n)) v :
-  children v = [] -> Decision (not_value_contains P v).
-Proof.
-  intros ?. destruct (P_dec (get_node v)).
-  - right. intros G. apply (G []); [constructor | assumption].
-  - left. intros p ->%valid_vpath_no_children; assumption.
-Defined.
-
-Lemma decidable_not_value_contains_unary P (P_dec : forall n, Decision (P n)) v w :
-  children v = [w] -> Decision (not_value_contains P w) -> Decision (not_value_contains P v).
-Proof.
-  intros child_v P_dec_w. destruct (P_dec (get_node v)).
-  - right. intros G. apply (G []); [constructor | assumption].
-  - destruct P_dec_w as [w_not_contains | w_contains].
-    + left. intros p valid_p. inversion valid_p as [ | ? ? ? ? H].
-      * assumption.
-      * cbn -[children]. rewrite child_v in *. apply nth_error_singleton in H.
-        destruct H. subst. eauto.
-    + right. intros G. eapply w_contains. intros p valid_p ?.
-      apply (G (0 :: p)).
-      * econstructor; [rewrite child_v; reflexivity | assumption].
-      * cbn -[children]. rewrite child_v. assumption.
-Defined.
-
 Instance decidable_not_value_contains P `(P_dec : forall n, Decision (P n)) v :
   Decision (not_value_contains P v).
 Proof.
@@ -5449,12 +5428,7 @@ Instance LLBC_plus_val_EqDec : EqDecision LLBC_plus_nodes.
 Proof. intros ? ?. unfold Decision. repeat decide equality. Defined.
 
 Instance decide_is_fresh l S : Decision (is_fresh l S).
-Proof.
-  destruct (decide (map_Forall
-    (fun _ => not_value_contains (fun c => get_loan_id c = Some l))
-    (get_map S)));
-  rewrite <-not_state_contains_map_Forall in * |-; [left | right]; assumption.
-Defined.
+Proof. apply decidable_not_state_contains. unfold is_loan_id. solve_decision. Defined.
 
 (* Note: an alternative to using tactics is to define functions, and prove their correction. *)
 (* When meeting the goal S |-{p} P[x] =>^{k} pi, this tactics:

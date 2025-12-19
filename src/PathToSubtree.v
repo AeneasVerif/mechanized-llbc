@@ -1935,6 +1935,34 @@ Section StateUniqueConstructor.
       + apply (weight_vget_node_le (indicator c)) in valid_p, valid_q.
         eapply map_sum_le_one with (m := get_map S); [eassumption.. | lia | lia].
   Qed.
+
+  (** ** Decision procedures. *)
+  Lemma decidable_not_value_contains_zeroary P (G : forall n, Decision (P n)) v :
+    arity (get_node v) = 0 -> Decision (not_value_contains P v).
+  Proof.
+    intros ?. destruct (decide (P (get_node v))).
+    - right. intros K. apply (K []); [constructor | assumption].
+    - left. apply not_value_contains_zeroary; assumption.
+  Defined.
+
+  Lemma decidable_not_value_contains_unary P (G : forall n, Decision (P n)) v w :
+    children v = [w] -> Decision (not_value_contains P w) -> Decision (not_value_contains P v).
+  Proof.
+    intros v_child Hdec. destruct (decide (P (get_node v))).
+    - right. intros K. apply (K []); [constructor | assumption].
+    - destruct Hdec as [ | w_not_contains].
+      + left. eapply not_value_contains_unary; eassumption.
+      + right. intros K. eapply w_not_contains. intros p ? ?. apply (K (0 :: p)).
+        * econstructor; [rewrite v_child; reflexivity | assumption].
+        * rewrite vget_cons, v_child. assumption.
+  Defined.
+
+  Instance decidable_not_state_contains P `(forall v, Decision (not_value_contains P v)) S :
+    Decision (not_state_contains P S).
+  Proof.
+  destruct (decide (map_Forall (fun _ => not_value_contains P) (get_map S)));
+  rewrite <-not_state_contains_map_Forall in * |-; [left | right]; assumption.
+Defined.
 End StateUniqueConstructor.
 
 (* Automatically solving comparisons using environment information. *)
