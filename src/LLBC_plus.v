@@ -367,6 +367,57 @@ Definition remove_anon a S :=
  * It does not affect the variables. *)
 
 (** ** First, let us introduce renaming of loan identifiers. *)
+Definition loan_id_map := Pmap positive.
+
+Definition rename_loan_id (m : loan_id_map) (l : loan_id) :=
+  match lookup l m with
+  | Some l' => l'
+  | None => l
+  end.
+
+Definition rename_node (m : loan_id_map) (n : LLBC_plus_nodes) :=
+  match n with
+  | borrowC^m(l) => borrowC^m(rename_loan_id m l)
+  | loanC^m(l) => loanC^m(rename_loan_id m l)
+  | _ => n
+  end.
+
+Fixpoint rename_value (m : loan_id_map) (v : LLBC_plus_val) :=
+  match v with
+  | borrow^m(l, w) => borrow^m(rename_loan_id m l, rename_value m w)
+  | loan^m(l) => loan^m(rename_loan_id m l)
+  | _ => v
+  end.
+
+Lemma get_node_rename_value m v : rename_node m (get_node v) = get_node (rename_value m v).
+Proof. destruct v; reflexivity. Qed.
+
+Lemma children_rename_value m v : children (rename_value m v) = map (rename_value m) (children v).
+Proof. destruct v; reflexivity. Qed.
+
+Lemma vget_rename_value m p : forall v, rename_value m (v.[[p]]) = (rename_value m v).[[p]].
+Proof.
+  induction p.
+  - reflexivity.
+  - intros v. rewrite !vget_cons, IHp. f_equal.
+    rewrite children_rename_value, nth_error_map. autodestruct.
+Qed.
+
+Lemma vset_rename_value m p w :
+  forall v, rename_value m (v.[[p <- w]]) = (rename_value m v).[[p <- rename_value m w]].
+Proof.
+  induction p as [ | i p IH].
+  - reflexivity.
+  - intros v. apply get_nodes_children_inj.
+    + rewrite <-get_node_rename_value, !get_node_vset_cons by discriminate.
+      apply get_node_rename_value.
+    + rewrite children_rename_value, !children_vset_cons, children_rename_value.
+      destruct (nth_error (children v) i) eqn:EQN.
+      * erewrite map_alter_list by eassumption. eapply alter_list_equal_Some.
+        -- rewrite nth_error_map, EQN. reflexivity.
+        -- apply IH.
+      * rewrite !alter_list_equal_None; auto. rewrite nth_error_map, EQN. reflexivity.
+Qed.
 
 Record state_perm := {
   anons_perm : Pmap positive;
