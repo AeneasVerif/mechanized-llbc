@@ -1181,6 +1181,11 @@ Section GetSetPath.
     - intros (? & ?). rewrite lookup_insert_ne; assumption.
   Qed.
 
+  Lemma fresh_anon_diff S a b v
+    (get_a : get_at_accessor S (anon_accessor a) = Some v) (fresh_b : fresh_anon S b) :
+    a <> b.
+  Proof. congruence. Qed.
+
   Lemma get_at_accessor_add_anon (S : state) a x v :
     x <> anon_accessor a -> get_at_accessor (S,, a |-> v) x = get_at_accessor S x.
   Proof. intros ?. rewrite get_map_add_anon, lookup_insert_ne; auto. Qed.
@@ -2240,7 +2245,7 @@ Hint Rewrite @sget_anon using try assumption; reflexivity : spath.
 Hint Rewrite<- @sget_app : spath.
 Hint Rewrite<- @vget_app : spath.
 
-(* Adding a hint to reslove a relation ~prefix p q using the facts that:
+(* Adding a hint to resolve a relation ~prefix p q using the facts that:
  * - S.[p] does not contain a node c.
  * - S.[q] starts by the node c.
  * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
