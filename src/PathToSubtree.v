@@ -2224,3 +2224,11 @@ Proof.
         by simpl in *. }
       auto.
 Qed.
+
+Definition removelast (p : spath) := (p.1, List.removelast p.2). 
+
+Lemma removelast_app :
+  forall p q, q <> [] -> removelast (p +++ q) = p +++ List.removelast q.
+Proof.
+  intros * neq. unfold removelast. simpl. rewrite List.removelast_app ; auto.
+Qed.
