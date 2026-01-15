@@ -2225,6 +2225,27 @@ Proof.
       auto.
 Qed.
 
+Lemma decidable_prefix_is_prefix :
+  forall p r,
+    exists equ, decidable_prefix' p (p +++ r) = inleft (existT r equ).
+Proof.
+  intros *. destruct (decidable_prefix' p (p +++ r)) as [ (r' & equ) | npref ].
+  - pose proof equ as equ'.
+    rewrite app_spath_vpath_inv_head in equ' ; subst.
+    repeat apply f_equal. by exists equ.
+  - by assert (prefix p (p +++ r)) by (exists r ; auto).
+Qed.
+
+Lemma decidable_prefix_is_not_prefix :
+  forall p r,
+    ~ prefix p r ->
+    exists npref, decidable_prefix' p r = inright npref.
+Proof.
+  intros * npref. destruct (decidable_prefix' p r) as [ (r' & equ) | npref' ].
+  - by assert (prefix p r) by (exists r' ; auto).
+  - by exists npref'.
+Qed.
+
 Definition removelast (p : spath) := (p.1, List.removelast p.2). 
 
 Lemma removelast_app :
