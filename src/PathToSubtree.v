@@ -936,6 +936,15 @@ Section GetSetPath.
     - right. intros (? & ? & _). discriminate.
   Qed.
 
+  Lemma vset_is_zeroary v w p :
+    valid_vpath v p -> arity (get_node (v.[[p <- w]])) = 0 -> p = [].
+  Proof.
+    intros valid_p. inversion valid_p.
+    - reflexivity.
+    - rewrite get_node_vset_cons; [ | discriminate]. rewrite <-length_children_is_arity.
+      intros G%nil_length_inv. rewrite G, nth_error_nil in * |-. discriminate.
+  Qed.
+
   Lemma sget_invalid S p : ~valid_spath S p -> S.[p] = bot.
   Proof.
     autounfold. intros G. destruct (get_at_accessor S (fst p)) as [v | ].
@@ -2212,6 +2221,7 @@ Hint Rewrite @snd_app : spath.
 (* Re-parenthizing spaths and vpaths. *)
 Hint Rewrite <- app_assoc : spath.
 Hint Rewrite <- @app_spath_vpath_assoc : spath.
+Hint Rewrite app_spath_vpath_nil_r : spath.
 
 (* When the term to rewrite contains a subterm of the form S.[q <- v].[v], it is not in normal
    form. We apply one of the following rewrite rules to commute the get and the set, or to

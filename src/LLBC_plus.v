@@ -4648,6 +4648,20 @@ Ltac leq_val_state_add_anon :=
         ]
   end.
 
+Lemma copy_val_to_symbolic v w p (valid_p : valid_vpath v p)
+  (get_int : is_integer (get_node (v.[[p]])))
+  (Hcopy_val : copy_val (v.[[p <- LLBC_plus_symbolic]]) w) :
+  exists w0 q, copy_val v w0 /\ w = w0.[[q <- LLBC_plus_symbolic]] /\
+               is_integer (get_node (w0.[[q]])).
+Proof.
+  remember (v.[[p <- LLBC_plus_symbolic]]) eqn:EQN. induction Hcopy_val.
+  - exfalso. symmetry in EQN. assert (p = []) as ->; [ | discriminate].
+    eapply vset_is_zeroary; [eassumption | now rewrite EQN].
+  - apply (f_equal get_node), (f_equal arity) in EQN. symmetry in EQN.
+    apply vset_is_zeroary in EQN; [ | assumption]. subst.
+    eexists v, []. split; [ | auto]. destruct v; inversion get_int; constructor.
+Qed.
+
 Lemma operand_preserves_LLBC_plus_rel op :
   forward_simulation leq_state_base^* (leq_val_state_base leq_state_base)^* (eval_operand op) (eval_operand op).
 Proof.
@@ -4709,7 +4723,47 @@ Proof.
       reflexivity.
 
   (* op = copy p *)
-  - admit.
+  - destruct Hle.
+    (* Leq-ToSymbolic *)
+    + eval_place_preservation.
+      destruct (decidable_prefix pi sp) as [(q & <-) | ].
+      (* Case 1: we copy the newly introduced symbolic value. *)
+      * autorewrite with spath in Hcopy_val. (*rewrite sget_app in get_int.*)
+        apply copy_val_to_symbolic in Hcopy_val;
+          [ | validity | autorewrite with spath; assumption].
+          destruct Hcopy_val as (w & q' & Hcopy_val & -> & get_int').
+        execution_step. { econstructor; eassumption. }
+        leq_step_left.
+        { apply Leq_ToSymbolic with (sp := pi +++ q). autorewrite with spath. assumption. }
+        { autorewrite with spath. reflexivity. }
+        leq_step_left.
+        { apply Leq_ToSymbolic with (sp := (anon_accessor a, q')). autorewrite with spath.
+          assumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      (* Case 2: we don't copy the newly introduced symbolic value. *)
+      * assert (disj pi sp) by solve_comp. autorewrite with spath in Hcopy_val.
+        execution_step. { econstructor; eassumption. }
+        leq_step_left.
+        { apply Leq_ToSymbolic with (sp := sp). autorewrite with spath. assumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+    (* Leq-ToAbs *)
+    + admit.
+    (* Leq-RemoveAnon *)
+    + admit.
+    (* Leq-MoveValue *)
+    + admit.
+    (* Leq-MergeAbs *)
+    + admit.
+    (* Leq-Fresh-MutLoan *)
+    + admit.
+    (* Leq-Reborrow-MutBorrow *)
+    + admit.
+    (* Leq-Abs-ClearValue *)
+    + admit.
+    (* Leq-AnonValue *)
+    + admit.
 
   (* op = move p *)
   - destruct Hle.
