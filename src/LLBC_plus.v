@@ -4130,7 +4130,89 @@ Qed.
 Lemma prove_leq_val_state_base v S v' S' a :
   fresh_anon S a -> fresh_anon S' a -> leq_state_base (S,, a |-> v) (S',, a |-> v') ->
   leq_val_state_base leq_state_base (v, S) (v', S').
-Admitted.
+Proof.
+  intros fresh_a_S fresh_a_S' Hleq.
+  remember (S,, a |-> v) eqn:EQN. remember (S',, a |-> v') eqn:EQN'.
+  destruct Hleq; subst.
+  - destruct (decide (fst sp = anon_accessor a)).
+    + autorewrite with spath in * |-. process_state_eq.
+      intros b. rewrite !fst_pair, !snd_pair. intros fresh_b _.
+      eapply prove_rel.
+      { apply Leq_ToSymbolic with (sp := (anon_accessor b, snd sp)).
+        autorewrite with spath. exact get_int. }
+      autorewrite with spath. reflexivity.
+    + autorewrite with spath in * |-. process_state_eq.
+      intros b. rewrite !fst_pair, !snd_pair. intros fresh_b _.
+      eapply prove_rel.
+      { apply Leq_ToSymbolic with (sp := sp). autorewrite with spath. exact get_int. }
+      autorewrite with spath. reflexivity.
+  - process_state_eq.
+    intros b. rewrite !fst_pair, !snd_pair. intros fresh_b _.
+    rewrite fresh_anon_add_anon in fresh_b. destruct fresh_b as (? & ?).
+    eapply prove_rel.
+    { rewrite add_anon_commute by congruence. apply Leq_ToAbs; eauto with spath. }
+    autorewrite with spath. reflexivity.
+  - process_state_eq.
+    intros b. rewrite !fst_pair, !snd_pair. intros (? & ?)%fresh_anon_add_anon _.
+    rewrite add_anon_commute by congruence.
+    apply Leq_RemoveAnon; auto with spath.
+  - apply valid_spath_add_anon_cases in valid_sp.
+    destruct valid_sp as [(? & valid_sp) | (? & valid_sp)].
+    + autorewrite with spath in * |-. process_state_eq.
+      intros b. rewrite !fst_pair, !snd_pair. intros ? (_ & ?)%fresh_anon_add_anon.
+      eapply prove_rel.
+      { apply Leq_MoveValue with (sp := sp) (a := a0); eauto with spath.
+        autorewrite with spath. assumption. }
+      states_eq.
+    + autorewrite with spath in * |-. process_state_eq.
+      intros b. rewrite !fst_pair, !snd_pair. intros _ (? & ?)%fresh_anon_add_anon.
+      eapply prove_rel.
+      { apply Leq_MoveValue with (sp := (anon_accessor b, snd sp)) (a := a0); eauto with spath.
+        autorewrite with spath. assumption. rewrite no_ancestor_anon; auto. }
+      states_eq.
+  - process_state_eq.
+    intros b. rewrite !fst_pair, !snd_pair. intros _ fresh_b.
+    rewrite <-!add_abstraction_add_anon.
+    apply Leq_MergeAbs; auto with spath.
+  - apply valid_spath_add_anon_cases in valid_sp.
+    destruct valid_sp as [(? & valid_sp) | (? & valid_sp)].
+    + autorewrite with spath in * |-. process_state_eq.
+      intros b. rewrite !fst_pair, !snd_pair. intros ? (_ & ?)%fresh_anon_add_anon.
+      eapply prove_rel.
+      { apply Leq_Fresh_MutLoan with (sp := sp) (l' := l') (a := a0); auto with spath.
+        not_contains. }
+      states_eq.
+    + autorewrite with spath in * |-. process_state_eq.
+      intros b. rewrite !fst_pair, !snd_pair. intros ? (_ & ?)%fresh_anon_add_anon.
+      eapply prove_rel.
+      { apply Leq_Fresh_MutLoan with (sp := (anon_accessor b, snd sp)) (l' := l') (a := a0);
+          eauto with spath.
+        not_contains. }
+      states_eq.
+  - destruct (decide (fst sp = anon_accessor a)).
+    + autorewrite with spath in * |-. process_state_eq.
+      intros b. rewrite !fst_pair, !snd_pair. intros ? (_ & ?)%fresh_anon_add_anon.
+      eapply prove_rel.
+      { apply Leq_Reborrow_MutBorrow with (sp := (anon_accessor b, snd sp)) (l1 := l1) (a := a0).
+        all: eauto with spath. not_contains. autorewrite with spath. eassumption. }
+      states_eq.
+    + autorewrite with spath in * |-. process_state_eq.
+      intros b. rewrite !fst_pair, !snd_pair. intros ? (_ & ?)%fresh_anon_add_anon.
+      eapply prove_rel.
+      { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1) (a := a0).
+        all: eauto with spath. not_contains. autorewrite with spath. eassumption. }
+      states_eq.
+  - autorewrite with spath in * |-. process_state_eq.
+    intros b. rewrite !fst_pair, !snd_pair. intros fresh_b _.
+    eapply prove_rel.
+    { eapply Leq_Abs_ClearValue with (i := i) (j := j).
+      autorewrite with spath. all: eassumption. }
+    autorewrite with spath. reflexivity.
+  - process_state_eq.
+    intros b. rewrite !fst_pair, !snd_pair. intros _ (? & ?)%fresh_anon_add_anon.
+    rewrite add_anon_commute by congruence.
+    eapply Leq_AnonValue. auto with spath.
+Qed.
 
 Instance transitive_equiv_val_state_up_to_loan_renaming :
   Transitive equiv_val_state_up_to_loan_renaming.
