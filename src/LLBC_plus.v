@@ -3533,7 +3533,7 @@ Inductive eval_stmt : statement -> statement_result -> LLBC_plus_state -> LLBC_p
       (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
   | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
-  | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
+  | Eval_assign S vS' S'' p rv (eval_rv : S |-{rv} rv => vS') (Hstore : store p vS' S'') :
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
   | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
       S0 |-{stmt} stmt => r, S2
@@ -5841,6 +5841,22 @@ Proof.
     + autorewrite with spath. assumption.
 Qed.
 
+Lemma store_preserves_LLBC_plus_rel p vr Sr S'r vl Sl :
+  not_contains_loan vr -> not_contains_bot vr ->
+  store p (vr, Sr) S'r -> leq_val_state (vl, Sl) (vr, Sr) ->
+  exists S'l, store p (vl, Sl) S'l /\ leq S'l S'r.
+Proof.
+  intros no_loan no_bot Hstore ((vm & Sm) & Hequiv & Hleq).
+  edestruct store_preserves_leq_rel as (S'm & (? & Hequiv' & Hleq') & Hstore').
+  { exact Hstore. }
+  { eapply leq_val_state_no_bot_loan_right; eassumption. }
+  eapply store_preserves_equiv in Hstore'. specialize (Hstore' _ Hequiv).
+  destruct Hstore' as (S'l & ? & ?).
+  exists S'l. split.
+  - assumption.
+  - eexists. split; [ | eassumption]. etransitivity; eassumption.
+Qed.
+
 (** ** Simulation proofs for reorganizations. *)
 Lemma size_abstractions_sset S p v : size (abstractions (S.[p <- v])) = size (abstractions S).
 Proof.
@@ -6854,6 +6870,31 @@ Proof.
   - exact leq_n_equiv_states_commute.
   - exact leq_state_base_n_is_leq_state_base.
   - exact reorg_local_preservation.
+Qed.
+
+Lemma stmt_preserves_LLBC_plus_rel s r :
+  forward_simulation leq leq (eval_stmt s r) (eval_stmt s r).
+Proof.
+  intros Sr S'r Heval. induction Heval; intros Sl Hleq.
+  - execution_step. { constructor. } assumption.
+  - specialize (IHHeval1 _ Hleq). destruct IHHeval1 as (S'1 & Hleq' & ?).
+    specialize (IHHeval2 _ Hleq'). destruct IHHeval2 as (S'2 & ? & ?).
+    execution_step. { econstructor; eassumption. }
+    assumption.
+  - specialize (IHHeval _ Hleq). destruct IHHeval as (? & ? & ?).
+    execution_step. { constructor. eassumption. } assumption.
+  - destruct vS' as (vr & S'r).
+    assert (not_contains_bot vr). { eapply eval_rvalue_no_bot. eassumption. }
+    assert (not_contains_loan vr). { eapply eval_rvalue_no_loan. eassumption. }
+    apply rvalue_preserves_leq in eval_rv. specialize (eval_rv _ Hleq).
+    destruct eval_rv as ((v'l & S'l) & ? & ?).
+    eapply store_preserves_LLBC_plus_rel in Hstore; [ | eassumption..].
+    destruct Hstore as (S''l & Hstore & ?).
+    execution_step. { econstructor; eassumption. } assumption.
+  - eapply reorg_preservation in Hreorg. specialize (Hreorg _ Hleq).
+    destruct Hreorg as (S'l & Hleq' & ?).
+    specialize (IHHeval _ Hleq'). destruct IHHeval as (? & ? & ?).
+    execution_step. { econstructor; eassumption. } assumption.
 Qed.
 
 Local Open Scope option_monad_scope.
