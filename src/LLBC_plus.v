@@ -4662,6 +4662,26 @@ Proof.
     eexists v, []. split; [ | auto]. destruct v; inversion get_int; constructor.
 Qed.
 
+Lemma copy_val_no_bot v w : copy_val v w -> not_contains_bot v.
+Proof. induction 1; not_contains. Qed.
+
+Lemma copy_val_no_mut_loan v w : copy_val v w -> not_contains_loan v.
+Proof. induction 1; not_contains. Qed.
+
+Lemma copy_val_no_mut_borrow v w : copy_val v w -> not_contains_borrow v.
+Proof. induction 1; not_contains. Qed.
+
+Lemma is_fresh_copy l S pi v :
+  is_fresh l S -> copy_val (S.[pi]) v -> not_value_contains (is_loan_id l) v.
+Proof.
+  intros Hfresh Hcopy.
+  destruct (decidable_valid_spath S pi).
+  - eapply not_state_contains_implies_not_value_contains_sget in Hfresh; [ | eassumption].
+    induction Hcopy; not_contains.
+  - rewrite sget_invalid in Hcopy by assumption. inversion Hcopy.
+Qed.
+Hint Resolve is_fresh_copy : spath.
+
 Lemma operand_preserves_LLBC_plus_rel op :
   forward_simulation leq_state_base^* (leq_val_state_base leq_state_base)^* (eval_operand op) (eval_operand op).
 Proof.
@@ -4748,22 +4768,105 @@ Proof.
         { apply Leq_ToSymbolic with (sp := sp). autorewrite with spath. assumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
+
     (* Leq-ToAbs *)
-    + admit.
+    + eval_place_preservation. autorewrite with spath in Hcopy_val.
+      execution_step. { econstructor; [eassumption | ]. autorewrite with spath. eassumption. }
+      leq_step_left.
+      { apply Leq_ToAbs with (i := i); eauto with spath. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
     (* Leq-RemoveAnon *)
-    + admit.
+    + eval_place_preservation.
+      execution_step. { econstructor; [eassumption | ]. autorewrite with spath. eassumption. }
+      leq_step_left.
+      { apply Leq_RemoveAnon; eauto with spath. }
+      { reflexivity. }
+      reflexivity.
+
     (* Leq-MoveValue *)
-    + admit.
+    + eval_place_preservation.
+      destruct rel_pi_l_pi_r as [(-> & ? & ?) | (r & -> & ->)].
+      (* Case 1: the place we copy is not in the moved value. *)
+      * rewrite sget_add_anon in Hcopy_val by assumption.
+        (* The place we copy is in fact disjoint from the moved value, because the copied
+         * value cannot contain an unitialized value. *)
+        assert (~prefix pi sp).
+        { intros (q & <-). autorewrite with spath in Hcopy_val.
+          eapply copy_val_no_bot; [eassumption | | now rewrite vset_vget_equal by validity].
+          eapply vset_same_valid. validity. }
+        assert (disj pi sp) by solve_comp. autorewrite with spath in Hcopy_val.
+        execution_step. { econstructor; eassumption. }
+        leq_val_state_add_anon.
+        { apply Leq_MoveValue with (a := a) (sp := sp); eauto with spath.
+          autorewrite with spath. assumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      (* Case 2: the place we copy is in the moved value (this can only happen with shared
+       * borrows. *)
+      * autorewrite with spath in Hcopy_val.
+        execution_step. { econstructor; eassumption. }
+        leq_val_state_add_anon.
+        { apply Leq_MoveValue with (a := a) (sp := sp); eauto with spath.
+          autorewrite with spath. assumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+
     (* Leq-MergeAbs *)
-    + admit.
+    + eval_place_preservation. autorewrite with spath in Hcopy_val.
+      execution_step. { econstructor. eassumption. autorewrite with spath. eassumption. }
+      leq_step_left.
+      { apply Leq_MergeAbs; eauto with spath. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
     (* Leq-Fresh-MutLoan *)
-    + admit.
+    + eval_place_preservation.
+      rewrite sget_add_anon in Hcopy_val by assumption.
+      assert (~prefix pi sp).
+      { intros (q & <-). rewrite sset_sget_prefix in Hcopy_val by validity.
+        eapply copy_val_no_mut_loan;
+          [eassumption | | rewrite vset_vget_equal by validity; constructor].
+        apply vset_same_valid. validity. }
+      assert (disj pi sp) by solve_comp. autorewrite with spath in Hcopy_val.
+      execution_step. { econstructor; eassumption. }
+      leq_val_state_add_anon.
+      { apply Leq_Fresh_MutLoan with (sp := sp) (l' := l'); eauto with spath. not_contains. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
     (* Leq-Reborrow-MutBorrow *)
-    + admit.
+    + eval_place_preservation. rewrite sget_add_anon in Hcopy_val by assumption.
+      assert (~prefix pi sp).
+      { intros (q & <-). autorewrite with spath in Hcopy_val.
+        eapply copy_val_no_mut_borrow;
+          [eassumption | | rewrite vset_vget_equal by validity; constructor].
+        apply vset_same_valid. validity. }
+      autorewrite with spath in Hcopy_val.
+      execution_step. { econstructor; eassumption. }
+      leq_val_state_add_anon.
+      { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1); eauto with spath.
+        not_contains. autorewrite with spath. eassumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
     (* Leq-Abs-ClearValue *)
-    + admit.
+    + eval_place_preservation. autorewrite with spath in Hcopy_val.
+      execution_step. { econstructor; eassumption. }
+      leq_step_left.
+      { eapply Leq_Abs_ClearValue with (i := i) (j := j). autorewrite with spath.
+        all: eassumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
     (* Leq-AnonValue *)
-    + admit.
+    + eval_place_preservation. autorewrite with spath in Hcopy_val.
+      execution_step. { econstructor; eassumption. }
+      leq_val_state_add_anon.
+      { apply Leq_AnonValue with (a := a). assumption. }
+      { reflexivity. }
+      reflexivity.
 
   (* op = move p *)
   - destruct Hle.
@@ -4901,7 +5004,7 @@ Proof.
       { apply Leq_AnonValue; eassumption. }
       { reflexivity. }
       reflexivity.
-Admitted.
+Qed.
 
 Lemma copy_val_rename_value m v w : copy_val v w -> copy_val (rename_value m v) (rename_value m w).
 Proof. induction 1; constructor. Qed.
