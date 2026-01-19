@@ -590,6 +590,23 @@ Section Concretization.
         * specialize (IHvp _ l _ _ H5). constructor ; auto.
   Qed.
 
+  Lemma concr_val_remove_loc :
+    forall v vloc vp l t vl,
+      v.[[ vp ]] = loc(l, vloc) ->
+      concr_hlpl_val v t vl ->
+      concr_hlpl_val (v.[[vp <- v.[[ vp ++ [0] ]] ]]) t vl.
+  Proof.
+    intros until vp. generalize dependent v. induction vp ; intros.
+    - simpl app. simpl in H. rewrite H. simpl.
+      inversion H0 ; try congruence.
+    - destruct v ; inversion H ; subst ; auto.
+      + destruct a ; auto. simpl in *. constructor. 
+        inversion H0 ; subst. eauto.
+      + destruct a as [ | [  | ] ] ; auto ; simpl in * ; inversion H0 ; subst.
+        * specialize (IHvp _ l t0 vl0 H2 H4). constructor ; auto.
+        * specialize (IHvp _ l t1 vl1 H2 H7). constructor ; auto.
+  Qed.
+
   Lemma concr_val_deterministic :
     forall v t vl0 vl1,
       concr_hlpl_val v t vl0 ->
@@ -3103,9 +3120,45 @@ Proof.
            unfold add_loc_spath in node.
            destruct (decidable_prefix_is_not_prefix p sp) as (equ & ?) ; auto.
            by rewrite H2 in node.
-      * intros * node. admit.
-    + admit.
+      * intros * node. rewrite get_node_remove_loc with (l := l) in node ; auto.
+        edestruct (reachable_loc _ _ _ Comp l0) as (addr & t & equiv) ; eauto.
+        exists addr, t.
+        unfold add_loc_spath in * ;
+        destruct (decidable_prefix' p sp) as [ (r & eq) | npref] ; nodes_to_val.
+        ** eapply remove_loc_addr_spath_equiv_suffix ; eauto ; split ; auto.
+           apply get_not_bot_valid_spath. rewrite Heqh0. discriminate.
+        ** apply addr_spath_equiv_sset ; auto.
+    + destruct concr_st as (concr_heap & concr_env). split.
+      * unfold concr_hlpl_heap. intros * vsp S_encx bo_encx.
+        destruct (Positive_as_DT.eqb_spec (p.1) enc_x) ; subst.
+        ** rewrite <- sset_not_prefix_valid in vsp
+               by (apply not_strict_prefix_nil).
+           destruct (concr_heap _ _ _ _ vsp (eq_refl (S.[(p.1, [])])) bo_encx)
+             as (vl & ? & ?).
+           exists vl ; split ; auto.
+           rewrite spath_var_app_vpath with (p := p), sset_app_split,
+               sset_sget_equal, <- app_spath_vpath_assoc, sget_app ; auto.
+           nodes_to_val. rewrite spath_var_app_vpath with (p := p), sget_app in Heqh.
+           eapply concr_val_remove_loc; eauto.
+        ** apply sset_not_prefix_valid in vsp ; try (apply not_strict_prefix_nil).
+           destruct (concr_heap _ _ _ _ vsp (eq_refl (S.[(enc_x, [])])) bo_encx)
+                      as (vl & ? & ?).
+           exists vl ; split ; auto. 
+           rewrite sset_sget_disj ; auto. left ; auto.
+      * unfold concr_hlpl_env. intros * vsp bo_encx. apply concr_env ; auto.
+        eapply sset_not_prefix_valid ; eauto. apply not_strict_prefix_nil.
     + assumption.
+Qed.
+
+Lemma Reorg_Star_Preserves_PL_HLPL_Rel :
+  forall bo ao S S' Spl,
+    le_pl_hlpl bo ao Spl S ->
+    clos_refl_trans reorg S S' ->
+    le_pl_hlpl bo ao Spl S'.
+Proof.
+  intros * le reorg. induction reorg ; auto.
+  apply Reorg_Preserves_PL_HLPL_Rel with (S := x) ; auto.
+Qed.
 
 Lemma Assign_Preserves_PL_HLPL_Rel :
   forall bo ao S S' Spl p rv t,
@@ -3116,7 +3169,8 @@ Lemma Assign_Preserves_PL_HLPL_Rel :
     exists Spl', Spl |-{stmt-pl} ASSIGN p <- rv => rUnit, Spl'.
 Proof.
   intros * Hle WTS Htype Hstmt.
-  inversion Hstmt ; subst.
+  remember (ASSIGN p <- rv) as asgn.
+  induction Hstmt ; subst ; try discriminate.
   - inversion Hstore ; subst. simpl in WTS.
     eapply eval_rvalue_preserves_eval_place in eval_p as [sp' eval_p] ; eauto .
     destruct (WTS (rv_get_type rv) Mut sp' eval_p) as (WTRV & _ & type).
@@ -3128,7 +3182,9 @@ Proof.
     inversion Hread. exists (Spl.h.[addr <- vl : (rv_get_type rv)]).
     eapply Eval_assign with (t := rv_get_type rv) ; eauto.
     eapply Write ; eauto.
-  - 
+  - apply Reorg_Star_Preserves_PL_HLPL_Rel with (S' := S1) in Hle ; auto.
+    assert (WellTypedStmt S1 bo (ASSIGN p <- rv)) by admit.
+    auto.
 Abort.
 
 Section Tests.
