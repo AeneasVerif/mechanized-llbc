@@ -2106,8 +2106,8 @@ Definition WellTypedRValue S bo rv :=
 Fixpoint WellTypedStmt S bo stmt :=
   match stmt with
   | Assign p rv =>
-      forall t perm sp,
-        S |-{p} p =>^{perm} sp -> 
+      forall t sp,
+        S |-{p} p =>^{Mut} sp -> 
            WellTypedRValue S bo rv /\ t = rv_get_type rv /\ eval_type bo S sp t
   | Seq s1 s2 =>
       WellTypedStmt S bo s1 /\ WellTypedStmt S bo s2
@@ -2375,6 +2375,34 @@ Proof.
     + reflexivity.
 Qed.
 
+Lemma add_loc_spath_eq:
+  forall r, add_loc_spath r r = r +++ [0].
+Proof.
+  intros. unfold add_loc_spath.
+  destruct (decidable_prefix' r r) as [ (r' & eq) | npref].
+  - rewrite <- app_spath_vpath_nil_r in eq.
+    apply app_spath_vpath_inv_head in eq. by rewrite eq, app_nil_r.
+  - assert (pref : prefix r r) by reflexivity. contradiction.
+Qed.
+
+Lemma add_loc_spath_pref :
+  forall r p, add_loc_spath r (r +++ p) = r +++ [0] ++ p.
+Proof.
+  intros. unfold add_loc_spath.
+  destruct (decidable_prefix' r (r +++ p)) as [ (r' & eq) | npref].
+  - apply app_spath_vpath_inv_head in eq. congruence.
+  - assert (pref : prefix r (r +++ p)) by (exists p ; auto). contradiction.
+Qed.
+
+Lemma add_loc_spath_not_pref :
+  forall r p, p <> [] -> add_loc_spath (r +++ p) r = r.
+Proof.
+  intros *. unfold add_loc_spath.
+  destruct (decidable_prefix' (r +++ p) r) as [(r' & eq) | npref ]; auto.
+  rewrite <- app_spath_vpath_assoc, <- app_spath_vpath_nil_r in eq.
+  apply app_spath_vpath_inv_head, app_nil in eq as ( ? & ?) . contradiction.
+Qed.
+
 Lemma eval_proj_write_loc' :
   forall S l proj p q r perm,
     p <> r -> is_fresh l S ->
@@ -2481,33 +2509,66 @@ Proof.
       * econstructor ; eauto.
       * destruct (decide (p +++ [0] = r)) ; subst.
         ** eapply HLPL_No_Anon.Eval_path_loc ; eauto.
-           replace (add_loc_spath (p +++ [0]) p +++ [0])
-             with (p +++ [0]) by admit.
-           replace (add_loc_spath (p +++ [0]) (p +++ [0]))
-             with ((p +++ [0]) +++ [0]) by admit.
-           econstructor ; eauto.
+           rewrite add_loc_spath_not_pref, add_loc_spath_eq ; auto.
+           apply Eval_Loc with (l := l) ; auto.
         ** rewrite add_loc_spath_app in IHeval_path ; auto.
     + erewrite get_node_remove_loc in get_q ; eauto. econstructor.
       * econstructor ; eauto.
       * destruct (decide (p +++ [1] = r)) ; subst.
-        ** admit.
+        ** eapply HLPL_No_Anon.Eval_path_loc ; eauto.
+           rewrite add_loc_spath_not_pref, add_loc_spath_eq ; auto.
+           apply Eval_Loc with (l := l) ; auto.
         ** rewrite add_loc_spath_app in IHeval_path ; auto.
-  - 
-Admitted.
+  - inversion Heval_loc ; subst.
+    rewrite get_node_remove_loc with (l := l) in get_q ; auto.
+    destruct (decide (p +++ [0] = r)) ; subst.
+    + apply Eval_path_loc with (q := (add_loc_spath (p +++ [0]) p) +++ [0]).
+      * apply Eval_Loc with (l := l0) ; auto.
+      * apply Eval_path_loc with (q := (add_loc_spath (p +++ [0]) (p +++ [0]))) ; auto.
+        replace (add_loc_spath (p +++ [0]) (p +++ [0])) with
+          (add_loc_spath (p +++ [0]) ((p +++ [0]) +++ []))
+          by (rewrite app_spath_vpath_nil_r ; auto).
+        rewrite add_loc_spath_pref, app_nil_r, add_loc_spath_not_pref ; auto.
+        apply Eval_Loc with (l := l) ; auto.
+    + eapply Eval_path_loc ; eauto. rewrite add_loc_spath_app ; auto.
+      apply Eval_Loc with (l := l0) ; auto.
+Qed.
 
 Lemma eval_place_reorg :
   forall S1 S2 p sp perm,
+    perm <> Mov ->
     reorg S1 S2 ->
     S2 |-{p} p =>^{perm} sp ->
     exists sp', S1 |-{p} p =>^{perm} sp'.
 Proof.
-  intros * reorg eval_place. induction reorg.
+  intros * no_move reorg eval_place. induction reorg.
   - exists sp. apply eval_place_write_bot with (sp' := p0) ; auto.
-  - exists (add_loc_spath p0 sp). unfold add_loc_spath.
-    destruct (decidable_prefix' _ _) as [(r & ?) | ].
-    * subst. rewrite sget_app in eval_place. admit.
-    * 
-Admitted.
+  - exists (add_loc_spath p0 sp). inversion eval_place ; subst.
+    apply sset_not_prefix_valid in H1 ; try (apply not_strict_prefix_nil).
+    constructor ; auto. remember (encode_var p.1, []) as q.
+    destruct (decide (q = p0)).
+    + subst q. rewrite e in *. apply Eval_path_loc with (q := (p0 +++ [0])).
+      * apply Eval_Loc with (l := l) ; auto.
+      * rewrite <- add_loc_spath_eq. apply eval_path_reorg_end_loc with (l := l) ; auto.
+    + rewrite <- (not_prefix_add_loc_spath p0 q) ; subst.
+      * apply eval_path_reorg_end_loc with (l := l) ; auto.
+      * apply prove_not_prefix ; auto. apply not_strict_prefix_nil.
+Qed.
+
+Lemma eval_place_reorg_star :
+  forall S1 S2 p sp perm,
+    perm <> Mov ->
+    clos_refl_trans reorg S1 S2 ->
+    S2 |-{p} p =>^{perm} sp ->
+    exists sp', S1 |-{p} p =>^{perm} sp'.
+Proof.
+  intros * no_move reorgs. generalize dependent sp.
+  induction reorgs ; intros * eval_p.
+  - eapply eval_place_reorg ; eauto.
+  - by (exists sp).
+  - destruct (IHreorgs2 _ eval_p) as (sp' & eval_p').
+    apply (IHreorgs1 sp' eval_p').
+Qed.
 
 Lemma eval_type_val_vset :
   forall vi vp0 vp1 ti t,
@@ -2587,10 +2648,10 @@ Proof.
 Qed.
 
 Lemma eval_stmt_preserves_eval_place : 
-  forall S S' p perm sp s v,
-    S' |-{p} p =>^{perm} sp ->
+  forall S S' p sp s v,
+    S' |-{p} p =>^{Mut} sp ->
     S |-{stmt} s => v, S' ->
-    exists sp', S |-{p} p =>^{perm} sp'.
+    exists sp', S |-{p} p =>^{Mut} sp'.
 Proof.
   intros * eval_place eval_stmt. generalize dependent sp.
   induction eval_stmt ; intros * eval_place ; eauto.
@@ -2599,11 +2660,10 @@ Proof.
   - inversion Hstore ; subst.
     eapply eval_rvalue_preserves_eval_place in eval_rv as (sp' & eval_p') ; eauto.
     admit.
-  - apply IHeval_stmt in eval_place as (sp' & eval_place').
-    induction Hreorg ; eauto.
-    * eapply eval_place_reorg ; eauto.
-    * 
-Abort.
+  - destruct (IHeval_stmt _ eval_place) as (sp' & eval_place').
+    assert (Mut <> Mov) by discriminate.
+    apply (eval_place_reorg_star _ _ _ _ _ H Hreorg eval_place').
+Admitted.
 
 Lemma addr_spath_equiv_add_loc :
   forall bo S l addr t sp sp_loc,
@@ -3173,7 +3233,7 @@ Proof.
   induction Hstmt ; subst ; try discriminate.
   - inversion Hstore ; subst. simpl in WTS.
     eapply eval_rvalue_preserves_eval_place in eval_p as [sp' eval_p] ; eauto .
-    destruct (WTS (rv_get_type rv) Mut sp' eval_p) as (WTRV & _ & type).
+    destruct (WTS (rv_get_type rv) sp' eval_p) as (WTRV & _ & type).
     eapply Rvalue_Preserves_PL_HLPL_Rel in eval_rv
         as (ao1 & vl & vl' & eval_rv_pl & Hle' & Hconcr & Hle_block) ; eauto.
     simpl fst in *; simpl snd in *.
