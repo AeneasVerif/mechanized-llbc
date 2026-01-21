@@ -2072,13 +2072,13 @@ Definition rv_get_type rv :=
   | Pair t _ _ => t
   end.
 
-Fixpoint check_type_val v t :=
+Fixpoint check_type_of_val v t :=
   match v, t with
   | HLPL_bot, _ => true
   | HLPL_int _, TInt => true
-  | HLPL_loc _ v, t => check_type_val v t
+  | HLPL_loc _ v, t => check_type_of_val v t
   | HLPL_ptr _, TRef => true
-  | HLPL_pair v0 v1, TPair t0 t1 => check_type_val v0 t0 && check_type_val v1 t1
+  | HLPL_pair v0 v1, TPair t0 t1 => check_type_of_val v0 t0 && check_type_of_val v1 t1
   | _, _ => false
   end.
 
@@ -2087,7 +2087,7 @@ Definition WellTypedState S bo :=
 
 Definition WellTypedState' (S : HLPL_state) (bo : positive -> block_id * type) :=
   forall enc_x, valid_spath S (enc_x, []) ->
-           check_type_val (S.[(enc_x, [])]) ((bo enc_x).2).
+           check_type_of_val (S.[(enc_x, [])]) ((bo enc_x).2).
 
 Definition WellTypedOperand S bo op :=
   match op with
@@ -2120,8 +2120,8 @@ Definition WellTypedRValue S bo rv :=
 Fixpoint WellTypedStmt S bo stmt :=
   match stmt with
   | Assign p rv =>
-      forall t sp,
-        S |-{p} p =>^{Mut} sp -> 
+      forall t perm sp,
+        S |-{p} p =>^{perm} sp -> 
            WellTypedRValue S bo rv /\ t = rv_get_type rv /\ eval_type bo S sp t
   | Seq s1 s2 =>
       WellTypedStmt S bo s1 /\ WellTypedStmt S bo s2
@@ -2389,6 +2389,16 @@ Proof.
     + reflexivity.
 Qed.
 
+Lemma remove_loc_spath_remove_loc:
+  forall r p n,
+    remove_loc_spath r (r +++ n :: p) = r +++ p.
+Proof.
+  intros. unfold remove_loc_spath.
+  destruct (decidable_prefix' r (r +++ n :: p)) as [(r' & eq) | npref ].
+  - apply app_spath_vpath_inv_head in eq. subst ; auto.
+  - assert (prefix r (r +++ n :: p)) by (exists (n :: p) ; auto). contradiction.
+Qed.
+
 Lemma add_loc_spath_eq:
   forall r, add_loc_spath r r = r +++ [0].
 Proof.
@@ -2397,6 +2407,16 @@ Proof.
   - rewrite <- app_spath_vpath_nil_r in eq.
     apply app_spath_vpath_inv_head in eq. by rewrite eq, app_nil_r.
   - assert (pref : prefix r r) by reflexivity. contradiction.
+Qed.
+
+Lemma remove_loc_spath_eq:
+  forall r, remove_loc_spath r r = r.
+Proof.
+  intros *. unfold remove_loc_spath.
+  destruct (decidable_prefix' r r) as [(r' & eq) | npref ] ; auto.
+  rewrite <- (app_spath_vpath_nil_r r) in eq at 2.
+  apply app_spath_vpath_inv_head in eq ; subst. simpl.
+  apply app_spath_vpath_nil_r.
 Qed.
 
 Lemma add_loc_spath_pref :
@@ -2415,6 +2435,14 @@ Proof.
   destruct (decidable_prefix' (r +++ p) r) as [(r' & eq) | npref ]; auto.
   rewrite <- app_spath_vpath_assoc, <- app_spath_vpath_nil_r in eq.
   apply app_spath_vpath_inv_head, app_nil in eq as ( ? & ?) . contradiction.
+Qed.
+
+Lemma add_loc_spath_not_pref' :
+  forall r p, ~ prefix r p -> add_loc_spath r p = p.
+Proof.
+  intros. unfold add_loc_spath. destruct (decidable_prefix' r p) as [(? & ?) | ?].
+  - assert (prefix r p) by (exists x ; auto). contradiction.
+  - reflexivity.
 Qed.
 
 Lemma eval_proj_write_loc' :
@@ -2507,13 +2535,12 @@ Qed.
 
 Lemma eval_path_reorg_end_loc :
   forall S l P p q r perm,
-    perm <> Mov ->
     get_node (S.[r]) = locC (l) ->
     not_state_contains (eq ptrC (l)) S ->
     HLPL_No_Anon.eval_path (S.[r <- S.[r +++ [ 0 ] ] ]) perm P p q ->
     HLPL_No_Anon.eval_path S perm P (add_loc_spath r p) (add_loc_spath r q).
 Proof.
-  intros * no_move get_node not_contains eval_path. induction eval_path.
+  intros * get_node not_contains eval_path. induction eval_path.
   - constructor.
   - inversion Heval_proj ; subst.
     + econstructor ; eauto.
@@ -2550,12 +2577,11 @@ Qed.
 
 Lemma eval_place_reorg :
   forall S1 S2 p sp perm,
-    perm <> Mov ->
     reorg S1 S2 ->
     S2 |-{p} p =>^{perm} sp ->
     exists sp', S1 |-{p} p =>^{perm} sp'.
 Proof.
-  intros * no_move reorg eval_place. induction reorg.
+  intros * reorg eval_place. induction reorg.
   - exists sp. apply eval_place_write_bot with (sp' := p0) ; auto.
   - exists (add_loc_spath p0 sp). inversion eval_place ; subst.
     apply sset_not_prefix_valid in H1 ; try (apply not_strict_prefix_nil).
@@ -2571,12 +2597,11 @@ Qed.
 
 Lemma eval_place_reorg_star :
   forall S1 S2 p sp perm,
-    perm <> Mov ->
     clos_refl_trans reorg S1 S2 ->
     S2 |-{p} p =>^{perm} sp ->
     exists sp', S1 |-{p} p =>^{perm} sp'.
 Proof.
-  intros * no_move reorgs. generalize dependent sp.
+  intros * reorgs. generalize dependent sp.
   induction reorgs ; intros * eval_p.
   - eapply eval_place_reorg ; eauto.
   - by (exists sp).
@@ -2640,6 +2665,24 @@ Proof.
     intros (? & ?). rewrite <- H1 in n. by simpl fst in n.
 Qed.
 
+Lemma eval_type_remove_loc :
+  forall bo S sp sp' l t,
+    get_node (S.[ sp' ]) = locC (l) ->
+    valid_spath (S .[ sp' <- S.[sp' +++ [0] ] ]) sp ->
+    eval_type bo S (add_loc_spath sp' sp) t ->
+    eval_type bo (S .[  sp' <- S.[sp' +++ [0] ] ]) sp t.
+Proof.
+  intros * node vsp type.
+  apply addr_spath_equiv_eval_type.
+  apply addr_spath_equiv_eval_type in type as (addr & equiv).
+  destruct (decidable_prefix sp' sp) as [ (r & eq) | npref ] ; exists addr.
+  - subst. rewrite add_loc_spath_pref in equiv.
+    eapply remove_loc_addr_spath_equiv_suffix ; eauto. split ; auto.
+    apply get_not_bot_valid_spath. nodes_to_val. easy.
+  - apply addr_spath_equiv_sset ; auto.
+    rewrite add_loc_spath_not_pref' in equiv ; auto.
+Qed.
+
 Lemma eval_operand_preserves_eval_place : 
   forall S S' p perm sp op v,
     S' |-{p} p =>^{perm} sp ->
@@ -2662,10 +2705,10 @@ Proof.
 Qed.
 
 Lemma eval_stmt_preserves_eval_place : 
-  forall S S' p sp s v,
-    S' |-{p} p =>^{Mut} sp ->
+  forall S S' p perm sp s v,
+    S' |-{p} p =>^{perm} sp ->
     S |-{stmt} s => v, S' ->
-    exists sp', S |-{p} p =>^{Mut} sp'.
+    exists sp', S |-{p} p =>^{perm} sp'.
 Proof.
   intros * eval_place eval_stmt. generalize dependent sp.
   induction eval_stmt ; intros * eval_place ; eauto.
@@ -2675,8 +2718,7 @@ Proof.
     eapply eval_rvalue_preserves_eval_place in eval_rv as (sp' & eval_p') ; eauto.
     admit.
   - destruct (IHeval_stmt _ eval_place) as (sp' & eval_place').
-    assert (neq : Mut <> Mov) by discriminate.
-    apply (eval_place_reorg_star _ _ _ _ _ neq Hreorg eval_place').
+    apply (eval_place_reorg_star _ _ _ _ _ Hreorg eval_place').
 Admitted.
 
 Lemma addr_spath_equiv_add_loc :
@@ -2784,8 +2826,18 @@ Lemma reorg_preserves_welltyped_op :
     WellTypedOperand S bo op ->
     WellTypedOperand S' bo op.
 Proof.
-  intros * reorg WTO. destruct op ; simpl in * ; auto.
-  - intros * eval_p.
+  intros * reorg WTO. pose proof reorg as reorg'.
+  destruct reorg ; destruct op ; simpl in * ; auto ; intros.
+  - apply eval_type_write_bot.
+    + eapply eval_place_valid ; eauto.
+    + apply eval_place_write_bot in H0. eauto.
+  - apply eval_type_write_bot.
+    + eapply eval_place_valid ; eauto.
+    + apply eval_place_write_bot in H0. eauto.
+  - apply eval_type_remove_loc with (l := l) ; auto.
+    + eapply eval_place_valid ; eauto.
+    + eapply eval_place_reorg in reorg' as (sp' & eval_p') ; eauto. eapply WTO ; eauto.
+Abort.
 
 Lemma eval_stmt_preserves_welltyped_op :
   forall bo S S' v op s,
@@ -3256,7 +3308,7 @@ Proof.
   induction Hstmt ; subst ; try discriminate.
   - inversion Hstore ; subst. simpl in WTS.
     eapply eval_rvalue_preserves_eval_place in eval_p as [sp' eval_p] ; eauto .
-    destruct (WTS (rv_get_type rv) sp' eval_p) as (WTRV & _ & type).
+    destruct (WTS (rv_get_type rv) Mut sp' eval_p) as (WTRV & _ & type).
     eapply Rvalue_Preserves_PL_HLPL_Rel in eval_rv
         as (ao1 & vl & vl' & eval_rv_pl & Hle' & Hconcr & Hle_block) ; eauto.
     simpl fst in *; simpl snd in *.
