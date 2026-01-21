@@ -1590,15 +1590,15 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
 
   (** Simulation proof between spath and address *)
   Lemma spath_address_proj_simul :
-    forall S Spl sp sp' addr t perm proj,
+    forall S Spl sp sp' addr t proj,
       le_pl_hlpl Spl S ->
       addr ~^{S, t} sp ->
-      HLPL_No_Anon.eval_proj S perm proj sp sp' ->
+      HLPL_No_Anon.eval_proj S proj sp sp' ->
       exists addr' t',
         eval_proj Spl proj (addr, t) (addr', t') /\
           addr' ~^{S, t'} sp'.
   Proof.
-    intros S Spl sp sp' addr t perm proj
+    intros S Spl sp sp' addr t proj
       (Spl' & HComp & Hconcr & _ & Hheap) Hequiv Hproj.
     pose proof HComp as Hcomp.
     destruct HComp as [_ Hcorr_addrof Hloc].
@@ -1648,33 +1648,33 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Qed.
 
   Lemma spath_address_loc_simul :
-    forall S Spl sp sp' addr t perm,
+    forall S Spl sp sp' addr t,
       le_pl_hlpl Spl S ->
       addr ~^{S, t} sp ->
-      eval_loc S perm sp sp' ->
+      eval_loc S sp sp' ->
       addr ~^{S, t} sp'.
   Proof.
-    intros S Spl sp sp' addr t perm Hle Hequiv Heval_loc.
+    intros S Spl sp sp' addr t Hle Hequiv Heval_loc.
     inversion Heval_loc ; subst.
     rewrite <- Addr_spath_loc with (l := l) ; auto.
   Qed.
 
   Lemma spath_address_path_simul :
-    forall S Spl P sp sp' addr t perm,
+    forall S Spl P sp sp' addr t,
       le_pl_hlpl Spl S ->
-      HLPL_No_Anon.eval_path S perm P sp sp' ->
+      HLPL_No_Anon.eval_path S P sp sp' ->
       addr ~^{S, t} sp ->
       exists addr' t',
         eval_path Spl P (addr, t) (addr', t') /\
           addr' ~^{S, t'} sp'.
   Proof.
-    intros S Spl P sp sp' addr t perm Hle Hpath Hequiv.
+    intros S Spl P sp sp' addr t Hle Hpath Hequiv.
     pose proof Hle as Htemp.
     destruct Htemp as (Spl' & HComp & (Hconcr_heap & Hconcr_env) & Henv & Hheap).
     generalize dependent t.  generalize dependent addr.
     induction Hpath ; intros addr t Hequiv.
     - exists addr, t. repeat constructor ; auto.
-    - destruct (spath_address_proj_simul _ _ _ _ _ _ _ _ Hle Hequiv Heval_proj)
+    - destruct (spath_address_proj_simul _ _ _ _ _ _ _ Hle Hequiv Heval_proj)
                  as (addr' & t' & Heval_proj_pl & Hequiv').
       destruct (IHHpath addr' t' Hequiv') as (addr'' & t'' & Heval_pl' & Hequiv'').
       exists addr'', t'' ; split ; try assumption.
@@ -1687,9 +1687,9 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Qed.
 
   Lemma spath_address_place_simul :
-    forall S Spl p sp perm,
+    forall S Spl p sp,
       le_pl_hlpl Spl S ->
-      S |-{p} p =>^{perm} sp ->
+      S |-{p} p => sp ->
       exists addr t, 
         Spl |-{p} p =>^{pl} (addr, t) /\ addr ~^{S, t} sp.
   Proof.
@@ -1697,7 +1697,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     inversion H0 ; subst.
     assert (addr_spath_equiv S (bi, 0) t0 (encode_var p.1, [])) by
     (econstructor ; eauto ; simpl ; constructor).
-    destruct (spath_address_path_simul _ _ _ _ _ _ _ _ H H2 H3) as (addr & t & ? & ?).
+    destruct (spath_address_path_simul _ _ _ _ _ _ _ H H2 H3) as (addr & t & ? & ?).
     exists addr, t ; split ; auto.
     econstructor. exists t0 ; split ; eauto.
     destruct H as (Spl' & ? & ? & ?). destruct H7. destruct H6.
@@ -1705,14 +1705,14 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Qed.
     
   Lemma eval_place_hlpl_pl_equiv :
-    forall S Spl p sp perm t,
+    forall S Spl p sp t,
       le_pl_hlpl Spl S ->
-      S |-{p} p =>^{perm} sp ->
+      S |-{p} p => sp ->
       eval_type S sp t ->
       exists addr,
         Spl |-{p} p =>^{pl} (addr, t) /\ addr ~^{S, t} sp.
   Proof.
-    intros S Spl p sp perm t Hle Hplace Heval_type.
+    intros S Spl p sp t Hle Hplace Heval_type.
     pose proof Hle as Htemp.
     destruct Htemp as (Spl' & HComp & (Hconcr_heap & Hconcr_env) & Henv & Hheap).
     destruct Hplace as [Hvsp Hpath]. simpl in *.
@@ -1732,23 +1732,23 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Qed.
 
   Lemma read_addr_spath_equiv_equiv :
-    forall S Spl perm p sp t addr,
+    forall S Spl p sp t addr,
       le_pl_hlpl Spl S ->
-      S |-{p} p =>^{perm} sp ->
+      S |-{p} p => sp ->
       eval_type S sp t ->
       addr_spath_equiv S addr t sp <-> read_address Spl p t addr .
   Proof.
-    intros S Spl perm p sp t addr Hle Heval_place Heval_type ; split.
+    intros S Spl p sp t addr Hle Heval_place Heval_type ; split.
     {
       intros Hequiv.
-      destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ _ Hle Heval_place Heval_type)
+      destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ Hle Heval_place Heval_type)
         as (addr' & Heval_place' & Hequiv').
       rewrite (addr_spath_equiv_deterministic_addr _ _ _ _ _ _ Hequiv Hequiv') in *.
       assumption.
     }
     {
       intros (bi & t' & Hlu & Heval_path). 
-      destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ _ Hle Heval_place Heval_type)
+      destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ Hle Heval_place Heval_type)
         as (addr' & (bi' & t'' & Hlu' & Heval_path') & Hequiv').
       rewrite Hlu in Hlu' ; injection Hlu' ; intros ; subst.
       by pose proof (eval_path_deterministic _ _ _ _ _ Heval_path Heval_path')
@@ -2055,19 +2055,33 @@ Definition rv_get_type rv :=
   | Pair t _ _ => t
   end.
 
+Fixpoint check_type_of_val v t :=
+  match v, t with
+  | HLPL_bot, _ => true
+  | HLPL_int _, TInt => true
+  | HLPL_loc _ v, t => check_type_of_val v t
+  | HLPL_ptr _, TRef => true
+  | HLPL_pair v0 v1, TPair t0 t1 => check_type_of_val v0 t0 && check_type_of_val v1 t1
+  | _, _ => false
+  end.
+
 Definition WellTypedState S bo :=
   forall sp, valid_spath S sp -> exists t, eval_type bo S sp t.
+
+Definition WellTypedState' (S : HLPL_state) (bo : positive -> block_id * type) :=
+  forall enc_x, valid_spath S (enc_x, []) ->
+           check_type_of_val (S.[(enc_x, [])]) ((bo enc_x).2).
 
 Definition WellTypedOperand S bo op :=
   match op with
   | IntConst t _ => t = TInt
   | Move t p =>
-      forall perm sp,
-        S |-{p} p =>^{perm} sp ->
+      forall sp,
+        S |-{p} p => sp ->
            eval_type bo S sp t
   | Copy t p =>
-      forall perm sp,
-        S |-{p} p =>^{perm} sp ->
+      forall sp,
+        S |-{p} p => sp ->
            eval_type bo S sp t
   end.
 
@@ -2089,8 +2103,8 @@ Definition WellTypedRValue S bo rv :=
 Fixpoint WellTypedStmt S bo stmt :=
   match stmt with
   | Assign p rv =>
-      forall t perm sp,
-        S |-{p} p =>^{perm} sp -> 
+      forall t sp,
+        S |-{p} p => sp -> 
            WellTypedRValue S bo rv /\ t = rv_get_type rv /\ eval_type bo S sp t
   | Seq s1 s2 =>
       WellTypedStmt S bo s1 /\ WellTypedStmt S bo s2
@@ -2253,8 +2267,8 @@ Proof.
 Qed.
 
 Lemma eval_place_write_bot :
-  forall S p perm sp sp',
-    (S .[ sp' <- bot]) |-{p} p =>^{ perm} sp -> S |-{p} p =>^{ perm} sp.
+  forall S p sp sp',
+    (S .[ sp' <- bot]) |-{p} p => sp -> S |-{p} p => sp.
 Proof.
   intros * eval_p. inversion eval_p.
   apply sset_not_prefix_valid in H ; [ | apply not_strict_prefix_nil].
@@ -2271,11 +2285,11 @@ Proof.
 Qed.
 
 Lemma eval_proj_write_loc :
-  forall S l proj p q r perm,
+  forall S l proj p q r,
     p <> r ->
-    HLPL_No_Anon.eval_proj (S.[ r <- loc (l, S .[ r])]) perm proj
+    HLPL_No_Anon.eval_proj (S.[ r <- loc (l, S .[ r])]) proj
       (add_loc_spath r p) (add_loc_spath r q) ->
-    HLPL_No_Anon.eval_proj S perm proj p q.
+    HLPL_No_Anon.eval_proj S proj p q.
 Proof.
   intros * p_not_r eval_proj. inversion eval_proj ; subst.
   - rewrite get_node_write_loc in * ; econstructor ; eauto.
@@ -2358,11 +2372,67 @@ Proof.
     + reflexivity.
 Qed.
 
+Lemma remove_loc_spath_remove_loc:
+  forall r p n,
+    remove_loc_spath r (r +++ n :: p) = r +++ p.
+Proof.
+  intros. unfold remove_loc_spath.
+  destruct (decidable_prefix' r (r +++ n :: p)) as [(r' & eq) | npref ].
+  - apply app_spath_vpath_inv_head in eq. subst ; auto.
+  - assert (prefix r (r +++ n :: p)) by (exists (n :: p) ; auto). contradiction.
+Qed.
+
+Lemma add_loc_spath_eq:
+  forall r, add_loc_spath r r = r +++ [0].
+Proof.
+  intros. unfold add_loc_spath.
+  destruct (decidable_prefix' r r) as [ (r' & eq) | npref].
+  - rewrite <- app_spath_vpath_nil_r in eq.
+    apply app_spath_vpath_inv_head in eq. by rewrite eq, app_nil_r.
+  - assert (pref : prefix r r) by reflexivity. contradiction.
+Qed.
+
+Lemma remove_loc_spath_eq:
+  forall r, remove_loc_spath r r = r.
+Proof.
+  intros *. unfold remove_loc_spath.
+  destruct (decidable_prefix' r r) as [(r' & eq) | npref ] ; auto.
+  rewrite <- (app_spath_vpath_nil_r r) in eq at 2.
+  apply app_spath_vpath_inv_head in eq ; subst. simpl.
+  apply app_spath_vpath_nil_r.
+Qed.
+
+Lemma add_loc_spath_pref :
+  forall r p, add_loc_spath r (r +++ p) = r +++ [0] ++ p.
+Proof.
+  intros. unfold add_loc_spath.
+  destruct (decidable_prefix' r (r +++ p)) as [ (r' & eq) | npref].
+  - apply app_spath_vpath_inv_head in eq. congruence.
+  - assert (pref : prefix r (r +++ p)) by (exists p ; auto). contradiction.
+Qed.
+
+Lemma add_loc_spath_not_pref :
+  forall r p, p <> [] -> add_loc_spath (r +++ p) r = r.
+Proof.
+  intros *. unfold add_loc_spath.
+  destruct (decidable_prefix' (r +++ p) r) as [(r' & eq) | npref ]; auto.
+  rewrite <- app_spath_vpath_assoc, <- app_spath_vpath_nil_r in eq.
+  apply app_spath_vpath_inv_head, app_nil in eq as ( ? & ?) . contradiction.
+Qed.
+
+Lemma add_loc_spath_not_pref' :
+  forall r p, ~ prefix r p -> add_loc_spath r p = p.
+Proof.
+  intros. unfold add_loc_spath. destruct (decidable_prefix' r p) as [(? & ?) | ?].
+  - assert (prefix r p) by (exists x ; auto). contradiction.
+  - reflexivity.
+Qed.
+
 Lemma eval_proj_write_loc' :
-  forall S l proj p q r perm,
+  forall S l proj p q r,
     p <> r -> is_fresh l S ->
-    HLPL_No_Anon.eval_proj (S.[ r <- loc (l, S .[ r])]) perm proj p q ->
-    HLPL_No_Anon.eval_proj S perm proj (remove_loc_spath r p) (remove_loc_spath r q).
+    HLPL_No_Anon.eval_proj (S.[ r <- loc (l, S .[ r])]) proj p q ->
+    HLPL_No_Anon.eval_proj S proj (remove_loc_spath r p) (remove_loc_spath r q).
 Proof.
   intros * neq fresh eval_proj.
   inversion eval_proj ; subst.
@@ -2396,10 +2466,10 @@ Proof.
 Qed.
 
 Lemma eval_path_write_loc' :
-  forall S l P p q r perm,
+  forall S l P p q r,
     is_fresh l S ->
-    HLPL_No_Anon.eval_path (S.[ r <- loc (l, (S .[ r]))]) perm P p q ->
-    HLPL_No_Anon.eval_path S perm P (remove_loc_spath r p) (remove_loc_spath r q).
+    HLPL_No_Anon.eval_path (S.[ r <- loc (l, (S .[ r]))]) P p q ->
+    HLPL_No_Anon.eval_path S P (remove_loc_spath r p) (remove_loc_spath r q).
 Proof.
   intros * fresh eval_path. induction eval_path ; intros.
   - constructor.
@@ -2430,10 +2500,10 @@ Proof.
 Qed.
 
 Lemma eval_place_write_loc :
-  forall S l p r sp perm,
+  forall S l p r sp,
     is_fresh l S ->
-    S.[ r <- loc (l, (S .[ r]))] |-{p} p =>^{perm} sp ->
-    S |-{p} p =>^{perm} (remove_loc_spath r sp).
+    S.[ r <- loc (l, (S .[ r]))] |-{p} p => sp ->
+    S |-{p} p => (remove_loc_spath r sp).
 Proof.
   intros * fresh eval_pl. inversion eval_pl.
   rewrite <- sset_not_prefix_valid in H by apply not_strict_prefix_nil.
@@ -2447,14 +2517,13 @@ Proof.
 Qed.
 
 Lemma eval_path_reorg_end_loc :
-  forall S l P p q r perm,
-    perm <> Mov ->
+  forall S l P p q r,
     get_node (S.[r]) = locC (l) ->
     not_state_contains (eq ptrC (l)) S ->
-    HLPL_No_Anon.eval_path (S.[r <- S.[r +++ [ 0 ] ] ]) perm P p q ->
-    HLPL_No_Anon.eval_path S perm P (add_loc_spath r p) (add_loc_spath r q).
+    HLPL_No_Anon.eval_path (S.[r <- S.[r +++ [ 0 ] ] ]) P p q ->
+    HLPL_No_Anon.eval_path S P (add_loc_spath r p) (add_loc_spath r q).
 Proof.
-  intros * no_move get_node not_contains eval_path. induction eval_path.
+  intros * get_node not_contains eval_path. induction eval_path.
   - constructor.
   - inversion Heval_proj ; subst.
     + econstructor ; eauto.
@@ -2464,33 +2533,64 @@ Proof.
       * econstructor ; eauto.
       * destruct (decide (p +++ [0] = r)) ; subst.
         ** eapply HLPL_No_Anon.Eval_path_loc ; eauto.
-           replace (add_loc_spath (p +++ [0]) p +++ [0])
-             with (p +++ [0]) by admit.
-           replace (add_loc_spath (p +++ [0]) (p +++ [0]))
-             with ((p +++ [0]) +++ [0]) by admit.
-           econstructor ; eauto.
+           rewrite add_loc_spath_not_pref, add_loc_spath_eq ; auto.
+           apply Eval_Loc with (l := l) ; auto.
         ** rewrite add_loc_spath_app in IHeval_path ; auto.
     + erewrite get_node_remove_loc in get_q ; eauto. econstructor.
       * econstructor ; eauto.
       * destruct (decide (p +++ [1] = r)) ; subst.
-        ** admit.
+        ** eapply HLPL_No_Anon.Eval_path_loc ; eauto.
+           rewrite add_loc_spath_not_pref, add_loc_spath_eq ; auto.
+           apply Eval_Loc with (l := l) ; auto.
         ** rewrite add_loc_spath_app in IHeval_path ; auto.
-  - 
-Admitted.
+  - inversion Heval_loc ; subst.
+    rewrite get_node_remove_loc with (l := l) in get_q ; auto.
+    destruct (decide (p +++ [0] = r)) ; subst.
+    + apply Eval_path_loc with (q := (add_loc_spath (p +++ [0]) p) +++ [0]).
+      * apply Eval_Loc with (l := l0) ; auto.
+      * apply Eval_path_loc with (q := (add_loc_spath (p +++ [0]) (p +++ [0]))) ; auto.
+        replace (add_loc_spath (p +++ [0]) (p +++ [0])) with
+          (add_loc_spath (p +++ [0]) ((p +++ [0]) +++ []))
+          by (rewrite app_spath_vpath_nil_r ; auto).
+        rewrite add_loc_spath_pref, app_nil_r, add_loc_spath_not_pref ; auto.
+        apply Eval_Loc with (l := l) ; auto.
+    + eapply Eval_path_loc ; eauto. rewrite add_loc_spath_app ; auto.
+      apply Eval_Loc with (l := l0) ; auto.
+Qed.
 
 Lemma eval_place_reorg :
-  forall S1 S2 p sp perm,
+  forall S1 S2 p sp,
     reorg S1 S2 ->
-    S2 |-{p} p =>^{perm} sp ->
-    exists sp', S1 |-{p} p =>^{perm} sp'.
+    S2 |-{p} p => sp ->
+    exists sp', S1 |-{p} p => sp'.
 Proof.
   intros * reorg eval_place. induction reorg.
   - exists sp. apply eval_place_write_bot with (sp' := p0) ; auto.
-  - exists (add_loc_spath p0 sp). unfold add_loc_spath.
-    destruct (decidable_prefix' _ _) as [(r & ?) | ].
-    * subst. rewrite sget_app in eval_place. admit.
-    * 
-Admitted.
+  - exists (add_loc_spath p0 sp). inversion eval_place ; subst.
+    apply sset_not_prefix_valid in H1 ; try (apply not_strict_prefix_nil).
+    constructor ; auto. remember (encode_var p.1, []) as q.
+    destruct (decide (q = p0)).
+    + subst q. rewrite e in *. apply Eval_path_loc with (q := (p0 +++ [0])).
+      * apply Eval_Loc with (l := l) ; auto.
+      * rewrite <- add_loc_spath_eq. apply eval_path_reorg_end_loc with (l := l) ; auto.
+    + rewrite <- (not_prefix_add_loc_spath p0 q) ; subst.
+      * apply eval_path_reorg_end_loc with (l := l) ; auto.
+      * apply prove_not_prefix ; auto. apply not_strict_prefix_nil.
+Qed.
+
+Lemma eval_place_reorg_star :
+  forall S1 S2 p sp,
+    clos_refl_trans reorg S1 S2 ->
+    S2 |-{p} p => sp ->
+    exists sp', S1 |-{p} p => sp'.
+Proof.
+  intros * reorgs. generalize dependent sp.
+  induction reorgs ; intros * eval_p.
+  - eapply eval_place_reorg ; eauto.
+  - by (exists sp).
+  - destruct (IHreorgs2 _ eval_p) as (sp' & eval_p').
+    apply (IHreorgs1 sp' eval_p').
+Qed.
 
 Lemma eval_type_val_vset :
   forall vi vp0 vp1 ti t,
@@ -2548,21 +2648,39 @@ Proof.
     intros (? & ?). rewrite <- H1 in n. by simpl fst in n.
 Qed.
 
+Lemma eval_type_remove_loc :
+  forall bo S sp sp' l t,
+    get_node (S.[ sp' ]) = locC (l) ->
+    valid_spath (S .[ sp' <- S.[sp' +++ [0] ] ]) sp ->
+    eval_type bo S (add_loc_spath sp' sp) t ->
+    eval_type bo (S .[  sp' <- S.[sp' +++ [0] ] ]) sp t.
+Proof.
+  intros * node vsp type.
+  apply addr_spath_equiv_eval_type.
+  apply addr_spath_equiv_eval_type in type as (addr & equiv).
+  destruct (decidable_prefix sp' sp) as [ (r & eq) | npref ] ; exists addr.
+  - subst. rewrite add_loc_spath_pref in equiv.
+    eapply remove_loc_addr_spath_equiv_suffix ; eauto. split ; auto.
+    apply get_not_bot_valid_spath. nodes_to_val. easy.
+  - apply addr_spath_equiv_sset ; auto.
+    rewrite add_loc_spath_not_pref' in equiv ; auto.
+Qed.
+
 Lemma eval_operand_preserves_eval_place : 
-  forall S S' p perm sp op v,
-    S' |-{p} p =>^{perm} sp ->
+  forall S S' p sp op v,
+    S' |-{p} p => sp ->
     S |-{op} op => (v, S') ->
-    S |-{p} p =>^{perm} sp.
+    S |-{p} p => sp.
 Proof.
   intros * eval_p eval_op. inversion eval_op ; subst ; auto.
   apply eval_place_write_bot with (sp' := pi) ; auto.
 Qed.
 
 Lemma eval_rvalue_preserves_eval_place : 
-  forall S S' p perm sp rv v,
-    S' |-{p} p =>^{perm} sp ->
+  forall S S' p sp rv v,
+    S' |-{p} p => sp ->
     S |-{rv} rv => (v, S') ->
-    exists sp', S |-{p} p =>^{perm} sp'.
+    exists sp', S |-{p} p => sp'.
 Proof.
   pose proof eval_operand_preserves_eval_place.
   intros * eval_p eval_rv. inversion eval_rv ; subst ; eauto.
@@ -2570,10 +2688,10 @@ Proof.
 Qed.
 
 Lemma eval_stmt_preserves_eval_place : 
-  forall S S' p perm sp s v,
-    S' |-{p} p =>^{perm} sp ->
+  forall S S' p sp s v,
+    S' |-{p} p => sp ->
     S |-{stmt} s => v, S' ->
-    exists sp', S |-{p} p =>^{perm} sp'.
+    exists sp', S |-{p} p => sp'.
 Proof.
   intros * eval_place eval_stmt. generalize dependent sp.
   induction eval_stmt ; intros * eval_place ; eauto.
@@ -2582,11 +2700,9 @@ Proof.
   - inversion Hstore ; subst.
     eapply eval_rvalue_preserves_eval_place in eval_rv as (sp' & eval_p') ; eauto.
     admit.
-  - apply IHeval_stmt in eval_place as (sp' & eval_place').
-    induction Hreorg ; eauto.
-    * eapply eval_place_reorg ; eauto.
-    * 
-Abort.
+  - destruct (IHeval_stmt _ eval_place) as (sp' & eval_place').
+    apply (eval_place_reorg_star _ _ _ _ Hreorg eval_place').
+Admitted.
 
 Lemma addr_spath_equiv_add_loc :
   forall bo S l addr t sp sp_loc,
@@ -2620,11 +2736,11 @@ Lemma add_loc_welltyped_operand :
 Proof.
   intros * fresh WTO. destruct op ; auto ; simpl in * ; intros * eval_pl.
   - apply eval_place_valid in eval_pl as valid_sp.
-    apply eval_place_write_loc in eval_pl ; auto. specialize (WTO _ _ eval_pl).
+    apply eval_place_write_loc in eval_pl ; auto. specialize (WTO _ eval_pl).
     apply addr_spath_equiv_eval_type in WTO as (addr & equiv).
     eapply addr_spath_equiv_eval_type, ex_intro, addr_spath_equiv_add_loc ; eauto.
   - apply eval_place_valid in eval_pl as valid_sp.
-    apply eval_place_write_loc in eval_pl ; auto. specialize (WTO _ _ eval_pl).
+    apply eval_place_write_loc in eval_pl ; auto. specialize (WTO _ eval_pl).
     apply addr_spath_equiv_eval_type in WTO as (addr & equiv).
     eapply addr_spath_equiv_eval_type, ex_intro, addr_spath_equiv_add_loc ; eauto.
 Qed.
@@ -2636,7 +2752,7 @@ Lemma eval_operand_preserves_welltyped_op :
     WellTypedOperand S' bo op.
 Proof.                    
   intros * eval_op WTO. inversion eval_op ; subst ; auto.
-  destruct op ; simpl in WTO ; auto ; intros ? ? ?.
+  destruct op ; simpl in WTO ; auto ; intros ? ?.
   - apply eval_place_valid in H as Hvp.
     eapply eval_type_write_bot, WTO, eval_place_write_bot ; eauto.
   - apply eval_place_valid in H as Hvp.
@@ -2687,6 +2803,25 @@ Proof.
     repeat split ; auto ; eapply eval_rvalue_preserves_welltyped_op ; eauto.
 Qed.
 
+Lemma reorg_preserves_welltyped_op :
+  forall bo S S' op,
+    reorg S S' ->
+    WellTypedOperand S bo op ->
+    WellTypedOperand S' bo op.
+Proof.
+  intros * reorg WTO. pose proof reorg as reorg'.
+  destruct reorg ; destruct op ; simpl in * ; auto ; intros.
+  - apply eval_type_write_bot.
+    + eapply eval_place_valid ; eauto.
+    + apply eval_place_write_bot in H0. eauto.
+  - apply eval_type_write_bot.
+    + eapply eval_place_valid ; eauto.
+    + apply eval_place_write_bot in H0. eauto.
+  - apply eval_type_remove_loc with (l := l) ; auto.
+    + eapply eval_place_valid ; eauto.
+    + eapply eval_place_reorg in reorg' as (sp' & eval_p') ; eauto. eapply WTO ; eauto.
+Abort.
+
 Lemma eval_stmt_preserves_welltyped_op :
   forall bo S S' v op s,
     S |-{stmt} s => v, S' ->
@@ -2697,7 +2832,7 @@ Proof.
   - inversion Hstore ; subst.
     apply (eval_rvalue_preserves_welltyped_op _ _ _ _ _ _ eval_rv) in WTO.
     admit.
-  - admit.
+  - apply IHeval_stmt.
 Abort.
 
 Lemma eval_stmt_preserves_welltyped_rv :
@@ -2738,9 +2873,9 @@ Proof.
 Abort.
 
 Lemma HLPL_PL_Read :
-  forall blockof addrof S Spl perm p sp v t,
+  forall blockof addrof S Spl p sp v t,
     le_pl_hlpl blockof addrof Spl S ->
-    S |-{p} p =>^{perm} sp ->
+    S |-{p} p => sp ->
     eval_type blockof S sp t ->
     S.[sp] = v ->
     exists vl vl', 
@@ -2748,10 +2883,10 @@ Lemma HLPL_PL_Read :
         concr_hlpl_val addrof v t vl' /\
         le_block vl vl'.
 Proof.
-  intros bo ao S Spl perm p sp v t Hle Hplace Heval_type HS_sp.
-  destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ _ _ _ Hle Hplace Heval_type)
+  intros bo ao S Spl p sp v t Hle Hplace Heval_type HS_sp.
+  destruct (eval_place_hlpl_pl_equiv _ _ _ _ _ _ _ Hle Hplace Heval_type)
     as (addr & Hplace_pl & Hequiv).
-  pose proof (eval_place_valid _ _ _ _ Hplace) as Hvsp.
+  pose proof (eval_place_valid _ _ _ Hplace) as Hvsp.
   destruct Hle as (Spl' & HComp & Hconcr & Henv & Hheap).
   destruct
     (state_concr_implies_val_concr_at_addr bo ao _ _ _ _ _ _ Hconcr Hvsp HS_sp Hequiv)
@@ -2822,15 +2957,15 @@ Proof.
   induction Heval eqn:E.
   - exists [PL_int n], [PL_int n]. simpl in * ; subst.
     repeat split ; try constructor ; auto. constructor.
-  - specialize (HWTO _ _ Heval_place). simpl in * ; subst.
-    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ _ Hle Heval_place HWTO eq_refl)
+  - specialize (HWTO _ Heval_place). simpl in * ; subst.
+    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle Heval_place HWTO eq_refl)
     as (vl & vl' & Hread & Hconcr_val & Hle_val).
     exists vl, vl' ; repeat split ; simpl ; auto.
     * constructor ; auto.
     * by apply (concr_val_equiv_concr_copy_val ao _ _ _ _ Hcopy_val).
   - simpl in Htype ; subst.
-    specialize (HWTO _ _ e).
-    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ _ Hle e HWTO eq_refl)
+    specialize (HWTO _ e).
+    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle e HWTO eq_refl)
     as (vl & vl' & Hread & Hconcr_val & Hle_block).
     exists vl, vl' ; repeat split ; auto.
     * constructor ; auto.
@@ -2987,7 +3122,7 @@ Proof.
     * by apply Concr_ptr_loc.
     * reflexivity.
   - simpl in HWT ; subst.
-    destruct (spath_address_place_simul _ _ _ _ _ _ _ Hle_hlpl Heval_place) as
+    destruct (spath_address_place_simul _ _ _ _ _ _ Hle_hlpl Heval_place) as
       (addr & t & ? & ?).
     exists (fun l0 => if l =? l0 then Some (addr, t) else ao l0),
       [PL_address addr t], [PL_address addr t] ; repeat split.
@@ -3119,7 +3254,7 @@ Proof.
   inversion Hstmt ; subst.
   - inversion Hstore ; subst. simpl in WTS.
     eapply eval_rvalue_preserves_eval_place in eval_p as [sp' eval_p] ; eauto .
-    destruct (WTS (rv_get_type rv) Mut sp' eval_p) as (WTRV & _ & type).
+    destruct (WTS (rv_get_type rv) sp' eval_p) as (WTRV & _ & type).
     eapply Rvalue_Preserves_PL_HLPL_Rel in eval_rv
         as (ao1 & vl & vl' & eval_rv_pl & Hle' & Hconcr & Hle_block) ; eauto.
     simpl fst in *; simpl snd in *.

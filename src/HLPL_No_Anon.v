@@ -241,62 +241,61 @@ Proof.
 Qed.
 
 (* This property represents the application of a projection p (such as a pointer dereference or a
- * field access) on spath pi0, on a state S and given a permission perm.
- * If this projection is successful, then we have eval_proj S perm p pi0 pi1.
+ * field access) on spath pi0, on a state S.
+ * If this projection is successful, then we have eval_proj S p pi0 pi1.
  *)
-Variant eval_proj (S : HLPL_state) perm : proj -> spath -> spath -> Prop :=
+Variant eval_proj (S : HLPL_state) : proj -> spath -> spath -> Prop :=
   (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
   | Eval_Deref_Ptr_Locs q q' l
-      (Hperm : perm <> Mov)
       (get_q : get_node (S.[q]) = ptrC(l)) (get_q' : get_node (S.[q']) = locC(l)) :
-    eval_proj S perm Deref q q'
+    eval_proj S Deref q q'
   (* TODO: add fields *)
   | Eval_Field_First q
       (get_q : get_node (S.[q]) = HLPL_pairC) :
-    eval_proj S perm (Field First) q (q +++ [0])
+    eval_proj S (Field First) q (q +++ [0])
   | Eval_Field_Second q
       (get_q : get_node (S.[q]) = HLPL_pairC) :
-    eval_proj S perm (Field Second) q (q +++ [1])
+    eval_proj S (Field Second) q (q +++ [1])
 .
 
-Variant eval_loc (S : HLPL_state) perm : spath -> spath -> Prop :=
+Variant eval_loc (S : HLPL_state) : spath -> spath -> Prop :=
   (* Coresponds to R-Loc and W-Loc in the article. *)
   | Eval_Loc q l
-      (Hperm : perm <> Mov) (get_q : get_node (S.[q]) = locC(l)) :
-    eval_loc S perm q (q +++ [0])
+      (get_q : get_node (S.[q]) = locC(l)) :
+    eval_loc S q (q +++ [0])
 .
 
-(* Let pi0 be a spath. If by successfully applying the projections in P (with permission perm) we
-   obtain a spath pi1, then we have the proprety eval_path S perm P pi0 pi1. *)
-Inductive eval_path (S : HLPL_state) perm : path -> spath -> spath -> Prop :=
+(* Let pi0 be a spath. If by successfully applying the projections in P we
+   obtain a spath pi1, then we have the proprety eval_path S P pi0 pi1. *)
+Inductive eval_path (S : HLPL_state) : path -> spath -> spath -> Prop :=
 (* Corresponds to R-Base and W-Base in the article. *)
-| Eval_nil pi : eval_path S perm [] pi pi
+| Eval_nil pi : eval_path S [] pi pi
 | Eval_cons proj P p q r
-    (Heval_proj : eval_proj S perm proj p q) (Heval_path : eval_path S perm P q r) :
-    eval_path S perm (proj :: P) p r
+    (Heval_proj : eval_proj S proj p q) (Heval_path : eval_path S P q r) :
+    eval_path S (proj :: P) p r
 | Eval_path_loc P p q r
-    (Heval_loc : eval_loc S perm  p q) (Heval_path_rec : eval_path S perm P q r) :
-    eval_path S perm P p r
+    (Heval_loc : eval_loc S p q) (Heval_path_rec : eval_path S P q r) :
+    eval_path S P p r
 .
 
-Definition eval_place S perm (p : place) pi :=
+Definition eval_place S (p : place) pi :=
   let pi_0 := (encode_var (fst p), []) in
-  valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_var (fst p), []) pi.
+  valid_spath S pi_0 /\ eval_path S (snd p) (encode_var (fst p), []) pi.
 
-Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
+Notation "S  |-{p}  p => pi" := (eval_place S p pi) (at level 50).
 
-Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
+Lemma eval_proj_valid S proj q r (H : eval_proj S proj q r) : valid_spath S r.
 Proof.
   destruct H; validity.
 Qed.
 
-Lemma eval_loc_valid S perm q r (H : eval_loc S perm q r) : valid_spath S r.
+Lemma eval_loc_valid S q r (H : eval_loc S q r) : valid_spath S r.
 Proof.
   destruct H; validity.
 Qed.
 
-Lemma eval_path_valid (s : HLPL_state) P perm q r
-  (valid_q : valid_spath s q) (eval_q_r : eval_path s perm P q r) :
+Lemma eval_path_valid (s : HLPL_state) P q r
+  (valid_q : valid_spath s q) (eval_q_r : eval_path s P q r) :
   valid_spath s r.
 Proof.
   induction eval_q_r.
@@ -305,7 +304,7 @@ Proof.
   - apply IHeval_q_r. destruct Heval_loc. validity.
 Qed.
 
-Lemma eval_place_valid s p perm pi (H : eval_place s perm p pi) : valid_spath s pi.
+Lemma eval_place_valid s p pi (H : eval_place s p pi) : valid_spath s pi.
 Proof. destruct H as (? & ?). eapply eval_path_valid; eassumption. Qed.
 Hint Resolve eval_place_valid : spath.
 
@@ -359,10 +358,10 @@ Variant eval_operand : operand -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop 
   | Eval_IntConst S n :
     S |-{op} INT n => (HLPL_int n, S)
   | Eval_copy S t (p : place) pi v
-      (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
+      (Heval_place : eval_place S p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy t p => (v, S)
   | Eval_move S t (p : place) pi :
-    eval_place S Mov p pi ->
+    eval_place S p pi ->
     not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
     S |-{op} Move t p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
@@ -377,11 +376,11 @@ Variant eval_rvalue : rvalue -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
       (S' |-{op} op_r => (HLPL_int n, S'')) ->
       S |-{rv} (BinOp t op_l op_r) => ((HLPL_int (m + n)), S'')
   | Eval_pointer_loc S t p pi l
-      (Heval_place : S |-{p} p =>^{Mut} pi)
+      (Heval_place : S |-{p} p => pi)
       (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p : t => (ptr(l), S)
   | Eval_pointer_no_loc S t p pi l
       (* TODO *)
-      (Heval_place : S |-{p} p =>^{Mut} pi):
+      (Heval_place : S |-{p} p => pi):
       is_fresh l S ->
       S |-{rv} (&mut p : t) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
   | Eval_pair
@@ -427,7 +426,7 @@ Hint Extern 0 (ptrC( _ ) <> _) => discriminate : spath.
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
 Variant store (p : place) : HLPL_val * HLPL_state -> HLPL_state -> Prop :=
-  | Store v S (sp : spath) (eval_p : S |-{p} p =>^{Mut} sp):
+  | Store v S (sp : spath) (eval_p : S |-{p} p => sp):
     store p (v, S) (S.[sp <- v])
 .
 
