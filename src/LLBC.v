@@ -230,6 +230,7 @@ Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminat
 
 Inductive copy_val : LLBC_val -> LLBC_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (LLBC_int n) (LLBC_int n)
+| Copy_val_bool (b : bool) : copy_val (LLBC_bool b) (LLBC_bool b)
 .
 
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
@@ -260,7 +261,7 @@ Variant eval_binary_op : BinOp -> LLBC_val -> LLBC_val -> LLBC_val -> Prop :=
       eval_binary_op BAdd (LLBC_int m) (LLBC_int n) (LLBC_int (m + n))
   | Eval_le m n :
       eval_binary_op BLe (LLBC_int m) (LLBC_int n) (LLBC_bool (m <=? n))
-        .
+.
 
 Variant eval_rvalue : rvalue -> LLBC_state -> (LLBC_val * LLBC_state) -> Prop :=
   | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'

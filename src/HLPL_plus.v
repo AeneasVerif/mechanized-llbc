@@ -17,6 +17,7 @@ Require Import SimulationUtils.
 Inductive HLPL_plus_val :=
 | HLPL_plus_bot
 | HLPL_plus_int (n : nat) (* TODO: use Aeneas integer types? *)
+| HLPL_plus_bool (b : bool)
 | HLPL_plus_mut_loan (l : loan_id)
 | HLPL_plus_mut_borrow (l : loan_id) (v : HLPL_plus_val)
 (*
@@ -31,6 +32,7 @@ Inductive HLPL_plus_val :=
 Variant HLPL_plus_nodes :=
 | HLPL_plus_botC
 | HLPL_plus_intC (n : nat)
+| HLPL_plus_boolC (b : bool)
 | HLPL_plus_mut_loanC (l : loan_id)
 | HLPL_plus_mut_borrowC (l : loan_id)
 | HLPL_plus_locC (l : loan_id)
@@ -43,6 +45,7 @@ Proof. unfold EqDecision, Decision. repeat decide equality. Qed.
 Definition HLPL_plus_arity c := match c with
 | HLPL_plus_botC => 0
 | HLPL_plus_intC _ => 0
+| HLPL_plus_boolC _ => 0
 | HLPL_plus_mut_loanC _ => 0
 | HLPL_plus_mut_borrowC _ => 1
 | HLPL_plus_locC _ => 1
@@ -52,6 +55,7 @@ end.
 Definition HLPL_plus_get_node v := match v with
 | HLPL_plus_bot => HLPL_plus_botC
 | HLPL_plus_int n => HLPL_plus_intC n
+| HLPL_plus_bool b => HLPL_plus_boolC b
 | HLPL_plus_mut_loan l => HLPL_plus_mut_loanC l
 | HLPL_plus_mut_borrow l _ => HLPL_plus_mut_borrowC l
 | HLPL_plus_loc l _ => HLPL_plus_locC l
@@ -61,6 +65,7 @@ end.
 Definition HLPL_plus_children v := match v with
 | HLPL_plus_bot => []
 | HLPL_plus_int _ => []
+| HLPL_plus_bool _ => []
 | HLPL_plus_mut_loan _ => []
 | HLPL_plus_mut_borrow _ v => [v]
 | HLPL_plus_loc _ v => [v]
@@ -69,6 +74,7 @@ end.
 
 Definition HLPL_plus_fold c vs := match c, vs with
 | HLPL_plus_intC n, [] => HLPL_plus_int n
+| HLPL_plus_boolC b, [] => HLPL_plus_bool b
 | HLPL_plus_mut_loanC l, [] => HLPL_plus_mut_loan l
 | HLPL_plus_mut_borrowC l, [v] => HLPL_plus_mut_borrow l v
 | HLPL_plus_locC l, [v] => HLPL_plus_loc l v
@@ -279,6 +285,12 @@ Notation not_contains_outer_loc := (not_contains_outer is_mut_borrow is_loc).
 
 Notation not_in_borrow := (no_ancestor is_mut_borrow).
 
+Variant is_borrow : HLPL_plus_nodes -> Prop :=
+| IsBorrow_MutBorrow l : is_borrow (borrowC^m(l)).
+Definition not_contains_borrow := not_value_contains is_borrow.
+Hint Unfold not_contains_borrow : spath.
+Hint Extern 0 (~is_borrow _) => intro; easy : spath.
+
 (* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
    This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
 (* Note: Can we remove the automatic rewriting out of this tactic? *)
@@ -365,6 +377,7 @@ Hint Extern 0 (get_loan_id _ <> Some ?l) =>
 
 Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 | Copy_val_int (n : nat) : copy_val (HLPL_plus_int n) (HLPL_plus_int n)
+| Copy_val_bool (b : bool) : copy_val (HLPL_plus_bool b) (HLPL_plus_bool b)
 | Copy_ptr l : copy_val (ptr(l)) (ptr(l))
 | Copy_loc l v w : copy_val v w -> copy_val (loc(l, v)) w.
 
@@ -372,6 +385,7 @@ Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
 | Eval_IntConst S n : S |-{op} Const (IntConst n) => (HLPL_plus_int n, S)
+| Eval_BoolConst S b : S |-{op} Const (BoolConst b) => (HLPL_plus_bool b, S)
 | Eval_copy S (p : place) pi v
     (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy p => (v, S)
@@ -382,13 +396,21 @@ where "S |-{op} op => r" := (eval_operand op S r).
 
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
+Variant eval_binary_op : BinOp -> HLPL_plus_val -> HLPL_plus_val -> HLPL_plus_val -> Prop :=
+  | Eval_add m n :
+      eval_binary_op BAdd (HLPL_plus_int m) (HLPL_plus_int n) (HLPL_plus_int (m + n))
+  | Eval_le m n :
+      eval_binary_op BLe (HLPL_plus_int m) (HLPL_plus_int n) (HLPL_plus_bool (m <=? n))
+.
+
 Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
   | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' op_0 op_1 m n
-      (eval_op_0 : S |-{op} op_0 => (HLPL_plus_int m, S'))
-      (eval_op_1 : S' |-{op} op_1 => (HLPL_plus_int n, S'')) :
-      S |-{rv} (BinaryOp BAdd op_0 op_1) => (HLPL_plus_int (m + n), S'')
+  | Eval_binary_op S S' S'' binop op_0 op_1 v0 v1 w
+      (eval_op_0 : S |-{op} op_0 => (v0, S'))
+      (eval_op_1 : S' |-{op} op_1 => (v1, S''))
+      (Hbinop : eval_binary_op binop v0 v1 w) :
+      S |-{rv} (BinaryOp binop op_0 op_1) => (w, S'')
   | Eval_pointer_loc S p pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
       (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
@@ -443,6 +465,14 @@ Inductive eval_stmt : statement -> statement_result -> HLPL_plus_state -> HLPL_p
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
   | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
       S0 |-{stmt} stmt => r, S2
+  | Eval_if_true S S' S'' cond stmt_if stmt_else r
+      (eval_cond : S |-{op} cond => (HLPL_plus_bool true, S')) :
+      S' |-{stmt} stmt_if => r, S'' ->
+      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) => r, S''
+  | Eval_if_false S S' S'' cond stmt_if stmt_else r
+      (eval_cond : S |-{op} cond => (HLPL_plus_bool false, S')) :
+      S' |-{stmt} stmt_else => r, S'' ->
+      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) => r, S''
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 Inductive leq_base : HLPL_plus_state -> HLPL_plus_state -> Prop :=
@@ -522,6 +552,11 @@ Lemma vweight_int weight n :
   vweight weight (HLPL_plus_int n) = weight (HLPL_plus_intC n).
 Proof. reflexivity. Qed.
 Hint Rewrite vweight_int : weight.
+
+Lemma vweight_bool weight b :
+  vweight weight (HLPL_plus_bool b) = weight (HLPL_plus_boolC b).
+Proof. reflexivity. Qed.
+Hint Rewrite vweight_bool : weight.
 
 Lemma vweight_bot weight : vweight weight bot = weight (botC).
 Proof. reflexivity. Qed.
@@ -737,12 +772,14 @@ Proof.
   induction 1.
   - apply not_value_contains_zeroary; easy.
   - apply not_value_contains_zeroary; easy.
+  - apply not_value_contains_zeroary; easy.
   - eapply not_value_contains_unary; [reflexivity | easy | assumption].
 Qed.
 
 Lemma copy_val_no_mut_borrow v w : copy_val v w -> not_value_contains is_mut_borrow v.
 Proof.
   induction 1.
+  - apply not_value_contains_zeroary; easy.
   - apply not_value_contains_zeroary; easy.
   - apply not_value_contains_zeroary; easy.
   - eapply not_value_contains_unary; [reflexivity | easy | assumption].
@@ -753,7 +790,16 @@ Lemma operand_preserves_HLPL_plus_rel op :
 Proof.
   apply preservation_by_base_case.
   intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
-  (* op = const n *)
+  (* op = IntConst n *)
+  - destruct Hle.
+    + execution_step. { constructor. }
+      leq_step_right.
+      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+        assumption. all: autorewrite with spath; eassumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
+  (* op = BoolConst n *)
   - destruct Hle.
     + execution_step. { constructor. }
       leq_step_right.
@@ -845,6 +891,7 @@ Proof.
   intros eval_copy get_S_p WF. revert p get_S_p.
   induction eval_copy; intros p get_S_p l0; constructor; intros a.
   + specialize (WF l0). destruct WF. split; weight_inequality.
+  + specialize (WF l0). destruct WF. split; weight_inequality.
   + specialize (WF l0). destruct WF. split.
     * weight_inequality.
     * weight_inequality.
@@ -862,48 +909,52 @@ Proof.
   intros eval_op WF. destruct eval_op.
   - constructor. intros ? ?. rewrite well_formedness_equiv in *.
     intros l. specialize (WF l). destruct WF. split; weight_inequality.
+  - constructor. intros ? ?. rewrite well_formedness_equiv in *.
+    intros l. specialize (WF l). destruct WF. split; weight_inequality.
   - eauto using copy_preserves_well_formedness.
   - constructor. intros ? ?. rewrite well_formedness_equiv in *.
     intros l. specialize (WF l). destruct WF.
     split; weight_inequality.
 Qed.
 
-Lemma leq_val_state_integer v n Sl Sr :
-  (leq_val_state_base leq_base)^* (v, Sl) (HLPL_plus_int n, Sr) ->
-  v = HLPL_plus_int n /\ leq_base^* Sl Sr.
+Lemma leq_val_state_constant vl vr Sl Sr
+  (vr_no_loan : not_contains_loan vr) (vr_no_borrow : not_contains_borrow vr) :
+  (leq_val_state_base leq_base)^* (vl, Sl) (vr, Sr) ->
+  vl = vr /\ leq_base^* Sl Sr.
 Proof.
   intros H.
-  remember (v, Sl) as vSl eqn:EQN_l. remember (HLPL_plus_int n, Sr) as vSr eqn:EQN_r.
-  revert v n Sl Sr EQN_l EQN_r.
-  induction H as [? ? H | | ]; intros v n Sl Sr EQN_l EQN_r; subst.
+  remember (vl, Sl) as vSl eqn:EQN_l. remember (vr, Sr) as vSr eqn:EQN_r.
+  revert vl vr vr_no_loan vr_no_borrow Sl Sr EQN_l EQN_r.
+  induction H as [? ? H | | ? (vm & Sm) ? ? IHl ? IHr];
+    intros vl vr no_loan no_borrow Sl Sr EQN_l EQN_r; subst.
   - destruct (exists_fresh_anon2 Sl Sr) as (a & fresh_a_l & fresh_a_r).
     specialize (H a fresh_a_l fresh_a_r). rewrite !fst_pair, !snd_pair in H.
-    remember (Sl,, a |-> v) eqn:EQN. remember (Sr,, a |-> HLPL_plus_int n).
+    remember (Sl,, a |-> vl) eqn:EQN. remember (Sr,, a |-> vr).
     destruct H; subst.
-    + assert (fst sp_borrow <> anon_accessor a). (* TODO: separate lemma. *)
+    + assert (fst sp_borrow <> anon_accessor a).
       { intros ?. autorewrite with spath in HS_borrow.
-        replace (snd sp_borrow) with ([] : vpath) in *.
-        - discriminate.
-        - symmetry. eapply valid_vpath_zeroary;
-            [ | apply valid_get_node_vget_not_bot; rewrite HS_borrow; discriminate].
-          reflexivity. }
-      assert (fst sp_loan <> anon_accessor a). (* TODO: separate lemma. *)
+        eapply no_borrow; [ | now rewrite HS_borrow]. validity. }
+      assert (fst sp_loan <> anon_accessor a).
       { intros ?. autorewrite with spath in HS_loan.
-        replace (snd sp_loan) with ([] : vpath) in *.
-        - discriminate.
-        - symmetry. eapply valid_vpath_zeroary;
-            [ | apply valid_get_node_vget_not_bot; rewrite HS_loan; discriminate].
-          reflexivity. }
+        eapply no_loan; [ | now rewrite HS_loan]. validity. }
       autorewrite with spath in * |-.
       apply states_add_anon_eq in EQN; auto with spath. destruct EQN as (<- & ?).
       split; [congruence | ]. constructor. constructor; assumption.
   - inversion EQN_r. subst. split; reflexivity.
-  - (* TODO: name variables. *)
-    destruct y.
-    edestruct IHclos_refl_trans2. reflexivity. reflexivity. subst.
-    edestruct IHclos_refl_trans1. reflexivity. reflexivity. subst.
+  - edestruct IHr; [eassumption | eassumption | reflexivity | reflexivity | ]. subst.
+    edestruct IHl; [eassumption | eassumption | reflexivity | reflexivity | ]. subst.
     split; [reflexivity | ]. etransitivity; eassumption.
 Qed.
+
+Corollary leq_val_state_integer vl n Sl Sr :
+  (leq_val_state_base leq_base)^* (vl, Sl) (HLPL_plus_int n, Sr) ->
+  vl = HLPL_plus_int n /\ leq_base^* Sl Sr.
+Proof. apply leq_val_state_constant; autounfold with spath; not_contains. Qed.
+
+Corollary leq_val_state_bool vl b Sl Sr :
+  (leq_val_state_base leq_base)^* (vl, Sl) (HLPL_plus_bool b, Sr) ->
+  vl = HLPL_plus_bool b /\ leq_base^* Sl Sr.
+Proof. apply leq_val_state_constant; autounfold with spath; not_contains. Qed.
 
 Lemma leq_base_implies_leq_val_state_base Sl Sr v :
   leq_base^* Sl Sr -> (leq_val_state_base leq_base)^* (v, Sl) (v, Sr).
@@ -926,14 +977,22 @@ Proof.
   - apply operand_preserves_HLPL_plus_rel in Heval_op. intros ? ?%rt_step.
     firstorder using Eval_just.
 
-  (* rv = op + op *)
   - intros Sl Hle. apply operand_preserves_HLPL_plus_rel in eval_op_0, eval_op_1.
-    edestruct eval_op_0 as ((v0l & S'l) & leq_S'l_S' & H); [constructor; eassumption | ].
-    apply leq_val_state_integer in leq_S'l_S'. destruct leq_S'l_S' as (-> & leq_S'l_S').
-    edestruct eval_op_1 as ((v1l & S''l) & leq_S''l_S'' & ?); [exact leq_S'l_S' | ].
-    apply leq_val_state_integer in leq_S''l_S''. destruct leq_S''l_S'' as (-> & leq_S''l_S'').
-    execution_step. { econstructor; eassumption. }
-    apply leq_base_implies_leq_val_state_base. assumption.
+    destruct Hbinop.
+    (* rv = op + op *)
+    + edestruct eval_op_0 as ((v0l & S'l) & leq_S'l_S' & H); [constructor; eassumption | ].
+      apply leq_val_state_integer in leq_S'l_S'. destruct leq_S'l_S' as (-> & leq_S'l_S').
+      edestruct eval_op_1 as ((v1l & S''l) & leq_S''l_S'' & ?); [exact leq_S'l_S' | ].
+      apply leq_val_state_integer in leq_S''l_S''. destruct leq_S''l_S'' as (-> & leq_S''l_S'').
+      execution_step. { econstructor; [eassumption.. | constructor]. }
+      apply leq_base_implies_leq_val_state_base. assumption.
+    (* rv = op <= op *)
+    + edestruct eval_op_0 as ((v0l & S'l) & leq_S'l_S' & H); [constructor; eassumption | ].
+      apply leq_val_state_integer in leq_S'l_S'. destruct leq_S'l_S' as (-> & leq_S'l_S').
+      edestruct eval_op_1 as ((v1l & S''l) & leq_S''l_S'' & ?); [exact leq_S'l_S' | ].
+      apply leq_val_state_integer in leq_S''l_S''. destruct leq_S''l_S'' as (-> & leq_S''l_S'').
+      execution_step. { econstructor; [eassumption.. | constructor]. }
+      apply leq_base_implies_leq_val_state_base. assumption.
 
   (* rv = &mut p *)
   (* The place p evaluates to a spath under a loc. *)
@@ -1008,6 +1067,7 @@ Lemma eval_operand_no_loc op S vS : S |-{op} op => vS -> not_contains_loc (fst v
 Proof.
   intros eval_op. unfold not_contains_loc. destruct eval_op.
   - not_contains.
+  - not_contains.
   - clear Heval_place. cbn. induction Hcopy_val; not_contains.
   - not_contains.
 Qed.
@@ -1029,7 +1089,8 @@ Proof.
   - apply operand_preserves_well_formedness' in eval_op_0; [ | assumption].
     apply operand_preserves_well_formedness' in eval_op_1; [ | assumption].
     constructor. intros ? ?. rewrite well_formedness_equiv in *.
-    intros l0. specialize (eval_op_1 l0). destruct eval_op_1. split; weight_inequality.
+    intros l0. specialize (eval_op_1 l0). destruct eval_op_1.
+    destruct Hbinop; split; weight_inequality.
   - apply eval_place_valid in Heval_place.
     apply weight_sget_node_le with (weight := indicator (locC(l))) in Heval_place.
     rewrite Hloc, indicator_same in Heval_place.
@@ -1056,7 +1117,7 @@ Hint Extern 0 (not_value_contains _ _) => not_contains0 : spath.
 Lemma eval_rvalue_no_loan_loc S rv vS' : S |-{rv} rv => vS' ->
   not_contains_loan (fst vS') /\ not_contains_loc (fst vS').
 Proof.
-  intro H. destruct H; [destruct Heval_op | ..].
+  intro H. destruct H; [destruct Heval_op | destruct Hbinop | ..].
   all: auto with spath.
   induction Hcopy_val; auto with spath.
 Qed.
@@ -1520,6 +1581,8 @@ Proof.
     apply eval_rvalue_no_loan_loc in eval_rv. destruct eval_rv as (_ & ?).
     eauto using store_preserves_well_formedness.
   - intros. apply IHeval_s. eauto using reorgs_preserve_well_formedness.
+  - intros. apply IHeval_s. eapply operand_preserves_well_formedness'; eassumption.
+  - intros. apply IHeval_s. eapply operand_preserves_well_formedness'; eassumption.
 Qed.
 
 Lemma stmt_preserves_HLPL_plus_rel s r :
@@ -1549,4 +1612,16 @@ Proof.
     edestruct IHHeval as (Sl2 & leq_Sl2 & eval_in_Sl2); [ assumption | eassumption | ].
     exists Sl2. split; [assumption | ].
     apply Eval_reorg with (S1 := Sl1); assumption.
+  - assert (well_formed S') by eauto using operand_preserves_well_formedness'.
+    apply operand_preserves_HLPL_plus_rel in eval_cond.
+    edestruct eval_cond as ((vl & S'l) & Hleq' & eval_cond_l); [eassumption | ].
+    apply leq_val_state_bool in Hleq'. destruct Hleq' as (-> & Hleq').
+    edestruct IHHeval as (S''l & ? & ?); [eassumption.. | ].
+    exists S''l. split; [eassumption | ]. eapply Eval_if_true; eassumption.
+  - assert (well_formed S') by eauto using operand_preserves_well_formedness'.
+    apply operand_preserves_HLPL_plus_rel in eval_cond.
+    edestruct eval_cond as ((vl & S'l) & Hleq' & eval_cond_l); [eassumption | ].
+    apply leq_val_state_bool in Hleq'. destruct Hleq' as (-> & Hleq').
+    edestruct IHHeval as (S''l & ? & ?); [eassumption.. | ].
+    exists S''l. split; [eassumption | ]. eapply Eval_if_false; eassumption.
 Qed.
