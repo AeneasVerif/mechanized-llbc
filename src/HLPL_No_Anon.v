@@ -244,10 +244,9 @@ Qed.
  * field access) on spath pi0, on a state S and given a permission perm.
  * If this projection is successful, then we have eval_proj S perm p pi0 pi1.
  *)
-Variant eval_proj (S : HLPL_state) perm : proj -> spath -> spath -> Prop :=
+Variant eval_proj (S : HLPL_state) (perm : permission) : proj -> spath -> spath -> Prop :=
   (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
   | Eval_Deref_Ptr_Locs q q' l
-      (Hperm : perm <> Mov)
       (get_q : get_node (S.[q]) = ptrC(l)) (get_q' : get_node (S.[q']) = locC(l)) :
     eval_proj S perm Deref q q'
   (* TODO: add fields *)
@@ -259,10 +258,10 @@ Variant eval_proj (S : HLPL_state) perm : proj -> spath -> spath -> Prop :=
     eval_proj S perm (Field Second) q (q +++ [1])
 .
 
-Variant eval_loc (S : HLPL_state) perm : spath -> spath -> Prop :=
+Variant eval_loc (S : HLPL_state) (perm : permission) : spath -> spath -> Prop :=
   (* Coresponds to R-Loc and W-Loc in the article. *)
   | Eval_Loc q l
-      (Hperm : perm <> Mov) (get_q : get_node (S.[q]) = locC(l)) :
+      (get_q : get_node (S.[q]) = locC(l)) :
     eval_loc S perm q (q +++ [0])
 .
 
