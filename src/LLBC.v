@@ -14,6 +14,7 @@ From Stdlib Require Bool.
 Inductive LLBC_val :=
 | LLBC_bot
 | LLBC_int (n : nat) (* TODO: use Aeneas integer types? *)
+| LLBC_bool (b : bool)
 | LLBC_mut_loan (l : loan_id)
 | LLBC_mut_borrow (l : loan_id) (v : LLBC_val)
 (*
@@ -26,6 +27,7 @@ Inductive LLBC_val :=
 Variant LLBC_nodes :=
 | LLBC_botC
 | LLBC_intC (n : nat)
+| LLBC_boolC (b : bool)
 | LLBC_mut_loanC (l : loan_id)
 | LLBC_mut_borrowC (l : loan_id)
 .
@@ -36,6 +38,7 @@ Proof. unfold RelDecision, Decision. repeat decide equality. Defined.
 Definition LLBC_arity c := match c with
 | LLBC_botC => 0
 | LLBC_intC _ => 0
+| LLBC_boolC _ => 0
 | LLBC_mut_loanC _ => 0
 | LLBC_mut_borrowC _ => 1
 end.
@@ -43,6 +46,7 @@ end.
 Definition LLBC_get_node v := match v with
 | LLBC_bot => LLBC_botC
 | LLBC_int n => LLBC_intC n
+| LLBC_bool b => LLBC_boolC b
 | LLBC_mut_loan l => LLBC_mut_loanC l
 | LLBC_mut_borrow l _ => LLBC_mut_borrowC l
 end.
@@ -50,12 +54,14 @@ end.
 Definition LLBC_children v := match v with
 | LLBC_bot => []
 | LLBC_int _ => []
+| LLBC_bool _ => []
 | LLBC_mut_loan _ => []
 | LLBC_mut_borrow _ v => [v]
 end.
 
 Definition LLBC_fold c vs := match c, vs with
 | LLBC_intC n, [] => LLBC_int n
+| LLBC_boolC b, [] => LLBC_bool b
 | LLBC_mut_loanC l, [] => LLBC_mut_loan l
 | LLBC_mut_borrowC l, [v] => LLBC_mut_borrow l v
 | _, _ => LLBC_bot
@@ -229,7 +235,8 @@ Inductive copy_val : LLBC_val -> LLBC_val -> Prop :=
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> LLBC_state -> (LLBC_val * LLBC_state) -> Prop :=
-| Eval_IntConst S n : S |-{op} IntConst n => (LLBC_int n, S)
+| Eval_IntConst S n : S |-{op} Const (IntConst n) => (LLBC_int n, S)
+| Eval_BoolConst S n : S |-{op} Const (IntConst n) => (LLBC_int n, S)
 | Eval_copy S (p : place) pi v
     (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy p => (v, S)
@@ -248,13 +255,21 @@ Definition get_loan_id c :=
 Notation is_fresh l S := (not_state_contains (fun c => get_loan_id c = Some l) S).
 Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
+Variant eval_binary_op : BinOp -> LLBC_val -> LLBC_val -> LLBC_val -> Prop :=
+  | Eval_add m n :
+      eval_binary_op BAdd (LLBC_int m) (LLBC_int n) (LLBC_int (m + n))
+  | Eval_le m n :
+      eval_binary_op BLe (LLBC_int m) (LLBC_int n) (LLBC_bool (m <=? n))
+        .
+
 Variant eval_rvalue : rvalue -> LLBC_state -> (LLBC_val * LLBC_state) -> Prop :=
   | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' op_l op_r m n :
-      (S |-{op} op_l => (LLBC_int m, S')) ->
-      (S' |-{op} op_r => (LLBC_int n, S'')) ->
-      S |-{rv} (BinOp op_l op_r) => ((LLBC_int (m + n)), S'')
+  | Eval_binary_op S S' S'' binop op_l op_r vl vr w :
+      (S |-{op} op_l => (vl, S')) ->
+      (S' |-{op} op_r => (vr, S'')) ->
+      eval_binary_op binop vl vr w ->
+      S |-{rv} (BinaryOp binop op_l op_r) => (w, S'')
   | Eval_mut_borrow S p pi l : S |-{p} p =>^{Mut} pi ->
       not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) -> is_fresh l S ->
       S |-{rv} (&mut p) => (borrow^m(l, S.[pi]), S.[pi <- loan^m(l)])
@@ -284,14 +299,24 @@ Variant store (p : place) : LLBC_val * LLBC_state -> LLBC_state -> Prop :=
    LLBC_state -> statement -> nat -> Option (statement_result * LLBC_state) -> Prop
 *)
 Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
+
 Inductive eval_stmt : statement -> statement_result -> LLBC_state -> LLBC_state -> Prop :=
   | Eval_nop S : S |-{stmt} Nop => rUnit, S
+  | Eval_panic S : S |-{stmt} Panic => rPanic, S
   | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
       (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
   | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
   | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
+  | Eval_if_true S S' S'' cond stmt_if stmt_else r
+      (eval_cond : S |-{op} cond => (LLBC_bool true, S')) :
+      S' |-{stmt} stmt_if => r, S'' ->
+      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) => r, S''
+  | Eval_if_false S S' S'' cond stmt_if stmt_else r
+      (eval_cond : S |-{op} cond => (LLBC_bool false, S')) :
+      S' |-{stmt} stmt_else => r, S'' ->
+      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) => r, S''
   | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
@@ -313,12 +338,12 @@ Notation b := 2%positive.
 Notation c := 3%positive.
 Notation d := 4%positive.
 Definition main : statement :=
-  ASSIGN (a, []) <- Just (IntConst 1983) ;;
-  ASSIGN (b, []) <- Just (IntConst 1986) ;;
+  ASSIGN (a, []) <- Just (Const (IntConst 1983)) ;;
+  ASSIGN (b, []) <- Just (Const (IntConst 1986)) ;;
   ASSIGN (c, []) <- &mut (a, []) ;;
   ASSIGN (d, []) <- &mut (c, [Deref]) ;;
   ASSIGN (c, []) <- &mut (b, []) ;;
-  ASSIGN (d, [Deref]) <- Just (IntConst 58) ;;
+  ASSIGN (d, [Deref]) <- Just (Const (IntConst 58)) ;;
   Nop
 .
 (* Important note: the line `c = &mut b` overwrites a loan, but as it is an outer loan, it doesn't
@@ -411,21 +436,22 @@ Section Eval_LLBC_program.
       { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
         - apply Eval_just, Eval_IntConst.
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | apply Store with (a := 2%positive)].
         - apply Eval_just, Eval_IntConst.
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | eapply Store with (a := 3%positive)].
-        - apply Eval_mut_borrow with (l := 1%positive); [eval_var; constructor | compute_done..].
+        - apply Eval_mut_borrow with (l := 1%positive);
+            [eval_var; constructor | compute_done..].
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
@@ -436,21 +462,21 @@ Section Eval_LLBC_program.
           + compute_done.
           + compute_done.
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | eapply Store with (a := 5%positive)].
         - apply Eval_mut_borrow with (l := 3%positive); [eval_var; constructor | compute_done..].
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_seq_unit.
       { eapply Eval_assign; [ | eapply Store with (a := 6%positive)].
         - apply Eval_just, Eval_IntConst.
         - eval_var. repeat econstructor || easy.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
       simpl_state. eapply Eval_reorg.
@@ -474,6 +500,6 @@ Section Eval_LLBC_program.
     }
     eexists. split.
     - eval_var. constructor.
-    - cbn. reflexivity.
+    - vm_compute. reflexivity.
   Qed.
 End Eval_LLBC_program.

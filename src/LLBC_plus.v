@@ -3452,7 +3452,7 @@ Inductive copy_val : LLBC_plus_val -> LLBC_plus_val -> Prop :=
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_state) -> Prop :=
-| Eval_IntConst S n : S |-{op} IntConst n => (LLBC_plus_int n, S)
+| Eval_IntConst S n : S |-{op} Const (IntConst n) => (LLBC_plus_int n, S)
 | Eval_copy S (p : place) pi v
     (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy p => (v, S)
@@ -3476,7 +3476,7 @@ Variant eval_rvalue : rvalue -> LLBC_plus_state -> (LLBC_plus_val * LLBC_plus_st
   | Eval_bin_op S S' S'' op_0 op_1 v0 v1 w
       (eval_op_0 : S |-{op} op_0 => (v0, S')) (eval_op_1 : S' |-{op} op_1 => (v1, S''))
       (sum_m_n : LLBC_plus_sum v0 v1 w) :
-      S |-{rv} (BinOp op_0 op_1) => (w, S'')
+      S |-{rv} (BinaryOp BAdd op_0 op_1) => (w, S'')
   | Eval_mut_borrow S p pi l (eval_p : S |-{p} p =>^{Mut} pi)
       (borrow_no_loan : not_contains_loan (S.[pi]))
       (borrow_no_bot : not_contains_bot (S.[pi]))
@@ -7006,8 +7006,8 @@ Definition else_branch : statement :=
   ASSIGN (z, []) <- &mut (y, []).
 
 Definition end_main : statement :=
-  ASSIGN (z, [Deref]) <- BinOp (Copy (z, [Deref])) (IntConst 1);;
-  ASSIGN (x, []) <- BinOp (Copy (x, [])) (IntConst 2)
+  ASSIGN (z, [Deref]) <- BinaryOp BAdd (Copy (z, [Deref])) (Const (IntConst 1));;
+  ASSIGN (x, []) <- BinaryOp BAdd (Copy (x, [])) (Const (IntConst 2))
 .
 (* Important note: the line `c = &mut b` overwrites a loan, but as it is an outer loan, it doesn't
  * cause any problem. This is a check that the overwriting of outer loans is supported. *)

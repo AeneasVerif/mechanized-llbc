@@ -371,7 +371,7 @@ Inductive copy_val : HLPL_plus_val -> HLPL_plus_val -> Prop :=
 Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_state) -> Prop :=
-| Eval_IntConst S n : S |-{op} IntConst n => (HLPL_plus_int n, S)
+| Eval_IntConst S n : S |-{op} Const (IntConst n) => (HLPL_plus_int n, S)
 | Eval_copy S (p : place) pi v
     (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy p => (v, S)
@@ -388,7 +388,7 @@ Variant eval_rvalue : rvalue -> HLPL_plus_state -> (HLPL_plus_val * HLPL_plus_st
   | Eval_bin_op S S' S'' op_0 op_1 m n
       (eval_op_0 : S |-{op} op_0 => (HLPL_plus_int m, S'))
       (eval_op_1 : S' |-{op} op_1 => (HLPL_plus_int n, S'')) :
-      S |-{rv} (BinOp op_0 op_1) => (HLPL_plus_int (m + n), S'')
+      S |-{rv} (BinaryOp BAdd op_0 op_1) => (HLPL_plus_int (m + n), S'')
   | Eval_pointer_loc S p pi l
       (Heval_place : S |-{p} p =>^{Mut} pi)
       (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
