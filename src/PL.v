@@ -2072,8 +2072,22 @@ Definition rv_get_type rv :=
   | Pair t _ _ => t
   end.
 
+Fixpoint check_type_val v t :=
+  match v, t with
+  | HLPL_bot, _ => true
+  | HLPL_int _, TInt => true
+  | HLPL_loc _ v, t => check_type_val v t
+  | HLPL_ptr _, TRef => true
+  | HLPL_pair v0 v1, TPair t0 t1 => check_type_val v0 t0 && check_type_val v1 t1
+  | _, _ => false
+  end.
+
 Definition WellTypedState S bo :=
   forall sp, valid_spath S sp -> exists t, eval_type bo S sp t.
+
+Definition WellTypedState' (S : HLPL_state) (bo : positive -> block_id * type) :=
+  forall enc_x, valid_spath S (enc_x, []) ->
+           check_type_val (S.[(enc_x, [])]) ((bo enc_x).2).
 
 Definition WellTypedOperand S bo op :=
   match op with
@@ -2661,8 +2675,8 @@ Proof.
     eapply eval_rvalue_preserves_eval_place in eval_rv as (sp' & eval_p') ; eauto.
     admit.
   - destruct (IHeval_stmt _ eval_place) as (sp' & eval_place').
-    assert (Mut <> Mov) by discriminate.
-    apply (eval_place_reorg_star _ _ _ _ _ H Hreorg eval_place').
+    assert (neq : Mut <> Mov) by discriminate.
+    apply (eval_place_reorg_star _ _ _ _ _ neq Hreorg eval_place').
 Admitted.
 
 Lemma addr_spath_equiv_add_loc :
@@ -2764,6 +2778,15 @@ Proof.
     repeat split ; auto ; eapply eval_rvalue_preserves_welltyped_op ; eauto.
 Qed.
 
+Lemma reorg_preserves_welltyped_op :
+  forall bo S S' op,
+    reorg S S' ->
+    WellTypedOperand S bo op ->
+    WellTypedOperand S' bo op.
+Proof.
+  intros * reorg WTO. destruct op ; simpl in * ; auto.
+  - intros * eval_p.
+
 Lemma eval_stmt_preserves_welltyped_op :
   forall bo S S' v op s,
     S |-{stmt} s => v, S' ->
@@ -2774,7 +2797,7 @@ Proof.
   - inversion Hstore ; subst.
     apply (eval_rvalue_preserves_welltyped_op _ _ _ _ _ _ eval_rv) in WTO.
     admit.
-  - admit.
+  - apply IHeval_stmt.
 Abort.
 
 Lemma eval_stmt_preserves_welltyped_rv :
