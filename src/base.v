@@ -230,10 +230,6 @@ Proof.
     assert (2 + x <= 1) by auto. lia.
 Qed.
 
-(* TODO: delete *)
-Lemma sum_app l0 l1 : sum (l0 ++ l1) = sum l0 + sum l1.
-Proof. unfold sum. induction l0; cbn in *; lia. Qed.
-
 Section Map_sum.
   Context {K : Type}.
   Context {M : Type -> Type}.
@@ -1390,3 +1386,9 @@ Proof.
   - rewrite lookup_kmap_None in EQN by typeclasses eauto. rewrite lookup_kmap_None by assumption.
     intros b ->. rewrite lookup_kmap_None by assumption. intros a ->. apply EQN. reflexivity.
 Qed.
+
+Lemma prove_rel A B (R : A -> B -> Prop) x y z : R x y -> y = z -> R x z.
+Proof. congruence. Qed.
+
+Lemma prove_rel_n A B (R : nat -> A -> B -> Prop) x y z m n : R m x y -> m = n -> y = z -> R n x z.
+Proof. congruence. Qed.

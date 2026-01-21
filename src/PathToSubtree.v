@@ -1357,6 +1357,10 @@ Section GetSetPath.
       intros ?%vstrict_prefix_is_vprefix. auto.
   Qed.
 
+  Lemma not_value_contains_vget P v p :
+    not_value_contains P v -> valid_vpath v p -> not_value_contains P (v.[[p]]).
+  Proof. intros G ? q valid_q. rewrite <-vget_app. apply G, valid_vpath_app. auto. Qed.
+
   (* TODO: name *)
   Lemma not_value_contains_vset_rev P v w p :
     not_value_contains P (v.[[p]]) -> not_value_contains P (v.[[p <- w]]) ->
