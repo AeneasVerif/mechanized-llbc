@@ -2533,7 +2533,7 @@ Proof.
   easy.
 Qed.
 
-Lemma eval_path_reorg_end_loc :
+Lemma eval_path_end_loc :
   forall S l P p q r,
     get_node (S.[r]) = locC (l) ->
     not_state_contains (eq ptrC (l)) S ->
@@ -2575,6 +2575,25 @@ Proof.
       apply Eval_Loc with (l := l0) ; auto.
 Qed.
 
+Lemma eval_place_end_loc :
+  forall S l p r sp,
+    get_node (S.[r]) = locC (l) ->
+    not_state_contains (eq ptrC (l)) S ->
+    (S.[r <- S.[r +++ [ 0 ] ] ]) |-{p} p => sp ->
+    S |-{p} p => (add_loc_spath r sp).
+Proof.
+  intros * node not_contains eval_p. inversion eval_p.
+  apply sset_not_prefix_valid in H ; try (apply not_strict_prefix_nil).
+  constructor ; auto. remember (encode_var p.1, []) as q.
+    destruct (decide (q = r)).
+    + subst q. rewrite e in *. apply Eval_path_loc with (q := (r +++ [0])).
+      * apply Eval_Loc with (l := l) ; auto.
+      * rewrite <- add_loc_spath_eq. apply eval_path_end_loc with (l := l) ; auto.
+    + rewrite <- (not_prefix_add_loc_spath r q) ; subst.
+      * apply eval_path_end_loc with (l := l) ; auto.
+      * apply prove_not_prefix ; auto. apply not_strict_prefix_nil.
+Qed.
+
 Lemma eval_place_reorg :
   forall S1 S2 p sp,
     reorg S1 S2 ->
@@ -2584,15 +2603,7 @@ Proof.
   intros * reorg eval_place. induction reorg.
   - exists sp. apply eval_place_write_bot with (sp' := p0) ; auto.
   - exists (add_loc_spath p0 sp). inversion eval_place ; subst.
-    apply sset_not_prefix_valid in H1 ; try (apply not_strict_prefix_nil).
-    constructor ; auto. remember (encode_var p.1, []) as q.
-    destruct (decide (q = p0)).
-    + subst q. rewrite e in *. apply Eval_path_loc with (q := (p0 +++ [0])).
-      * apply Eval_Loc with (l := l) ; auto.
-      * rewrite <- add_loc_spath_eq. apply eval_path_reorg_end_loc with (l := l) ; auto.
-    + rewrite <- (not_prefix_add_loc_spath p0 q) ; subst.
-      * apply eval_path_reorg_end_loc with (l := l) ; auto.
-      * apply prove_not_prefix ; auto. apply not_strict_prefix_nil.
+    apply eval_place_end_loc with (l := l) ; auto.
 Qed.
 
 Lemma eval_place_reorg_star :
@@ -2719,7 +2730,7 @@ Proof.
     admit.
   - destruct (IHeval_stmt _ eval_place) as (sp' & eval_place').
     apply (eval_place_reorg_star _ _ _ _ Hreorg eval_place').
-Admitted.
+Abort.
 
 Lemma addr_spath_equiv_add_loc :
   forall bo S l addr t sp sp_loc,
@@ -2837,7 +2848,88 @@ Proof.
   - apply eval_type_remove_loc with (l := l) ; auto.
     + eapply eval_place_valid ; eauto.
     + eapply eval_place_reorg in reorg' as (sp' & eval_p') ; eauto. eapply WTO ; eauto.
-Abort.
+      apply eval_place_end_loc with (l := l) ; auto.
+  - apply eval_type_remove_loc with (l := l) ; auto.
+    + eapply eval_place_valid ; eauto.
+    + eapply eval_place_reorg in reorg' as (sp' & eval_p') ; eauto. eapply WTO ; eauto.
+      apply eval_place_end_loc with (l := l) ; auto.
+Qed.
+
+Lemma reorg_preserves_welltyped_rv :
+  forall bo S S' rv ,
+    reorg S S' ->
+    WellTypedRValue S bo rv ->
+    WellTypedRValue S' bo rv.
+Proof.
+  intros * reorg WTRV. pose proof reorg as reorg'.
+  destruct reorg ; destruct rv ; simpl in * ; auto ; intros.
+  - destruct WTRV as (WTO & type). split ; auto.
+    apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct WTRV as (WTO_l & WTO_r & type_l & type_r & type). repeat split ; auto ;
+      apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r & type).
+    repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct WTRV as (WTO & type). split ; auto.
+    apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct WTRV as (WTO_l & WTO_r & type_l & type_r & type). repeat split ; auto ;
+      apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r & type).
+    repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
+Qed.
+
+Lemma reorg_preserves_welltyped_stmt :
+  forall bo S S' stmt,
+    reorg S S' ->
+    WellTypedStmt S bo stmt ->
+    WellTypedStmt S' bo stmt.
+Proof.
+  intros * reorg WTS. pose proof reorg as reorg'.
+  induction stmt ; simpl in * ; auto ; intros.
+  - destruct reorg.
+    + apply eval_place_valid in H as vsp.
+      apply eval_place_write_bot in H.
+      destruct (WTS t _ H) as (? & ? & ?) ; auto.
+      repeat split ; auto.
+      * apply reorg_preserves_welltyped_rv with (S := S) ; auto.
+      * apply eval_type_write_bot ; auto.
+    + apply eval_place_valid in H as vsp.
+      apply eval_place_end_loc with (l := l) in H ; auto.
+      destruct (WTS t _ H) as (? & ? & ?) ; auto. repeat split ; auto.
+      * apply reorg_preserves_welltyped_rv with (S := S) ; auto.
+      * apply eval_type_remove_loc with (l := l) ; auto.
+  - destruct WTS as (WTS1 & WTS2).
+    split ; auto.
+Qed.
+
+Lemma reorg_star_preserves_welltyped_op :
+  forall bo S S' op,
+    clos_refl_trans reorg S S' ->
+    WellTypedOperand S bo op ->
+    WellTypedOperand S' bo op.
+Proof.
+  intros * reorg WTO. induction reorg ; auto.
+  apply reorg_preserves_welltyped_op with (S := x) ; auto.
+Qed.
+
+Lemma reorg_star_preserves_welltyped_rv :
+  forall bo S S' rv ,
+    clos_refl_trans reorg S S' ->
+    WellTypedRValue S bo rv ->
+    WellTypedRValue S' bo rv.
+Proof.
+  intros * reorg WTRV. induction reorg ; auto.
+  apply reorg_preserves_welltyped_rv with (S := x) ; auto.
+Qed.
+
+Lemma reorg_star_preserves_welltyped_stmt :
+  forall bo S S' stmt,
+    clos_refl_trans reorg S S' ->
+    WellTypedStmt S bo stmt ->
+    WellTypedStmt S' bo stmt.
+Proof.
+  intros * reorg WTRV. induction reorg ; auto.
+  apply reorg_preserves_welltyped_stmt with (S := x) ; auto.
+Qed.
 
 Lemma eval_stmt_preserves_welltyped_op :
   forall bo S S' v op s,
@@ -2849,7 +2941,7 @@ Proof.
   - inversion Hstore ; subst.
     apply (eval_rvalue_preserves_welltyped_op _ _ _ _ _ _ eval_rv) in WTO.
     admit.
-  - apply IHeval_stmt.
+  - apply IHeval_stmt, reorg_star_preserves_welltyped_op with (S := S0) ; auto.
 Abort.
 
 Lemma eval_stmt_preserves_welltyped_rv :
@@ -2858,6 +2950,10 @@ Lemma eval_stmt_preserves_welltyped_rv :
     WellTypedRValue S bo rv ->
     WellTypedRValue S' bo rv.
 Proof.
+  intros * eval_stmt WTRV. induction eval_stmt ; auto. destruct vS'.
+  - apply (eval_rvalue_preserves_welltyped_rv _ _ _ _ _ _ eval_rv) in WTRV.
+    admit.
+  - apply IHeval_stmt.
 Abort.
 
 Lemma eval_stmt_preserves_welltyped_stmt :
@@ -2869,24 +2965,6 @@ Proof.
   intros * eval_stmt WTO. induction s ; auto ; simpl in *.
   - intros * eval_p. admit.
   - destruct WTO as (WTO1%IHs1 & WTO2%IHs2). split ; auto.
-Abort.
-
-Lemma eval_operand_preserves_welltyped_operand :
-  forall bo S S' p rv v,
-    WellTypedStmt S bo (ASSIGN p <- rv) ->
-    S |-{rv} rv => (v, S') ->
-    WellTypedRValue S' bo rv.
-Proof.
-Abort.
-
-Lemma eval_rvalue_preserves_welltyped_rvalue :
-  forall bo S S' p rv v,
-    WellTypedStmt S bo (ASSIGN p <- rv) ->
-    S |-{rv} rv => (v, S') ->
-    WellTypedRValue S' bo rv.
-Proof.
-  intros * HWT eval_rv. inversion eval_rv ; subst.
-  - simpl in *.
 Abort.
 
 Lemma HLPL_PL_Read :
