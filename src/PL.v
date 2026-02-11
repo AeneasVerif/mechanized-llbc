@@ -5,6 +5,8 @@ From Stdlib Require Import PeanoNat.
 Import ListNotations.
 From Stdlib Require Import Lia ZArith.
 From Stdlib Require Import Relations.
+From Stdlib Require Import Program.
+Require Import Stdlib.Logic.ProofIrrelevance.
 Require ListBackInd.
 Require Setoid.
 
@@ -29,10 +31,21 @@ Inductive PL_val :=
 
 Definition pl_val := list PL_val.
 
-Record PL_state := {
+Record PL_state : Type := Build_PL_state {
   env : Pmap (block_id * type);
-  mem : Pmap pl_val
+  mem : Pmap pl_val;
+  nextblock : block_id;
+  nextblock_no_access :
+    forall bi, Pos.le nextblock bi -> lookup bi mem = None
 }.
+
+Lemma PL_state_extensionality:
+  forall e1 e2 m1 m2 nb1 nb2 p1 p2,
+    e1 = e2 -> m1 = m2 -> nb1 = nb2 ->
+    Build_PL_state e1 m1 nb1 p1 = Build_PL_state e2 m2 nb2 p2.
+Proof.
+  intros ; subst ; f_equal ; apply proof_irrelevance.
+Qed.
 
 Fixpoint sizeof (tau : type) : nat :=
   match tau with
@@ -84,10 +97,13 @@ Inductive copy_val : PL_val -> PL_val -> Prop :=
 
 (* Functions to lookup and update PL states *)
 Definition update_env (S : PL_state) (e : Pmap (block_id * type)) :=
-  {|env := e ; mem := mem S |}.
+  {| env := e ; mem := mem S ;
+     nextblock := nextblock S ; nextblock_no_access := nextblock_no_access S |}.
 
-Definition update_mem (S : PL_state) (h : Pmap pl_val) :=
-  {|env := env S ; mem := h |}.
+Definition update_mem (S : PL_state) (m : Pmap pl_val)
+  (P : forall bi, Pos.le (nextblock S) bi -> lookup bi m = None) :=
+  {| env := env S ; mem := m ;
+     nextblock := nextblock S ; nextblock_no_access := P |}.
 
 Definition lookup_block_and_type_env (enc_x : positive) (S : PL_state)
   : option (block_id * type) :=
@@ -139,12 +155,42 @@ Ltac nodes_to_val :=
   | _ => idtac
   end.
 
-Ltac is_valid_access S addr t :=
-  match goal with
+Ltac is_valid_access S addr t := match goal with
   | H : valid_access S addr t |- _ =>
       destruct (valid_access_dec S addr t) as [_H | ] ;
       [ clear _H | contradiction ]
   end.
+
+Lemma alter_mem_preserves_nextblock1 :
+  forall (m : Pmap pl_val) f i nextblock,
+    (forall bi, Pos.le nextblock bi -> lookup bi m = None) ->
+    forall bi, Pos.le nextblock bi -> lookup bi (alter f i m) = None.
+Proof.
+  intros * nextblock_no_access bi le.
+  apply not_elem_of_dom. rewrite dom_alter. apply not_elem_of_dom. auto.
+Qed.
+
+Lemma alter_mem_preserves_nextblock2 :
+  forall (m : Pmap pl_val) f i nextblock,
+  (forall bi, Pos.le nextblock bi -> lookup bi (alter f i m) = None) ->
+  forall bi, Pos.le nextblock bi -> lookup bi m = None.
+Proof.
+  intros * nextblock_no_access bi le.
+    apply not_elem_of_dom. rewrite <- dom_alter. apply not_elem_of_dom. auto.
+Qed.
+
+Lemma alter_mem_preserves_nextblock :
+  forall (m : Pmap pl_val) f i nextblock,
+    (forall bi, Pos.le nextblock bi -> lookup bi m = None) <->
+    forall bi, Pos.le nextblock bi -> lookup bi (alter f i m) = None.
+Proof.
+  intros *. split ;
+  [ apply alter_mem_preserves_nextblock1 | apply alter_mem_preserves_nextblock2 ].
+Qed.
+
+Lemma update_mem_eq :
+  forall S, update_mem S (mem S) (nextblock_no_access S) = S.
+Proof. by intros []. Qed.
 
 Definition lookup_at_addr (addr : address) (t : type) (S : PL_state) : option pl_val :=
   let size := sizeof t in
@@ -154,21 +200,22 @@ Definition lookup_at_addr (addr : address) (t : type) (S : PL_state) : option pl
 
 Definition write_at_addr (addr : address) (t : type) (vl : pl_val) (S : PL_state) :=
   let (bi, off) := addr in
-  let h := 
+  let m := 
     alter (fun block => (firstn off block) ++ vl ++ (skipn (off + length vl) block))
       bi (mem S) in
-  update_mem S h.
+  update_mem S m
+    (alter_mem_preserves_nextblock1 _ _ _ _ (nextblock_no_access S)).
 
-Notation "S .h.[ addr : t ]" := (lookup_at_addr addr t S)
+Notation "S .m.[ addr : t ]" := (lookup_at_addr addr t S)
                                   (at level 50, addr at next level).
 
-Notation "S .h.[ addr <- vl : t ]" := (write_at_addr addr t vl S)
+Notation "S .m.[ addr <- vl : t ]" := (write_at_addr addr t vl S)
                                        (vl at next level).
 
 Lemma read_write_at_addr:
   forall Spl addr t vl,
-    Spl.h.[ addr : t ] = Some vl ->
-    (Spl.h.[ addr <- vl : t ]).h.[ addr : t ] = Some vl.
+    Spl.m.[ addr : t ] = Some vl ->
+    (Spl.m.[ addr <- vl : t ]).m.[ addr : t ] = Some vl.
 Proof.
   intros Spl (bi, off) t vl Haddr.
   unfold lookup_at_addr, write_at_addr in *. simpl in *.
@@ -186,7 +233,9 @@ Proof.
                             take off block ++
                               take (sizeof t) (drop off b) ++
                               drop (off + length (take (sizeof t) (drop off b))) block)
-                        bi (mem Spl))) (bi, off) t).
+                        bi (mem Spl))
+                     (alter_mem_preserves_nextblock1 _ _ _ _ (nextblock_no_access Spl))
+                  ) (bi, off) t).
   {
     eexists ; split ; eauto ; simpl. rewrite lookup_alter.
     replace (Spl !!h bi) with (Some b) ; simpl. f_equal. by rewrite H, H'.
@@ -198,15 +247,17 @@ Proof.
               take off block ++
                 take (sizeof t) (drop off b) ++
                 drop (off + length (take (sizeof t) (drop off b))) block)
-          bi (mem Spl))) (bi, off) t.
+          bi (mem Spl))
+       (alter_mem_preserves_nextblock1 _ _ _ _ (nextblock_no_access Spl))
+    ) (bi, off) t.
   rewrite lookup_alter. replace (Spl !!h bi) with (Some b). simpl. f_equal.
   by rewrite H, H'.
 Qed.
 
 Lemma write_read_at_addr:
   forall Spl addr t vl,
-    Spl.h.[ addr : t ] = Some vl ->
-    (Spl.h.[ addr <- vl : t ]) = Spl.
+    Spl.m.[ addr : t ] = Some vl ->
+    (Spl.m.[ addr <- vl : t ]) = Spl.
 Proof.
   intros Spl [bi off] t vl Hread.
   unfold write_at_addr. unfold lookup_at_addr in *. simpl in *.
@@ -218,21 +269,27 @@ Proof.
       (rewrite length_take, length_drop ; lia).
     by rewrite <- H, app_assoc, take_take_drop, Hlen, take_drop.
   }
-  rewrite <- insert_id with (i := bi) (x := b) (m := (mem Spl)),
-      alter_insert, Hvl, insert_id ; auto. destruct Spl ; reflexivity.
+  remember (λ block : list PL_val, take off block ++ vl ++ drop (off + length vl) block)
+             as f.
+  assert (mem_eq : alter f bi (mem Spl) = mem Spl). { 
+    rewrite <- insert_id with (i := bi) (x := b) (m := (mem Spl)), alter_insert ; auto.
+    by rewrite Heqf, Hvl.}
+  replace (alter f bi (mem Spl)) with (mem Spl).
+  destruct Spl ; simpl in *. unfold update_mem. simpl.
+  apply PL_state_extensionality; auto.
 Qed.
 
 Lemma get_block_write_at_addr_ne:
   forall Spl addr bi t vl,
     addr.1 <> bi ->
-    (Spl.h.[ addr <- vl : t ]) !!h bi = Spl !!h bi.
+    (Spl.m.[ addr <- vl : t ]) !!h bi = Spl !!h bi.
 Proof.
   intros [e h] (bi, off) bi' t vl Heq.
   unfold write_at_addr. simpl in *. rewrite lookup_alter_ne ; auto.
 Qed.
 
 Lemma env_stable_by_write_at_addr :
-  forall S addr t vl, env (S.h.[addr <- vl : t]) = env S.
+  forall S addr t vl, env (S.m.[addr <- vl : t]) = env S.
 Proof.
   intros [env_S mem_S] [bi off] vl ?. reflexivity.
 Qed.
@@ -240,7 +297,7 @@ Qed.
 Lemma dom_stable_by_write_at_addr :
   forall S1 S2 addr t1 t2 vl1 vl2,
     dom (mem S1) = dom (mem S2) ->
-    dom (mem (S1.h.[addr <- vl1 : t1])) = dom (mem (S2.h.[addr <- vl2 : t2 ])).
+    dom (mem (S1.m.[addr <- vl1 : t1])) = dom (mem (S2.m.[addr <- vl2 : t2 ])).
 Proof.
   intros [e1 h1] [e2 h2] [bi off] t1 t2 vl1 vl2 Heq. 
   unfold write_at_addr. simpl in *. by repeat rewrite dom_alter_L.
@@ -252,7 +309,7 @@ Inductive eval_proj (Spl : PL_state) :
   proj -> (address * type) -> (address * type) -> Prop :=
 | Eval_Deref_Ptr_Locs :
   forall (addr addr' : address) (t: type),
-    Spl.h.[addr : TRef] = Some [PL_address addr' t] ->
+    Spl.m.[addr : TRef] = Some [PL_address addr' t] ->
     eval_proj Spl Deref (addr, TRef) (addr', t)
 | Eval_Field_First :
   forall (addr : address) (t0 t1 : type),
@@ -317,14 +374,14 @@ Definition read_address (Spl : PL_state) (p : place) (t : type) (addr : address)
 Variant read (S : PL_state) (p : place) (t : type) (vl : pl_val) : Prop :=
   | Read addr 
       (Haddr : read_address S p t addr)
-      (Hlu : S.h.[ addr : t] = Some vl) :
+      (Hlu : S.m.[ addr : t] = Some vl) :
     read S p t vl.
 
 Variant write (S : PL_state) (p : place) (t : type) (vl : pl_val)
   : PL_state -> Prop :=
   | Write addr S'
       (Haddr : read_address S p t addr)
-      (Heq : S' = (S.h.[ addr <- vl : t])) :
+      (Heq : S' = (S.m.[ addr <- vl : t])) :
       write S p t vl S'.
 
 (* Evaluation of Expressions in PL *)
@@ -1338,7 +1395,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   (* Lookup mem lemmas*)
   Lemma lookup_mem_Some :
     forall Spl addr t vl,
-      Spl.h.[ addr : t ] = Some vl -> valid_access Spl addr t.
+      Spl.m.[ addr : t ] = Some vl -> valid_access Spl addr t.
   Proof.
     intros Spl addr t vl H. unfold lookup_at_addr in H.
     destruct (valid_access_dec Spl addr t) as [(b & Hb & Hsize) | ].
@@ -1349,7 +1406,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   
   Lemma lookup_mem_size :
     forall Spl addr t vl,
-      Spl.h.[ addr : t ] = Some vl -> length vl = sizeof t.
+      Spl.m.[ addr : t ] = Some vl -> length vl = sizeof t.
   Proof.
     intros Spl addr t vl Hlu.
     apply lookup_mem_Some in Hlu as Hva. 
@@ -1363,8 +1420,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     forall Spl addr t0 t1 vl0 vl1,
       length vl0 = sizeof t0 ->
       length vl1 = sizeof t1 ->
-      Spl.h.[ addr : TPair t0 t1 ] = Some (vl0 ++ vl1) <->
-        Spl.h.[ addr : t0 ] = Some vl0 /\ Spl.h.[ addr +o sizeof t0 : t1 ] = Some vl1.
+      Spl.m.[ addr : TPair t0 t1 ] = Some (vl0 ++ vl1) <->
+        Spl.m.[ addr : t0 ] = Some vl0 /\ Spl.m.[ addr +o sizeof t0 : t1 ] = Some vl1.
   Proof.
     intros Spl addr t0 t1 vl0 vl1 Hlen0 Hlen1. split ; intros H.
     - apply lookup_mem_Some in H as Hva.
@@ -1406,7 +1463,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
 
   Lemma lookup_mem_length_le_size :
     forall Spl addr t vl,
-      Spl.h.[addr : t] = Some vl ->
+      Spl.m.[addr : t] = Some vl ->
       length vl = sizeof t.
   Proof.
     intros Spl addr t vl. 
@@ -1425,7 +1482,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       valid_spath S sp ->
       (S.[ sp ]) = v ->
       exists addr t vl,
-        addr ~^{S, t} sp /\ concr_hlpl_val v t vl /\ Spl.h.[addr : t] = Some vl.
+        addr ~^{S, t} sp /\ concr_hlpl_val v t vl /\ Spl.m.[addr : t] = Some vl.
   Proof.
     induction sp using ListBackInd.state_path_back_ind ;
       intros v Hconcr Hvspn HSx ;
@@ -1451,7 +1508,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       + assert (H : ∃ (addr : address) (t : type) (vl : pl_val),
                    addr ~^{S, t} sp ∧
                      concr_hlpl_val (loc ((l), (y))) t vl /\
-                     Spl.h.[addr : t] = Some vl) by auto.
+                     Spl.m.[addr : t] = Some vl) by auto.
         destruct H as [addr [t [vl [ Hequiv [Hconcr_val Hval_mem] ] ] ] ].
         destruct n ; simpl in HSx.
         * exists addr, t, vl. repeat split ; auto.
@@ -1462,7 +1519,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       + assert (H : ∃ (addr : address) (t : type) (vl : pl_val),
                    addr ~^{S, t} sp ∧
                      concr_hlpl_val (HLPL_pair y1 y2) t vl /\
-                     Spl.h.[addr : t] = Some vl) by auto.
+                     Spl.m.[addr : t] = Some vl) by auto.
         destruct H as [addr [t [vl [Hequiv [Hconcr_val Hval_mem] ] ] ] ].
         inversion Hconcr_val ; subst v0 v1 t vl.
         apply concr_val_size in H4 as Hsize_t0, H5 as Hsize_t1.
@@ -1483,7 +1540,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       (S.[ sp ]) = v ->
       addr ~^{S, t} sp ->
       exists vl,
-         concr_hlpl_val v t vl /\ Spl.h.[addr : t] = Some vl.
+         concr_hlpl_val v t vl /\ Spl.m.[addr : t] = Some vl.
   Proof.
     intros S Spl sp addr t v Hconcr Hvsp HS_sp Hequiv.
     destruct (state_concr_implies_val_concr _ _ _ _ Hconcr Hvsp HS_sp)
@@ -1522,8 +1579,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Lemma le_mem_implies_lookup_equiv :
     forall S1 S2 addr t,
       le_mem (mem S1) (mem S2) ->
-      (exists vl1, S1.h.[ addr : t ] = Some vl1) <->
-      (exists vl2, S2.h.[ addr : t ] = Some vl2).
+      (exists vl1, S1.m.[ addr : t ] = Some vl1) <->
+      (exists vl2, S2.m.[ addr : t ] = Some vl2).
   Proof.
     intros S1 S2 addr t [Hdom Hle_mem] ; split ;
       intros (vl & Hlu).
@@ -1552,8 +1609,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Lemma le_mem_lookup_implies_lookup_l :
     forall S1 S2 addr t vl1,
       le_mem (mem S1) (mem S2) ->
-      S1.h.[ addr : t ] = Some vl1 ->
-      exists vl2, S2.h.[ addr : t ] = Some vl2.
+      S1.m.[ addr : t ] = Some vl1 ->
+      exists vl2, S2.m.[ addr : t ] = Some vl2.
   Proof.
     intros S1 S2 addr t vl1 Hle_mem Hread.
     apply ex_intro with (x := vl1) in Hread.
@@ -1563,8 +1620,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Lemma le_mem_lookup_implies_lookup_r :
     forall S1 S2 addr t vl2,
       le_mem (mem S1) (mem S2) ->
-      S2.h.[ addr : t ] = Some vl2 ->
-      exists vl1, S1.h.[ addr : t ] = Some vl1.
+      S2.m.[ addr : t ] = Some vl2 ->
+      exists vl1, S1.m.[ addr : t ] = Some vl1.
   Proof.
     intros S1 S2 addr t vl1 Hle_mem Hread.
     apply ex_intro with (x := vl1) in Hread.
@@ -1575,8 +1632,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Lemma le_mem_implies_le_block_at_addr :
     forall S1 S2 addr t vl1 vl2,
       le_mem (mem S1) (mem S2) ->
-      S1.h.[ addr : t ] = Some vl1 ->
-      S2.h.[ addr : t ] = Some vl2 ->
+      S1.m.[ addr : t ] = Some vl1 ->
+      S2.m.[ addr : t ] = Some vl2 ->
       le_block vl1 vl2.
   Proof.
     intros S1 S2 addr t vl1 vl2 [Hdom Hle_mem] H1 H2.
@@ -1624,7 +1681,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       assert (Hvsp : valid_spath S sp) by
         (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
       assert (Htemp: ∃ vl, concr_hlpl_val (HLPL_ptr l) t vl ∧
-                      Spl'.h.[addr : t] = Some vl).
+                      Spl'.m.[addr : t] = Some vl).
       { apply state_concr_implies_val_concr_at_addr with (S := S) (sp := sp) ; auto. }
       destruct Htemp as (vl & Hconcr_val & Hlu_addr). inversion Hconcr_val ; subst.
       assert (Hvsp' : valid_spath S sp') by
@@ -1632,7 +1689,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       assert (Htemp : ∃ (addr : address) (t : type) (vl : pl_val),
                  addr ~^{S, t} sp' ∧
                    concr_hlpl_val (HLPL_loc l h) t vl ∧
-                   Spl'.h.[addr : t] = Some vl).
+                   Spl'.m.[addr : t] = Some vl).
       { apply state_concr_implies_val_concr ; auto. }.
       destruct Htemp as (addr' & t' & vl & Hequiv' & Hconcr_val' & Hlu_addr').
       exists addr', t' ; split ; auto.
@@ -1645,7 +1702,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       by inversion H1 ; inversion H6 ; inversion H5 ; subst.
     - nodes_to_val.
       assert (Htemp: ∃ vl, concr_hlpl_val (HLPL_pair h1 h2) t vl ∧
-                      Spl'.h.[addr : t] = Some vl).
+                      Spl'.m.[addr : t] = Some vl).
       assert (Hvsp : valid_spath S sp) by
         (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
       { apply state_concr_implies_val_concr_at_addr with (S := S) (sp := sp) ; auto. }
@@ -1656,7 +1713,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       assert (Hvsp : valid_spath S sp) by
         (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
       assert (Htemp: ∃ vl, concr_hlpl_val (HLPL_pair h1 h2) t vl ∧
-                             Spl'.h.[addr : t] = Some vl).
+                             Spl'.m.[addr : t] = Some vl).
       { apply state_concr_implies_val_concr_at_addr with (S := S) (sp := sp) ; auto. }
       destruct Htemp as (vl & Hconcr_val & _). inversion Hconcr_val ; subst.
       exists (addr +o sizeof t0), t1 ; split.
@@ -1807,12 +1864,12 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     forall Spl1 Spl2 addr t vl vl',
       le_pl_state Spl1 Spl2 ->
       le_block vl vl' ->
-      le_pl_state (Spl1.h.[ addr <- vl : t ]) (Spl2.h.[ addr <- vl' : t ]).
+      le_pl_state (Spl1.m.[ addr <- vl : t ]) (Spl2.m.[ addr <- vl' : t ]).
   Proof.
     intros Spl1 Spl2 addr t vl vl' [Hle_env Hle_mem ] Hle_block.
     assert (Hdom :
-             dom (mem (Spl1.h.[ addr <- vl : t ])) =
-               dom (mem (Spl2.h.[ addr <- vl' : t ])))
+             dom (mem (Spl1.m.[ addr <- vl : t ])) =
+               dom (mem (Spl2.m.[ addr <- vl' : t ])))
       by (apply dom_stable_by_write_at_addr, (proj1 Hle_mem)).
     split.
     - by repeat rewrite env_stable_by_write_at_addr.
@@ -1847,10 +1904,10 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
 
   Lemma le_pl_r :
     forall Spl1 Spl2 addr t vl,
-      Spl2.h.[ addr : t ] = Some vl ->
+      Spl2.m.[ addr : t ] = Some vl ->
       le_pl_state Spl1 Spl2 ->
       exists vl',
-        Spl1.h.[ addr : t ] = Some vl' /\ le_block vl' vl.
+        Spl1.m.[ addr : t ] = Some vl' /\ le_block vl' vl.
   Proof.
     intros * lu (_ & dom_eq & le_mem).
     unfold lookup_at_addr in lu.
@@ -1871,10 +1928,10 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
 
   Lemma le_pl_l :
     forall Spl1 Spl2 addr t vl,
-      Spl1.h.[ addr : t ] = Some vl ->
+      Spl1.m.[ addr : t ] = Some vl ->
       le_pl_state Spl1 Spl2 ->
       exists vl',
-        Spl2.h.[ addr : t ] = Some vl' /\ le_block vl vl'.
+        Spl2.m.[ addr : t ] = Some vl' /\ le_block vl vl'.
   Proof.
     intros * lu (_ & dom_eq & le_mem).
     unfold lookup_at_addr in lu.
@@ -1895,10 +1952,10 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
 
   Lemma le_pl_write_at_addr_r :
     forall Spl1 Spl2 addr t vl vl',
-      Spl1.h.[ addr : t ] = Some vl ->
+      Spl1.m.[ addr : t ] = Some vl ->
       le_pl_state Spl1 Spl2 ->
       le_block vl vl' ->
-      le_pl_state Spl1 (Spl2.h.[ addr <- vl' : t ]).
+      le_pl_state Spl1 (Spl2.m.[ addr <- vl' : t ]).
   Proof.
     intros Spl1 Spl2 addr t vl vl' Hread Hle_pl Hle_block.
     erewrite <- write_read_at_addr with (Spl := Spl1) ; eauto.
@@ -1907,10 +1964,10 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
 
   Lemma le_pl_write_at_addr_l :
     forall Spl1 Spl2 addr t vl vl',
-      Spl2.h.[ addr : t ] = Some vl' ->
+      Spl2.m.[ addr : t ] = Some vl' ->
       le_pl_state Spl1 Spl2 ->
       le_block vl vl' ->
-      le_pl_state (Spl1.h.[ addr <- vl : t ]) Spl2.
+      le_pl_state (Spl1.m.[ addr <- vl : t ]) Spl2.
   Proof.
     intros Spl1 Spl2 addr t vl Hsize Hle_pl Hle_block.
     erewrite <- write_read_at_addr with (Spl := Spl2) ; eauto.
@@ -2008,7 +2065,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       concr_hlpl S Spl ->
       concr_hlpl_val v t vl ->
       addr ~^{S, t} sp ->
-      concr_hlpl (S.[sp <- v] ) (Spl.h.[addr <- vl : t]).
+      concr_hlpl (S.[sp <- v] ) (Spl.m.[addr <- vl : t]).
   Proof.
     intros S Spl sp (bi, off) v t vl [Hconcr_mem Hconcr_env] Hconcr_val Hequiv.
     split.
@@ -3321,7 +3378,7 @@ Proof.
   - nodes_to_val. pose proof concr_st as temp.
     apply state_concr_implies_val_concr with (sp := p) (v := ptr (l)) in temp
         as (addr & t & vl & equiv & concr & lu) ; auto.
-    + exists (Spl'.h.[ addr <- repeat PL_poison (sizeof t) : t ]). split ; [ | split ].
+    + exists (Spl'.m.[ addr <- repeat PL_poison (sizeof t) : t ]). split ; [ | split ].
       * apply sset_preserves_compatibility ; auto ; rewrite ?Heqh ;
           unfold not_contains_bot, not_contains_loc ; not_contains.
       * apply concr_state_write_at_addr ; auto.
@@ -3406,7 +3463,7 @@ Proof.
     simpl fst in *; simpl snd in *.
     eapply HLPL_PL_Read with (t := rv_get_type rv)
       in eval_p as (vl0 & vl0' & Hread & Hconcr' & Hleb) ; eauto.
-    inversion Hread. exists (Spl.h.[addr <- vl : (rv_get_type rv)]).
+    inversion Hread. exists (Spl.m.[addr <- vl : (rv_get_type rv)]).
     eapply Eval_assign with (t := rv_get_type rv) ; eauto.
     eapply Write ; eauto.
   - apply Reorg_Star_Preserves_PL_HLPL_Rel with (S' := S1) in Hle ; auto.
@@ -3427,40 +3484,67 @@ Section Tests.
 
   Local Open Scope stdpp_scope.
 
-  Definition pl_state_1 : PL_state :=
+  Program Definition pl_state_1 : PL_state :=
     {|
       env := {[ enc_x := (b1, TInt) ]};
-      mem := {[ b1 := [PL_poison] ]}
+      mem := {[ b1 := [PL_poison] ]};
+      nextblock := b2
     |}.
-  Definition pl_state_2 : PL_state :=
+  Next Obligation.
+    intros. rewrite lookup_singleton_None. intros <-. auto.
+  Qed.
+
+  Program Definition pl_state_2 : PL_state :=
     {|
       env := {[ enc_x := (b1, TPair TInt TInt) ]};
-      mem := {[ b1 := [PL_poison; PL_poison] ]}
+      mem := {[ b1 := [PL_poison; PL_poison] ]};
+      nextblock := b2
     |}.
-  Definition pl_state_3 : PL_state :=
+  Next Obligation.
+    intros. rewrite lookup_singleton_None. intros <-. auto.
+  Qed.
+
+  Program Definition pl_state_3 : PL_state :=
     {|
       env := {[ enc_x := (b1, TPair TRef TInt) ]};
-      mem := {[ b1 := [PL_address (b1, 1) TInt ; PL_int 0] ]}
+      mem := {[ b1 := [PL_address (b1, 1) TInt ; PL_int 0] ]};
+      nextblock := b2
     |}.
-  Definition pl_state_4 : PL_state :=
+  Next Obligation.
+    intros. rewrite lookup_singleton_None. intros <-. auto.
+  Qed.
+
+  Program Definition pl_state_4 : PL_state :=
     {|
       env := {[ enc_x := (b1, TRef) ]};
       mem :=
         {[
             b1 := [PL_address (b2, 1) TRef] ;
             b2 := [PL_int 3 ; PL_address (b2, 0) TInt]
-        ]}
+        ]};
+      nextblock := b3
     |}.
-  Definition pl_state_5 : PL_state :=
+  Next Obligation.
+    intros. rewrite lookup_insert_ne ; [ | intros <- ; auto ]. 
+    rewrite lookup_singleton_None. intros <- ; auto .
+  Qed.
+
+  Program Definition pl_state_5 : PL_state :=
     {|
       env := {[ enc_x := (b1, TRef) ]};
       mem :=
         {[
             b1 := [PL_address (b2, 1) TRef] ;
             b2 := [PL_poison ; PL_address (b2, 0) TInt]
-        ]}
+        ]};
+      nextblock := b3
     |}.
-  Definition pl_state_6 : PL_state :=
+  Next Obligation.
+    intros. rewrite lookup_insert_ne ; [ | intros <- ; auto ]. 
+    rewrite lookup_singleton_None. intros <- ; auto .
+  Qed.
+
+  Program Definition pl_state_6 : PL_state :=
     {|
       env :=
         {[
@@ -3469,23 +3553,44 @@ Section Tests.
       mem :=
         {[
             b1 := [PL_int 0 ; PL_int 1 ; PL_int 7]
-        ]}
+        ]};
+      nextblock := b2
     |}.
-  Definition pl_state_7 : PL_state :=
+  Next Obligation.
+    intros. rewrite lookup_singleton_None. intros <- ; auto .
+  Qed.
+
+  Program Definition pl_state_7 : PL_state :=
     {|
       env := {[ enc_x := (b1, TInt) ]};
-      mem := {[ b1 := [PL_int 3] ]}
+      mem := {[ b1 := [PL_int 3] ]};
+      nextblock := b2
     |}.
-  Definition pl_state_8 : PL_state :=
+  Next Obligation.
+    intros. rewrite lookup_singleton_None. intros <- ; auto .
+  Qed.
+
+  Program Definition pl_state_8 : PL_state :=
     {|
       env := {[ enc_x := (b1, TInt) ; enc_y := (b2, TInt) ]};
-      mem := {[ b1 := [PL_poison] ; b2 := [PL_poison] ]}
+      mem := {[ b1 := [PL_poison] ; b2 := [PL_poison] ]};
+      nextblock := b3
     |}.
-  Definition pl_state_9 : PL_state :=
+  Next Obligation.
+    intros. rewrite lookup_insert_ne ; [ | intros <- ; auto ]. 
+    rewrite lookup_singleton_None. intros <- ; auto .
+  Qed.
+
+  Program Definition pl_state_9 : PL_state :=
     {|
       env := {[ enc_x := (b1, TInt) ; enc_y := (b2, TInt) ]};
-      mem := {[ b1 := [PL_int 3] ; b2 := [PL_int 7] ]}
+      mem := {[ b1 := [PL_int 3] ; b2 := [PL_int 7] ]};
+      nextblock := b3
     |}.
+  Next Obligation.
+    intros. rewrite lookup_insert_ne ; [ | intros <- ; auto ]. 
+    rewrite lookup_singleton_None. intros <- ; auto .
+  Qed.
 
   Local Close Scope stdpp_scope.
 
@@ -3510,7 +3615,7 @@ Section Tests.
   Proof. repeat econstructor. Qed.
 
   Goal write pl_state_5 (x, [Deref ; Deref]) TInt [PL_int 3] pl_state_4.
-  Proof. econstructor. repeat econstructor. reflexivity. Qed.
+  Proof. repeat econstructor. apply PL_state_extensionality ; auto. Qed.
 
   (** EXPRESSION EVALUATION TESTS **)
 
@@ -3546,7 +3651,7 @@ Section Tests.
   Proof. repeat econstructor. Qed.
 
   Goal pl_state_1 |-{stmt-pl} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_7.
-  Proof. repeat econstructor. Qed.
+  Proof. repeat econstructor. apply PL_state_extensionality ; auto. Qed.
 
   Goal pl_state_1 |-{stmt-pl} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_1.
   Proof. repeat econstructor. Fail reflexivity. Abort.
@@ -3555,7 +3660,7 @@ Section Tests.
                      ASSIGN (x, []) <- Just TInt (INT 3) ;;
                      ASSIGN (y, []) <- Just TInt (INT 7)
        => rUnit, pl_state_9.
-  Proof. repeat econstructor. Qed.
+  Proof. repeat econstructor. apply PL_state_extensionality ; auto. Qed.
 
   Goal pl_state_8 |-{stmt-pl}
                      ASSIGN (x, []) <- Just TInt (INT 3) ;;
