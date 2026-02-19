@@ -69,7 +69,7 @@ Definition vdisj (p q : vpath) :=
 Global Instance vdisj_symmetric : Symmetric vdisj.
 Proof. intros ? ? (v & p & q & i & j & ? & ? & ?). exists v, q, p, j, i. auto. Qed.
 
-(** Showing that every two paths are comparable. *)
+(** #<a id="lab-comp"># Showing that every two paths are comparable. #</a>*)
 Variant vComparable (p q : vpath) : Prop :=
 | vCompEq (H : p = q)
 | vCompStrictPrefixLeft (H : vstrict_prefix p q)

@@ -1391,7 +1391,7 @@ Corollary reorgs_preserve_well_formedness S S' :
   reorg^* S S' -> well_formed S -> well_formed S'.
 Proof. intro Hreorg. induction Hreorg; eauto using reorg_preserves_well_formedness. Qed.
 
-(** The decreasing measure on HLPL+ states. Here is why it is decreasing:
+(** #<a id="lab-measure"># The decreasing measure on HLPL+ states. #</a># Here is why it is decreasing:
     - Each borrow, loan, pointer or location has a positive measure. Because a reorganization ends at least one node of this kind, the measure decreases.
    - The measure of a pair of mutable loan and a borrow is 3. The measure of a pair of pointer and location is 2. Thus, the rule [Leq_MutBorrow_To_Ptr] makes the measure decrease by 1.
  *)
