@@ -26,7 +26,7 @@ Inductive PL_val :=
 | PL_bot : PL_val
 | PL_poison : PL_val
 | PL_int : nat -> PL_val 
-| PL_address : address -> type -> PL_val
+| PL_address : address -> PL_val
 .
 
 Definition pl_val := list PL_val.
@@ -49,7 +49,7 @@ Qed.
 
 Fixpoint sizeof (tau : type) : nat :=
   match tau with
-  | TInt | TRef => 1
+  | TInt | TRef _ => 1
   | TPair tau1 tau2 => sizeof tau1 + sizeof tau2
   end.
 
@@ -309,8 +309,8 @@ Inductive eval_proj (Spl : PL_state) :
   proj -> (address * type) -> (address * type) -> Prop :=
 | Eval_Deref_Ptr_Locs :
   forall (addr addr' : address) (t: type),
-    Spl.m.[addr : TRef] = Some [PL_address addr' t] ->
-    eval_proj Spl Deref (addr, TRef) (addr', t)
+    Spl.m.[addr : TRef t] = Some [PL_address addr'] ->
+    eval_proj Spl Deref (addr, TRef t) (addr', t)
 | Eval_Field_First :
   forall (addr : address) (t0 t1 : type),
     eval_proj Spl (Field First) (addr, TPair t0 t1) (addr, t0)
@@ -340,7 +340,7 @@ Lemma eval_proj_deterministic :
 Proof.
   intros Spl proj ? ? ? Heval_proj1 Heval_proj2.
   destruct proj ; inversion Heval_proj1 ; subst ; inversion Heval_proj2; subst ; auto.
-  rewrite H in H1. injection H1 ; intros ; subst ; auto.
+  rewrite H in H2. injection H2 ; intros ; subst ; auto.
 Qed.
 
 Lemma eval_path_deterministic :
@@ -408,7 +408,7 @@ Variant eval_rvalue: rvalue -> PL_state -> pl_val -> Prop :=
   S |-{rv-pl} BinOp t op_l op_r => [PL_int (n_l + n_r)]
 | Eval_ptr S t p addr
     (Haddr : read_address S p t addr) :
-  S |-{rv-pl} &mut p : TRef => [PL_address addr t]
+  S |-{rv-pl} &mut p : TRef t => [PL_address addr]
 | Eval_pair S t op_l vl_l op_r vl_r
     (Hl : S |-{op-pl} op_l => vl_l)
     (Hr : S |-{op-pl} op_r => vl_r) :
@@ -567,7 +567,7 @@ Section Concretization.
     concr_hlpl_val (HLPL_loc l v) t vl
   | Concr_ptr_loc l addr t
       (Haddr : addrof l = Some (addr, t)) :
-    concr_hlpl_val (HLPL_ptr l) TRef [PL_address addr t]
+    concr_hlpl_val (HLPL_ptr l) (TRef t) [PL_address addr]
   .
 
   Fixpoint concr_hlpl_val_comp (v : HLPL_val) (t : type) :=
@@ -583,9 +583,13 @@ Section Concretization.
         end
     | HLPL_loc l v, t =>
         concr_hlpl_val_comp v t
-    | HLPL_ptr l, TRef =>
+    | HLPL_ptr l, TRef t =>
         match addrof l with
-        | Some (addr, t) => Some [PL_address addr t]
+        | Some (addr, t') =>
+            if (decide (t = t')) then
+              Some [PL_address addr]
+            else
+              None
         | _ => None
         end
     | _, _ => None
@@ -601,8 +605,9 @@ Section Concretization.
         try injection H as H; subst ; try constructor ; discriminate.
     - constructor; auto.
     - destruct t ; simpl in * ; try discriminate.
-      destruct (addrof l) eqn:Haddr.
-      * destruct p ; injection H as H ; subst ; constructor. assumption.
+      destruct (addrof l) eqn:Haddr ; try discriminate.
+      destruct p ; destruct (decide (t = t0)).
+      * injection H as H ; subst. by constructor.
       * discriminate.
     - destruct t; try discriminate ; simpl in *.
       remember (concr_hlpl_val_comp v1 t1) as concr1.
@@ -616,7 +621,7 @@ Section Concretization.
   Proof.
     intros v t vl H ; induction H; subst ; simpl ; try easy.
     - rewrite IHconcr_hlpl_val1, IHconcr_hlpl_val2; reflexivity.
-    - rewrite Haddr ; easy.
+    - rewrite Haddr. destruct (decide (t = t)) ; auto. contradiction.
   Qed.
 
   Lemma concr_val_eq_concr_val_comp : forall v t vl,
@@ -1693,10 +1698,12 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       { apply state_concr_implies_val_concr ; auto. }.
       destruct Htemp as (addr' & t' & vl & Hequiv' & Hconcr_val' & Hlu_addr').
       exists addr', t' ; split ; auto.
+      apply Hcorr_addrof with (l := l) in Hequiv' as Haddr'; auto.
+      assert (t' = t0) by congruence ; subst.
       constructor.
       pose proof (Hcorr_addrof _ _ _ _ Hequiv' H0).
       rewrite Haddr in H1 ; injection H1 ; intros ; subst ; clear H1.
-      apply ex_intro with (x := [PL_address addr' t']) in Hlu_addr as Hex.
+      apply ex_intro with (x := [PL_address addr']) in Hlu_addr as Hex.
       eapply le_mem_implies_lookup_equiv in Hex ; eauto. destruct Hex as (vl1 & Hlu).
       pose proof (le_mem_implies_le_block_at_addr _ _ _ _ _ _ Hmem Hlu Hlu_addr).
       by inversion H1 ; inversion H6 ; inversion H5 ; subst.
@@ -2134,7 +2141,7 @@ Fixpoint check_type_of_val v t :=
   | HLPL_bot, _ => true
   | HLPL_int _, TInt => true
   | HLPL_loc _ v, t => check_type_of_val v t
-  | HLPL_ptr _, TRef => true
+  | HLPL_ptr _, TRef _ => true
   | HLPL_pair v0 v1, TPair t0 t1 => check_type_of_val v0 t0 && check_type_of_val v1 t1
   | _, _ => false
   end.
@@ -2173,7 +2180,7 @@ Definition WellTypedRValue S bo rv :=
       WellTypedOperand S bo op_l /\ WellTypedOperand S bo op_r /\
         TInt = op_get_type op_l /\ TInt = op_get_type op_r /\ t = TInt
   | BorrowMut t p =>
-      t = TRef
+      exists t', t = TRef t' /\ forall sp, S |-{p} p => sp -> eval_type bo S sp t'
   | Pair t op_l op_r =>
       forall t0 t1,
       WellTypedOperand S bo op_l /\ WellTypedOperand S bo op_r /\
@@ -2738,7 +2745,7 @@ Proof.
     apply addr_spath_equiv_sset ; auto.
     intros (? & ?). rewrite <- H1 in n. by simpl fst in n.
 Qed.
-
+  
 Lemma eval_type_remove_loc :
   forall bo S sp sp' l t,
     get_node (S.[ sp' ]) = locC (l) ->
@@ -2874,6 +2881,11 @@ Proof.
     eapply eval_operand_preserves_welltyped_op ; eauto.
   - destruct WTRV as (WTO_l & WTO_r & E & E' & E''). repeat split ; auto ;
       eapply eval_operand_preserves_welltyped_op ; eauto.
+  - destruct WTRV as (t' & Htype & Hplace_rec). exists t' ; split ; auto.
+    intros sp Hplace.
+    eapply eval_operand_preserves_eval_place in Hplace as Hplace' ; eauto.
+    inversion eval_op ; subst ; auto. apply eval_type_write_bot ; auto.
+    apply eval_place_valid with (p := p) ; auto.
   - intros. destruct (WTRV t0 t1) as (WTO_l & WTO_r & E & E' & E'').
     repeat split ; auto ;
       eapply eval_operand_preserves_welltyped_op ; eauto.
@@ -2890,6 +2902,32 @@ Proof.
     split ; auto. eapply eval_rvalue_preserves_welltyped_op ; eauto.
   - destruct WTRV as (WTO_l & WTO_r & E & E' & E'').
     repeat split ; auto ; eapply eval_rvalue_preserves_welltyped_op ; eauto.
+  - destruct WTRV as (t' & type & Hplace_rec).
+    exists t' ; split ; auto. intros * eval_p.
+    inversion eval_rv ; subst ; auto.
+    + apply eval_place_valid in eval_p as vsp.
+      eapply eval_operand_preserves_eval_type ; eauto.
+      apply Hplace_rec. eapply eval_operand_preserves_eval_place ; eauto.
+    + apply eval_place_valid in eval_p as vsp.
+      eapply eval_operand_preserves_eval_type ; eauto.
+      eapply eval_operand_preserves_eval_type ; eauto.
+      * apply Hplace_rec.
+        eapply eval_operand_preserves_eval_place with (S' := S'0); eauto.
+        eapply eval_operand_preserves_eval_place with (S' := S'); eauto.
+      * eapply eval_operand_preserves_valid_spath ; eauto.
+    + apply eval_place_valid in eval_p as vsp.
+      apply eval_place_write_loc in eval_p ; auto.
+      specialize (Hplace_rec _ eval_p).
+      apply addr_spath_equiv_eval_type in Hplace_rec as (addr & equiv).
+      apply addr_spath_equiv_eval_type.
+      exists addr. apply addr_spath_equiv_add_loc ; auto.
+    + eapply eval_operand_preserves_eval_place in eval_p as eval_p' ; eauto.
+      eapply eval_operand_preserves_eval_place in eval_p' as eval_p'' ; eauto.
+      apply eval_place_valid in eval_p as vsp.
+      apply eval_place_valid in eval_p' as vsp'.
+      apply eval_place_valid in eval_p'' as vsp''.
+      eapply eval_operand_preserves_eval_type with (S := S'0) ; eauto.
+      eapply eval_operand_preserves_eval_type with (S := S) ; eauto.
   - intros. destruct (WTRV t0 t1) as (WTO_l & WTO_r & E & E' & E'').
     repeat split ; auto ; eapply eval_rvalue_preserves_welltyped_op ; eauto.
 Qed.
@@ -2930,12 +2968,21 @@ Proof.
     apply reorg_preserves_welltyped_op with (S := S) ; auto.
   - destruct WTRV as (WTO_l & WTO_r & type_l & type_r & type). repeat split ; auto ;
       apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct WTRV as (t' & type & ?). exists t' ; split ; auto.
+    intros sp eval_p. apply eval_place_write_bot in eval_p as eval_p'.
+    apply eval_place_valid in eval_p as vsp.
+    apply eval_place_valid in eval_p' as vsp'.
+    apply eval_type_write_bot ; auto.
   - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r & type).
     repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
   - destruct WTRV as (WTO & type). split ; auto.
     apply reorg_preserves_welltyped_op with (S := S) ; auto.
   - destruct WTRV as (WTO_l & WTO_r & type_l & type_r & type). repeat split ; auto ;
       apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct WTRV as (t' & type & ?). exists t' ; split ; auto.
+    intros sp eval_p. apply eval_place_valid in eval_p as vsp.
+    apply eval_type_remove_loc with (l := l) ; auto.
+    apply H1. apply eval_place_end_loc with (l := l) ; auto.
   - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r & type).
     repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
 Qed.
@@ -3275,25 +3322,29 @@ Proof.
     * intros ?. destruct H6 ; try congruence. inversion H6.
     * intros ?. destruct H13 ; try congruence. inversion H13.
     * eapply eval_operand_preserves_welltyped_op ; eauto.
-  - simpl in HWT ; subst.
+  - destruct HWT as (t' & type & eval_type).
     destruct (reachable_loc bo ao S Hcomp l pi Hloc) as (addr & t0 & Hequiv).
     pose proof ((correct_addrof bo ao S Hcomp) _ _ _ _ Hequiv Hloc).
-    assert (Hevt : eval_type bo S pi t0) by
+    assert (Hevt : PLeval_type bo S pi t0) by
       (apply addr_spath_equiv_eval_type ; exists addr ; auto).
     assert (read_address Spl p t0 addr) by
       (eapply read_addr_spath_equiv_equiv ; eauto ; econstructor ; eauto).
-    exists ao, [PL_address addr t0], [PL_address addr t0] ; repeat split.
+    specialize (eval_type pi Heval_place).
+    assert (t' = t0) by (eapply eval_type_deterministic ; eauto) ; subst.
+    exists ao, [PL_address addr], [PL_address addr] ; repeat split.
     * by constructor.
     * exists Spl' ; auto.
     * by apply Concr_ptr_loc.
     * reflexivity.
-  - simpl in HWT ; subst.
+  - destruct HWT as (t' & type & eval_type). specialize (eval_type pi Heval_place).
     destruct (spath_address_place_simul _ _ _ _ _ _ Hle_hlpl Heval_place) as
-      (addr & t & ? & ?).
-    exists (fun l0 => if l =? l0 then Some (addr, t) else ao l0),
-      [PL_address addr t], [PL_address addr t] ; repeat split.
+      (addr & t0 & ? & ?).
+    assert (t' = t0) by (apply addr_spath_equiv_eval_type in eval_type as (? & ?) ;
+                         eapply addr_spath_equiv_deterministic_type ; eauto).
+    subst.
+    exists (fun l0 => if l =? l0 then Some (addr, t0) else ao l0),
+      [PL_address addr], [PL_address addr] ; repeat split.
     * constructor. eapply read_addr_spath_equiv_equiv ; eauto.
-      eapply addr_spath_equiv_eval_type ; eexists ; eauto.
     * rewrite snd_pair. apply le_pl_hlpl_write_loc ; auto.
       apply addr_spath_equiv_implies_valid_spath in H1 as Hvp.
       rewrite spath_var_app_vpath in Hvp. by apply valid_spath_app in Hvp as [? ?].
@@ -3362,7 +3413,7 @@ Proof.
       destruct (IHconcr_val _ _ le H0) as (vl'' & concr_val' & le').
       exists vl'' ; split ; auto. by constructor.
   - inversion valid_vp ; subst.
-    + exists (repeat PL_poison (sizeof TRef)). split.
+    + exists (repeat PL_poison (sizeof (TRef t))). split.
       * by constructor.
       * apply le_block_poison. by rewrite (Forall2_length _ _ _ le).
     + rewrite nth_error_nil in H ; congruence.
@@ -3506,8 +3557,8 @@ Section Tests.
 
   Program Definition pl_state_3 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TPair TRef TInt) ]};
-      mem := {[ b1 := [PL_address (b1, 1) TInt ; PL_int 0] ]};
+      env := {[ enc_x := (b1, TPair (TRef TInt) TInt) ]};
+      mem := {[ b1 := [PL_address (b1, 1) ; PL_int 0] ]};
       nextblock := b2
     |}.
   Next Obligation.
@@ -3516,11 +3567,11 @@ Section Tests.
 
   Program Definition pl_state_4 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TRef) ]};
+      env := {[ enc_x := (b1, (TRef (TRef TInt))) ]};
       mem :=
         {[
-            b1 := [PL_address (b2, 1) TRef] ;
-            b2 := [PL_int 3 ; PL_address (b2, 0) TInt]
+            b1 := [PL_address (b2, 1)] ;
+            b2 := [PL_int 3 ; PL_address (b2, 0)]
         ]};
       nextblock := b3
     |}.
@@ -3531,11 +3582,11 @@ Section Tests.
 
   Program Definition pl_state_5 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TRef) ]};
+      env := {[ enc_x := (b1, (TRef (TRef TInt))) ]};
       mem :=
         {[
-            b1 := [PL_address (b2, 1) TRef] ;
-            b2 := [PL_poison ; PL_address (b2, 0) TInt]
+            b1 := [PL_address (b2, 1) ] ;
+            b2 := [PL_poison ; PL_address (b2, 0)]
         ]};
       nextblock := b3
     |}.
@@ -3639,7 +3690,7 @@ Section Tests.
          [PL_int (7 + 4)].
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv-pl} &mut (x, []) : TRef=> [PL_address (b1, 0) TInt].
+  Goal pl_state_1 |-{rv-pl} &mut (x, []) : (TRef TInt) => [PL_address (b1, 0) ].
   Proof. repeat econstructor.  Qed.
 
   Goal pl_state_1 |-{rv-pl} Pair (TPair TInt TInt) (IntConst TInt 0) (IntConst TInt 1)
@@ -3699,6 +3750,6 @@ Section Tests.
   Proof. repeat econstructor. Qed.
 
   Goal concr_hlpl_val addrof
-    (ptr (l1)) TRef [PL_address (b1, 1) TInt ].
+    (ptr (l1)) (TRef TInt) [PL_address (b1, 1)].
   Proof. repeat econstructor. Qed.
 End Tests.

@@ -1,6 +1,7 @@
 Require Import base.
 Require Import PathToSubtree.
 From Stdlib Require Import PArith.
+From stdpp Require Import base.
 
 Definition var := positive.
 
@@ -27,9 +28,21 @@ Definition place : Set := var * path.
 
 Inductive type :=
 | TInt
-| TRef
+| TRef (t : type)
 | TPair (t1 t2 : type)
 .
+
+Instance EqDec_type : EqDecision type.
+Proof.
+  intro x.
+  induction x ; destruct y ;
+    (left ; reflexivity) || (right ; congruence) || idtac.
+  - destruct (IHx y).
+    * subst. left. reflexivity.
+    * right. intros contra. congruence.
+  - destruct (IHx1 y1) ; destruct (IHx2 y2) ; subst ;
+      (left ; reflexivity) || (right ; intros contra ; congruence).
+Qed.
 
 Variant operand :=
 | IntConst (t : type) (n : nat) (* TODO: use Aeneas integer types? *)
@@ -57,10 +70,11 @@ Notation "'INT' p" := (IntConst TInt p) (at level 80, p at next level).
 Notation "'ASSIGN' p <- rv" := (Assign p rv) (at level 90).
 
 Local Open Scope positive_scope.
-Check (&mut (1, nil) : TRef) : rvalue.
-Check (ASSIGN (2, nil) <- &mut (1, nil) : TRef).
+Check (&mut (1, nil) : TRef TInt) : rvalue.
+Check (ASSIGN (2, nil) <- &mut (1, nil) : TRef TInt).
 Check (ASSIGN (1, nil) <- Just TInt (INT 3)).
-Check (ASSIGN (1, nil) <- Just TInt (INT 3) ;; ((ASSIGN (2, nil) <- &mut (1, nil) : TRef ) ;; Panic)).
+Check (ASSIGN (1, nil) <- Just TInt (INT 3) ;;
+       ((ASSIGN (2, nil) <- &mut (1, nil) : TRef TInt) ;; Panic)).
 
 (* These definitions are not part of the grammar, but they are common for several (all?) semantics of the LLBC. *)
 Definition loan_id := nat.
