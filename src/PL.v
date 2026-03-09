@@ -545,15 +545,6 @@ Section Concretization.
     assert (t = t2) by congruence ; subst. eapply eval_type_val_deterministic ; eauto.
   Qed.
 
-  Fixpoint typeof (v : HLPL_val) : type :=
-    match v with
-    | HLPL_int _ => TInt
-    | HLPL_loc _ v => typeof v
-    | HLPL_pair v0 v1 => TPair (typeof v0) (typeof v1)
-    | HLPL_ptr _ => TRef
-    | _ => TInt
-    end.
-
   Inductive concr_hlpl_val : HLPL_val -> type -> pl_val -> Prop :=
   | Concr_lit n : concr_hlpl_val (HLPL_int n) TInt [PL_int n]
   | Concr_bot s t (Hs : s = ListDef.repeat PL_poison (sizeof t)) : 
@@ -2843,6 +2834,28 @@ Proof.
     eapply addr_spath_equiv_eval_type, ex_intro, addr_spath_equiv_add_loc ; eauto.
 Qed.
 
+Lemma eval_operand_preserves_valid_spath :
+  forall S S' sp v op,
+    S |-{op} op => (v, S') ->
+    valid_spath S' sp ->
+    valid_spath S sp.
+Proof.                    
+  intros * eval_op vsp.
+  inversion eval_op ; subst ; auto. eapply valid_spath_write_bot ; eauto.
+  Qed.
+
+Lemma eval_operand_preserves_eval_type :
+  forall bo S S' sp v t op,
+    S |-{op} op => (v, S') ->
+    eval_type bo S sp t ->
+    valid_spath S' sp ->
+    eval_type bo S' sp t.
+Proof.                    
+  intros * eval_op eval_type vsp.
+  inversion eval_op ; subst ; auto.
+  apply eval_type_write_bot ; auto.
+Qed.
+
 Lemma eval_operand_preserves_welltyped_op :
   forall bo S S' v op op',
     S |-{op} op' => (v, S') ->
@@ -2856,6 +2869,58 @@ Proof.
   - apply eval_place_valid in H as Hvp.
     eapply eval_type_write_bot, WTO, eval_place_write_bot ; eauto.
 Qed.
+
+Lemma eval_rvalue_preserves_eval_type :
+  forall bo S S' sp v t rv,
+    S |-{rv} rv => (v, S') ->
+    eval_type bo S sp t ->
+    exists sp', valid_spath S' sp' -> eval_type bo S' sp' t.
+Proof.
+  intros * eval_rv eval_type.
+  inversion eval_rv ; subst ; auto.
+  - exists sp ; intro vsp. eapply eval_operand_preserves_eval_type ; eauto.
+  - exists sp ; intro vsp. repeat (eapply eval_operand_preserves_eval_type ; eauto).
+    eapply eval_operand_preserves_valid_spath ; eauto.
+  - exists sp ; intro vsp. apply addr_spath_equiv_eval_type.
+    apply addr_spath_equiv_eval_type in eval_type as (addr & ?). by exists addr.
+  - exists (add_loc_spath pi sp) ; intro vsp. eapply addr_spath_equiv_eval_type.
+    eapply addr_spath_equiv_eval_type in eval_type as (addr & ?). exists addr.
+    rewrite <- (remove_add_loc_spath pi sp) in *.
+    apply addr_spath_equiv_add_loc ; auto.
+    by rewrite !(remove_add_loc_spath pi sp) in *.
+  - exists sp ; intro vsp.
+    repeat (eapply eval_operand_preserves_eval_type ; eauto).
+    eapply eval_operand_preserves_valid_spath ; eauto.
+Abort.
+
+(*
+Variant eval_rv_spath : rvalue -> spath -> spath -> Prop :=
+  | Eval_rv_spath_just :
+    forall sp t op, eval_rv_spath (Just t op) sp sp
+  | Eval_rv_spath_binop:
+    forall sp t op_l op_r, eval_rv_spath (BinOp t op_l op_r) sp sp
+  | Eval_rv_spath_pair:
+    forall sp t op_l op_r, eval_rv_spath (Pair t op_l op_r) sp sp
+  | Eval_rv_spath_borrowmut_noloc :
+    forall p sp', S |-{p} p => sp' -> .
+  end.
+
+Lemma eval_rvalue_preserves_eval_type :
+  forall bo S S' p sp sp' v t rv,
+    S |-{rv} rv => (v, S') ->
+    valid_spath S' sp' ->
+    eval_type bo S sp t ->
+    eval_type bo S' sp' t.
+Proof.
+  intros * eval_rv eval_p eval_p' eval_type.
+  apply eval_place_valid in eval_p as vsp.
+  apply eval_place_valid in eval_p' as vsp'.
+  inversion eval_rv ; subst.
+  - eapply eval_operand_preserves_eval_type ; eauto.
+    eapply eval_operand_preserves_eval_place in eval_p' ; eauto.
+    assert (sp = sp') by (apply eval_place_deterministic).
+*)
+
 
 Lemma eval_rvalue_preserves_welltyped_op :
   forall bo S S' v op rv,
