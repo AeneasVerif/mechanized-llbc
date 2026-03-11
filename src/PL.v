@@ -25,9 +25,23 @@ Definition address := (block_id * offset)%type.
 Inductive PL_val :=
 | PL_bot : PL_val
 | PL_poison : PL_val
-| PL_int : nat -> PL_val 
-| PL_address : address -> PL_val
+| PL_int_frag : nat -> nat -> PL_val 
+| PL_address_frag : address -> nat -> PL_val
 .
+
+Definition make_int64 (n : nat) :=
+  map (fun i => PL_int_frag n i) (seq 0 8).
+
+Definition make_ptr64 (addr : address) :=
+  map (fun i => PL_address_frag addr i) (seq 0 8).
+
+Lemma make_int64_not_contain_poison :
+  forall n, ~ In PL_poison (make_int64 n).
+Proof. intros n H. simpl in H. repeat (destruct H ; try discriminate). Qed.
+
+Lemma make_ptr64_not_contain_poison :
+  forall addr, ~ In PL_poison (make_ptr64 addr).
+Proof. intros addr H. simpl in H. repeat (destruct H ; try discriminate). Qed.
 
 Definition pl_val := list PL_val.
 
@@ -49,7 +63,7 @@ Qed.
 
 Fixpoint sizeof (tau : type) : nat :=
   match tau with
-  | TInt | TRef _ => 1
+  | TInt | TRef _ => 8
   | TPair tau1 tau2 => sizeof tau1 + sizeof tau2
   end.
 
@@ -93,7 +107,7 @@ Lemma bi_add_offset : forall (bi : block_id) (off1 off2 : nat),
 Proof. reflexivity. Qed.
 
 Inductive copy_val : PL_val -> PL_val -> Prop :=
-| Copy_val_int (n : nat) : copy_val (PL_int n) (PL_int n).
+| Copy_val_int (n i : nat) : copy_val (PL_int_frag n i) (PL_int_frag n i).
 
 (* Functions to lookup and update PL states *)
 Definition update_env (S : PL_state) (e : Pmap (block_id * type)) :=
@@ -309,7 +323,7 @@ Inductive eval_proj (Spl : PL_state) :
   proj -> (address * type) -> (address * type) -> Prop :=
 | Eval_Deref_Ptr_Locs :
   forall (addr addr' : address) (t: type),
-    Spl.m.[addr : TRef t] = Some [PL_address addr'] ->
+    Spl.m.[addr : TRef t] = Some (make_ptr64 addr') ->
     eval_proj Spl Deref (addr, TRef t) (addr', t)
 | Eval_Field_First :
   forall (addr : address) (t0 t1 : type),
@@ -388,7 +402,7 @@ Variant write (S : PL_state) (p : place) (t : type) (vl : pl_val)
 Reserved Notation "S  |-{op-pl}  op  =>  r" (at level 60).
 Variant eval_operand : operand -> PL_state -> pl_val -> Prop :=
 | Eval_IntConst S t n :
-  S |-{op-pl} IntConst t n => [PL_int n]
+  S |-{op-pl} IntConst t n => (make_int64 n)
 | Eval_copy S t p vl
     (Hread : read S p t vl) :
   S |-{op-pl} Copy t p => vl
@@ -403,16 +417,16 @@ Variant eval_rvalue: rvalue -> PL_state -> pl_val -> Prop :=
   (Hop : S |-{op-pl} op => vl) :
   S |-{rv-pl} Just t op => vl
 | Eval_bin_op S t op_l n_l op_r n_r
-    (Hl : S |-{op-pl} op_l => [PL_int n_l])
-    (Hr : S |-{op-pl} op_r => [PL_int n_r]) :
-  S |-{rv-pl} BinOp t op_l op_r => [PL_int (n_l + n_r)]
+    (Hl : S |-{op-pl} op_l => (make_int64 n_l))
+    (Hr : S |-{op-pl} op_r => (make_int64 n_r)) :
+    S |-{rv-pl} BinOp t op_l op_r => (make_int64 (n_l + n_r))
 | Eval_ptr S t p addr
     (Haddr : read_address S p t addr) :
-  S |-{rv-pl} &mut p : TRef t => [PL_address addr]
+  S |-{rv-pl} &mut p : TRef t => (make_ptr64 addr)
 | Eval_pair S t op_l vl_l op_r vl_r
     (Hl : S |-{op-pl} op_l => vl_l)
     (Hr : S |-{op-pl} op_r => vl_r) :
-  S |-{rv-pl} Pair t op_l op_r =>  (vl_l ++ vl_r)
+  S |-{rv-pl} Pair t op_l op_r => (vl_l ++ vl_r)
 where "S |-{rv-pl} rv => r" := (eval_rvalue rv S r).
 
 Reserved Notation "S  |-{stmt-pl}  stmt  =>  r , S'" (at level 50).
@@ -546,7 +560,8 @@ Section Concretization.
   Qed.
 
   Inductive concr_hlpl_val : HLPL_val -> type -> pl_val -> Prop :=
-  | Concr_lit n : concr_hlpl_val (HLPL_int n) TInt [PL_int n]
+  | Concr_lit n :
+    concr_hlpl_val (HLPL_int n) TInt (make_int64 n)
   | Concr_bot s t (Hs : s = ListDef.repeat PL_poison (sizeof t)) : 
     concr_hlpl_val HLPL_bot t s
   | Concr_pair v0 t0 vl0 v1 t1 vl1
@@ -558,13 +573,13 @@ Section Concretization.
     concr_hlpl_val (HLPL_loc l v) t vl
   | Concr_ptr_loc l addr t
       (Haddr : addrof l = Some (addr, t)) :
-    concr_hlpl_val (HLPL_ptr l) (TRef t) [PL_address addr]
+    concr_hlpl_val (HLPL_ptr l) (TRef t) (make_ptr64 addr)
   .
 
   Fixpoint concr_hlpl_val_comp (v : HLPL_val) (t : type) :=
     match v, t with
     | HLPL_int n, TInt =>
-        Some [ PL_int n ]
+        Some (make_int64 n)
     | HLPL_bot, _ =>
         Some (ListDef.repeat PL_poison (sizeof t))
     | HLPL_pair v0 v1, TPair t0 t1 =>
@@ -578,7 +593,7 @@ Section Concretization.
         match addrof l with
         | Some (addr, t') =>
             if (decide (t = t')) then
-              Some [PL_address addr]
+              Some (make_ptr64 addr)
             else
               None
         | _ => None
@@ -1548,7 +1563,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Qed.
   
   Lemma concr_val_TInt_implies_PL_int :
-    forall v vl, concr_hlpl_val v TInt vl -> (exists n, vl = [PL_int n]) \/ vl = [PL_poison].
+    forall v vl, concr_hlpl_val v TInt vl ->
+            (exists n, vl = (make_int64 n)) \/ vl = repeat PL_poison (sizeof TInt).
   Proof.
     intros v vl Hconcr. remember TInt as t. induction Hconcr ; try discriminate.
     - left. exists n. reflexivity.
@@ -1694,10 +1710,13 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       constructor.
       pose proof (Hcorr_addrof _ _ _ _ Hequiv' H0).
       rewrite Haddr in H1 ; injection H1 ; intros ; subst ; clear H1.
-      apply ex_intro with (x := [PL_address addr']) in Hlu_addr as Hex.
+      apply ex_intro with (x := (make_ptr64 addr')) in Hlu_addr as Hex.
       eapply le_mem_implies_lookup_equiv in Hex ; eauto. destruct Hex as (vl1 & Hlu).
       pose proof (le_mem_implies_le_block_at_addr _ _ _ _ _ _ Hmem Hlu Hlu_addr).
-      by inversion H1 ; inversion H6 ; inversion H5 ; subst.
+      assert (vl1 = (make_ptr64 addr')) by
+       (apply le_block_not_contains_poison ; auto ;
+        apply make_ptr64_not_contain_poison).
+      by subst.
     - nodes_to_val.
       assert (Htemp: ∃ vl, concr_hlpl_val (HLPL_pair h1 h2) t vl ∧
                       Spl'.m.[addr : t] = Some vl).
@@ -3233,8 +3252,8 @@ Proof.
   pose proof proj1 Hconcr as Hconcr_mem.
   pose proof proj2 Hconcr as Hconcr_env.
   induction Heval eqn:E.
-  - exists [PL_int n], [PL_int n]. simpl in * ; subst.
-    repeat split ; try constructor ; auto. constructor.
+  - exists (make_int64 n), (make_int64 n). simpl in * ; subst.
+    repeat split ; try constructor ; auto ; repeat constructor.
   - specialize (HWTO _ Heval_place). simpl in * ; subst.
     destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle Heval_place HWTO eq_refl)
     as (vl & vl' & Hread & Hconcr_val & Hle_val).
@@ -3382,21 +3401,21 @@ Proof.
     destruct G2 as (? & ? & ? & (Spl''' & ? & ? & ?) & ? & ?).
     simpl in *. inversion H5  ; inversion H11 ; subst.
     apply le_block_not_contains_poison in H6, H12 ; subst. 
-    exists ao, [PL_int (m + n) ], [PL_int (m + n) ] ; repeat constructor ; auto.
+    exists ao, (make_int64 (m + n)), (make_int64 (m + n)) ; repeat constructor ; auto.
     * exists Spl''' ; auto.
-    * intros ?. destruct H6 ; try congruence. inversion H6.
-    * intros ?. destruct H13 ; try congruence. inversion H13.
+    * intros ?. apply make_int64_not_contain_poison with (n := n) ; auto.
+    * intros ?. apply make_int64_not_contain_poison with (n := m) ; auto.
     * eapply eval_operand_preserves_welltyped_op ; eauto.
   - destruct HWT as (t' & type & eval_type).
     destruct (reachable_loc bo ao S Hcomp l pi Hloc) as (addr & t0 & Hequiv).
     pose proof ((correct_addrof bo ao S Hcomp) _ _ _ _ Hequiv Hloc).
-    assert (Hevt : PLeval_type bo S pi t0) by
+    assert (Hevt : PL.eval_type bo S pi t0) by
       (apply addr_spath_equiv_eval_type ; exists addr ; auto).
     assert (read_address Spl p t0 addr) by
       (eapply read_addr_spath_equiv_equiv ; eauto ; econstructor ; eauto).
     specialize (eval_type pi Heval_place).
     assert (t' = t0) by (eapply eval_type_deterministic ; eauto) ; subst.
-    exists ao, [PL_address addr], [PL_address addr] ; repeat split.
+    exists ao, (make_ptr64 addr), (make_ptr64 addr) ; repeat split.
     * by constructor.
     * exists Spl' ; auto.
     * by apply Concr_ptr_loc.
@@ -3408,7 +3427,7 @@ Proof.
                          eapply addr_spath_equiv_deterministic_type ; eauto).
     subst.
     exists (fun l0 => if l =? l0 then Some (addr, t0) else ao l0),
-      [PL_address addr], [PL_address addr] ; repeat split.
+      (make_ptr64 addr), (make_ptr64 addr) ; repeat split.
     * constructor. eapply read_addr_spath_equiv_equiv ; eauto.
     * rewrite snd_pair. apply le_pl_hlpl_write_loc ; auto.
       apply addr_spath_equiv_implies_valid_spath in H1 as Hvp.
@@ -3441,7 +3460,7 @@ Proof.
   intros * concr_val. generalize dependent vp. generalize dependent vl.
   induction concr_val ; intros * le valid_vp.
   - inversion valid_vp ; subst ; try (rewrite nth_error_nil in H ; congruence).
-    exists (repeat PL_poison 1). split.
+    exists (repeat PL_poison 8). split.
     + by constructor.
     + apply le_block_poison. by rewrite (Forall2_length _ _ _ le).
   - inversion valid_vp ; subst ; try (rewrite nth_error_nil in H ; congruence).
@@ -3603,7 +3622,7 @@ Section Tests.
   Program Definition pl_state_1 : PL_state :=
     {|
       env := {[ enc_x := (b1, TInt) ]};
-      mem := {[ b1 := [PL_poison] ]};
+      mem := {[ b1 := repeat PL_poison 8 ]};
       nextblock := b2
     |}.
   Next Obligation.
@@ -3613,7 +3632,7 @@ Section Tests.
   Program Definition pl_state_2 : PL_state :=
     {|
       env := {[ enc_x := (b1, TPair TInt TInt) ]};
-      mem := {[ b1 := [PL_poison; PL_poison] ]};
+      mem := {[ b1 := repeat PL_poison 8 ++ repeat PL_poison 8 ]};
       nextblock := b2
     |}.
   Next Obligation.
@@ -3623,7 +3642,7 @@ Section Tests.
   Program Definition pl_state_3 : PL_state :=
     {|
       env := {[ enc_x := (b1, TPair (TRef TInt) TInt) ]};
-      mem := {[ b1 := [PL_address (b1, 1) ; PL_int 0] ]};
+      mem := {[ b1 := make_ptr64 (b1, 8) ++ make_int64 0 ]};
       nextblock := b2
     |}.
   Next Obligation.
@@ -3635,8 +3654,8 @@ Section Tests.
       env := {[ enc_x := (b1, (TRef (TRef TInt))) ]};
       mem :=
         {[
-            b1 := [PL_address (b2, 1)] ;
-            b2 := [PL_int 3 ; PL_address (b2, 0)]
+            b1 := make_ptr64 (b2, 8) ;
+            b2 := make_int64 3 ++ make_ptr64 (b2, 0)
         ]};
       nextblock := b3
     |}.
@@ -3650,8 +3669,8 @@ Section Tests.
       env := {[ enc_x := (b1, (TRef (TRef TInt))) ]};
       mem :=
         {[
-            b1 := [PL_address (b2, 1) ] ;
-            b2 := [PL_poison ; PL_address (b2, 0)]
+            b1 := make_ptr64 (b2, 8) ;
+            b2 := repeat PL_poison 8 ++ make_ptr64 (b2, 0)
         ]};
       nextblock := b3
     |}.
@@ -3668,7 +3687,7 @@ Section Tests.
         ]};
       mem :=
         {[
-            b1 := [PL_int 0 ; PL_int 1 ; PL_int 7]
+            b1 := make_int64 0 ++ make_int64 1 ++ make_int64 7
         ]};
       nextblock := b2
     |}.
@@ -3679,7 +3698,7 @@ Section Tests.
   Program Definition pl_state_7 : PL_state :=
     {|
       env := {[ enc_x := (b1, TInt) ]};
-      mem := {[ b1 := [PL_int 3] ]};
+      mem := {[ b1 := make_int64 3 ]};
       nextblock := b2
     |}.
   Next Obligation.
@@ -3689,7 +3708,7 @@ Section Tests.
   Program Definition pl_state_8 : PL_state :=
     {|
       env := {[ enc_x := (b1, TInt) ; enc_y := (b2, TInt) ]};
-      mem := {[ b1 := [PL_poison] ; b2 := [PL_poison] ]};
+      mem := {[ b1 := repeat PL_poison 8 ; b2 := repeat PL_poison 8 ]};
       nextblock := b3
     |}.
   Next Obligation.
@@ -3699,8 +3718,8 @@ Section Tests.
 
   Program Definition pl_state_9 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TInt) ; enc_y := (b2, TInt) ]};
-      mem := {[ b1 := [PL_int 3] ; b2 := [PL_int 7] ]};
+      env := {[ enc_x :=  (b1, TInt) ; enc_y := (b2, TInt) ]};
+      mem := {[ b1 := make_int64 3 ; b2 := make_int64 7 ]};
       nextblock := b3
     |}.
   Next Obligation.
@@ -3712,58 +3731,59 @@ Section Tests.
 
   (** READ AND WRITES TESTS **)
 
-  Goal exists S, write pl_state_1 (x, []) TInt [PL_int 0] S.
+  Goal exists S, write pl_state_1 (x, []) TInt (make_int64 0) S.
   Proof. repeat econstructor. Qed.
 
-  Goal exists S, write pl_state_2 (x, [Field(First)]) TInt [PL_int 0] S.
+  Goal exists S, write pl_state_2 (x, [Field(First)]) TInt (make_int64 0) S.
   Proof. repeat econstructor. Qed.
 
-  Goal exists S, write pl_state_2 (x, [Field(Second)]) TInt [PL_int 0] S.
+  Goal exists S, write pl_state_2 (x, [Field(Second)]) TInt (make_int64 0) S.
   Proof. repeat econstructor. Qed.
 
-  Goal read pl_state_3 (x, [Field(First) ; Deref ]) TInt [PL_int 0].
+  Goal read pl_state_3 (x, [Field(First) ; Deref ]) TInt (make_int64 0).
   Proof. repeat econstructor. Qed.
 
-  Goal read pl_state_3 (x, [Field(Second)]) TInt [PL_int 0].
+  Goal read pl_state_3 (x, [Field(Second)]) TInt (make_int64 0).
   Proof. repeat econstructor. Qed.
 
-  Goal read pl_state_4 (x, [Deref ; Deref]) TInt [PL_int 3].
+  Goal read pl_state_4 (x, [Deref ; Deref]) TInt (make_int64 3).
   Proof. repeat econstructor. Qed.
 
-  Goal write pl_state_5 (x, [Deref ; Deref]) TInt [PL_int 3] pl_state_4.
+  Goal write pl_state_5 (x, [Deref ; Deref]) TInt (make_int64 3) pl_state_4.
   Proof. repeat econstructor. apply PL_state_extensionality ; auto. Qed.
 
   (** EXPRESSION EVALUATION TESTS **)
 
-  Goal pl_state_1 |-{op-pl} IntConst TInt 3 => [PL_int 3].
+  Goal pl_state_1 |-{op-pl} IntConst TInt 3 => (make_int64 3).
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_2 |-{op-pl} Copy (TPair TInt TInt) (x, []) => [PL_poison ; PL_poison].
+  Goal pl_state_2 |-{op-pl} Copy (TPair TInt TInt) (x, []) =>
+         (repeat PL_poison 8 ++ repeat PL_poison 8).
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_2 |-{op-pl} Move (TPair TInt TInt) (x, []) => [PL_poison ; PL_poison].
+  Goal pl_state_2 |-{op-pl} Move (TPair TInt TInt) (x, []) =>
+         (repeat PL_poison 8 ++ repeat PL_poison 8).
   Proof. repeat econstructor. Qed.
 
   Goal pl_state_2 |-{rv-pl} Just (TPair TInt TInt) (Copy (TPair TInt TInt) (x, [])) =>
-         [PL_poison ; PL_poison].
+         (repeat PL_poison 8 ++ repeat PL_poison 8).
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv-pl} BinOp TInt (INT 1) (INT 4) => [PL_int (1 + 4)].
+  Goal pl_state_1 |-{rv-pl} BinOp TInt (INT 1) (INT 4) => make_int64 (1 + 4).
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_6 |-{rv-pl} BinOp TInt (Move TInt (x, [Field(Second) ; Field(Second)])) (INT 4) =>
-         [PL_int (7 + 4)].
+  Goal pl_state_6 |-{rv-pl} BinOp TInt (Move TInt (x, [Field(Second) ; Field(Second)])) (INT 4) => make_int64 (7 + 4).
   Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv-pl} &mut (x, []) : (TRef TInt) => [PL_address (b1, 0) ].
-  Proof. repeat econstructor.  Qed.
+  Goal pl_state_1 |-{rv-pl} &mut (x, []) : (TRef TInt) => make_ptr64 (b1, 0).
+  Proof. repeat econstructor. Qed.
 
-  Goal pl_state_1 |-{rv-pl} Pair (TPair TInt TInt) (IntConst TInt 0) (IntConst TInt 1)
-       => ([PL_int 0] ++ [PL_int 1]).
+  Goal pl_state_1 |-{rv-pl} Pair (TPair TInt TInt) (INT 0) (INT 1)
+       => (make_int64 0 ++ make_int64 1).
   Proof. repeat econstructor. Qed.
 
   Goal pl_state_1 |-{rv-pl} Pair (TPair TInt TInt) (IntConst TInt 0) (Move TInt (x, []))
-       => ([PL_int 0] ++ [PL_poison]).
+       => (make_int64 0 ++ repeat PL_poison 8).
   Proof. repeat econstructor. Qed.
 
   Goal pl_state_1 |-{stmt-pl} ASSIGN (x, []) <- Just TInt (INT 3) => rUnit, pl_state_7.
@@ -3788,22 +3808,22 @@ Section Tests.
 
   Definition addrof := (fun l => if l =? l1 then Some ((b1, 1), TInt) else None).
 
-  Goal concr_hlpl_val addrof (HLPL_int 3) TInt [PL_int 3].
+  Goal concr_hlpl_val addrof (HLPL_int 3) TInt (make_int64 3).
   Proof. repeat econstructor. Qed.
 
-  Goal concr_hlpl_val addrof (loc (l1, (HLPL_int 3))) TInt [PL_int 3].
+  Goal concr_hlpl_val addrof (loc (l1, (HLPL_int 3))) TInt (make_int64 3).
   Proof. repeat econstructor. Qed.
 
-  Goal concr_hlpl_val addrof HLPL_bot (TPair TInt TInt) [PL_poison ; PL_poison].
+  Goal concr_hlpl_val addrof HLPL_bot (TPair TInt TInt) (repeat PL_poison 16).
   Proof. repeat econstructor. Qed.
 
   Goal concr_hlpl_val addrof
-    HLPL_bot (TPair (TPair TInt TInt) TInt) [PL_poison ; PL_poison ; PL_poison].
+    HLPL_bot (TPair (TPair TInt TInt) TInt) (repeat PL_poison 24).
   Proof. repeat econstructor. Qed.
 
   Goal concr_hlpl_val addrof
     (HLPL_pair (HLPL_int 3) (HLPL_int 4)) (TPair TInt TInt)
-    ([PL_int 3] ++ [PL_int 4]).
+    (make_int64 3 ++ make_int64 4).
   Proof. repeat econstructor. Qed.
 
   Goal concr_hlpl_val addrof
@@ -3811,10 +3831,10 @@ Section Tests.
        (HLPL_int 3)
        (HLPL_pair (HLPL_int 7) (HLPL_int 11)))
     (TPair TInt (TPair TInt TInt))
-    ([PL_int 3] ++ ([PL_int 7] ++ [PL_int 11])).
+    (make_int64 3 ++ (make_int64 7 ++ make_int64 11)).
   Proof. repeat econstructor. Qed.
 
   Goal concr_hlpl_val addrof
-    (ptr (l1)) (TRef TInt) [PL_address (b1, 1)].
+    (ptr (l1)) (TRef TInt) (make_ptr64 (b1, 1)).
   Proof. repeat econstructor. Qed.
 End Tests.
