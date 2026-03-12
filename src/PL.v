@@ -23,7 +23,6 @@ Definition offset := nat.
 Definition address := (block_id * offset)%type.
 
 Inductive PL_val :=
-| PL_bot : PL_val
 | PL_poison : PL_val
 | PL_int_frag : nat -> nat -> PL_val 
 | PL_address_frag : address -> nat -> PL_val
