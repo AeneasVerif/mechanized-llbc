@@ -3835,6 +3835,14 @@ Section Tests.
   Proof. repeat econstructor. Qed.
 
   Goal concr_hlpl_val addrof
+    (HLPL_pair
+       (HLPL_int 3)
+       (HLPL_pair (HLPL_int 7) (HLPL_int 11)))
+    (TPair TInt (TPair TInt TInt))
+    (make_int64 3 ++ (make_int64 7 ++ make_int64 12)).
+  Proof. repeat econstructor. Abort.
+
+  Goal concr_hlpl_val addrof
     (ptr (l1)) (TRef TInt) (make_ptr64 (b1, 1)).
   Proof. repeat econstructor. Qed.
 End Tests.
