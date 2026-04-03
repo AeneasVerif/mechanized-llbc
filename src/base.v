@@ -1,8 +1,5 @@
 (* TODO: documentation. *)
-From Stdlib Require Import List.
-From Stdlib Require Import PeanoNat Lia ZArith.
 Require Import OptionMonad.
-Import ListNotations.
 
 From stdpp Require Import fin_maps pmap gmap.
 

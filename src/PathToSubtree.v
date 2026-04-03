@@ -48,6 +48,10 @@ Definition app_spath_vpath (p : spath) (q : vpath) := (fst p, snd p ++ q).
 (* TODO: place the notation in a scope? *)
 Notation "p +++ q" := (app_spath_vpath p q) (right associativity, at level 60).
 
+Lemma spath_var_app_vpath :
+  forall p, p = (p.1, []) +++ p.2.
+Proof. intros (?, ?). reflexivity. Qed.
+
 Lemma app_spath_vpath_nil_r (p : spath) : p +++ nil = p.
 Proof. apply injective_projections; reflexivity || apply app_nil_r. Qed.
 
@@ -170,6 +174,21 @@ Proof.
   - apply (strict_prefix_irrefl p). assumption.
 Qed.
 
+Lemma not_prefix_var_equal_or_not_vprefix :
+  forall p q,
+    ~ prefix p q -> p.1 <> q.1 \/ p.1 = q.1 /\ ~ vprefix p.2 q.2.
+Proof.
+  intros p q Hpref.
+  destruct (Positive_as_DT.eqb_spec p.1 q.1).
+  - right ; split ; auto. intros (r & H).
+    assert (prefix p q).
+    {
+      exists r. unfold "+++". rewrite e, H. by rewrite surjective_pairing with (p := q).
+    }
+    contradiction.
+  - left ; auto.
+Qed.
+
 Lemma not_vprefix_left_vstrict_prefix_right p q : vstrict_prefix q p -> ~vprefix p q.
 Proof.
   intros (? & ? & H) (q' & G). rewrite <-(app_nil_r p), <-G, <-app_assoc in H.
@@ -204,6 +223,12 @@ Local Hint Unfold app_spath_vpath : core.
 Lemma not_vprefix_vdisj p q : vdisj p q -> ~vprefix p q.
 Proof.
   intros (r' & p' & q' & i & j & diff & H & G) (r & <-). rewrite H, <-app_assoc in G.
+  apply app_inv_head_iff in G. injection G. auto.
+Qed.
+
+Lemma not_vstrict_prefix_vdisj p q : vdisj p q -> ~vstrict_prefix p q.
+Proof.
+  intros (r' & p' & q' & i & j & diff & H & G) (r & n & <-). rewrite H, <-app_assoc in G.
   apply app_inv_head_iff in G. injection G. auto.
 Qed.
 
@@ -363,19 +388,29 @@ Proof.
   intros. apply prove_disj; auto using not_prefix_implies_not_strict_prefix, neq_implies_not_prefix.
 Qed.
 
-Lemma vstrict_prefix_app_last p q i : vstrict_prefix p (q ++ i :: nil) -> vprefix p q.
+Lemma vstrict_prefix_app_last p q i : vstrict_prefix p (q ++ [i]) <-> vprefix p q.
 Proof.
-  intros (j & r & ?).
-  destruct exists_last with (l := j :: r) as (r' & j' & G). { symmetry. apply nil_cons. }
-  rewrite G in H. apply f_equal with (f := @removelast _) in H.
-  rewrite app_assoc in H. rewrite !removelast_last in H. exists r'. exact H.
+  split.
+  {
+    intros (j & r & ?).
+    destruct exists_last with (l := j :: r) as (r' & j' & G).
+    { symmetry. apply nil_cons. }
+    rewrite G in H. apply f_equal with (f := @removelast _) in H.
+    rewrite app_assoc in H. rewrite !removelast_last in H. exists r'. exact H.
+  }
+  {
+    intros (r & ?). rewrite <- H, <- !app_assoc.
+    destruct (r ++ [i]) eqn:E.
+    * apply app_nil in E as [E1 E2]. congruence.
+    * by exists n, l.
+  }
 Qed.
 
 Corollary strict_prefix_app_last p q i : strict_prefix p (q +++ [i]) <-> prefix p q.
 Proof.
   split.
   - intros (j & r & H). inversion H.
-    destruct (vstrict_prefix_app_last (snd p) (snd q) i) as (r' & ?).
+    destruct (proj1 (vstrict_prefix_app_last (snd p) (snd q) i)) as (r' & ?).
     + exists j, r. assumption.
     + exists r'. apply injective_projections; assumption.
   - intros (r & <-). rewrite<- app_spath_vpath_assoc. destruct (r ++ [i]) eqn:EQN.
@@ -406,6 +441,18 @@ Qed.
 
 Lemma app_spath_vpath_inv_head p q r : p +++ q = p +++ r -> q = r.
 Proof. intros H%(f_equal snd). eapply app_inv_head. exact H. Qed.
+
+Lemma not_prefix_app p q i :
+  ~prefix p (q +++ [i]) -> ~ prefix p q.
+Proof.
+  intros H G. eapply strict_prefix_app_last, strict_prefix_is_prefix in G. eauto.
+Qed.
+
+Lemma not_vprefix_app p q i :
+  ~vprefix p (q ++ [i]) -> ~ vprefix p q.
+Proof.
+  intros H G. by eapply vstrict_prefix_app_last, vstrict_prefix_is_vprefix in G.
+Qed.
 
 (** Automatic resolution of comparisons between path. *)
 Hint Resolve disj_diff_fst : spath.
@@ -926,6 +973,12 @@ Section GetSetPath.
       + apply valid_vpath_app. unfold sget in valid_q. rewrite get_S_p in valid_q. auto.
   Qed.
 
+  Lemma valid_spath_implies_valid_spath_var (S : state) p :
+    valid_spath S p -> valid_spath S (p.1, []).
+  Proof.
+    intros. rewrite spath_var_app_vpath in H0. eapply valid_spath_app ; eauto.
+  Qed.
+
   Lemma get_not_bot_valid_spath (S : state) p : S.[p] <> bot -> valid_spath S p.
   Proof.
     unfold sget. intros ?. destruct (get_at_accessor S (fst p)) as [v | ] eqn:EQN.
@@ -954,6 +1007,26 @@ Section GetSetPath.
       rewrite G, <-length_children_is_arity, children_bot in arity_0. easy.
     - rewrite<- length_children_is_arity in arity_0. apply nth_error_Some' in arity_0.
       destruct arity_0. econstructor; [eassumption | constructor].
+  Qed.
+
+  Lemma valid_spath_app_last_get_node_arity S p :
+    forall (n : nat), arity (get_node (S.[p])) > n -> valid_spath S (p +++ [n]).
+  Proof.
+    intros n arity_n. apply valid_spath_app. split.
+    - apply valid_get_node_sget_not_bot. intros G.
+      rewrite G, <-length_children_is_arity, children_bot in arity_n. easy.
+    - rewrite<- length_children_is_arity in arity_n. apply nth_error_Some' in arity_n.
+      destruct arity_n. econstructor ; [eassumption | constructor].
+  Qed.
+
+  Lemma not_valid_spath_app_last_get_node_arity S p :
+    forall (n : nat), arity (get_node (S.[p])) <= n -> ~ valid_spath S (p +++ [n]).
+  Proof.
+    intros n arity_n valid_pn.
+    apply valid_spath_app in valid_pn as [valid_p valid_vpn].
+    rewrite <- length_children_is_arity in arity_n.
+    apply nth_error_None in arity_n. 
+    inversion valid_vpn ; subst. congruence.
   Qed.
 
   Lemma strict_prefix_one_child S p q (length_one : length (children (S.[p])) = 1) :
@@ -994,6 +1067,21 @@ Section GetSetPath.
     - apply vget_invalid. destruct (valid_or_invalid (snd p) v); [ | assumption].
       exfalso. eapply G. exists v. auto.
     - reflexivity.
+  Qed.
+ 
+  Lemma prefix_bot_is_bot' (S : state) p r:
+    S.[p] = bot -> S.[p +++ r] = bot.
+  Proof.
+    intros Hbot. induction r using rev_ind.
+    - by rewrite app_spath_vpath_nil_r.
+    - rewrite app_spath_vpath_assoc, sget_app, IHr. by rewrite vget_bot.
+  Qed.
+
+  Lemma prefix_bot_is_bot :
+    forall S p q,
+      prefix p q -> S.[p] = bot -> S.[q] = bot.
+  Proof.
+    intros S p q [r Heq] Hbot. rewrite <- Heq. by apply prefix_bot_is_bot'.
   Qed.
 
   Lemma sset_invalid S p v : ~valid_spath S p -> S.[p <- v] = S.
@@ -1286,6 +1374,28 @@ Section GetSetPath.
   Lemma disj_spath_add_anon' S a p q :
     fresh_anon S a -> valid_spath S p -> disj (anon_accessor a, q) p.
   Proof. symmetry. eapply disj_spath_add_anon; eassumption. Qed.
+
+  Lemma valid_spath_write_bot (S : state) p p':
+      valid_spath (S .[ p' <- bot]) p -> valid_spath S p.
+  Proof.
+  intros. destruct (comparable_spaths p p').
+  - subst. eapply sset_not_prefix_valid ; eauto. apply strict_prefix_irrefl.
+  - eapply sset_not_prefix_valid ; eauto.
+    apply not_prefix_left_strict_prefix_right in H1.
+    intros ?%strict_prefix_is_prefix. auto. 
+  - destruct H1 as (n & r & ?) ; subst.
+    apply valid_spath_app in H0 as (? & ?).
+    assert (S .[ p' <- bot] .[ p'] = bot). {
+      destruct (decidable_valid_spath S p').
+      * rewrite sset_sget_equal ; auto.
+      * rewrite sget_invalid ; auto. rewrite <- sset_not_prefix_valid ; auto.
+        apply strict_prefix_irrefl.
+    }
+    rewrite H2 in H1. inversion H1 ; subst. 
+    rewrite children_bot, nth_error_nil in H6. congruence.
+  - eapply sset_not_prefix_valid ; eauto.
+    symmetry in H1. apply not_disj_strict_prefix ; auto.
+  Qed.
 
   Lemma valid_spath_add_anon S a p v :
     valid_spath S p -> fresh_anon S a -> valid_spath (S,, a |-> v) p.
@@ -2384,6 +2494,50 @@ Hint Rewrite @sget_anon using try assumption; reflexivity : spath.
 Hint Rewrite<- @sget_app : spath.
 Hint Rewrite<- @vget_app : spath.
 
+(* Adding a hint to reslove a relation ~prefix p q using the facts that:
+ * - S.[p] does not contain a node c.
+ * - S.[q] starts by the node c.
+ * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
+ * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
+ * the expression (get_at_accessorue v) produced, so that it can be solved automatically.
+ *)
+Hint Extern 3 (~prefix ?p ?q) =>
+  match goal with
+  | H : get_node (?S.[?q]) = _ |- _ =>
+    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | validity]
+  end : spath.
+
+(* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
+   This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
+Ltac not_contains0 :=
+  try assumption;
+  match goal with
+  | |- True => auto
+  | |- not_state_contains ?P (?S,, ?a |-> ?v) =>
+      simple apply not_state_contains_add_anon; not_contains0
+  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
+      simple apply not_state_contains_sset;
+      not_contains0
+  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
+      simple apply not_value_contains_sset_disj;
+        [auto with spath; fail | not_contains0]
+  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
+      simple apply not_value_contains_sset;
+       [ not_contains0 | not_contains0 | validity0]
+  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
+      simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
+      validity0
+  | |- not_value_contains ?P (?v.[[?p <- ?w]]) =>
+      simple apply not_value_contains_vset; not_contains0
+  | |- not_value_contains ?P (?S.[?p]) => idtac
+  | |- not_value_contains ?P ?v =>
+      simple apply not_value_contains_zeroary; [reflexivity | ]
+  | |- not_value_contains ?P ?v =>
+      simple eapply not_value_contains_unary; [reflexivity | | not_contains0]
+  | |- _ => idtac
+  end.
+Ltac not_contains := not_contains0; eauto with spath.
+
 (* Populating the "weight" rewrite database: *)
 (* These hints turn operations on naturals onto operations on relatives, so to rewrite
  * sweight_sset: *)
@@ -2434,3 +2588,79 @@ Ltac weight_inequality :=
   autorewrite with weight in *;
   lia
 .
+
+Lemma lookup_alter_at_accessor_None {state} {val} `{IsState : State state val} :
+  forall S p1 p2 vset,
+    (get_map S) !! p1 = None <-> (get_map (alter_at_accessor vset p2 S)) !! p1 = None.
+  Proof.
+    intros S sp vset ; split ; intros Hget_map ;
+    rewrite get_map_alter in *; rewrite lookup_alter_None in * ; auto.
+  Qed.
+
+Lemma decidable_prefix' (p q : spath) : {r & p +++ r = q } + {~prefix p q}.
+Proof.
+  destruct p. rewrite <- rev_involutive with (l := v).
+  remember (rev v) as rev_v. generalize dependent v. induction rev_v ; intros v Heq.
+  - apply f_equal with (f := @rev nat) in Heq. rewrite rev_involutive in Heq.
+    simpl in Heq. subst.
+    destruct (decide (p = q.1)).
+    * left. subst. apply existT with (x := q.2). by rewrite surjective_pairing.
+    * right. destruct (decidable_prefix (p, []) q) ; auto.
+      destruct H as (r & ?). apply f_equal with (f := fst) in H. simpl in H. auto.
+  - apply f_equal with (f := @rev nat) in Heq. simpl in Heq.
+    rewrite rev_involutive in Heq. 
+    specialize (IHrev_v (rev rev_v)). rewrite rev_involutive in IHrev_v.
+    simpl.
+    destruct (IHrev_v eq_refl) as [(r & ?) | ].
+    * destruct r.
+      ** rewrite Heq. rewrite app_spath_vpath_nil_r in e. right.
+         replace (p, v) with ((p, rev rev_v) +++ [a]) by (rewrite <- Heq ; reflexivity).
+         rewrite <- e. intros ?. destruct H. apply f_equal with (f := snd) in H.
+         simpl in H. apply f_equal with (f := length) in H. rewrite !length_app in H.
+         simpl in H. lia.
+      ** destruct (decide (a = n)).
+         *** rewrite e0 in *. left. apply existT with (x := r).
+             rewrite Heq.
+             replace (p, v) with ((p, rev rev_v) +++ [n]) by (rewrite <- Heq ; easy). 
+             rewrite <- app_spath_vpath_assoc. by simpl.
+         *** right. rewrite Heq. intros (? & ?).
+             replace (p, v) with ((p, rev rev_v) +++ [a]) in H
+                 by (rewrite <- Heq ; easy).
+             rewrite <- app_spath_vpath_assoc, <- e in H.
+             apply app_spath_vpath_inv_head in H. simpl in H.
+             apply f_equal with (f := head) in H. injection H as [=]. auto.
+    * right. simpl. intros (r & ?).
+      assert (prefix (p, rev rev_v) q).
+      { exists (a :: r). unfold "+++" in *. simpl in *. rewrite <- app_assoc in H.
+        by simpl in *. }
+      auto.
+Qed.
+
+Lemma decidable_prefix_is_prefix :
+  forall p r,
+    exists equ, decidable_prefix' p (p +++ r) = inleft (existT r equ).
+Proof.
+  intros *. destruct (decidable_prefix' p (p +++ r)) as [ (r' & equ) | npref ].
+  - pose proof equ as equ'.
+    apply app_spath_vpath_inv_head in equ' ; subst.
+    repeat apply f_equal. by exists equ.
+  - by assert (prefix p (p +++ r)) by (exists r ; auto).
+Qed.
+
+Lemma decidable_prefix_is_not_prefix :
+  forall p r,
+    ~ prefix p r ->
+    exists npref, decidable_prefix' p r = inright npref.
+Proof.
+  intros * npref. destruct (decidable_prefix' p r) as [ (r' & equ) | npref' ].
+  - by assert (prefix p r) by (exists r' ; auto).
+  - by exists npref'.
+Qed.
+
+Definition removelast (p : spath) := (p.1, List.removelast p.2). 
+
+Lemma removelast_app :
+  forall p q, q <> [] -> removelast (p +++ q) = p +++ List.removelast q.
+Proof.
+  intros * neq. unfold removelast. simpl. rewrite List.removelast_app ; auto.
+Qed.
