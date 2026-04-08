@@ -183,43 +183,19 @@ Proof.
   apply not_elem_of_dom. rewrite dom_alter. apply not_elem_of_dom. auto.
 Qed.
 
-Lemma alter_mem_preserves_nextblock2 :
-  forall (m : Pmap pl_val) f i nextblock,
-  (forall bi, Pos.le nextblock bi -> lookup bi (alter f i m) = None) ->
-  forall bi, Pos.le nextblock bi -> lookup bi m = None.
+Lemma loadbytes_elim :
+  forall m b ofs n bytes,
+    Mem.loadbytes m b ofs n = Some bytes ->
+    Mem.range_perm m b ofs (ofs + n) Cur Readable /\
+      bytes = Mem.getN (Z.to_nat n) ofs (Mem.mem_contents m) # b.
 Proof.
-  intros * nextblock_no_access bi le.
-    apply not_elem_of_dom. rewrite <- dom_alter. apply not_elem_of_dom. auto.
+  intros * load.
+  Transparent Mem.loadbytes. unfold Mem.loadbytes in load. Opaque Mem.loadbytes.
+  destruct (Mem.range_perm_dec m b ofs (ofs + n) Cur Readable) ; try discriminate.
+  split ; auto. congruence.
 Qed.
 
-Lemma alter_mem_preserves_nextblock :
-  forall (m : Pmap pl_val) f i nextblock,
-    (forall bi, Pos.le nextblock bi -> lookup bi m = None) <->
-    forall bi, Pos.le nextblock bi -> lookup bi (alter f i m) = None.
-Proof.
-  intros *. split ;
-  [ apply alter_mem_preserves_nextblock1 | apply alter_mem_preserves_nextblock2 ].
-Qed.
-
-Lemma update_mem_eq :
-  forall S, update_mem S (mem S) (nextblock_no_access S) = S.
-Proof. by intros []. Qed.
-
-Definition lookup_at_addr (addr : address) (t : type) (S : PL_state) : option pl_val :=
-  let size := sizeof t in
-  if valid_access_dec S addr t then
-    option_map (fun vl => firstn size (skipn addr.2 vl)) (lookup addr.1 (mem S))
-  else None.
-
-Definition write_at_addr (addr : address) (t : type) (vl : pl_val) (S : PL_state) :=
-  let (bi, off) := addr in
-  let m := 
-    alter (fun block => (firstn off block) ++ vl ++ (skipn (off + length vl) block))
-      bi (mem S) in
-  update_mem S m
-    (alter_mem_preserves_nextblock1 _ _ _ _ (nextblock_no_access S)).
-
-Notation "S .m.[ addr : t ]" := (lookup_at_addr addr t S)
+Notation "S .m.[ addr : t ]" := (Mem.loadbytes (mem S) addr.1 addr.2 (sizeof t))
                                   (at level 50, addr at next level).
 
 Notation "S .m.[ addr <- vl : t ]" := (write_at_addr addr t vl S)
@@ -1876,6 +1852,118 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     }
   Qed.
 
+  Lemma le_mem_range_perm_eq :
+    forall mem1 mem2 b lo hi k p,
+      le_mem mem1 mem2 -> 
+      Mem.range_perm mem1 b lo hi k p <->
+        Mem.range_perm mem2 b lo hi k p.
+  Proof.
+    intros * (perms & _) ; split ; intro H ;
+      intros ofs le ; specialize (H ofs le) ;
+      unfold Mem.perm in * ; congruence.
+  Qed.
+
+  Lemma le_mem_storebytes_None_equiv :
+    forall mem1 mem2 b ofs bytes1 bytes2,
+      le_mem mem1 mem2 ->
+      Datatypes.length bytes1 = Datatypes.length bytes2 ->
+      Mem.storebytes mem1 b ofs bytes1 = None <->
+        Mem.storebytes mem2 b ofs bytes2 = None.
+  Proof.
+    Transparent Mem.storebytes. unfold Mem.storebytes in *. Opaque Mem.storebytes.
+    intros * Hle_mem len_eq. split.
+    - intros H.
+      destruct (Mem.range_perm_dec mem1 b ofs _ Cur Writable) ; try congruence.
+      rewrite (le_mem_range_perm_eq _ mem2) in n ; auto.
+      destruct (Mem.range_perm_dec mem2 b ofs _ Cur Writable) ; try congruence.
+    - intros H.
+      destruct (Mem.range_perm_dec mem2 b ofs _ Cur Writable) ; try congruence.
+      rewrite <- (le_mem_range_perm_eq mem1 mem2) in n ; auto.
+      destruct (Mem.range_perm_dec mem1 b ofs _ Cur Writable) ; try congruence.
+  Qed.
+
+  Lemma le_mem_loadbytes_None_equiv :
+    forall mem1 mem2 b ofs n,
+      le_mem mem1 mem2 ->
+      Mem.loadbytes mem1 b ofs n= None <-> Mem.loadbytes mem2 b ofs n = None.
+  Proof.
+    Transparent Mem.loadbytes. unfold Mem.loadbytes in *. Opaque Mem.loadbytes.
+    intros * le ; split ; intros H.
+    - destruct (Mem.range_perm_dec mem1 b ofs (ofs + n) Cur Readable) ;
+        try discriminate.
+      destruct (Mem.range_perm_dec mem2 b ofs (ofs + n) Cur Readable) ; auto.
+      eapply le_mem_range_perm_eq in r ; eauto. contradiction.
+    - destruct (Mem.range_perm_dec mem1 b ofs (ofs + n) Cur Readable) ; auto.
+      destruct (Mem.range_perm_dec mem2 b ofs (ofs + n) Cur Readable) ;
+        try discriminate.
+      rewrite <- (le_mem_range_perm_eq _ _ _ _ _ _ _ le) in n0. contradiction.
+  Qed.
+
+  Lemma set2 : forall (A : Type) (c : ZMap.t A) (p q : Z) v1 v2,
+      p <> q ->
+      ZMap.set p v1 (ZMap.set q v2 c) = ZMap.set q v2 (ZMap.set p v1 c).
+  Proof.
+    intros A (?, ?) * neq. unfold ZMap.set, PMap.set ; simpl. f_equal ; auto.
+    apply PTree.extensionality ; intros. rewrite !PTree.gsspec.
+    destruct (peq i (ZIndexed.index p)) ; destruct (peq i (ZIndexed.index q)) ; auto.
+    subst. apply ZIndexed.index_inj in e0 ; congruence. 
+  Qed.
+
+  Lemma setN_inv : forall vl v c p q,
+      p < q ->
+      Mem.setN vl q (ZMap.set p v c) = ZMap.set p v (Mem.setN vl q c).
+  Proof.
+    induction vl ; intros * le.
+    - reflexivity.
+    - simpl. rewrite set2, !IHvl ; auto ; lia.
+  Qed.
+
+  Lemma setN_inv' : forall vl v c p,
+      ZMap.get p (Mem.setN vl (p + 1) (ZMap.set p v c)) = v.
+  Proof.
+    intros *. rewrite Mem.setN_other ; [ rewrite ZMap.gss ; reflexivity | lia].
+  Qed.
+
+  Lemma setN_get_gt :
+    forall vl v c p q,
+      p + 1 <= q < p + 1 + Datatypes.length vl ->
+      ZMap.get q (Mem.setN vl (p + 1) (ZMap.set p v c)) =
+        ZMap.get q (Mem.setN vl (p + 1) c).
+  Proof.
+    induction vl ; intros * len.
+    - simpl in len. lia.
+    - simpl in *. rewrite set2, setN_inv ; try lia.
+      rewrite ZMap.gso ; auto ; lia.
+  Qed.
+        
+  Lemma setN_inside :
+    forall vl c p q,
+      p <= q /\ q < p + Datatypes.length vl ->
+      ZMap.get q (Mem.setN vl p c) = List.nth (Z.to_nat (q - p)) vl Undef.
+  Proof. 
+    induction vl ; intros * (lb & hb).
+    - simpl in hb. lia.
+    - simpl. destruct (Z.to_nat (q - p)) eqn:E.
+      * assert (p = q) by lia ; subst. rewrite Mem.setN_other ; [ | lia].
+        rewrite ZMap.gss ; reflexivity.
+      * simpl in hb. assert (p + 1 <= q < p + 1 + Datatypes.length vl) by lia.
+        specialize (IHvl c (p + 1) q H).
+        replace (Z.to_nat (q - (p + 1))) with n in IHvl by lia.
+        rewrite <- IHvl. rewrite setN_get_gt ; auto.
+  Qed.
+
+  Lemma le_block_nth :
+    forall b1 b2 d n,
+      le_val d d ->
+      le_block b1 b2 ->
+      le_val (List.nth n b1 d) (List.nth n b2 d).
+  Proof.
+    intros * le_def le_blo. generalize dependent n.
+    induction le_blo.
+    - destruct n ; simpl ; auto.
+    - destruct n ; simpl ; auto.
+  Qed.
+
   Lemma le_pl_write_at_addr :
     forall Spl1 Spl2 addr t vl vl',
       le_pl_state Spl1 Spl2 ->
@@ -1925,21 +2013,13 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       exists vl',
         Spl1.m.[ addr : t ] = Some vl' /\ le_block vl' vl.
   Proof.
-    intros * lu (_ & dom_eq & le_mem).
-    unfold lookup_at_addr in lu.
-    destruct (valid_access_dec Spl2 addr t) as [ (b2 & eq_b2 & size) | ?] ; try easy.
-    rewrite eq_b2 in lu. injection lu as lu.
-    apply elem_of_dom_2 in eq_b2 as eq_b2'.
-    replace (dom (mem Spl2)) with (dom (mem Spl1)) in eq_b2'.
-    apply elem_of_dom in eq_b2' as (b1 & eq_b1). 
-    destruct (le_mem addr.1 b1 eq_b1) as (b2' & eq_b2' & le_b1b2).
-    replace (Spl2 !!h addr.1) with (Some b2) in eq_b2'. injection eq_b2' as <-.
-    exists (take (sizeof t) (drop addr.2 b1)) ; split.
-    + unfold lookup_at_addr. rewrite <- (Forall2_length _ _ _ le_b1b2) in size.
-      assert (valid_access Spl1 addr t) by (exists b1 ; split ; auto).
-      destruct (valid_access_dec Spl1 addr t) ; try contradiction.
-      by replace (Spl1 !!h addr.1) with (Some b1).
-    + rewrite <- lu. by apply Forall2_take, Forall2_drop. 
+    intros * lu (_ & le_mem).
+    destruct (Mem.loadbytes (mem Spl1) addr.1 addr.2 (sizeof t)) eqn:E.
+    - exists l ; split ; auto.
+      apply loadbytes_elim in lu as (perm1 & getN1).
+      apply loadbytes_elim in E as (perm2 & getN2).
+      eapply le_mem_implies_le_block ; eauto.
+    - rewrite le_mem_loadbytes_None_equiv in E ; eauto. congruence.
   Qed.
 
   Lemma le_pl_l :
@@ -1949,21 +2029,13 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       exists vl',
         Spl2.m.[ addr : t ] = Some vl' /\ le_block vl vl'.
   Proof.
-    intros * lu (_ & dom_eq & le_mem).
-    unfold lookup_at_addr in lu.
-    destruct (valid_access_dec Spl1 addr t) as [ (b1 & eq_b1 & size) | ?] ; try easy.
-    rewrite eq_b1 in lu. injection lu as lu.
-    apply elem_of_dom_2 in eq_b1 as eq_b1'.
-    replace (dom (mem Spl1)) with (dom (mem Spl2)) in eq_b1'.
-    apply elem_of_dom in eq_b1' as (b2 & eq_b2). 
-    destruct (le_mem addr.1 b1 eq_b1) as (b2' & eq_b2' & le_b1b2).
-    replace (Spl2 !!h addr.1) with (Some b2) in eq_b2'. injection eq_b2' as <-.
-    exists (take (sizeof t) (drop addr.2 b2)) ; split.
-    + unfold lookup_at_addr. rewrite (Forall2_length _ _ _ le_b1b2) in size.
-      assert (valid_access Spl2 addr t) by (exists b2 ; split ; auto).
-      destruct (valid_access_dec Spl2 addr t) ; try contradiction.
-      by replace (Spl2 !!h addr.1) with (Some b2).
-    + rewrite <- lu. by apply Forall2_take, Forall2_drop. 
+    intros * lu (_ & le_mem).
+    destruct (Mem.loadbytes (mem Spl2) addr.1 addr.2 (sizeof t)) eqn:E.
+    - exists l ; split ; auto.
+      apply loadbytes_elim in lu as (perm1 & getN1).
+      apply loadbytes_elim in E as (perm2 & getN2).
+      eapply le_mem_implies_le_block ; eauto.
+    - rewrite <- le_mem_loadbytes_None_equiv in E ; eauto. congruence.
   Qed.
 
   Lemma le_pl_write_at_addr_r :
@@ -1973,10 +2045,11 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       le_block vl vl' ->
       le_pl_state Spl1 (Spl2.m.[ addr <- vl' : t ]).
   Proof.
-    intros Spl1 Spl2 addr t vl vl' Hread Hle_pl Hle_block.
-    erewrite <- write_read_at_addr with (Spl := Spl1) ; eauto.
-    by apply le_pl_write_at_addr ; auto.
-  Qed.
+    intros * read le le_block.
+    pose proof le as (env_eq & access_eq & nextblock_eq & le_val).
+    constructor ; [ rewrite env_stable_by_write_at_addr ; auto | ].
+    repeat constructor ; admit.
+  Admitted.
 
   Lemma le_pl_write_at_addr_l :
     forall Spl1 Spl2 addr t vl vl',
@@ -1985,10 +2058,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       le_block vl vl' ->
       le_pl_state (Spl1.m.[ addr <- vl : t ]) Spl2.
   Proof.
-    intros Spl1 Spl2 addr t vl Hsize Hle_pl Hle_block.
-    erewrite <- write_read_at_addr with (Spl := Spl2) ; eauto.
-    apply le_pl_write_at_addr ; auto.
-  Qed.
+    intros * read le le_block.
+  Admitted.
 
   Lemma concr_val_off_vpath_equiv_equiv :
     forall vi ti vli,
