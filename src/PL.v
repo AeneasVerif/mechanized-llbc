@@ -177,10 +177,30 @@ Ltac is_valid_access S addr t := match goal with
       [ clear _H | contradiction ]
   end.
 
-Lemma alter_mem_preserves_nextblock1 :
-  forall (m : Pmap pl_val) f i nextblock,
-    (forall bi, Pos.le nextblock bi -> lookup bi m = None) ->
-    forall bi, Pos.le nextblock bi -> lookup bi (alter f i m) = None.
+Lemma mem_storebytes_elim : 
+  forall m b ofs bytes,
+    ((exists m', Mem.storebytes m b ofs bytes = Some m') /\
+             Mem.range_perm m b ofs (ofs + Datatypes.length bytes) Cur Writable) \/
+      (Mem.storebytes m b ofs bytes = None /\
+         ~ Mem.range_perm m b ofs (ofs + Datatypes.length bytes) Cur Writable).
+Proof.
+  Transparent Mem.storebytes.
+  intros *. destruct (Mem.storebytes m b ofs bytes) eqn:E.
+  - left. split ; [ exists m0 ; reflexivity | ].
+    unfold Mem.storebytes in E.
+    destruct (Mem.range_perm_dec _ _ _ _ _ _) ; [injection E as <- | easy ] ; assumption.
+  - right ; split ; [ reflexivity | ].
+    unfold Mem.storebytes in E.
+    destruct (Mem.range_perm_dec _ _ _ _ _ _) ; [ easy | assumption ].
+  Opaque Mem.storebytes.
+Qed.
+
+Lemma storebytes_elim :
+  forall m b off bytes t,
+    (sizeof t = length bytes /\ exists m', Mem.storebytes m b off bytes = Some m' /\
+     storebytes m b off bytes t = m') \/
+    ((sizeof t <> length bytes \/ Mem.storebytes m b off bytes = None) /\
+     storebytes m b off bytes t = m).
 Proof.
   intros * nextblock_no_access bi le.
   apply not_elem_of_dom. rewrite dom_alter. apply not_elem_of_dom. auto.
@@ -261,6 +281,16 @@ Proof.
   unfold write_at_addr. simpl in *. by repeat rewrite dom_alter_L.
 Qed.
 
+Lemma heap_sset_sget_disj :
+  forall Spl addr bi v t,
+    addr.1 <> bi -> Spl.m.[addr <- v : t] !!h bi = Spl !!h bi.
+Proof.
+  intros [env mem] * neq. unfold storebytes. simpl.
+  destruct ((sizeof t =? Datatypes.length v)%nat) eqn:len; [ | reflexivity ] ;
+    destruct (Mem.storebytes mem addr.1 addr.2 v) eqn:E ; [ | reflexivity ].
+  apply Mem.storebytes_mem_contents in E. rewrite E, PMap.gso ; congruence.
+Qed.
+
 Lemma mem_access_stable_by_write_at_addr :
   forall S addr t bytes,
     Mem.mem_access (mem S) = Mem.mem_access (mem (S.m.[addr <- bytes: t])).
@@ -269,6 +299,15 @@ Proof.
   destruct ((sizeof t =? Datatypes.length bytes)%nat) ;
     destruct (Mem.storebytes (mem S) addr.1 addr.2 bytes) eqn:E ; auto.
   eapply Mem.storebytes_access in E ; eauto.
+Qed.
+
+Lemma mem_perm_range_stable_by_write_at_addr :
+  forall Spl addr bi ofs bytes size t k perm,
+  Mem.range_perm (mem Spl) bi ofs size k perm ->
+  Mem.range_perm (mem (Spl .m.[ addr <- bytes : t])) bi ofs size k perm.
+Proof.
+  intros * range_perm. unfold Mem.range_perm, Mem.perm in * ; intros * eq.
+  rewrite <- mem_access_stable_by_write_at_addr. auto.
 Qed.
 
 Lemma nextblock_stable_by_write_at_addr :
@@ -1870,7 +1909,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
         Transparent Mem.storebytes. unfold Mem.storebytes in E. Opaque Mem.storebytes.
         destruct (Mem.range_perm_dec (mem S) _ _ _ _ _) ; try discriminate.
         destruct (Mem.range_perm_dec (mem S) _ _ _ _ _) ; try discriminate.
-        injection get as <- ; injection E as <-. destruct S ; f_equal.
+        injection get as <- ; injection E as <-. destruct S ; f_equal. simpl.
+        destruct mem0. simpl.
         admit.
       * destruct S ; reflexivity.
     - destruct S ; reflexivity.
@@ -2102,18 +2142,50 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       concr_hlpl (S.[sp <- v] ) (Spl.m.[addr <- vl : t]).
   Proof.
     intros * [Hconcr_mem Hconcr_env] Hconcr_val Hequiv. split.
-    - intros enc_x bi' t' v' Hvsp HSx Hbo'.
+    - intros enc_x bi t' v' Hvsp HSx Hbo'.
       apply sset_not_prefix_valid in Hvsp ; try apply not_strict_prefix_nil.
       destruct (addr_spath_equiv_var_bi _ _ _ _ Hequiv) as (t0 & Hbo). cbn in Hbo.
-      destruct (Pos.eqb_spec bi bi').
-      * subst bi'. 
-        simpl.
-        admit.
-      * admit.
+      pose proof (Hconcr_mem _ _ _ _ Hvsp (eq_refl _) Hbo')
+        as ((bytes' & concr_val' & get) & perms).
+      destruct (peq addr.1 bi).
+      + subst bi. simpl.
+        split ; [ | apply mem_perm_range_stable_by_write_at_addr ; assumption ].
+        exists (firstn (Z.to_nat addr.2) bytes' ++ bytes ++
+                     skipn (Z.to_nat addr.2 + sizeof t) bytes'). 
+        inversion Hequiv ; subst. split.
+        * pose proof (proj2 (blockof_inj _ _ _ _ _ _ Hbo Hbo') eq_refl) ;
+           assert (t' = tinit) by congruence ; subst.
+          rewrite (spath_var_app_vpath sp), sset_sget_prefix ;
+            [ apply concr_val_write ; auto | assumption ].
+        * unfold storebytes.
+          destruct ((sizeof t =? Datatypes.length bytes)%nat) eqn:len ;
+            [ destruct (Mem.storebytes (mem Spl) addr.1 addr.2 bytes) eqn:E | ].
+          ** simpl. apply Mem.loadbytes_storebytes_same in E as E'.
+             Transparent Mem.loadbytes. unfold Mem.loadbytes in *.
+             Opaque Mem.loadbytes.
+             apply Mem.range_perm_implies with (p2 := Readable) in perms ;
+               [ | constructor].
+             destruct (Mem.range_perm_dec _ _ _ _ _ _) ; [ | discriminate ].
+             injection E' as <-. admit.
+          ** destruct (mem_storebytes_elim (mem Spl) addr.1 addr.2 bytes) as
+             [ ((m' & ?) & _) | (_ & nperms) ] ; [ congruence| ].
+             apply Mem.range_perm_implies with (p2 := Readable) in perms ;
+               [ | constructor ].
+
+             admit.
+          ** rewrite (concr_val_size _ _ _ Hconcr_val), Nat.eqb_refl in len.
+             discriminate.
+      + split.
+        * exists bytes'. split.
+          ** rewrite <- HSx, sset_sget_disj ; [ assumption | ].
+             left. simpl. intros ? ; congruence.
+          ** rewrite heap_sset_sget_disj ; auto.
+        * apply mem_perm_range_stable_by_write_at_addr ; assumption.
     - intros enc_x bi' t0 Hvsp Hbo. rewrite env_stable_by_write_at_addr.
       apply sset_not_prefix_valid in Hvsp ; try apply not_strict_prefix_nil.
       specialize (Hconcr_env enc_x bi' t0 Hvsp Hbo). assumption.
   Admitted.
+
 End Concretization.
 Notation "addr ~^{ bo , S , t } sp" := (addr_spath_equiv bo S addr t sp) (at level 40).
   
