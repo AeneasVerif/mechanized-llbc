@@ -218,6 +218,61 @@ Proof.
   split ; auto. congruence.
 Qed.
 
+Lemma getN_firstn :
+  forall mem n1 n2 ofs,
+    firstn n1 (Mem.getN (n1 + n2) ofs mem) ++ Mem.getN n2 (ofs + n1) mem =
+      Mem.getN (n1 + n2) ofs mem.
+Proof.
+  induction n1 ; intros.
+  - simpl. rewrite Z.add_0_r. reflexivity.
+  - simpl. replace (ofs + S n1) with (ofs + 1 + n1) by lia.
+    rewrite IHn1. reflexivity.
+Qed.
+
+Lemma getN_firstn' :
+  forall mem (m n : nat) ofs,
+    (n <= m)%nat ->
+    firstn n (Mem.getN m ofs mem) ++ Mem.getN (m - n) (ofs + n) mem =
+      Mem.getN m ofs mem.
+Proof.
+  intros * le.
+  replace (Mem.getN _ _ _) with (Mem.getN (n + (m - n)) ofs mem0) by (f_equal ; lia).
+  apply getN_firstn.
+Qed.
+
+Lemma getN_skipn :
+  forall mem n1 n2 ofs,
+    Mem.getN n1 ofs mem ++ skipn n1 (Mem.getN (n1 + n2) ofs mem) =
+      Mem.getN (n1 + n2) ofs mem.
+Proof.
+  induction n1 ; intros.
+  - reflexivity.
+  - simpl. rewrite IHn1. reflexivity.
+Qed.
+
+Lemma getN_skipn' :
+  forall mem m n ofs,
+    (n <= m)%nat ->
+    Mem.getN n ofs mem ++ skipn n (Mem.getN m ofs mem) = Mem.getN m ofs mem.
+Proof.
+  intros. replace m with (n + (m - n))%nat by lia.
+  apply getN_skipn.
+Qed.
+
+Lemma getN_skipn'' :
+  forall mem n1 n2 n3 ofs ofs',
+    ofs = Z.of_nat n3 + ofs' ->
+    Mem.getN n1 ofs mem ++ skipn (n3 + n1) (Mem.getN (n3 + n1 + n2) ofs' mem) =
+      Mem.getN (n1 + n2) ofs mem.
+Proof.
+  induction n3 ; intros.
+  - rewrite Nat2Z.inj_0, Z.add_0_l in H. subst.
+    simpl.
+    rewrite Mem.getN_concat, LB.drop_app_length' ; [ reflexivity | ]. 
+    rewrite Mem.getN_length. reflexivity.
+  - simpl. rewrite IHn3 ; [ | lia ]. reflexivity.
+Qed.
+
 Notation "S .m.[ addr : t ]" := (Mem.loadbytes (mem S) addr.1 addr.2 (sizeof t))
                                   (at level 50, addr at next level).
 
@@ -2160,19 +2215,27 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
         * unfold storebytes.
           destruct ((sizeof t =? Datatypes.length bytes)%nat) eqn:len ;
             [ destruct (Mem.storebytes (mem Spl) addr.1 addr.2 bytes) eqn:E | ].
-          ** simpl. apply Mem.loadbytes_storebytes_same in E as E'.
+          ** admit.
+            (*
+            simpl. apply Mem.loadbytes_storebytes_same in E as E'.
              Transparent Mem.loadbytes. unfold Mem.loadbytes in *.
              Opaque Mem.loadbytes.
              apply Mem.range_perm_implies with (p2 := Readable) in perms ;
                [ | constructor].
-             destruct (Mem.range_perm_dec _ _ _ _ _ _) ; [ | discriminate ].
-             injection E' as <-. admit.
+             destruct Mem.range_perm_dec ; [ | discriminate ].
+             injection E' as <-. apply Nat.eqb_eq in len.
+             rewrite <- len. rewrite Nat2Z.id.
+             replace (sizeof t')%nat with
+               (Z.to_nat addr.2 + sizeof t +
+                  (sizeof t' -  (Z.to_nat addr.2 + sizeof t)))%nat by admit.
+             remember (sizeof t) as n1. remember (Z.to_nat addr.2) as n3.
+             remember (sizeof t' -  (n3 + n1))%nat as n2.
+             replace (_) # (addr.1) with (Spl !!h addr.1) by admit.
+             rewrite getN_skipn''. admit. admit. *)
           ** destruct (mem_storebytes_elim (mem Spl) addr.1 addr.2 bytes) as
              [ ((m' & ?) & _) | (_ & nperms) ] ; [ congruence| ].
              apply Mem.range_perm_implies with (p2 := Readable) in perms ;
                [ | constructor ].
-
-             admit.
           ** rewrite (concr_val_size _ _ _ Hconcr_val), Nat.eqb_refl in len.
              discriminate.
       + split.
