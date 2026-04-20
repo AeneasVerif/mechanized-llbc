@@ -219,58 +219,23 @@ Proof.
 Qed.
 
 Lemma getN_firstn :
-  forall mem n1 n2 ofs,
-    firstn n1 (Mem.getN (n1 + n2) ofs mem) ++ Mem.getN n2 (ofs + n1) mem =
-      Mem.getN (n1 + n2) ofs mem.
+  forall mem n m ofs,
+    firstn n (Mem.getN m ofs mem) = Mem.getN (Nat.min n m) ofs mem.
 Proof.
-  induction n1 ; intros.
-  - simpl. rewrite Z.add_0_r. reflexivity.
-  - simpl. replace (ofs + S n1) with (ofs + 1 + n1) by lia.
-    rewrite IHn1. reflexivity.
-Qed.
-
-Lemma getN_firstn' :
-  forall mem (m n : nat) ofs,
-    (n <= m)%nat ->
-    firstn n (Mem.getN m ofs mem) ++ Mem.getN (m - n) (ofs + n) mem =
-      Mem.getN m ofs mem.
-Proof.
-  intros * le.
-  replace (Mem.getN _ _ _) with (Mem.getN (n + (m - n)) ofs mem0) by (f_equal ; lia).
-  apply getN_firstn.
+  induction n ; intros.
+  - simpl. rewrite firstn_0. reflexivity.
+  - destruct m ; simpl ; [ reflexivity | ].
+    rewrite IHn. reflexivity.
 Qed.
 
 Lemma getN_skipn :
-  forall mem n1 n2 ofs,
-    Mem.getN n1 ofs mem ++ skipn n1 (Mem.getN (n1 + n2) ofs mem) =
-      Mem.getN (n1 + n2) ofs mem.
+  forall mem n m ofs,
+    skipn n (Mem.getN m ofs mem) = Mem.getN (m - n) (ofs + n) mem.
 Proof.
-  induction n1 ; intros.
-  - reflexivity.
-  - simpl. rewrite IHn1. reflexivity.
-Qed.
-
-Lemma getN_skipn' :
-  forall mem m n ofs,
-    (n <= m)%nat ->
-    Mem.getN n ofs mem ++ skipn n (Mem.getN m ofs mem) = Mem.getN m ofs mem.
-Proof.
-  intros. replace m with (n + (m - n))%nat by lia.
-  apply getN_skipn.
-Qed.
-
-Lemma getN_skipn'' :
-  forall mem n1 n2 n3 ofs ofs',
-    ofs = Z.of_nat n3 + ofs' ->
-    Mem.getN n1 ofs mem ++ skipn (n3 + n1) (Mem.getN (n3 + n1 + n2) ofs' mem) =
-      Mem.getN (n1 + n2) ofs mem.
-Proof.
-  induction n3 ; intros.
-  - rewrite Nat2Z.inj_0, Z.add_0_l in H. subst.
-    simpl.
-    rewrite Mem.getN_concat, LB.drop_app_length' ; [ reflexivity | ]. 
-    rewrite Mem.getN_length. reflexivity.
-  - simpl. rewrite IHn3 ; [ | lia ]. reflexivity.
+  induction n ; intros.
+  - rewrite skipn_0, Nat.sub_0_r, Z.add_0_r. reflexivity.
+  - destruct m ; [ reflexivity | ].
+    simpl. rewrite IHn. replace (ofs + S n) with (ofs + 1 + n) by lia. reflexivity.
 Qed.
 
 Notation "S .m.[ addr : t ]" := (Mem.loadbytes (mem S) addr.1 addr.2 (sizeof t))
@@ -773,7 +738,27 @@ Section Concretization.
   | Offset_vpath_loc off vp t' l
       (Hloc : get_node (v.[[ vp ]]) = HLPL_locC l)
       (Hrec : off_vpath_equiv v t off t' vp) :
-    off_vpath_equiv v t off t' (vp ++ [0]).
+    off_vpath_equiv v t off t' (vp ++ [0%nat]).
+
+  Lemma offset_is_positive :
+    forall v ti off t vp,
+      off_vpath_equiv v ti off t vp -> 0 <= off.
+  Proof. intros * vpath_equiv. induction vpath_equiv ; lia. Qed.
+
+  Lemma offset_less_modulus :
+    forall v ti off t vp,
+      off_vpath_equiv v ti off t vp -> off < Ptrofs.modulus.
+  Proof.
+  Admitted.
+
+  Lemma offset_range :
+    forall v ti off t vp,
+      off_vpath_equiv v ti off t vp -> 0 <= off < Ptrofs.modulus.
+  Proof.
+    intros * ; split. 
+    - eapply offset_is_positive ; eauto.
+    - eapply offset_less_modulus ; eauto.
+  Qed.
 
   Inductive addr_spath_equiv (S : HLPL_state) : address -> type -> spath -> Prop :=
   | Addr_spath_base sp v addr tinit t
@@ -1185,8 +1170,9 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       + rewrite app_nil_r. by replace off2 with off1 by lia.
       + specialize (IHoff_vpath_equiv off2 H Heqoffdiff).
         rewrite app_assoc. eapply Offset_vpath_pair_first ; eauto.
-        by rewrite vget_app.
-      + assert (off2 - sizeof t2 >= off1) by lia.
+        rewrite vget_app ; auto.
+      + assert (0 <= off) by (eapply offset_is_positive ; eauto).
+        assert (off2 - sizeof t2 >= off1) by lia.
         assert (off = off2 - sizeof t2 - off1) by lia.
         specialize (IHoff_vpath_equiv (off2 - sizeof t2) H2 H3).
         rewrite app_assoc. replace off2 with (off2 - sizeof t2 + sizeof t2) by lia.
@@ -1210,8 +1196,10 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
         as (t1 & off1 & ? & ? & ?).
       exists t1, off1, (off - off1). repeat split ; auto. lia.
     - destruct H as (t1 & off1 & off2 & ? & ? & ?).
-      apply off_vpath_equiv_compose'. exists t1, off1 ; repeat split ; auto ; try lia.
-      by replace (off - off1) with off2 by lia.
+      apply off_vpath_equiv_compose'.
+      assert (0 <= off2) by (eapply offset_is_positive ; eauto).
+      exists t1, off1 ; repeat split ; auto ; try lia.
+      replace (off - off1) with off2 by lia ; auto.
   Qed.
 
   Lemma addr_spath_equiv_compose :
@@ -1953,19 +1941,20 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
   Qed.
 
   Lemma write_read_at_addr :
-    forall S addr t v,
-      S.m.[ addr : t] = Some v ->
-      S.m.[ addr <-  v : t] = S.
+    forall S addr t bytes,
+      S.m.[ addr : t] = Some bytes ->
+      S.m.[ addr <-  bytes : t] = S.
   Proof.
     intros * get. unfold update_mem, storebytes.
-    destruct ((sizeof t =? Datatypes.length v)%nat).
-    - destruct (Mem.storebytes (mem S) addr.1 addr.2 v) eqn:E.
+    destruct ((sizeof t =? Datatypes.length bytes)%nat) eqn:len.
+    - destruct (Mem.storebytes (mem S) addr.1 addr.2 bytes) eqn:E.
       * Transparent Mem.loadbytes. unfold Mem.loadbytes in get. Opaque Mem.loadbytes.
         Transparent Mem.storebytes. unfold Mem.storebytes in E. Opaque Mem.storebytes.
         destruct (Mem.range_perm_dec (mem S) _ _ _ _ _) ; try discriminate.
         destruct (Mem.range_perm_dec (mem S) _ _ _ _ _) ; try discriminate.
-        injection get as <- ; injection E as <-. destruct S ; f_equal. simpl.
-        destruct mem0. simpl.
+        apply Nat.eqb_eq in len.
+        injection E as <-. injection get as Hv. destruct S ; f_equal. simpl.
+        destruct mem0 eqn:Hmem. simpl. apply Mem.mkmem_ext ; auto.
         admit.
       * destruct S ; reflexivity.
     - destruct S ; reflexivity.
@@ -2117,8 +2106,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
         rewrite Hlen0, LB.drop_app_length, <- Hlen0,
           <- LB.take_drop_commute, LB.drop_drop in H8.
         rewrite Z2Nat.inj_add, Nat2Z.id ; [ congruence | | lia ].
-        Search (_ <= _) (_ >= _).
-        eapply Z.ge_le, offset_is_positive ; eauto.
+        eapply offset_is_positive ; eauto.
       - inversion IHoff_vpath_equiv ; subst.
         rewrite vget_app, Heqh. simpl. assumption.
     }
@@ -2209,33 +2197,43 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
                      skipn (Z.to_nat addr.2 + sizeof t) bytes'). 
         inversion Hequiv ; subst. split.
         * pose proof (proj2 (blockof_inj _ _ _ _ _ _ Hbo Hbo') eq_refl) ;
-           assert (t' = tinit) by congruence ; subst.
+            assert (t' = tinit) by congruence ; subst.
           rewrite (spath_var_app_vpath sp), sset_sget_prefix ;
             [ apply concr_val_write ; auto | assumption ].
         * unfold storebytes.
+          apply off_vpath_equiv_sizeof in Hvequiv as leq1.
+          apply offset_is_positive in Hvequiv as leq2.
           destruct ((sizeof t =? Datatypes.length bytes)%nat) eqn:len ;
             [ destruct (Mem.storebytes (mem Spl) addr.1 addr.2 bytes) eqn:E | ].
-          ** admit.
-            (*
-            simpl. apply Mem.loadbytes_storebytes_same in E as E'.
-             Transparent Mem.loadbytes. unfold Mem.loadbytes in *.
-             Opaque Mem.loadbytes.
-             apply Mem.range_perm_implies with (p2 := Readable) in perms ;
-               [ | constructor].
-             destruct Mem.range_perm_dec ; [ | discriminate ].
-             injection E' as <-. apply Nat.eqb_eq in len.
-             rewrite <- len. rewrite Nat2Z.id.
-             replace (sizeof t')%nat with
-               (Z.to_nat addr.2 + sizeof t +
-                  (sizeof t' -  (Z.to_nat addr.2 + sizeof t)))%nat by admit.
-             remember (sizeof t) as n1. remember (Z.to_nat addr.2) as n3.
-             remember (sizeof t' -  (n3 + n1))%nat as n2.
-             replace (_) # (addr.1) with (Spl !!h addr.1) by admit.
-             rewrite getN_skipn''. admit. admit. *)
+          ** apply Nat.eqb_eq in len.
+             rewrite getN_firstn, getN_skipn, Z.add_0_l.
+             pose proof (proj2 (blockof_inj _ _ _ _ _ _ Hbo Hbo') eq_refl) ;
+               assert (t' = tinit) by congruence ; subst tinit.
+             apply offset_is_positive in Hvequiv as pos.
+             unfold offset in *.
+             replace (Mem.getN (sizeof t')) with
+               (Mem.getN (Z.to_nat addr.2 + sizeof t +
+                            (sizeof t' - (Z.to_nat addr.2 + sizeof t)))) by
+               (f_equal ; lia).
+             apply Mem.storebytes_mem_contents in E.
+             rewrite !Mem.getN_concat, <- app_assoc, Z.add_0_l, !Z2Nat.id, Nat.min_l
+               by lia.
+             f_equal ; [ | f_equal ] ; auto.
+             *** rewrite E, PMap.gss, Mem.getN_setN_outside ; [reflexivity | lia ].
+             *** rewrite E, PMap.gss, len, Mem.getN_setN_same. reflexivity.
+             *** rewrite E, PMap.gss, Mem.getN_setN_outside ;
+                   [reflexivity | right ; lia].
           ** destruct (mem_storebytes_elim (mem Spl) addr.1 addr.2 bytes) as
              [ ((m' & ?) & _) | (_ & nperms) ] ; [ congruence| ].
-             apply Mem.range_perm_implies with (p2 := Readable) in perms ;
+             apply Mem.range_perm_implies with (p2 := Writable) in perms ;
                [ | constructor ].
+             pose proof (proj2 (blockof_inj _ _ _ _ _ _ Hbo Hbo') eq_refl) ;
+               assert (t' = tinit) by congruence ; subst tinit.
+             apply Nat.eqb_eq in len. rewrite <- len in *.
+             assert (Mem.range_perm (mem Spl) addr.1 addr.2
+                       (addr.2 + Datatypes.length bytes) Cur Writable) by
+               (intros ? ? ; apply perms ; destruct addr ; simpl in * ; lia).
+             congruence.
           ** rewrite (concr_val_size _ _ _ Hconcr_val), Nat.eqb_refl in len.
              discriminate.
       + split.
@@ -2247,7 +2245,7 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     - intros enc_x bi' t0 Hvsp Hbo. rewrite env_stable_by_write_at_addr.
       apply sset_not_prefix_valid in Hvsp ; try apply not_strict_prefix_nil.
       specialize (Hconcr_env enc_x bi' t0 Hvsp Hbo). assumption.
-  Admitted.
+  Qed. 
 
 End Concretization.
 Notation "addr ~^{ bo , S , t } sp" := (addr_spath_equiv bo S addr t sp) (at level 40).
