@@ -25,11 +25,16 @@ Definition block_id := positive.
 Definition offset := nat.
 Definition address := (block_id * offset)%type.
 
-Inductive PL_val :=
-| PL_poison : PL_val
-| PL_int_frag : nat -> nat -> PL_val 
-| PL_address_frag : address -> nat -> PL_val
-.
+Notation "p .1" := (fst p).
+Notation "p .2" := (snd p).
+Local Notation "a # b" := (PXMap.get b a) (at level 1).
+Local Notation "a ## b" := (PTree.get b a) (at level 1).
+
+Definition offset := Z.
+Definition address := (block * Z)%type.
+
+Definition make_ptr64 (addr : address) :=
+  map (fun i => Fragment (Vptr addr.1 addr.2) Q64 i) (seq 0 8).
 
 Definition make_int64 (n : nat) :=
   map (fun i => PL_int_frag n i) (seq 0 8).
@@ -137,11 +142,15 @@ Definition lookup_type_env (enc_x : positive) (S : PL_state) : option type :=
   | Some (_, T) => Some T
   end.
 
-Notation "Spl !!h bi" := (lookup bi (mem Spl)) (at level 40).
-Notation "Spl !!e bi" := (lookup bi (env Spl)) (at level 40).
-  
-Definition valid_access (S : PL_state) (addr : address) (t : type) :=
-  exists vl, S !!h addr.1 = Some vl /\ addr.2 + sizeof t <= length vl.
+Notation "Spl !!h bi" := (PXMap.get bi (Mem.mem_contents (mem Spl))) (at level 40).
+Notation "Spl !!e bi" := (PTree.get bi (env Spl)) (at level 40).
+
+Fixpoint valid_access (S : PL_state) (b : block) (off : Z)  (t : type) :=
+  match t with
+  | TInt => Mem.valid_access (mem S) Mint64 b off Freeable
+  | TRef _ => Mem.valid_access (mem S) Many64 b off Freeable
+  | TPair t0 t1 => valid_access S b off t0 /\ valid_access S b (off + sizeof t0) t1
+  end.
 
 Lemma valid_access_dec :
   forall S addr t,
@@ -308,7 +317,7 @@ Proof.
   intros [env mem] * neq. unfold storebytes. simpl.
   destruct ((sizeof t =? Datatypes.length v)%nat) eqn:len; [ | reflexivity ] ;
     destruct (Mem.storebytes mem addr.1 addr.2 v) eqn:E ; [ | reflexivity ].
-  apply Mem.storebytes_mem_contents in E. rewrite E, PMap.gso ; congruence.
+  apply Mem.storebytes_mem_contents in E. rewrite E, PXMap.gso ; congruence.
 Qed.
 
 Lemma mem_access_stable_by_write_at_addr :
@@ -1390,12 +1399,14 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       inversion H3 ; subst ; congruence.
   Qed.
 
-  Definition le_mem : relation (Pmap pl_val) :=
-    fun h1 h2 =>
-      dom h1 = dom h2 /\
-      forall bi b1,
-        h1 !! bi = Some b1 ->
-        exists b2, h2 !! bi = Some b2 /\ le_block b1 b2.
+  Definition le_mem : relation Memory.mem :=
+    fun m1 m2 =>
+      Mem.mem_access m1 = Mem.mem_access m2 /\
+      Mem.nextblock m1 = Mem.nextblock m2 /\
+      forall bi ofs v1 v2,
+        ZXMap.get ofs ((Mem.mem_contents m1) # bi) = v1 ->
+        ZXMap.get ofs ((Mem.mem_contents m2) # bi) = v2 ->
+        le_val v1 v2.
   Global Program Instance IsPreorderMem: PreOrder le_mem.
   Next Obligation.
     split ; auto.
@@ -1887,53 +1898,56 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       rewrite <- (le_mem_range_perm_eq _ _ _ _ _ _ _ le) in n0. contradiction.
   Qed.
 
-  Lemma set2 : forall (A : Type) (c : ZMap.t A) (p q : Z) v1 v2,
-      p <> q ->
-      ZMap.set p v1 (ZMap.set q v2 c) = ZMap.set q v2 (ZMap.set p v1 c).
-  Proof.
-    intros A (?, ?) * neq. unfold ZMap.set, PMap.set ; simpl. f_equal ; auto.
-    apply PTree.extensionality ; intros. rewrite !PTree.gsspec.
-    destruct (peq i (ZIndexed.index p)) ; destruct (peq i (ZIndexed.index q)) ; auto.
-    subst. apply ZIndexed.index_inj in e0 ; congruence. 
-  Qed.
-
   Lemma setN_inv : forall vl v c p q,
       p < q ->
-      Mem.setN vl q (ZMap.set p v c) = ZMap.set p v (Mem.setN vl q c).
+      Mem.setN vl q (ZXMap.set p v c) = ZXMap.set p v (Mem.setN vl q c).
   Proof.
     induction vl ; intros * le.
     - reflexivity.
-    - simpl. rewrite set2, !IHvl ; auto ; lia.
+    - simpl. rewrite ZXMap.set_disjoint, !IHvl ; auto ; lia.
   Qed.
 
   Lemma setN_inv' : forall vl v c p,
-      ZMap.get p (Mem.setN vl (p + 1) (ZMap.set p v c)) = v.
+      ZXMap.get p (Mem.setN vl (p + 1) (ZXMap.set p v c)) = v.
   Proof.
-    intros *. rewrite Mem.setN_other ; [ rewrite ZMap.gss ; reflexivity | lia].
+    intros *. rewrite Mem.setN_other ; [ rewrite ZXMap.gss ; reflexivity | lia].
   Qed.
 
   Lemma setN_get_gt :
     forall vl v c p q,
       p + 1 <= q < p + 1 + Datatypes.length vl ->
-      ZMap.get q (Mem.setN vl (p + 1) (ZMap.set p v c)) =
-        ZMap.get q (Mem.setN vl (p + 1) c).
+      ZXMap.get q (Mem.setN vl (p + 1) (ZXMap.set p v c)) =
+        ZXMap.get q (Mem.setN vl (p + 1) c).
   Proof.
     induction vl ; intros * len.
     - simpl in len. lia.
-    - simpl in *. rewrite set2, setN_inv ; try lia.
-      rewrite ZMap.gso ; auto ; lia.
+    - simpl in *. rewrite ZXMap.set_disjoint, setN_inv ; try lia.
+      rewrite ZXMap.gso ; auto ; lia.
   Qed.
+
+  Lemma setN_getN_same :
+    forall n ofs c,
+      Mem.setN (Mem.getN n ofs c) ofs c = c.
+  Proof.
+    induction n ; intros.
+    - reflexivity.
+    - simpl. rewrite setN_inv, IHn ; [ | lia ]. apply ZXMap.extensionality ; intros i.
+      destruct (zeq i ofs).
+      * subst. rewrite ZXMap.gss ; reflexivity.
+      * rewrite ZXMap.gso ; auto.
+  Qed.
+
         
   Lemma setN_inside :
     forall vl c p q,
       p <= q /\ q < p + Datatypes.length vl ->
-      ZMap.get q (Mem.setN vl p c) = List.nth (Z.to_nat (q - p)) vl Undef.
+      ZXMap.get q (Mem.setN vl p c) = List.nth (Z.to_nat (q - p)) vl Undef.
   Proof. 
     induction vl ; intros * (lb & hb).
     - simpl in hb. lia.
     - simpl. destruct (Z.to_nat (q - p)) eqn:E.
       * assert (p = q) by lia ; subst. rewrite Mem.setN_other ; [ | lia].
-        rewrite ZMap.gss ; reflexivity.
+        rewrite ZXMap.gss ; reflexivity.
       * simpl in hb. assert (p + 1 <= q < p + 1 + Datatypes.length vl) by lia.
         specialize (IHvl c (p + 1) q H).
         replace (Z.to_nat (q - (p + 1))) with n in IHvl by lia.
@@ -1948,17 +1962,21 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     intros * get. unfold update_mem, storebytes.
     destruct ((sizeof t =? Datatypes.length bytes)%nat) eqn:len.
     - destruct (Mem.storebytes (mem S) addr.1 addr.2 bytes) eqn:E.
-      * Transparent Mem.loadbytes. unfold Mem.loadbytes in get. Opaque Mem.loadbytes.
+      + Transparent Mem.loadbytes. unfold Mem.loadbytes in get. Opaque Mem.loadbytes.
         Transparent Mem.storebytes. unfold Mem.storebytes in E. Opaque Mem.storebytes.
         destruct (Mem.range_perm_dec (mem S) _ _ _ _ _) ; try discriminate.
         destruct (Mem.range_perm_dec (mem S) _ _ _ _ _) ; try discriminate.
         apply Nat.eqb_eq in len.
         injection E as <-. injection get as Hv. destruct S ; f_equal. simpl.
         destruct mem0 eqn:Hmem. simpl. apply Mem.mkmem_ext ; auto.
-        admit.
-      * destruct S ; reflexivity.
+        apply PXMap.extensionality.
+        intros i. destruct (peq addr.1 i).
+        * subst. rewrite PXMap.gss, Nat2Z.id. apply ZXMap.extensionality.
+          intros i. simpl. rewrite setN_getN_same. reflexivity.
+        * rewrite PXMap.gso ; congruence.
+      + destruct S ; reflexivity.
     - destruct S ; reflexivity.
-  Admitted.
+  Qed.
 
   Lemma le_block_nth :
     forall b1 b2 d n,
@@ -1978,40 +1996,58 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       le_block vl vl' ->
       le_pl_state (Spl1.m.[ addr <- vl : t ]) (Spl2.m.[ addr <- vl' : t ]).
   Proof.
-    intros Spl1 Spl2 addr t vl vl' [Hle_env Hle_mem ] Hle_block.
-    assert (Hdom :
-             dom (mem (Spl1.m.[ addr <- vl : t ])) =
-               dom (mem (Spl2.m.[ addr <- vl' : t ])))
-      by (apply dom_stable_by_write_at_addr, (proj1 Hle_mem)).
-    split.
-    - by repeat rewrite env_stable_by_write_at_addr.
-    - split ; auto.
-      intros bi b1 Hbi.
-      apply elem_of_dom_2 in Hbi as Hbi2.
-      rewrite Hdom in Hbi2. apply elem_of_dom in Hbi2. destruct Hbi2 as [b2 Hbi2].
-      destruct (Positive_as_DT.eqb_spec bi addr.1).
-      + exists b2 ; split ; auto.
-        destruct addr as [bi' off].
-        unfold write_at_addr, update_mem in Hbi, Hbi2. simpl in Hbi, Hbi2.
-        simpl in e ; subst bi'. rewrite lookup_alter in Hbi, Hbi2.
-        rewrite <- (Forall2_length _ _ _ Hle_block) in *.
-        destruct (Spl1 !!h bi) as [ b1' | ] eqn:Hbi'.
-        * apply elem_of_dom_2 in Hbi' as Hbi2' ; rewrite (proj1 Hle_mem) in Hbi2'.
-          apply elem_of_dom in Hbi2'. destruct Hbi2' as [b2' Hbi2'].
-          rewrite Hbi2' in Hbi2. simpl in Hbi, Hbi2.
-          injection Hbi as Hbi ; injection Hbi2 as Hbi2 ; subst.
-          assert (Hle_block' : le_block b1' b2')
-            by (eapply le_mem_implies_le_block ; eauto).
-          apply Forall2_length in Hle_block as Hlen, Hle_block' as Hlen'.
-          repeat (try (apply Forall2_app) ; try (apply Forall2_take)
-                  ; try (apply Forall2_drop)) ;
-            try reflexivity ; auto.
-        * simpl in Hbi ; congruence.
-      + rewrite get_block_write_at_addr_ne in Hbi ; auto.
-        destruct ((proj2 Hle_mem) bi b1 Hbi) as [b2' [Hbi2' Hle] ].
-        exists b2 ; split; auto.
-        rewrite get_block_write_at_addr_ne in Hbi2 ; auto. 
-        replace (Spl2 !!h bi) with (Some b2) in Hbi2'. congruence.
+    intros Spl1 Spl2 addr t bytes bytes' [Hle_env le_mem] Hle_block.
+    pose proof le_mem as (perm & next & lookup).
+    constructor.
+    - rewrite !env_stable_by_write_at_addr ; assumption.
+    - repeat split.
+      + simpl. unfold storebytes.
+        destruct (sizeof t =? Datatypes.length bytes)%nat eqn:E ;
+        destruct (sizeof t =? Datatypes.length bytes')%nat eqn:E' ;
+        destruct (Mem.storebytes (mem Spl1) addr.1 addr.2 bytes) eqn:E'' ;
+        destruct (Mem.storebytes (mem Spl2) addr.1 addr.2 bytes') eqn:E''' ; auto ;
+        try (apply Mem.storebytes_access in E'') ;
+        try (apply Mem.storebytes_access in E''') ;
+          congruence.
+      + simpl. unfold storebytes.
+        destruct (sizeof t =? Datatypes.length bytes)%nat eqn:E ;
+        destruct (sizeof t =? Datatypes.length bytes')%nat eqn:E' ;
+        destruct (Mem.storebytes (mem Spl1) addr.1 addr.2 bytes) eqn:E'' ;
+        destruct (Mem.storebytes (mem Spl2) addr.1 addr.2 bytes') eqn:E''' ; auto ;
+        try (apply Mem.nextblock_storebytes in E'') ;
+        try (apply Mem.nextblock_storebytes in E''') ;
+          congruence.
+      + simpl. intros * access1 access2.
+        destruct (storebytes_elim (mem Spl1) addr.1 addr.2 bytes t)
+          as [(len1 & m1' & mem_acc1 & acc1) | (? & acc1) ] ;
+        destruct (storebytes_elim (mem Spl2) addr.1 addr.2 bytes' t)
+          as [(len2 & m2' & mem_acc2 & acc2) | (? & acc2) ].
+        * apply Mem.storebytes_mem_contents in mem_acc1, mem_acc2.
+          rewrite acc1, mem_acc1 in access1. rewrite acc2, mem_acc2 in access2.
+          destruct (peq bi addr.1).
+          ** subst bi.
+             rewrite (PXMap.gss _ _) in access1. rewrite (PXMap.gss _ _) in access2.
+             destruct (Z.lt_ge_cases ofs addr.2).
+             *** rewrite Mem.setN_outside in access1 ; [ idtac | left ; auto].
+                 rewrite Mem.setN_outside in access2 ; [ idtac | left ; auto].
+                 eauto.
+             *** destruct (Z.lt_ge_cases ofs (addr.2 + Datatypes.length bytes)).
+                 **** rewrite setN_inside in access1 ; [ | auto].
+                      rewrite setN_inside in access2 ; [ | lia].
+                      rewrite <- access1, <- access2.
+                      apply le_block_nth ; auto ; constructor.
+                 **** rewrite Mem.setN_outside in access1 ; [ idtac | right ; lia ].
+                      rewrite Mem.setN_outside in access2 ; [ idtac | right ; lia ].
+                      eauto.
+          ** rewrite (PXMap.gso _ _ n) in access1. rewrite (PXMap.gso _ _ n) in access2.
+             eapply lookup ; eauto.
+        * apply Forall2_length in Hle_block. destruct H ; try congruence.
+          apply (le_mem_storebytes_None_equiv _ _ _ _ bytes _ le_mem) in H ; auto.
+          congruence.
+        * apply Forall2_length in Hle_block. destruct H ; try congruence.
+          apply (le_mem_storebytes_None_equiv _ _ _ _ _ bytes' le_mem) in H ; auto.
+          congruence.
+        * rewrite acc1 in access1. rewrite acc2 in access2. eauto.
   Qed.
 
   Lemma le_pl_r :
@@ -2219,9 +2255,9 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
              rewrite !Mem.getN_concat, <- app_assoc, Z.add_0_l, !Z2Nat.id, Nat.min_l
                by lia.
              f_equal ; [ | f_equal ] ; auto.
-             *** rewrite E, PMap.gss, Mem.getN_setN_outside ; [reflexivity | lia ].
-             *** rewrite E, PMap.gss, len, Mem.getN_setN_same. reflexivity.
-             *** rewrite E, PMap.gss, Mem.getN_setN_outside ;
+             *** rewrite E, PXMap.gss, Mem.getN_setN_outside ; [reflexivity | lia ].
+             *** rewrite E, PXMap.gss, len, Mem.getN_setN_same. reflexivity.
+             *** rewrite E, PXMap.gss, Mem.getN_setN_outside ;
                    [reflexivity | right ; lia].
           ** destruct (mem_storebytes_elim (mem Spl) addr.1 addr.2 bytes) as
              [ ((m' & ?) & _) | (_ & nperms) ] ; [ congruence| ].
