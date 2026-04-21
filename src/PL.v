@@ -2058,8 +2058,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     constructor ; [ rewrite env_stable_by_write_at_addr ; auto | ].
     eapply le_pl_write_at_addr with (addr := addr) (t := t) in le
         as (le_env & le_m) ; eauto.
-    rewrite <- write_read_at_addr with (S := Spl1) (addr := addr) (t := t) (v := bytes)
-    ; auto.
+    rewrite <- write_read_at_addr
+      with (S := Spl1) (addr := addr) (t := t) (bytes := bytes) ; auto.
   Qed.
 
   Lemma le_pl_write_at_addr_l :
@@ -2074,8 +2074,8 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     constructor ; [ rewrite env_stable_by_write_at_addr ; auto | ].
     eapply le_pl_write_at_addr with (addr := addr) (t := t) in le
         as (le_env & le_m) ; eauto.
-    rewrite <- write_read_at_addr with (S := Spl2) (addr := addr) (t := t) (v := bytes')
-    ; auto.
+    rewrite <- write_read_at_addr
+      with (S := Spl2) (addr := addr) (t := t) (bytes := bytes') ; auto.
   Qed.
 
   Lemma concr_val_off_vpath_equiv_equiv :
