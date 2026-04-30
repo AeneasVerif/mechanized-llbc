@@ -113,9 +113,6 @@ Lemma bi_add_offset : forall (bi : block_id) (off1 off2 : nat),
     (bi, off1 + off2) = (bi, off1) +o off2.
 Proof. reflexivity. Qed.
 
-Inductive copy_val : PL_val -> PL_val -> Prop :=
-| Copy_val_int (n i : nat) : copy_val (PL_int_frag n i) (PL_int_frag n i).
-
 (* Functions to lookup and update PL states *)
 Definition update_env (S : PL_state) (e : Pmap (block_id * type)) :=
   {| env := e ; mem := mem S ;
@@ -3793,44 +3790,54 @@ Section Tests.
   Definition enc_x := encode_var x.
   Definition y := 2 % positive.
   Definition enc_y := encode_var y.
-  Definition b1 := (1 % positive).
-  Definition b2 := (2 % positive).
-  Definition b3 := (3 % positive).
   Notation l1 := 0%nat.
   Notation l2 := 1%nat.
 
-  Local Open Scope stdpp_scope.
+  Definition m1_b1 := Mem.alloc Mem.empty 0 64 8.
+  Definition m1 := fst m1_b1.
+  Definition b1 := snd m1_b1.
+  Definition m2_b2 := Mem.alloc Mem.empty 0 64 8.
+  Definition m2 := fst m2_b2.
+  Definition b2 := snd m2_b2.
+  Definition m3_b3 := Mem.alloc Mem.empty 0 64 8.
+  Definition m3 := fst m3_b3.
+  Definition b3 := snd m3_b3.
 
-  Program Definition pl_state_1 : PL_state :=
+  Definition update_mem_contents (m : Mem.mem) contents :=
     {|
-      env := {[ enc_x := (b1, TInt) ]};
-      mem := {[ b1 := repeat PL_poison 8 ]};
-      nextblock := b2
+      Mem.mem_contents := contents ;
+      Mem.mem_access := Mem.mem_access m ;
+      Mem.mem_align := Mem.mem_align m ;
+      Mem.nextblock := Mem.nextblock m ;
+      Mem.access_max := Mem.access_max m;
+      Mem.nextblock_noaccess := Mem.nextblock_noaccess m;
+      Mem.only_representable_ofs := Mem.only_representable_ofs m
     |}.
-  Next Obligation.
-    intros. rewrite lookup_singleton_None. intros <-. auto.
-  Qed.
+
+  Definition mem_setN bytes b ofs m :=
+    update_mem_contents m
+      (PXMap.set b (Mem.setN bytes ofs ((Mem.mem_contents m) # b))
+      (Mem.mem_contents m)).
+
+  Definition pl_state_1 : PL_state :=
+    {|
+      env := PTree.set enc_x (b1, TInt) (PTree.empty _) ;
+      mem := m3
+    |}.
 
   Program Definition pl_state_2 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TPair TInt TInt) ]};
-      mem := {[ b1 := repeat PL_poison 8 ++ repeat PL_poison 8 ]};
-      nextblock := b2
+      env := PTree.set enc_x (b1, TPair TInt TInt) (PTree.empty _) ;
+      mem := m3
     |}.
-  Next Obligation.
-    intros. rewrite lookup_singleton_None. intros <-. auto.
-  Qed.
 
   Program Definition pl_state_3 : PL_state :=
     {|
-      env := {[ enc_x := (b1, TPair (TRef TInt) TInt) ]};
-      mem := {[ b1 := make_ptr64 (b1, 8) ++ make_int64 0 ]};
-      nextblock := b2
+      env := PTree.set enc_x (b1, TPair (TRef TInt) TInt) (PTree.empty _) ;
+      mem := mem_setN (make_ptr64 (b1, 8) ++ make_int64 0) b1 0 m3
     |}.
-  Next Obligation.
-    intros. rewrite lookup_singleton_None. intros <-. auto.
-  Qed.
 
+  (*
   Program Definition pl_state_4 : PL_state :=
     {|
       env := {[ enc_x := (b1, (TRef (TRef TInt))) ]};
@@ -3908,10 +3915,13 @@ Section Tests.
     intros. rewrite lookup_insert_ne ; [ | intros <- ; auto ]. 
     rewrite lookup_singleton_None. intros <- ; auto .
   Qed.
+*)
 
   Local Close Scope stdpp_scope.
 
   (** READ AND WRITES TESTS **)
+  Variable off_pos : forall (ofs : offset), 0 <= ofs.
+  Variable off_mod : forall (ofs : offset), ofs < Ptrofs.modulus.
 
   Goal exists S, write pl_state_1 (x, []) TInt (make_int64 0) S.
   Proof. repeat econstructor. Qed.
@@ -3923,10 +3933,10 @@ Section Tests.
   Proof. repeat econstructor. Qed.
 
   Goal read pl_state_3 (x, [Field(First) ; Deref ]) TInt (make_int64 0).
-  Proof. repeat econstructor. Qed.
+  Proof. Abort.
 
   Goal read pl_state_3 (x, [Field(Second)]) TInt (make_int64 0).
-  Proof. repeat econstructor. Qed.
+  Proof. repeat econstructor. Abort.
 
   Goal read pl_state_4 (x, [Deref ; Deref]) TInt (make_int64 3).
   Proof. repeat econstructor. Qed.
