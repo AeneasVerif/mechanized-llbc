@@ -279,8 +279,8 @@ Inductive eval_path (S : HLPL_state) : path -> spath -> spath -> Prop :=
 .
 
 Definition eval_place S (p : place) pi :=
-  let pi_0 := (encode_var (fst p), []) in
-  valid_spath S pi_0 /\ eval_path S (snd p) (encode_var (fst p), []) pi.
+  let pi_0 := (encode_var (fst (fst p)), []) in
+  valid_spath S pi_0 /\ eval_path S (snd (fst p)) (encode_var (fst (fst p)), []) pi.
 
 Notation "S  |-{p}  p => pi" := (eval_place S p pi) (at level 50).
 
@@ -356,38 +356,38 @@ Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
 
 Variant eval_operand : operand -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
   | Eval_IntConst S n :
-    S |-{op} INT n => (HLPL_int n, S)
-  | Eval_copy S t (p : place) pi v
+    S |-{op} IntConst n => (HLPL_int n, S)
+  | Eval_copy S (p : place) pi v
       (Heval_place : eval_place S p pi) (Hcopy_val : copy_val (S.[pi]) v) :
-    S |-{op} Copy t p => (v, S)
-  | Eval_move S t (p : place) pi :
+    S |-{op} Copy p => (v, S)
+  | Eval_move S (p : place) pi :
     eval_place S p pi ->
     not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
-    S |-{op} Move t p => (S.[pi], S.[pi <- bot])
+    S |-{op} Move p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
 Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
 Variant eval_rvalue : rvalue -> HLPL_state -> (HLPL_val * HLPL_state) -> Prop :=
-  | Eval_just t op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just t op) => vS'
+  | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' t op_l op_r m n :
+  | Eval_bin_op S S' S'' op_l op_r m n :
       (S |-{op} op_l => (HLPL_int m, S')) ->
       (S' |-{op} op_r => (HLPL_int n, S'')) ->
-      S |-{rv} (BinOp t op_l op_r) => ((HLPL_int (m + n)), S'')
-  | Eval_pointer_loc S t p pi l
+      S |-{rv} (BinOp op_l op_r) => ((HLPL_int (m + n)), S'')
+  | Eval_pointer_loc S p pi l
       (Heval_place : S |-{p} p => pi)
-      (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p : t => (ptr(l), S)
-  | Eval_pointer_no_loc S t p pi l
+      (Hloc : get_node (S.[pi]) = locC(l)) : S |-{rv} &mut p => (ptr(l), S)
+  | Eval_pointer_no_loc S p pi l
       (* TODO *)
       (Heval_place : S |-{p} p => pi):
       is_fresh l S ->
-      S |-{rv} (&mut p : t) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
+      S |-{rv} (&mut p) => (ptr(l), (S.[pi <- loc(l, S.[pi])]))
   | Eval_pair
       S S' S'' v1 v2
-      fst_op t1 (Heval_first: eval_operand fst_op S (v1, S'))
-      snd_op t2 (Heval_first: eval_operand snd_op S' (v2, S'')) :
-    eval_rvalue (Pair (TPair t1 t2) fst_op snd_op) S ((HLPL_pair v1 v2), S'')
+      fst_op (Heval_first: eval_operand fst_op S (v1, S'))
+      snd_op (Heval_second: eval_operand snd_op S' (v2, S'')) :
+    eval_rvalue (Pair fst_op snd_op) S ((HLPL_pair v1 v2), S'')
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 (* TODO: add rule for pairs *)
 
@@ -406,7 +406,7 @@ Proof.
   intros Hrv ; induction Hrv ; try (unfold not_contains_loc ; not_contains).
   - eapply HLPL_Operand_NoLoc, Heval_op.
   - apply not_value_contains_struct.
-    apply HLPL_Operand_NoLoc in Heval_first, Heval_first0; simpl in *.
+    apply HLPL_Operand_NoLoc in Heval_first, Heval_second; simpl in *.
     repeat split ; auto.
     intros H ; inversion H.
 Qed.
@@ -551,23 +551,23 @@ Notation l1 := 0%nat.
 Notation l2 := 1%nat.
 
 Definition prog :=
-  ASSIGN (x, nil) <- Just TInt (INT 3) ;;
-  ASSIGN (y, nil) <- &mut (1%positive, nil) : TRef TInt.
+  ASSIGN (x, nil, TInt) <- Just (IntConst 3) ;;
+  ASSIGN (y, nil, TInt) <- &mut (1%positive, nil, TInt).
 
 Definition main : statement :=
-  ASSIGN (a, []) <- Just TInt (INT 1983) ;;
-  ASSIGN (b, []) <- Just TInt (INT 1986) ;;
-  ASSIGN (c, []) <- &mut (a, []) : TRef  TInt;;
-  ASSIGN (d, []) <- &mut (c, [Deref]) : TRef TInt ;;
-  ASSIGN (c, []) <- &mut (b, []) : TRef TInt;;
-  ASSIGN (d, [Deref]) <- Just TInt (INT 58) ;;
+  ASSIGN (a, [], TInt) <- Just (IntConst 1983) ;;
+  ASSIGN (b, [], TInt) <- Just (IntConst 1986) ;;
+  ASSIGN (c, [], TInt) <- &mut (a, [], TInt);;
+  ASSIGN (d, [], TInt) <- &mut (c, [Deref], TInt);;
+  ASSIGN (c, [], TInt) <- &mut (b, [], TInt);;
+  ASSIGN (d, [Deref], TInt) <- Just (IntConst 58) ;;
   Nop
 .
 
 Definition main_pair : statement :=
-  ASSIGN (a, []) <- Pair (TPair TInt TInt) (INT 667) (INT 1986) ;;
-  ASSIGN (b, []) <- Just TInt (Move TInt (a, [ Field (First)] )) ;;
-  ASSIGN (c, []) <- &mut (a, [Field (Second)]) : TRef TInt;;
+  ASSIGN (a, [], TPair TInt TInt) <- Pair (IntConst 667) (IntConst 1986) ;;
+  ASSIGN (b, [], TInt) <- Just (Move (a, [ Field (First)], TInt)) ;;
+  ASSIGN (c, [], TRef TInt) <- &mut (a, [Field (Second)], TInt);;
   Nop
 .
 

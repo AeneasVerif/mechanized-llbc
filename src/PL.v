@@ -370,8 +370,8 @@ Inductive eval_path (Spl : PL_state) : path -> address * type -> address * type 
 
 Definition eval_place (Spl : PL_state) (p : place) (addr_t : address * type) : Prop :=
   exists bi t,
-    lookup_block_and_type_env (encode_var p.1) Spl = Some (bi, t) /\
-      eval_path Spl p.2 ((bi, 0), t) addr_t.
+    lookup_block_and_type_env (encode_var (p.1).1) Spl = Some (bi, t) /\
+      eval_path Spl (p.1).2 ((bi, 0), t) addr_t.
 
 Notation "Spl  |-{p}  p =>^{pl} addr_t" := (eval_place Spl p addr_t) (at level 50).
 
@@ -429,33 +429,33 @@ Variant write (S : PL_state) (p : place) (t : type) (vl : pl_val)
 
 (* Evaluation of Expressions in PL *)
 Reserved Notation "S  |-{op-pl}  op  =>  r" (at level 60).
-Variant eval_operand : operand -> PL_state -> pl_val -> Prop :=
-| Eval_IntConst S t n :
-  S |-{op-pl} IntConst t n => (make_int64 n)
-| Eval_copy S t p vl
-    (Hread : read S p t vl) :
-  S |-{op-pl} Copy t p => vl
-| Eval_move S t p vl
-    (Hread : read S p t vl) :
-  S |-{op-pl} Move t p => vl
+Variant eval_operand : operand -> PL_state -> list memval -> Prop :=
+| Eval_IntConst S n :
+  S |-{op-pl} IntConst n => (make_int64 n)
+| Eval_copy S t p bytes
+    (Hread : read S p t bytes) :
+  S |-{op-pl} Copy p => bytes
+| Eval_move S t p bytes
+    (Hread : read S p t bytes) :
+  S |-{op-pl} Move p => bytes
 where "S |-{op-pl} op => r" := (eval_operand op S r).
 
 Reserved Notation "S  |-{rv-pl}  rv =>  r" (at level 60).
-Variant eval_rvalue: rvalue -> PL_state -> pl_val -> Prop :=
-| Eval_just S t op vl
-  (Hop : S |-{op-pl} op => vl) :
-  S |-{rv-pl} Just t op => vl
-| Eval_bin_op S t op_l n_l op_r n_r
+Variant eval_rvalue: rvalue -> PL_state -> list memval -> Prop :=
+| Eval_just S op bytes
+  (Hop : S |-{op-pl} op => bytes) :
+  S |-{rv-pl} Just op => bytes
+| Eval_bin_op S op_l n_l op_r n_r
     (Hl : S |-{op-pl} op_l => (make_int64 n_l))
     (Hr : S |-{op-pl} op_r => (make_int64 n_r)) :
-    S |-{rv-pl} BinOp t op_l op_r => (make_int64 (n_l + n_r))
+    S |-{rv-pl} BinOp op_l op_r => (make_int64 (n_l + n_r))
 | Eval_ptr S t p addr
     (Haddr : read_address S p t addr) :
-  S |-{rv-pl} &mut p : TRef t => (make_ptr64 addr)
-| Eval_pair S t op_l vl_l op_r vl_r
-    (Hl : S |-{op-pl} op_l => vl_l)
-    (Hr : S |-{op-pl} op_r => vl_r) :
-  S |-{rv-pl} Pair t op_l op_r => (vl_l ++ vl_r)
+  S |-{rv-pl} &mut p => (make_ptr64 addr)
+| Eval_pair S op_l bytes_l op_r bytes_r
+    (Hl : S |-{op-pl} op_l => bytes_l)
+    (Hr : S |-{op-pl} op_r => bytes_r) :
+  S |-{rv-pl} Pair op_l op_r => (bytes_l ++ bytes_r)
 where "S |-{rv-pl} rv => r" := (eval_rvalue rv S r).
 
 Reserved Notation "S  |-{stmt-pl}  stmt  =>  r , S'" (at level 50).
@@ -1755,9 +1755,9 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
       exists addr t, 
         Spl |-{p} p =>^{pl} (addr, t) /\ addr ~^{S, t} sp.
   Proof.
-    intros. destruct (blockof (encode_var p.1)) as (bi, t0) eqn:E.
+    intros. destruct (blockof (encode_var (p.1).1)) as (bi, t0) eqn:E.
     inversion H0 ; subst.
-    assert (addr_spath_equiv S (bi, 0) t0 (encode_var p.1, [])) by
+    assert (addr_spath_equiv S (bi, 0) t0 (encode_var p.1.1, [])) by
     (econstructor ; eauto ; simpl ; constructor).
     destruct (spath_address_path_simul _ _ _ _ _ _ _ H H2 H3) as (addr & t & ? & ?).
     exists addr, t ; split ; auto.
@@ -1778,9 +1778,9 @@ Notation "addr ~^{ S , t } sp" := (addr_spath_equiv S addr t sp) (at level 40).
     pose proof Hle as Htemp.
     destruct Htemp as (Spl' & HComp & (Hconcr_mem & Hconcr_env) & Henv & Hmem).
     destruct Hplace as [Hvsp Hpath]. simpl in *.
-    destruct (blockof (encode_var p.1)) as [bi t0] eqn:Hbo.
+    destruct (blockof (encode_var p.1.1)) as [bi t0] eqn:Hbo.
     assert (Hsimul_path_pl : exists addr t,
-               eval_path Spl p.2 ((bi, 0), t0) (addr, t) /\ addr ~^{S, t} sp).
+               eval_path Spl p.1.2 ((bi, 0), t0) (addr, t) /\ addr ~^{S, t} sp).
     { eapply spath_address_path_simul ; eauto.
       eapply Addr_spath_base ; eauto. econstructor. } 
     destruct Hsimul_path_pl as (addr & t' & Hplace_pl & Hequiv').
@@ -2300,17 +2300,17 @@ Qed.
 
 Definition op_get_type op :=
   match op with
-  | IntConst t _ => t
-  | Move t _ => t
-  | Copy t _ => t
+  | IntConst _ => TInt
+  | Move p => p.2
+  | Copy p => p.2
   end.
 
 Definition rv_get_type rv :=
   match rv with
-  | Just t _ => t
-  | BinOp t _ _ => t
-  | BorrowMut t _ => t
-  | Pair t _ _ => t
+  | Just op => op_get_type op
+  | BinOp _ _ => TInt
+  | BorrowMut p => p.2
+  | Pair fst snd => TPair (op_get_type fst) (op_get_type snd)
   end.
 
 Fixpoint check_type_of_val v t :=
@@ -2338,30 +2338,30 @@ Admitted.
 
 Definition WellTypedOperand S bo op :=
   match op with
-  | IntConst t _ => t = TInt
-  | Move t p =>
+  | IntConst _ => True
+  | Move p =>
       forall sp,
         S |-{p} p => sp ->
-           eval_type bo S sp t
-  | Copy t p =>
+           eval_type bo S sp p.2
+  | Copy p =>
       forall sp,
         S |-{p} p => sp ->
-           eval_type bo S sp t
+           eval_type bo S sp p.2
   end.
 
 Definition WellTypedRValue S bo rv :=
   match rv with
-  | Just t op =>
-      WellTypedOperand S bo op /\ t = op_get_type op
-  | BinOp t op_l op_r =>
+  | Just op =>
+      WellTypedOperand S bo op
+  | BinOp op_l op_r =>
       WellTypedOperand S bo op_l /\ WellTypedOperand S bo op_r /\
-        TInt = op_get_type op_l /\ TInt = op_get_type op_r /\ t = TInt
-  | BorrowMut t p =>
-      exists t', t = TRef t' /\ forall sp, S |-{p} p => sp -> eval_type bo S sp t'
-  | Pair t op_l op_r =>
+        TInt = op_get_type op_l /\ TInt = op_get_type op_r
+  | BorrowMut p =>
+      exists t', p.2 = TRef t' /\ forall sp, S |-{p} p => sp -> eval_type bo S sp t'
+  | Pair op_l op_r =>
       forall t0 t1,
       WellTypedOperand S bo op_l /\ WellTypedOperand S bo op_r /\
-        t0 = op_get_type op_l /\ t1 = op_get_type op_r /\ t = (TPair t0 t1)
+        t0 = op_get_type op_l /\ t1 = op_get_type op_r
   end.
 
 Fixpoint WellTypedStmt S bo stmt :=
@@ -2777,10 +2777,10 @@ Proof.
   intros * fresh eval_pl. inversion eval_pl.
   rewrite <- sset_not_prefix_valid in H by apply not_strict_prefix_nil.
   constructor ; auto.
-  replace (encode_var p.1, []) with (remove_loc_spath r (encode_var p.1, [])).
+  replace (encode_var p.1.1, []) with (remove_loc_spath r (encode_var p.1.1, [])).
   apply eval_path_write_loc' with (l := l) ; auto.
   unfold remove_loc_spath.
-  destruct (decidable_prefix' r (encode_var p.1, [])) as [(r' & ?) | ] ; auto.
+  destruct (decidable_prefix' r (encode_var p.1.1, [])) as [(r' & ?) | ] ; auto.
   apply f_equal with (f := snd) in e as e'. apply list_basics.app_nil in e' as [? ->].
   easy.
 Qed.
@@ -2837,7 +2837,7 @@ Lemma eval_place_end_loc :
 Proof.
   intros * node not_contains eval_p. inversion eval_p.
   apply sset_not_prefix_valid in H ; try (apply not_strict_prefix_nil).
-  constructor ; auto. remember (encode_var p.1, []) as q.
+  constructor ; auto. remember (encode_var p.1.1, []) as q.
     destruct (decidable_spath_eq q r).
     + subst q. rewrite !H1 in *. apply Eval_path_loc with (q := (r +++ [0%nat])).
       * apply Eval_Loc with (l := l) ; auto.
@@ -3134,16 +3134,15 @@ Lemma eval_operand_preserves_welltyped_rv :
     WellTypedRValue S' bo rv.
 Proof.
   intros * eval_op WTRV. destruct rv ; simpl in * ; auto.
-  - destruct WTRV as (WTO & E). split ; auto.
-    eapply eval_operand_preserves_welltyped_op ; eauto.
-  - destruct WTRV as (WTO_l & WTO_r & E & E' & E''). repeat split ; auto ;
+  - eapply eval_operand_preserves_welltyped_op ; eauto.
+  - destruct WTRV as (WTO_l & WTO_r & E & E'). repeat split ; auto ;
       eapply eval_operand_preserves_welltyped_op ; eauto.
   - destruct WTRV as (t' & Htype & Hplace_rec). exists t' ; split ; auto.
     intros sp Hplace.
     eapply eval_operand_preserves_eval_place in Hplace as Hplace' ; eauto.
     inversion eval_op ; subst ; auto. apply eval_type_write_bot ; auto.
     apply eval_place_valid with (p := p) ; auto.
-  - intros. destruct (WTRV t0 t1) as (WTO_l & WTO_r & E & E' & E'').
+  - intros. destruct (WTRV t0 t1) as (WTO_l & WTO_r & E & E').
     repeat split ; auto ;
       eapply eval_operand_preserves_welltyped_op ; eauto.
 Qed.
@@ -3155,9 +3154,8 @@ Lemma eval_rvalue_preserves_welltyped_rv :
     WellTypedRValue S' bo rv.
 Proof.
   intros * eval_rv WTRV. destruct rv ; simpl in * ; auto.
-  - destruct WTRV as (WTO & E).
-    split ; auto. eapply eval_rvalue_preserves_welltyped_op ; eauto.
-  - destruct WTRV as (WTO_l & WTO_r & E & E' & E'').
+  - eapply eval_rvalue_preserves_welltyped_op ; eauto.
+  - destruct WTRV as (WTO_l & WTO_r & E & E').
     repeat split ; auto ; eapply eval_rvalue_preserves_welltyped_op ; eauto.
   - destruct WTRV as (t' & type & Hplace_rec).
     exists t' ; split ; auto. intros * eval_p.
@@ -3185,7 +3183,7 @@ Proof.
       apply eval_place_valid in eval_p'' as vsp''.
       eapply eval_operand_preserves_eval_type with (S := S'0) ; eauto.
       eapply eval_operand_preserves_eval_type with (S := S) ; eauto.
-  - intros. destruct (WTRV t0 t1) as (WTO_l & WTO_r & E & E' & E'').
+  - intros. destruct (WTRV t0 t1) as (WTO_l & WTO_r & E & E').
     repeat split ; auto ; eapply eval_rvalue_preserves_welltyped_op ; eauto.
 Qed.
 
@@ -3221,26 +3219,24 @@ Lemma reorg_preserves_welltyped_rv :
 Proof.
   intros * reorg WTRV. pose proof reorg as reorg'.
   destruct reorg ; destruct rv ; simpl in * ; auto ; intros.
-  - destruct WTRV as (WTO & type). split ; auto.
-    apply reorg_preserves_welltyped_op with (S := S) ; auto.
-  - destruct WTRV as (WTO_l & WTO_r & type_l & type_r & type). repeat split ; auto ;
+  - apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct WTRV as (WTO_l & WTO_r & type_l & type_r). repeat split ; auto ;
       apply reorg_preserves_welltyped_op with (S := S) ; auto.
   - destruct WTRV as (t' & type & ?). exists t' ; split ; auto.
     intros sp eval_p. apply eval_place_write_bot in eval_p as eval_p'.
     apply eval_place_valid in eval_p as vsp.
     apply eval_place_valid in eval_p' as vsp'.
     apply eval_type_write_bot ; auto.
-  - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r & type).
+  - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r).
     repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
-  - destruct WTRV as (WTO & type). split ; auto.
-    apply reorg_preserves_welltyped_op with (S := S) ; auto.
-  - destruct WTRV as (WTO_l & WTO_r & type_l & type_r & type). repeat split ; auto ;
+  - apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct WTRV as (WTO_l & WTO_r & type_l & type_r). repeat split ; auto ;
       apply reorg_preserves_welltyped_op with (S := S) ; auto.
   - destruct WTRV as (t' & type & ?). exists t' ; split ; auto.
     intros sp eval_p. apply eval_place_valid in eval_p as vsp.
     apply eval_type_remove_loc with (l := l) ; auto.
     apply H1. apply eval_place_end_loc with (l := l) ; auto.
-  - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r & type).
+  - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r).
     repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
 Qed.
 
@@ -3432,16 +3428,16 @@ Proof.
     destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle Heval_place HWTO eq_refl)
     as (bytes & bytes' & Hread & Hconcr_val & Hle_val).
     exists bytes, bytes' ; repeat split ; simpl ; auto.
-    + constructor ; auto.
+    + econstructor ; eauto.
     + apply (concr_val_equiv_concr_copy_val ao _ _ _ _ Hcopy_val) ; auto.
   - simpl in Htype ; subst.
     specialize (HWTO _ e).
     destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle e HWTO eq_refl)
     as (bytes & bytes' & Hread & Hconcr_val & Hle_block).
     exists bytes, bytes' ; repeat split ; auto.
-    + constructor ; auto.
+    + econstructor ; eauto.
     + inversion Hread. simpl.
-      exists (Spl'.m.[ addr <- repeat Undef (sizeof t) : t]).
+      exists (Spl'.m.[ addr <- repeat Undef (sizeof p.2) : p.2]).
       split ; [ idtac | split ] ; auto.
       * apply sset_preserves_compatibility ; auto.
         unfold not_contains_loc. not_contains.
@@ -3562,13 +3558,12 @@ Proof.
   pose proof Hle_hlpl as Htemp.
   destruct Htemp as (Spl' & Hcomp & Hconcr & Hle).
   induction Heval ; simpl in Htype ; subst.
-  - destruct HWT as [HWTop Heq].
-    apply Op_Preserves_PL_HLPL_Rel with
-      (blockof := bo) (addrof := ao) (Spl := Spl) (t := t) in Heval_op as G ;
+  - eapply Op_Preserves_PL_HLPL_Rel with
+      (blockof := bo) (addrof := ao) (Spl := Spl) in Heval_op as G ;
       [ | exists Spl' | | ] ; auto.
-    destruct G as (vl & vl' & t0 & ? & ? & ?).
-    exists ao, vl, vl' ; repeat constructor ; auto.
-  - destruct HWT as (HWTopl & HWTopr & top_l & top_r & Heq_t).
+    destruct G as (bytes & bytes' & t0 & ? & ? & ?).
+    exists ao, bytes, bytes' ; repeat constructor ; auto.
+  - destruct HWT as (HWTopl & HWTopr & top_l & top_r).
     apply Op_Preserves_PL_HLPL_Rel with
       (blockof := bo) (addrof := ao) (Spl := Spl) (t := TInt) in H as G1 ;
       [ | exists Spl' | | ] ; auto. simpl in *.
@@ -3594,9 +3589,9 @@ Proof.
     specialize (eval_type pi Heval_place).
     assert (t' = t0) by (eapply eval_type_deterministic ; eauto) ; subst.
     exists ao, (make_ptr64 addr), (make_ptr64 addr) ; repeat split.
-    * constructor ; auto.
+    * econstructor ; eauto.
     * exists Spl' ; auto.
-    * apply Concr_ptr_loc ; auto.
+    * rewrite type. apply Concr_ptr_loc ; auto.
     * reflexivity.
   - destruct HWT as (t' & type & eval_type). specialize (eval_type pi Heval_place).
     destruct (spath_address_place_simul _ _ _ _ _ _ Hle_hlpl Heval_place) as
@@ -3606,20 +3601,21 @@ Proof.
     subst.
     exists (fun l0 => if (l =? l0)%nat then Some (addr, t0) else ao l0),
       (make_ptr64 addr), (make_ptr64 addr) ; repeat split.
-    * constructor. eapply read_addr_spath_equiv_equiv ; eauto.
+    * econstructor. eapply read_addr_spath_equiv_equiv ; eauto.
     * rewrite snd_pair. apply le_pl_hlpl_write_loc ; auto.
       apply addr_spath_equiv_implies_valid_spath in H1 as Hvp.
       rewrite spath_var_app_vpath in Hvp.
       apply valid_spath_app in Hvp as [? ?] ; auto.
-    * apply Concr_ptr_loc. rewrite Nat.eqb_refl ; auto.
+    * rewrite type. apply Concr_ptr_loc. rewrite Nat.eqb_refl ; auto.
     * reflexivity.
-  - specialize (HWT t1 t2) as (HWT1 & HWT2 & Hop_t1 & Hop_t2 & _).
-    apply Op_Preserves_PL_HLPL_Rel with
-      (blockof := bo) (addrof := ao) (Spl := Spl) (t := t1) in Heval_first as G1 ;
+  - simpl in HWT.
+    destruct (HWT (op_get_type fst_op) (op_get_type snd_op)) as (? & ? & _ & _).
+    eapply Op_Preserves_PL_HLPL_Rel with
+      (blockof := bo) (addrof := ao) (Spl := Spl) in Heval_first as G1 ;
       [ | exists Spl' | | ] ; auto. simpl in *.
-    destruct G1 as (vl1 & vl1' & ? & (Spl'' & ? & ? & ?) & ? & ?).
-    apply Op_Preserves_PL_HLPL_Rel with
-      (blockof := bo) (addrof := ao) (Spl := Spl) (t := t2) in Heval_first0 as G2 ;
+    destruct G1 as (bytes1 & bytes1' & ? & (Spl'' & ? & ? & ?) & ? & ?).
+    eapply Op_Preserves_PL_HLPL_Rel with
+      (blockof := bo) (addrof := ao) (Spl := Spl) in Heval_second as G2 ;
       [ | exists Spl'' | | ] ; auto.
     destruct G2 as (vl2 & vl2' & ? & (Spl''' & ? & ? & ?) & ? & ?).
     simpl in *.
@@ -3923,20 +3919,20 @@ Section Tests.
   Variable off_pos : forall (ofs : offset), 0 <= ofs.
   Variable off_mod : forall (ofs : offset), ofs < Ptrofs.modulus.
 
-  Goal exists S, write pl_state_1 (x, []) TInt (make_int64 0) S.
+  Goal exists S, write pl_state_1 (x, [], TInt) TInt (make_int64 0) S.
   Proof. repeat econstructor. Qed.
 
-  Goal exists S, write pl_state_2 (x, [Field(First)]) TInt (make_int64 0) S.
+  Goal exists S, write pl_state_2 (x, [Field(First)], TInt) TInt (make_int64 0) S.
   Proof. repeat econstructor. Qed.
 
-  Goal exists S, write pl_state_2 (x, [Field(Second)]) TInt (make_int64 0) S.
+  Goal exists S, write pl_state_2 (x, [Field(Second)], TInt) TInt (make_int64 0) S.
   Proof. repeat econstructor. Qed.
 
-  Goal read pl_state_3 (x, [Field(First) ; Deref ]) TInt (make_int64 0).
+  Goal read pl_state_3 (x, [Field(First) ; Deref ], TInt) TInt (make_int64 0).
   Proof. Abort.
 
-  Goal read pl_state_3 (x, [Field(Second)]) TInt (make_int64 0).
-  Proof. repeat econstructor. Abort.
+  Goal read pl_state_3 (x, [Field(Second)], TInt) TInt (make_int64 0).
+  Proof. repeat econstructor. simpl. rewrite Z.add_0_l.
 
   Goal read pl_state_4 (x, [Deref ; Deref]) TInt (make_int64 3).
   Proof. repeat econstructor. Qed.
