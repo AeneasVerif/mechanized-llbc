@@ -1,17 +1,14 @@
+(** * Mechanized_LLBC.lang : Syntax of LLBC and general definitions. *)
 Require Import base.
 Require Import PathToSubtree.
 From Stdlib Require Import PArith.
-From stdpp Require Import gmap pmap.
+From stdpp Require Import pmap gmap.
 
 Definition var := positive.
 
-Variant field :=
-  | First
-  | Second.
-
 Variant proj :=
 | Deref
-| Field (f : field).
+| Field (f : nat).
 
 (* Places are the syntactic way of denoting and accessing memory locations. Formally,
    a place is the combination of a variable, and a list of projections called a

@@ -14,104 +14,110 @@ Require Import OptionMonad.
 Local Open Scope option_monad_scope.
 Require Import SimulationUtils.
 
-Inductive HLPL_val :=
-| HLPL_bot : HLPL_val
-| HLPL_int : nat -> HLPL_val 
-| HLPL_loc : loan_id -> HLPL_val -> HLPL_val
-| HLPL_ptr : loan_id -> HLPL_val
-| HLPL_pair : HLPL_val -> HLPL_val -> HLPL_val
+(** * Definition of HLPL+ values and states. *)
+Inductive value :=
+| VBottom
+| VInt (n : nat) (* TODO: use Aeneas integer types? *)
+| VBool (b : bool)
+| VLoc (l : loan_id) (v : value)
+| VPtr (l : loan_id)
+| VTuple (t : list value)
 .
 
-Variant HLPL_nodes :=
-| HLPL_botC : HLPL_nodes
-| HLPL_intC : nat -> HLPL_nodes
-| HLPL_locC : loan_id -> HLPL_nodes
-| HLPL_ptrC : loan_id -> HLPL_nodes
-| HLPL_pairC : HLPL_nodes
+Variant nodes :=
+| NBottom
+| NInt (n : nat)
+| NBool (b : bool)
+| NLoc (l : loan_id)
+| NPtr (l : loan_id)
+| NTuple (n : nat)
 .
 
-Instance EqDec_HLPL_nodes : EqDecision HLPL_nodes.
+Instance EqDec_HLPL_nodes : EqDecision nodes.
 Proof. unfold EqDecision, Decision. repeat decide equality. Qed.
 
 Definition HLPL_arity c := match c with
-| HLPL_botC => 0
-| HLPL_intC _ => 0
-| HLPL_locC _ => 1
-| HLPL_ptrC _ => 0
-| HLPL_pairC => 2
+| NBottom => 0
+| NInt _ => 0
+| NBool _ => 0
+| NLoc _ => 1
+| NPtr _ => 0
+| NTuple n => n
 end.
 
 Definition HLPL_get_node v := match v with
-| HLPL_bot => HLPL_botC
-| HLPL_int n => HLPL_intC n
-| HLPL_loc l _ => HLPL_locC l
-| HLPL_ptr l => HLPL_ptrC l
-| HLPL_pair _ _ => HLPL_pairC
+| VBottom => NBottom
+| VInt n => NInt n
+| VBool b => NBool b
+| VLoc l _ => NLoc l
+| VPtr l => NPtr l
+| VTuple t => NTuple (List.length t)
 end.
 
 Definition HLPL_children v := match v with
-| HLPL_bot => []
-| HLPL_int _ => []
-| HLPL_loc _ v => [v]
-| HLPL_ptr l => []
-| HLPL_pair fst snd => [fst ; snd]
+| VBottom => []
+| VInt _ => []
+| VBool _ => []
+| VLoc _ v => [v]
+| VPtr l => []
+| VTuple t => t
 end.
 
 Definition HLPL_fold c vs := match c, vs with
-| HLPL_intC n, [] => HLPL_int n
-| HLPL_locC l, [v] => HLPL_loc l v
-| HLPL_ptrC l, [] => HLPL_ptr l
-| HLPL_pairC, [fst; snd] => HLPL_pair fst snd
-| _, _ => HLPL_bot
+| NInt n, [] => VInt n
+| NBool b, [] => VBool b
+| NLoc l, [v] => VLoc l v
+| NPtr l, [] => VPtr l
+| NTuple n, t => VTuple t
+| _, _ => VBottom
 end.
 
 Fixpoint HLPL_weight node_weight v :=
   match v with
-  | HLPL_loc l v => node_weight (HLPL_locC l) + HLPL_weight node_weight v
-  | HLPL_pair fst snd =>
-      node_weight (HLPL_pairC) +
-        HLPL_weight node_weight fst + HLPL_weight node_weight snd
+  | VLoc l v => node_weight (NLoc l) + HLPL_weight node_weight v
+  | VTuple t => node_weight (HLPL_get_node (VTuple t)) +
+                 sum (map (HLPL_weight node_weight) t)
   | v => node_weight (HLPL_get_node v)
 end.
 
-Program Instance ValueHLPL : Value HLPL_val HLPL_nodes := {
+Program Instance ValueHLPL : Value value nodes := {
   arity := HLPL_arity;
   get_node := HLPL_get_node;
   children := HLPL_children;
   fold_value := HLPL_fold;
   vweight := HLPL_weight;
-  bot := HLPL_bot;
+  bot := VBottom;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
 Next Obligation.
-  intros [] [] eq_node eq_children; inversion eq_node; inversion eq_children; reflexivity.
-Qed.
-Next Obligation.
-  intros [] ? H;
-  first [ rewrite length_zero_iff_nil in H; rewrite H
-        | destruct (length_1_is_singleton H) as [? ->]
-        | destruct (length_2_is_pair H) as [fst [snd ->] ] ];
-  reflexivity.
+  intros [] [] eq_node eq_children; inversion eq_node; inversion eq_children;
+    simpl in *; congruence. 
 Qed.
 Next Obligation.
  intros [] ? H;
   first [rewrite length_zero_iff_nil in H; rewrite H
-        | destruct (length_1_is_singleton H) as [? ->] 
-        | destruct (length_2_is_pair H) as [fst [snd ->] ] ];
+        | destruct (length_1_is_singleton H) as [? ->] | idtac ];
+   simpl in * ; congruence.
+Qed.
+Next Obligation.
+ intros [] ? H;
+  first [rewrite length_zero_iff_nil in H; rewrite H
+        | destruct (length_1_is_singleton H) as [? ->] | idtac ];
   reflexivity.
 Qed.
 Next Obligation. reflexivity. Qed.
-Next Obligation. intros ? []; unfold HLPL_children; cbn; lia. Qed.
+Next Obligation. intros ? []; unfold HLPL_children; cbn ; try lia.
+Qed.
 
-Record HLPL_state := {
-  vars : Pmap HLPL_val;
-  anons : Pmap HLPL_val;
+Record state := {
+  vars : Pmap value;
+  anons : Pmap value;
 }.
 
 Definition encode_var (x : var) := encode (A := var + anon) (inl x).
 Definition encode_anon (a : positive) := encode (A := var + anon) (inr a).
 
-Program Instance IsState : State HLPL_state HLPL_val (H := ValueHLPL) := {
+Program Instance IsState : State state value (H := ValueHLPL) := {
   extra := unit;
   get_map S := sum_maps (vars S) (anons S);
   get_extra _ := ();
@@ -129,21 +135,21 @@ Program Instance IsState : State HLPL_state HLPL_val (H := ValueHLPL) := {
     end;
   add_anon a v S := {| vars := vars S; anons := insert a v (anons S)|};
 }.
+Next Obligation. intros [? ?] [? ?]. cbn. intros (-> & ->)%sum_maps_eq _. reflexivity. Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation.
   intros ? ? i. cbn. destruct (decode' i) eqn:H.
   - rewrite decode'_is_Some in H.
     destruct s; cbn; rewrite <-H; symmetry;
       first [apply sum_maps_alter_inl | apply sum_maps_alter_inr].
-  - symmetry. apply map_alter_not_in_domain, sum_maps_lookup_None. assumption.
+  - symmetry. apply alter_id', sum_maps_lookup_None. assumption.
 Qed.
-Next Obligation. intros [? ?] [? ?]. cbn. intros (-> & ->)%sum_maps_eq _. reflexivity. Qed.
 (* What are the two following obligations? *)
 Next Obligation. discriminate. Qed.
 Next Obligation. discriminate. Qed.
+Next Obligation. reflexivity. Qed.
 Next Obligation. intros. cbn. symmetry. apply sum_maps_insert_inr. Qed.
 Next Obligation. reflexivity. Qed.
-Next Obligation. intros. unfold encode_anon. rewrite decode_encode. reflexivity. Qed.
 
 Lemma get_at_var S x : get_at_accessor S (encode_var x) = lookup x (vars S).
 Proof. unfold get_map, encode_var. cbn. apply sum_maps_lookup_l. Qed.
@@ -151,47 +157,27 @@ Proof. unfold get_map, encode_var. cbn. apply sum_maps_lookup_l. Qed.
 Declare Scope hlpl_scope.
 Delimit Scope hlpl_scope with hlpl.
 
-(* TODO: set every priority to 0? *)
-Reserved Notation "'loc' ( l , v )" (at level 0, l at next level, v at next level).
-Reserved Notation "'ptr' ( l )" (at level 0).
+(* Notation "'bot'" := VBottom: hlpl_plus_scope. *)
+Notation "'loc' ( l , v )" := (VLoc l v) : hlpl_scope.
+Notation "'ptr' ( l )" := (VPtr l) : hlpl_scope.
 
-Reserved Notation "'botC'" (at level 0).
-Reserved Notation "'locC' ( l , )" (at level 0, l at next level).
-Reserved Notation "'ptrC' ( l )" (at level 0).
-
-(* Notation "'bot'" := HLPL_bot: hlpl_scope. *)
-Notation "'loc' ( l , v )" := (HLPL_loc l v) : hlpl_scope.
-Notation "'ptr' ( l )" := (HLPL_ptr l) : hlpl_scope.
-
-Notation "'botC'" := HLPL_botC: hlpl_scope.
-Notation "'locC' ( l )" := (HLPL_locC l) : hlpl_scope.
-Notation "'ptrC' ( l )" := (HLPL_ptrC l) : hlpl_scope.
+Notation "'nbot'" := NBottom: hlpl_scope.
+Notation "'nloc' ( l )" := (NLoc l) : hlpl_scope.
+Notation "'nptr' ( l )" := (NPtr l) : hlpl_scope.
 
 (* Bind Scope hlpl_scope with HLPL_val. *)
 Open Scope hlpl_scope.
 
-Lemma sget_loc l v p : (loc(l, v)).[[ [0] ++  p]] = v.[[p]].
+Lemma sget_loc l v p : (loc (l, v)).[[ [0] ++  p]] = v.[[p]].
 Proof. reflexivity. Qed.
 Hint Rewrite sget_loc : spath.
 Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
 Proof. reflexivity. Qed.
 Hint Rewrite sget_loc' : spath.
 
-(* structural definition of not_value_contains *)
-Lemma valid_vpath_pair (vp : vpath) (v1 v2 : HLPL_val) : 
-  valid_vpath (HLPL_pair v1 v2) vp ->
-  (vp = []) \/ (exists vp', vp = 0 :: vp' ) \/ (exists vp', vp = 1 :: vp').
-Proof.
-  intros Hvp. destruct vp as [ _ | [ | [ | n ] ] vp' ].
-  - left; reflexivity.
-  - right ; left. exists vp'; reflexivity.
-  - right ; right. exists vp'; reflexivity.
-  - inversion Hvp ; subst. simpl in *. rewrite nth_error_nil in H2. easy.
-Qed.
-
-Lemma valid_vpath_loc (vp : vpath) (v : HLPL_val) : 
+Lemma valid_vpath_loc (vp : vpath) (v : value) : 
   forall l,
-  valid_vpath (HLPL_loc l v) vp ->
+  valid_vpath (loc (l, v)) vp ->
   (vp = []) \/ (exists vp', vp = 0 :: vp' ).
 Proof.
   intros ? Hvp. destruct vp as [ _ | [ | n' ] vp' ].
@@ -200,31 +186,10 @@ Proof.
   - inversion Hvp ; subst. simpl in H2. rewrite nth_error_nil in H2. easy.
 Qed.
 
-Lemma not_value_contains_struct (v1 v2 : HLPL_val) (f : HLPL_nodes -> Prop) :
-  not_value_contains f (HLPL_pair v1 v2)
-  <-> not_value_contains f v1 /\ not_value_contains f v2 /\ ~ f HLPL_pairC.
-Proof.
-  split.
-  {
-    intros H. split ; [ idtac | split].
-    - intros p Hvp. apply (H (0 :: p)). eapply valid_cons ; auto.
-    - intros p Hvp. apply (H (1 :: p)). eapply valid_cons ; auto.
-    - apply (H []). apply valid_nil.
-  }
-  {
-    intros [H1 [ H2 Hp] ] p Hvp.
-    destruct (valid_vpath_pair p v1 v2 Hvp) as [ Hempty | [[vp' H] | [vp' H ] ] ] ;
-      subst ; simpl.
-    - assumption.
-    - apply H1. inversion Hvp; subst. injection H4 as Eq. congruence.
-    - apply H2. inversion Hvp; subst. injection H4 as Eq. congruence.
-  }
-Qed.
-
-Lemma not_value_contains_struct_loc (v : HLPL_val) (f : HLPL_nodes -> Prop) :
+Lemma not_value_contains_struct_loc (v : value) (f : nodes -> Prop) :
   forall l,
-  not_value_contains f (HLPL_loc l v)
-  <-> not_value_contains f v /\ ~ f (HLPL_locC l).
+  not_value_contains f (loc (l, v))
+  <-> not_value_contains f v /\ ~ f (nloc (l)).
 Proof.
   split.
   {
@@ -244,30 +209,26 @@ Qed.
  * field access) on spath pi0, on a state S.
  * If this projection is successful, then we have eval_proj S p pi0 pi1.
  *)
-Variant eval_proj (S : HLPL_state) : proj -> spath -> spath -> Prop :=
+Variant eval_proj (S : state) : proj -> spath -> spath -> Prop :=
   (* Coresponds to R-Deref-Ptr-Loc and W-Deref-Ptr-Loc in the article. *)
   | Eval_Deref_Ptr_Locs q q' l
-      (get_q : get_node (S.[q]) = ptrC(l)) (get_q' : get_node (S.[q']) = locC(l)) :
+      (get_q : get_node (S.[q]) = nptr(l)) (get_q' : get_node (S.[q']) = nloc(l)) :
     eval_proj S Deref q q'
-  (* TODO: add fields *)
-  | Eval_Field_First q
-      (get_q : get_node (S.[q]) = HLPL_pairC) :
-    eval_proj S (Field First) q (q +++ [0])
-  | Eval_Field_Second q
-      (get_q : get_node (S.[q]) = HLPL_pairC) :
-    eval_proj S (Field Second) q (q +++ [1])
+  | Eval_Field q n k
+      (get_q : get_node (S.[q]) = NTuple n) (index: k < n) :
+    eval_proj S (Field k) q (q +++ [k])
 .
 
-Variant eval_loc (S : HLPL_state) : spath -> spath -> Prop :=
+Variant eval_loc (S : state) : spath -> spath -> Prop :=
   (* Coresponds to R-Loc and W-Loc in the article. *)
   | Eval_Loc q l
-      (get_q : get_node (S.[q]) = locC(l)) :
+      (get_q : get_node (S.[q]) = nloc(l)) :
     eval_loc S q (q +++ [0])
 .
 
 (* Let pi0 be a spath. If by successfully applying the projections in P we
    obtain a spath pi1, then we have the proprety eval_path S P pi0 pi1. *)
-Inductive eval_path (S : HLPL_state) : path -> spath -> spath -> Prop :=
+Inductive eval_path (S : state) : path -> spath -> spath -> Prop :=
 (* Corresponds to R-Base and W-Base in the article. *)
 | Eval_nil pi : eval_path S [] pi pi
 | Eval_cons proj P p q r
