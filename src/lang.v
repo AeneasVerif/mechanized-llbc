@@ -22,20 +22,54 @@ Variant proj :=
 Inductive type :=
 | TInt
 | TRef (t : type)
-| TPair (t1 t2 : type)
+| TTuple (tl : list type)
 .
+
+Section ForallT.
+Inductive ForallT {A : Type} (P : A → Type) : list A → Type :=
+    ForallT_nil : ForallT P []
+  | ForallT_cons : ∀ (x : A) (l : list A), P x → ForallT P l → ForallT P (x :: l).
+End ForallT.
+
+Fixpoint type_ind'
+  (P : type -> Type)
+  (fint : P TInt)
+  (fref : ∀ t : type, P t → P (TRef t))
+  (ftuple : ∀ tl : list type, ForallT P tl -> P (TTuple tl))
+  (t : type)
+  : P t :=
+  match t with
+  | TInt => fint
+  | TRef t' => fref t' (type_ind' P fint fref ftuple t')
+  | TTuple tl =>
+      ftuple tl 
+      ((fix F tl :=
+        match tl as tl0 return ForallT P tl0 with
+        | [] => @ForallT_nil type P
+        | t' :: tl' =>
+            @ForallT_cons type P t' tl'
+              (type_ind' P fint fref ftuple t')
+              (F tl')
+        end) tl)
+  end.
 
 Instance EqDec_type : EqDecision type.
 Proof.
-  intro x.
-  induction x ; destruct y ;
+  intro x. induction x using type_ind'; destruct y ;
     (left ; reflexivity) || (right ; congruence) || idtac.
   - destruct (IHx y).
-    * subst. left. reflexivity.
-    * right. intros contra. congruence.
-  - destruct (IHx1 y1) ; destruct (IHx2 y2) ; subst ;
-      (left ; reflexivity) || (right ; intros contra ; congruence).
-Qed.
+    + subst. left. reflexivity.
+    + right. intros contra. congruence.
+  - generalize dependent tl0 ; induction H ; intros tl0.
+    + destruct tl0 ; [ left ; reflexivity | right ; congruence ].
+    + unfold Decision. destruct tl0.
+      * right. easy.
+      * destruct (decide (x = t)). 
+        ** subst. destruct (IHForallT tl0).
+           *** injection e as <-. left. reflexivity.
+           *** right. congruence.
+        ** right. congruence.
+Qed. 
 
 (* TODO: notation *)
 Definition path := list proj.
@@ -45,10 +79,11 @@ Variant const :=
 | IntConst (n : nat) (* TODO: use Aeneas integer types? *)
 | BoolConst (b : bool).
 
-Variant operand :=
+Inductive operand :=
 | Const (c : const)
 | Move (p : place)
-| Copy (p : place).
+| Copy (p : place)
+| Tuple (opl : list operand).
 
 Variant BinOp :=
 | BAdd
