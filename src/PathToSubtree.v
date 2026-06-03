@@ -936,6 +936,16 @@ Section GetSetPath.
   Corollary valid_get_node_sget_not_bot S p : get_node (S.[p]) <> get_node bot -> valid_spath S p.
   Proof. intros G. apply get_not_bot_valid_spath. intro K. apply G. rewrite K. reflexivity. Qed.
 
+  Lemma valid_spath_app_last_get_node_ary_gt_index S p n:
+    arity (get_node (S.[p])) > n -> valid_spath S (p +++ [n]).
+  Proof.
+    intros arity. apply valid_spath_app ; split.
+    - apply valid_get_node_sget_not_bot. intros G.
+      rewrite G, <-length_children_is_arity, children_bot in arity. easy.
+    - rewrite<- length_children_is_arity in arity. apply nth_error_Some' in arity.
+      destruct arity. econstructor; [eassumption | constructor].
+  Qed.
+
   Lemma valid_spath_app_last_get_node_not_zeroary S p :
     arity (get_node (S.[p])) > 0 -> valid_spath S (p +++ [0]).
   Proof.
@@ -1660,6 +1670,23 @@ Section GetSetPath.
     rewrite vget_cons, one_child. simplify_option.
   Qed.
 
+  Lemma not_value_contains_nary P v :
+    ~P (get_node v) -> Forall (not_value_contains P) (children v) ->
+    not_value_contains P v.
+  Proof.
+    intros ? ? p valid_p. induction valid_p ; [assumption | ].
+    simpl. rewrite H2. apply IHvalid_p.
+    - apply nth_error_In in H2. intros contra.
+      pose proof ((proj1 (List.Forall_forall (not_value_contains P) _ ) H1) w H2).
+      assert (~P (get_node w)) by (apply (H3 []) ; constructor). auto.
+    - apply nth_error_In in H2. 
+      pose proof ((proj1 (List.Forall_forall (not_value_contains P) _ ) H1) w H2).
+      apply List.Forall_forall. intros w' Hin. apply In_nth_error in Hin as (n & ?).
+      replace w' with (w.[[ [n] ]]) by (rewrite vget_cons, H4 ; reflexivity).
+      intros ? vp. rewrite <- vget_app. apply H3, valid_vpath_app ; split ; auto.
+      apply valid_cons with (w := w'); auto. constructor.
+  Qed.
+
   Lemma not_state_contains_implies_not_value_contains_sget P S p :
     not_state_contains P S -> valid_spath S p -> not_value_contains P (S.[p]).
   Proof.
@@ -2143,6 +2170,16 @@ Ltac reduce_comp :=
 Ltac solve_comp := repeat reduce_comp.
 
 (** ** Automatic resolution of validity. *)
+Lemma valid_vpath_app_last_get_node_ary_gt_index {V} `{IsValue : Value V nodes} v p k:
+  arity (get_node (v.[[p]])) > k -> valid_vpath v (p ++ [k]).
+Proof.
+  intro. apply valid_vpath_app. split.
+  - apply get_not_bot_valid_vpath. intro G. rewrite G in H.
+    rewrite <-length_children_is_arity, children_bot in H. inversion H.
+  - rewrite<- length_children_is_arity in H. apply nth_error_Some' in H.
+    destruct H. econstructor; [eassumption | constructor].
+Qed.
+
 Lemma valid_vpath_app_last_get_node_not_zeroary {V} `{IsValue : Value V nodes} v p :
   arity (get_node (v.[[p]])) > 0 -> valid_vpath v (p ++ [0]).
 Proof.
@@ -2159,21 +2196,21 @@ Ltac validity0 :=
       apply (valid_get_node_sget_not_bot S p);
       rewrite H;
       discriminate
-  | H : get_node (?S.[?p]) = _ |- valid_spath ?S (?p +++ [0]) =>
-      simple apply valid_spath_app_last_get_node_not_zeroary;
+  | H : get_node (?S.[?p]) = _ |- valid_spath ?S (?p +++ [?k]) =>
+      simple apply valid_spath_app_last_get_node_ary_gt_index;
       rewrite H;
-      constructor
-  | H : get_node (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [0]) =>
-      rewrite (app_spath_vpath_assoc p q [0]);
-      simple apply valid_spath_app_last_get_node_not_zeroary;
+      simpl; lia
+  | H : get_node (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [?k]) =>
+      rewrite (app_spath_vpath_assoc p q [?k]);
+      simple apply valid_spath_app_last_get_node_ary_gt_index;
       rewrite H;
-      constructor
-  | H : get_node (?S.[?p +++ ?q ++ ?r]) = _ |- valid_spath ?S (?p +++ ?q ++ ?r ++ [0]) =>
-      rewrite (app_assoc q r [0]);
-      rewrite (app_spath_vpath_assoc p (q ++ r) [0]);
-      simple apply valid_spath_app_last_get_node_not_zeroary;
+      simpl; lia
+  | H : get_node (?S.[?p +++ ?q ++ ?r]) = _ |- valid_spath ?S (?p +++ ?q ++ ?r ++ [?k]) =>
+      rewrite (app_assoc q r [?k]);
+      rewrite (app_spath_vpath_assoc p (q ++ r) [?k]);
+      simple apply valid_spath_app_last_get_node_ary_gt_index;
       rewrite H;
-      constructor
+      simpl; lia
   | H : ?S.[?p] = ?v |- valid_spath ?S ?p =>
       simple apply get_not_bot_valid_spath;
       rewrite H;
@@ -2198,10 +2235,9 @@ Ltac validity0 :=
       validity0
   | |- valid_vpath _ ([_] ++ _) =>
       econstructor; [reflexivity | validity0]
-  | H : get_node (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [0]) =>
-      simple apply valid_vpath_app_last_get_node_not_zeroary;
-      rewrite H;
-      constructor
+  | H : get_node (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [?k]) =>
+      simple apply valid_vpath_app_last_get_node_ary_gt_index;
+      rewrite H; simpl; lia
   | |- valid_vpath _ [] => constructor
   | H : ?v.[[?p]] = _ |- valid_vpath ?v ?p =>
       apply (valid_get_node_vget_not_bot v p);
