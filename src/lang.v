@@ -31,6 +31,16 @@ Inductive ForallT {A : Type} (P : A → Type) : list A → Type :=
   | ForallT_cons : ∀ (x : A) (l : list A), P x → ForallT P l → ForallT P (x :: l).
 End ForallT.
 
+Lemma ForallT_nth {A : Type} (P : A -> Type) (l : list A) (n : nat) (v : A) :
+  ForallT P l -> nth_error l n = Some v -> P v.
+Proof.
+  intros Hforall nth. generalize dependent n. induction Hforall ; intros n nth.
+  - rewrite nth_error_nil in nth. discriminate.
+  - destruct n ; simpl in nth.
+    + simpl in nth. congruence.
+    + apply (IHHforall n), nth.
+Qed.
+
 Fixpoint type_ind'
   (P : type -> Type)
   (fint : P TInt)
@@ -122,6 +132,8 @@ Notation "'ASSIGN' p <- rv" := (Assign p rv) (at level 90).
 Notation "'IF'  op  {{  stmt_if  }}  'ELSE'  {{  stmt_else  }}" := (SwitchBool op stmt_if stmt_else)
   (at level 90).
 Notation "'LOOP'  {{  body  }}" := (Loop body) (at level 90).
+Notation "'INT'  n" := (Const (IntConst n)) (at level 80).
+Notation "'BOOL' b" := (Const (BoolConst b)) (at level 80).
 
 Reserved Notation "'loan^m' ( l )" (at level 0).
 Reserved Notation "'loan^m' ( ty , l )" (at level 0).
