@@ -405,14 +405,14 @@ where "S |-{op} op => r" := (eval_operand op S r)
     eval_tuple (op :: opl) S (v :: v', S'')
 .
 
-Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
-
 Variant eval_binary_op : BinOp -> value -> value -> value -> Prop :=
   | E_Add m n :
       eval_binary_op BAdd (VInt m) (VInt n) (VInt (m + n))
   | E_Le m n :
       eval_binary_op BLe (VInt m) (VInt n) (VBool (m <=? n))
 .
+
+Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
 Variant eval_rvalue : rvalue -> state -> (value * state) -> Prop :=
   | E_Use op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Use op) => vS'

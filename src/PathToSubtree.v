@@ -2311,13 +2311,13 @@ Ltac validity0 :=
       rewrite H;
       simpl; lia
   | H : get_node (?S.[?p +++ ?q]) = _ |- valid_spath ?S (?p +++ ?q ++ [?k]) =>
-      rewrite (app_spath_vpath_assoc p q [?k]);
+      rewrite (app_spath_vpath_assoc p q [k]);
       simple apply valid_spath_app_last_get_node_ary_gt_index;
       rewrite H;
       simpl; lia
   | H : get_node (?S.[?p +++ ?q ++ ?r]) = _ |- valid_spath ?S (?p +++ ?q ++ ?r ++ [?k]) =>
-      rewrite (app_assoc q r [?k]);
-      rewrite (app_spath_vpath_assoc p (q ++ r) [?k]);
+      rewrite (app_assoc q r [k]);
+      rewrite (app_spath_vpath_assoc p (q ++ r) [k]);
       simple apply valid_spath_app_last_get_node_ary_gt_index;
       rewrite H;
       simpl; lia
