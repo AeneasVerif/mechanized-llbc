@@ -374,9 +374,10 @@ where "S |-{op} op => r" := (eval_operand op S r)
       (Hrec : eval_tuple opl S' (v', S'')) :
     eval_tuple (op :: opl) S (v :: v', S'')
 .
-
 Scheme eval_operand_mut := Minimality for eval_operand Sort Prop
 with   eval_tuple_mut   := Minimality for eval_tuple   Sort Prop.
+
+Combined Scheme eval_operand_tuple_mutind from eval_operand_mut, eval_tuple_mut.
 
 Variant eval_binary_op : BinOp -> value -> value -> value -> Prop :=
   | E_Add m n :
@@ -832,15 +833,21 @@ Proof.
   - eapply not_value_contains_unary; [reflexivity | easy | assumption].
 Qed.
 
+Definition forward_simulation_eval_operand :=
+  forall op, forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op).
+
+Definition eval_tuple_as_value opl S vS :=
+  exists vl S', vS = (VTuple vl, S') /\ eval_tuple opl S (vl, S').
+
+Definition forward_simulation_eval_tuple opl :=
+  forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_tuple_as_value opl) (eval_tuple_as_value opl).
+
 Lemma operand_preserves_HLPL_plus_rel op :
   forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op).
 Proof.
   apply preservation_by_base_case.
   (* intros Sr (vr & S'r) Heval Sl Hle. destruct Heval. *)
-  intros Sr vrS'r Heval Sl Hle.
-  induction Heval using eval_operand_mut with
-          (P0 := fun opl S vS' =>
-               get_node (vS'.2 .[ sp_loan]) = nloan^m (l)).
+  intros Sr vrS'r Heval Sl Hle. induction Heval.
   (* op = IntConst n *)
   - destruct Hle.
     + execution_step. { constructor. }
@@ -928,6 +935,9 @@ Proof.
             assumption. all: autorewrite with spath; eassumption. }
           { autorewrite with spath. reflexivity. }
           reflexivity.
+    + assert (get_node (S' .[ sp_loan]) = nloan^m (l)).
+      { destruct Hdisj.
+
     + assert (get_node (S' .[ sp_loan]) = nloan^m (l)).
       {
         remember (v, S') as vS'.
