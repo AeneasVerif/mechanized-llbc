@@ -1,3 +1,4 @@
+(** * Mechanized_LLBC.LLBC : definition of LLBC states. *)
 Require Import base.
 Require Import lang.
 Require Import SimulationUtils.
@@ -11,69 +12,71 @@ Close Scope stdpp_scope.
 Require Import PathToSubtree.
 From Stdlib Require Bool.
 
-Inductive LLBC_val :=
-| LLBC_bot
-| LLBC_int (n : nat) (* TODO: use Aeneas integer types? *)
-| LLBC_mut_loan (l : loan_id)
-| LLBC_mut_borrow (l : loan_id) (v : LLBC_val)
-(*
-| LLBC_shr_loan (l : loan_id) (v : LLBC_val)
-| LLBC_shr_borrow (l : loan_id)
- *)
-(* | LLBC_pair (v0 : LLBC_val) (v1 : LLBC_val) *)
+(** * Definition of LLBC values and states. *)
+Inductive value :=
+| VBottom
+| VInt (n : nat) (* TODO: use Aeneas integer types? *)
+| VBool (b : bool)
+| VMutLoan (l : loan_id)
+| VMutBorrow (l : loan_id) (v : value)
 .
 
-Variant LLBC_nodes :=
-| LLBC_botC
-| LLBC_intC (n : nat)
-| LLBC_mut_loanC (l : loan_id)
-| LLBC_mut_borrowC (l : loan_id)
+Variant nodes :=
+| NBottom
+| NInt (n : nat)
+| NBool (b : bool)
+| NMutLoan (l : loan_id)
+| NMutBorrow (l : loan_id)
 .
 
-Instance EqDecision_LLBC_nodes : EqDecision LLBC_nodes.
-Proof. unfold RelDecision, Decision. repeat decide equality. Qed.
+Instance EqDecision_nodes : EqDecision nodes.
+Proof. unfold RelDecision, Decision. repeat decide equality. Defined.
 
 Definition LLBC_arity c := match c with
-| LLBC_botC => 0
-| LLBC_intC _ => 0
-| LLBC_mut_loanC _ => 0
-| LLBC_mut_borrowC _ => 1
+| NBottom => 0
+| NInt _ => 0
+| NBool _ => 0
+| NMutLoan _ => 0
+| NMutBorrow _ => 1
 end.
 
 Definition LLBC_get_node v := match v with
-| LLBC_bot => LLBC_botC
-| LLBC_int n => LLBC_intC n
-| LLBC_mut_loan l => LLBC_mut_loanC l
-| LLBC_mut_borrow l _ => LLBC_mut_borrowC l
+| VBottom => NBottom
+| VInt n => NInt n
+| VBool b => NBool b
+| VMutLoan l => NMutLoan l
+| VMutBorrow l _ => NMutBorrow l
 end.
 
 Definition LLBC_children v := match v with
-| LLBC_bot => []
-| LLBC_int _ => []
-| LLBC_mut_loan _ => []
-| LLBC_mut_borrow _ v => [v]
+| VBottom => []
+| VInt _ => []
+| VBool _ => []
+| VMutLoan _ => []
+| VMutBorrow _ v => [v]
 end.
 
 Definition LLBC_fold c vs := match c, vs with
-| LLBC_intC n, [] => LLBC_int n
-| LLBC_mut_loanC l, [] => LLBC_mut_loan l
-| LLBC_mut_borrowC l, [v] => LLBC_mut_borrow l v
-| _, _ => LLBC_bot
+| NInt n, [] => VInt n
+| NBool b, [] => VBool b
+| NMutLoan l, [] => VMutLoan l
+| NMutBorrow l, [v] => VMutBorrow l v
+| _, _ => VBottom
 end.
 
 Fixpoint LLBC_weight node_weight v :=
   match v with
-  | LLBC_mut_borrow l v => node_weight (LLBC_mut_borrowC l) + LLBC_weight node_weight v
+  | VMutBorrow l v => node_weight (NMutBorrow l) + LLBC_weight node_weight v
   | v => node_weight (LLBC_get_node v)
 end.
 
-Program Instance ValueLLBC : Value LLBC_val LLBC_nodes := {
+Program Instance ValueLLBC : Value value nodes := {
   arity := LLBC_arity;
   get_node := LLBC_get_node;
   children := LLBC_children;
   fold_value := LLBC_fold;
   vweight := LLBC_weight;
-  bot := LLBC_bot;
+  bot := VBottom;
 }.
 Next Obligation. destruct v; reflexivity. Qed.
 Next Obligation.
@@ -92,15 +95,15 @@ Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation. intros ? []; cbn; lia. Qed.
 
-Record LLBC_state := {
-  vars : Pmap LLBC_val;
-  anons : Pmap LLBC_val;
+Record state := {
+  vars : Pmap value;
+  anons : Pmap value;
 }.
 
 Definition encode_var (x : var) := encode (A := var + anon) (inl x).
 Definition encode_anon (a : positive) := encode (A := var + anon) (inr a).
 
-Program Instance IsState : State LLBC_state LLBC_val := {
+Program Instance IsState : State state value := {
   extra := unit;
   get_map S := sum_maps (vars S) (anons S);
   get_extra _ := ();
@@ -118,68 +121,56 @@ Program Instance IsState : State LLBC_state LLBC_val := {
     end;
   add_anon a v S := {| vars := vars S; anons := insert a v (anons S)|};
 }.
+Next Obligation. intros [? ?] [? ?]. cbn. intros (-> & ->)%sum_maps_eq _. reflexivity. Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation.
   intros ? ? i. cbn. destruct (decode' i) eqn:H.
   - rewrite decode'_is_Some in H.
     destruct s; cbn; rewrite <-H; symmetry;
       first [apply sum_maps_alter_inl | apply sum_maps_alter_inr].
-  - symmetry. apply map_alter_not_in_domain, sum_maps_lookup_None. assumption.
+  - symmetry. apply alter_id', sum_maps_lookup_None. assumption.
 Qed.
-Next Obligation. intros [? ?] [? ?]. cbn. intros (-> & ->)%sum_maps_eq _. reflexivity. Qed.
 (* What are the two following obligations? *)
 Next Obligation. discriminate. Qed.
 Next Obligation. discriminate. Qed.
-Next Obligation. intros. cbn. unfold encode_anon. rewrite sum_maps_insert_inr. reflexivity. Qed.
 Next Obligation. reflexivity. Qed.
-Next Obligation. intros. unfold encode_anon. rewrite decode_encode. reflexivity. Qed.
+Next Obligation. intros. cbn. unfold encode_anon. rewrite sum_maps_insert_inr. reflexivity. Qed.
+Next Obligation. intros. unfold encode_anon. reflexivity. Qed.
 
 Declare Scope llbc_scope.
 Delimit Scope llbc_scope with llbc.
 
-(* TODO: move? *)
-(* TODO: set every priority to 0? *)
-Reserved Notation "'loan^m' ( l )" (at level 0).
-Reserved Notation "'borrow^m' ( l , v )" (at level 0, l at next level, v at next level).
-Reserved Notation "'loc' ( l , v )" (at level 0, l at next level, v at next level). (* TODO: unused in LLBC.v *)
-Reserved Notation "'ptr' ( l )" (at level 0). (* TODO: unused in LLBC.v *)
+(* Notation "'bot'" := VBottom: llbc_scope. *)
+Notation "'loan^m' ( l )" := (VMutLoan l) : llbc_scope.
+Notation "'borrow^m' ( l  , v )" := (VMutBorrow l v) : llbc_scope.
 
-Reserved Notation "'botC'" (at level 0).
-Reserved Notation "'loanC^m'( l )" (at level 0).
-Reserved Notation "'borrow^m' ( l )" (at level 0, l at next level).
-Reserved Notation "'locC' ( l , )" (at level 0, l at next level). (* TODO: unused in LLBC.v *)
-Reserved Notation "'ptrC' ( l )" (at level 0). (* TODO: unused in LLBC.v *)
+Notation "'nbot'" := NBottom: llbc_scope.
+Notation "'nloan^m' ( l )" := (NMutLoan l) : llbc_scope.
+Notation "'nborrow^m' ( l )" := (NMutBorrow l) : llbc_scope.
 
-(* Notation "'bot'" := LLBC_bot: llbc_scope. *)
-Notation "'loan^m' ( l )" := (LLBC_mut_loan l) : llbc_scope.
-Notation "'borrow^m' ( l  , v )" := (LLBC_mut_borrow l v) : llbc_scope.
-
-Notation "'botC'" := LLBC_botC: llbc_scope.
-Notation "'loanC^m' ( l )" := (LLBC_mut_loanC l) : llbc_scope.
-Notation "'borrowC^m' ( l )" := (LLBC_mut_borrowC l) : llbc_scope.
-
-(* Bind Scope llbc_scope with LLBC_val. *)
+(* Bind Scope llbc_scope with value. *)
 Open Scope llbc_scope.
 
-Inductive eval_proj (S : LLBC_state) perm : proj -> spath -> spath -> Prop :=
+(** * Semantics of LLBC *)
+Inductive eval_proj (S : state) perm : proj -> spath -> spath -> Prop :=
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
-| Eval_Deref_MutBorrow q l
+| E_Deref_MutBorrow q l
     (Hperm : perm <> Mov)
-    (get_q : get_node (S.[q]) = borrowC^m(l)) :
+    (get_q : get_node (S.[q]) = nborrow^m(l)) :
     eval_proj S perm Deref q (q +++ [0])
 .
 
 (* TODO: eval_path represents a computation, that evaluates and accumulate the result over [...] *)
-Inductive eval_path (S : LLBC_state) perm : path -> spath -> spath -> Prop :=
+Inductive eval_path (S : state) perm : path -> spath -> spath -> Prop :=
 (* Corresponds to R-Base and W-Base in the article. *)
-| Eval_nil pi : eval_path S perm [] pi pi
-| Eval_cons proj P p q r
+| E_Path_Nil pi : eval_path S perm [] pi pi
+| E_Path_Proj proj P p q r
     (Heval_proj : eval_proj S perm proj p q) (Heval_path : eval_path S perm P q r) :
     eval_path S perm (proj :: P) p r.
 
 Definition eval_place S perm (p : place) pi :=
-  let pi_0 := (encode_var (fst p), []) in
-  valid_spath S pi_0 /\ eval_path S perm (snd p) (encode_var (fst p), []) pi.
+  let pi_0 := (encode_var (fst (fst p)), []) in
+  valid_spath S pi_0 /\ eval_path S perm (snd (fst p)) (encode_var (fst (fst p)), []) pi.
 
 Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
@@ -191,7 +182,7 @@ Proof.
     + destruct (S.[q]); inversion get_q. econstructor; reflexivity || constructor.
 Qed.
 
-Lemma eval_path_valid (s : LLBC_state) P perm q r
+Lemma eval_path_valid (s : state) P perm q r
   (valid_q : valid_spath s q) (eval_q_r : eval_path s perm P q r) :
   valid_spath s r.
 Proof.
@@ -204,101 +195,116 @@ Lemma eval_place_valid s p perm pi (H : eval_place s perm p pi) : valid_spath s 
 Proof. destruct H as (? & ?). eapply eval_path_valid; eassumption. Qed.
 Hint Resolve eval_place_valid : spath.
 
-Variant is_loan : LLBC_nodes -> Prop :=
-| IsLoan_MutLoan l : is_loan (loanC^m(l)).
+Variant is_loan : nodes -> Prop :=
+| IsLoan_MutLoan l : is_loan (nloan^m(l)).
 Hint Constructors is_loan : spath.
 Definition not_contains_loan := not_value_contains is_loan.
 Hint Unfold not_contains_loan : spath.
 Hint Extern 0 (~is_loan _) => intro; easy : spath.
 
 Definition not_contains_bot v :=
-  (not_value_contains (fun c => c = botC) v).
+  (not_value_contains (fun c => c = nbot) v).
 Hint Unfold not_contains_bot : spath.
-Hint Extern 0 (_ <> botC) => discriminate : spath.
+Hint Extern 0 (_ <> nbot) => discriminate : spath.
 
-Variant is_mut_borrow : LLBC_nodes -> Prop :=
-| IsMutBorrow_MutBorrow l : is_mut_borrow (borrowC^m(l)).
+Variant is_mut_borrow : nodes -> Prop :=
+| IsMutBorrow_MutBorrow l : is_mut_borrow (nborrow^m(l)).
 Notation not_contains_outer_loan := (not_contains_outer is_mut_borrow is_loan).
 
-Lemma loan_is_not_bot x : is_loan x -> x <> botC. Proof. intros [ ]; discriminate. Qed.
+Lemma loan_is_not_bot x : is_loan x -> x <> nbot. Proof. intros [ ]; discriminate. Qed.
 
-Inductive copy_val : LLBC_val -> LLBC_val -> Prop :=
-| Copy_val_int (n : nat) : copy_val (LLBC_int n) (LLBC_int n)
+Inductive copy_val : value -> value -> Prop :=
+| Copy_val_int (n : nat) : copy_val (VInt n) (VInt n)
+| Copy_val_bool (b : bool) : copy_val (VBool b) (VBool b)
 .
 
-Local Reserved Notation "S  |-{op}  op  =>  r" (at level 60).
-
-Variant eval_operand : operand -> LLBC_state -> (LLBC_val * LLBC_state) -> Prop :=
-| Eval_IntConst S n : S |-{op} IntConst n => (LLBC_int n, S)
-| Eval_copy S (p : place) pi v
+Variant eval_operand : operand -> state -> (value * state) -> Prop :=
+| E_IntConst S n : S |-{op} Const (IntConst n) => (VInt n, S)
+| E_BoolConst S n : S |-{op} Const (IntConst n) => (VInt n, S)
+| E_Copy S (p : place) pi v
     (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy p => (v, S)
-| Eval_move S (p : place) pi : eval_place S Mov p pi ->
+| E_Move S (p : place) pi : eval_place S Mov p pi ->
     not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) ->
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
 where "S |-{op} op => r" := (eval_operand op S r).
 
 Definition get_loan_id c :=
   match c with
-  | loanC^m(l) => Some l
-  | borrowC^m(l) => Some l
+  | nloan^m(l) => Some l
+  | nborrow^m(l) => Some l
   | _ => None
   end.
 
 Notation is_fresh l S := (not_state_contains (fun c => get_loan_id c = Some l) S).
-Local Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
 
-Variant eval_rvalue : rvalue -> LLBC_state -> (LLBC_val * LLBC_state) -> Prop :=
-  | Eval_just op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Just op) => vS'
+Variant eval_binary_op : BinOp -> value -> value -> value -> Prop :=
+  | E_Add m n :
+      eval_binary_op BAdd (VInt m) (VInt n) (VInt (m + n))
+  | E_Le m n :
+      eval_binary_op BLe (VInt m) (VInt n) (VBool (m <=? n))
+.
+
+Variant eval_rvalue : rvalue -> state -> (value * state) -> Prop :=
+  | E_Use op S vS' (Heval_op : S |-{op} op => vS') : S |-{rv} (Use op) => vS'
   (* For the moment, the only operation is the natural sum. *)
-  | Eval_bin_op S S' S'' op_l op_r m n :
-      (S |-{op} op_l => (LLBC_int m, S')) ->
-      (S' |-{op} op_r => (LLBC_int n, S'')) ->
-      S |-{rv} (BinOp op_l op_r) => ((LLBC_int (m + n)), S'')
-  | Eval_mut_borrow S p pi l : S |-{p} p =>^{Mut} pi ->
+  | E_BinOp S S' S'' binop op_l op_r vl vr w :
+      (S |-{op} op_l => (vl, S')) ->
+      (S' |-{op} op_r => (vr, S'')) ->
+      eval_binary_op binop vl vr w ->
+      S |-{rv} (BinaryOp binop op_l op_r) => (w, S'')
+  | E_MutBorrow S p pi l : S |-{p} p =>^{Mut} pi ->
       not_contains_loan (S.[pi]) -> not_contains_bot (S.[pi]) -> is_fresh l S ->
       S |-{rv} (&mut p) => (borrow^m(l, S.[pi]), S.[pi <- loan^m(l)])
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
-Definition not_in_borrow (S : LLBC_state) p :=
+Definition not_in_borrow (S : state) p :=
   forall q, prefix q p -> is_mut_borrow (get_node (S.[q])) -> q = p.
 
-Inductive reorg : LLBC_state -> LLBC_state -> Prop :=
-| Reorg_end_borrow_m S (p q : spath) l :
-    disj p q -> get_node (S.[p]) = loanC^m(l) -> get_node (S.[q]) = borrowC^m(l) ->
+Inductive reorg : state -> state -> Prop :=
+| Reorg_End_MutBorrow S (p q : spath) l :
+    disj p q -> get_node (S.[p]) = nloan^m(l) -> get_node (S.[q]) = nborrow^m(l) ->
     not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
 .
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
-Variant store (p : place) : LLBC_val * LLBC_state -> LLBC_state -> Prop :=
+Variant store (p : place) : value * state -> state -> Prop :=
 | Store v S (sp : spath) (a : anon)
   (eval_p : (S,, a |-> v) |-{p} p =>^{Mut} sp)
   (no_outer_loan : not_contains_outer_loan (S.[sp])) :
   fresh_anon S a -> store p (v, S) (S.[sp <- v],, a |-> S.[sp])
 .
 
-(* When introducing non-terminating features (loops or recursivity), the signature of the relation
-   is going to be:
-   LLBC_state -> statement -> nat -> Option (statement_result * LLBC_state) -> Prop
-*)
+(* TODO: take fuel into account and delete this notation. *)
 Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
-Inductive eval_stmt : statement -> statement_result -> LLBC_state -> LLBC_state -> Prop :=
-  | Eval_nop S : S |-{stmt} Nop => rUnit, S
-  | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
+
+Inductive eval_stmt : statement -> flow_token -> state -> state -> Prop :=
+  | E_Nop S : S |-{stmt} Nop => rUnit, S
+  | E_Panic S : S |-{stmt} Panic => rPanic, S
+  | E_Seq_Unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
       (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
-  | Eval_seq_panic S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
+  | E_Seq_Propagate S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
       S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
-  | Eval_assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
+  | E_Assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
       S |-{stmt} ASSIGN p <- rv => rUnit, S''
-  | Eval_reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
+  | E_IfThenElse_T S S' S'' cond stmt_if stmt_else r
+      (eval_cond : S |-{op} cond => (VBool true, S')) :
+      S' |-{stmt} stmt_if => r, S'' ->
+      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) => r, S''
+  | E_IfThenElse_F S S' S'' cond stmt_if stmt_else r
+      (eval_cond : S |-{op} cond => (VBool false, S')) :
+      S' |-{stmt} stmt_else => r, S'' ->
+      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) => r, S''
+  | E_Reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
       S0 |-{stmt} stmt => r, S2
 where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
+(** * Execution of a LLBC program. *)
 Local Open Scope option_monad_scope.
-(* Can we prove that the following proram terminates? *)
-(*
+(** The program we execute is:
+<<
 fn main() {
     let mut a = 1983;
     let mut b = 1986;
@@ -307,24 +313,26 @@ fn main() {
     c = &mut b;
     *d = 58;
 }
+>>
  *)
 Notation a := 1%positive.
 Notation b := 2%positive.
 Notation c := 3%positive.
 Notation d := 4%positive.
 Definition main : statement :=
-  ASSIGN (a, []) <- Just (IntConst 1983) ;;
-  ASSIGN (b, []) <- Just (IntConst 1986) ;;
-  ASSIGN (c, []) <- &mut (a, []) ;;
-  ASSIGN (d, []) <- &mut (c, [Deref]) ;;
-  ASSIGN (c, []) <- &mut (b, []) ;;
-  ASSIGN (d, [Deref]) <- Just (IntConst 58) ;;
+  ASSIGN (a, [], TInt) <- Use (Const (IntConst 1983)) ;;
+  ASSIGN (b, [], TInt) <- Use (Const (IntConst 1986)) ;;
+  ASSIGN (c, [], TRef TInt) <- &mut (a, [], TInt) ;;
+  ASSIGN (d, [], TRef TInt) <- &mut (c, [Deref], TInt) ;;
+  ASSIGN (c, [], TRef TInt) <- &mut (b, [], TInt) ;;
+  ASSIGN (d, [Deref], TInt) <- Use (Const (IntConst 58)) ;;
   Nop
 .
-(* Important note: the line `c = &mut b` overwrites a loan, but as it is an outer loan, it doesn't
- * cause any problem. This is a check that the overwriting of outer loans is supported. *)
-(* Also, the last `Nop` statement was added so that we could perform reorganization operations
- * before the end, and but back the value 58 in the variable a. *)
+(** Note: the line << c = &mut b >> overwrites a loan, but as it is an outer loan, it does
+   not cause any problem. This is a check that the overwriting of outer loans is supported.
+
+   Also, the last [Nop] statement was added so that we could perform reorganization operations
+   before the end, and but back the value 58 in the variable [a]. *)
 
 Open Scope stdpp.
 Notation init_state := {|
@@ -346,12 +354,12 @@ Proof.
   - rewrite H, nth_error_nil in G. inversion G.
 Qed.
 
-(* For the moment, the type of values is so restricted that a value contains an outer loan if and
- * only if it is a mutable loan. *)
+(** For the moment, the type of values is so restricted that a value contains an outer loan if and
+    only if it is a mutable loan. *)
 Lemma decide_not_contains_outer_loan_correct v :
   is_true (decide_not_contains_outer_loan v) -> not_contains_outer_loan v.
 Proof.
-  intros no_outer_loan [ | ] H.
+  intros no_outer_loan [ | ] _ H.
   - destruct v; inversion H. discriminate.
   - destruct v; rewrite vget_cons, ?nth_error_nil, ?vget_bot in H; inversion H.
     exists []. split.
@@ -359,76 +367,21 @@ Proof.
     * constructor.
 Qed.
 
-Definition decide_is_bot v := match v with botC => true | _ => false end.
-Definition decide_is_loan v := match v with loanC^m(l) => true | _ => false end.
-Definition decide_is_loan_id l v :=
-  match v with
-  | borrowC^m(l') | loanC^m(l') => l =? l'
-  | _ => false
-  end.
-
-Fixpoint decide_not_value_contains (P : LLBC_nodes -> bool) v :=
-  negb (P (get_node v)) && match v with borrow^m(l, w) => decide_not_value_contains P w | _ => true end.
-
-(* split in two lemmas. *)
-Lemma decide_not_value_contains_correct H P v (H_implies_P : forall v, H v -> P v = true) :
-  decide_not_value_contains P v = true -> not_value_contains H v.
+Instance decidable_not_value_contains P `(H : forall n, Decision (P n)) v :
+  Decision (not_value_contains P v).
 Proof.
-  intro decide_is_true. induction v.
-  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
-    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
-  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
-    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
-  - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
-    subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
-  - intros p valid_p. inversion valid_p; subst.
-    + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
-    + cbn in *. rewrite nth_error_cons in * |-. destruct i.
-      * cbn in *. apply IHv. eapply andb_prop. eassumption. inversion H0. assumption.
-      * rewrite nth_error_nil in * |-. discriminate.
-Qed.
+  induction v; try (apply decidable_not_value_contains_zeroary; [assumption | reflexivity]).
+  eapply decidable_not_value_contains_unary; reflexivity || assumption.
+Defined.
 
-Corollary decide_not_contains_bot v (H : decide_not_value_contains decide_is_bot v = true) :
-  not_contains_bot v.
-Proof. eapply decide_not_value_contains_correct; try exact H. intros ? ->. reflexivity. Qed.
+Instance decidable_is_loan c : Decision (is_loan c).
+Proof. destruct c; first [left; constructor | right; inversion 1]. Defined.
 
-Corollary decide_not_contains_loan v (H : decide_not_value_contains decide_is_loan v = true) :
-  not_contains_loan v.
-Proof.
-  eapply decide_not_value_contains_correct; try exact H.
-  intros ? G. destruct G. reflexivity.
-Qed.
+Instance decidable_is_mut_borrow c : Decision (is_mut_borrow c).
+Proof. destruct c; first [left; constructor | right; inversion 1]. Defined.
 
-Definition decide_not_state_contains (P : LLBC_nodes -> bool) (S : LLBC_state) :=
-  map_fold (fun k v b => decide_not_value_contains P v && b) true (get_map S).
-
-Lemma decide_state_contains_correct H P S (H_implies_P : forall v, H v -> P v = true) :
-  decide_not_state_contains P S = true -> not_state_contains H S.
-Proof.
-  intros G p. unfold sget. intros (v & getval_S & ?). rewrite getval_S.
-  intros H_in_v.
-  unfold decide_not_state_contains in G.
-  erewrite map_fold_delete_L in G; [ | intros; ring | eassumption].
-  destruct (decide_not_value_contains P v) eqn:EQN.
-  - eapply decide_not_value_contains_correct in EQN; [ | eassumption].
-    eapply EQN; eassumption.
-  - rewrite andb_false_l in G. discriminate.
-Qed.
-
-Corollary decide_is_fresh S l (H : decide_not_state_contains (decide_is_loan_id l) S = true) :
-  is_fresh l S.
-Proof.
-  eapply decide_state_contains_correct; try eassumption.
-  intros c G. destruct c; inversion G; apply Nat.eqb_refl.
-Qed.
-
-(* TODO: move in PathToSubtree.v? *)
-Lemma prefix_nil p i : prefix p (i, []) -> p = (i, []).
-Proof.
-  destruct p as (j & q). intros (r & H). unfold app_spath_vpath in H. cbn in H.
-  apply pair_equal_spec in H. destruct H as (-> & H).
-  apply app_eq_nil in H. destruct H as (-> & _). reflexivity.
-Qed.
+Instance decidable_is_fresh l S : Decision (is_fresh l S).
+Proof. apply decidable_not_state_contains. solve_decision. Defined.
 
 (* Note: an alternative to using tactics is to define functions, and prove their correction. *)
 
@@ -439,9 +392,9 @@ Ltac eval_var :=
   split; [eexists; split; [reflexivity | constructor] | ].
 
 Section Eval_LLBC_program.
-  Hint Rewrite (@alter_insert _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
+  Hint Rewrite (@alter_insert_eq _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
   Hint Rewrite (@alter_insert_ne _ _ _ _ _ _ _ _ _ _ Pmap_finmap) using discriminate : core.
-  Hint Rewrite (@alter_singleton _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
+  Hint Rewrite (@alter_singleton_eq _ _ _ _ _ _ _ _ _ _ Pmap_finmap) : core.
 
   Lemma insert_empty_is_singleton `{FinMap K M} {V} k v : insert (M := M V) k v empty = {[k := v]}.
   Proof. reflexivity. Qed.
@@ -459,84 +412,77 @@ Section Eval_LLBC_program.
 
   Lemma safe_main :
     exists end_state, eval_stmt main rUnit init_state end_state /\
-      exists pi, eval_place end_state Imm ((a, []) : place) pi /\ end_state.[pi] = LLBC_int 58.
+      exists pi, eval_place end_state Imm ((a, [], TInt) : place) pi /\ end_state.[pi] = VInt 58.
   Proof.
     eexists. split. {
-      eapply Eval_seq_unit.
-      { eapply Eval_assign; [ | apply Store with (a := 1%positive)].
-        - apply Eval_just, Eval_IntConst.
+      eapply E_Seq_Unit.
+      { eapply E_Assign; [ | apply Store with (a := 1%positive)].
+        - apply E_Use, E_IntConst.
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
-      simpl_state. eapply Eval_seq_unit.
-      { eapply Eval_assign; [ | apply Store with (a := 2%positive)].
-        - apply Eval_just, Eval_IntConst.
+      simpl_state. eapply E_Seq_Unit.
+      { eapply E_Assign; [ | apply Store with (a := 2%positive)].
+        - apply E_Use, E_IntConst.
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
-      simpl_state. eapply Eval_seq_unit.
-      { eapply Eval_assign; [ | eapply Store with (a := 3%positive)].
-        - apply Eval_mut_borrow with (l := 0).
-          + eval_var. constructor.
-          + cbn. apply decide_not_contains_loan. reflexivity.
-          + cbn. apply decide_not_contains_bot. reflexivity.
-          + cbn. apply decide_is_fresh. reflexivity.
+      simpl_state. eapply E_Seq_Unit.
+      { eapply E_Assign; [ | eapply Store with (a := 3%positive)].
+        - apply E_MutBorrow with (l := 1%positive);
+            [eval_var; constructor | compute_done..].
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
-      simpl_state. eapply Eval_seq_unit.
-      { eapply Eval_assign; [ | eapply Store with (a := 4%positive)].
-        - eapply Eval_mut_borrow with (l := 1).
+      simpl_state. eapply E_Seq_Unit.
+      { eapply E_Assign; [ | eapply Store with (a := 4%positive)].
+        - eapply E_MutBorrow with (l := 2%positive).
           + eval_var. repeat econstructor || easy.
-          + cbn. apply decide_not_contains_loan. reflexivity.
-          + cbn. apply decide_not_contains_bot. reflexivity.
-          + cbn. apply decide_is_fresh. reflexivity.
+          + compute_done.
+          + compute_done.
+          + compute_done.
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
-      simpl_state. eapply Eval_seq_unit.
-      { eapply Eval_assign; [ | eapply Store with (a := 5%positive)].
-        - eapply Eval_mut_borrow with (l := 2).
-          + eval_var. constructor.
-          + cbn. apply decide_not_contains_loan. reflexivity.
-          + cbn. apply decide_not_contains_bot. reflexivity.
-          + cbn. apply decide_is_fresh. reflexivity.
+      simpl_state. eapply E_Seq_Unit.
+      { eapply E_Assign; [ | eapply Store with (a := 5%positive)].
+        - apply E_MutBorrow with (l := 3%positive); [eval_var; constructor | compute_done..].
         - eval_var. constructor.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
-      simpl_state. eapply Eval_seq_unit.
-      { eapply Eval_assign; [ | eapply Store with (a := 6%positive)].
-        - apply Eval_just, Eval_IntConst.
+      simpl_state. eapply E_Seq_Unit.
+      { eapply E_Assign; [ | eapply Store with (a := 6%positive)].
+        - apply E_Use, E_IntConst.
         - eval_var. repeat econstructor || easy.
-        - cbn. apply decide_not_contains_outer_loan_correct. reflexivity.
+        - apply decide_not_contains_outer_loan_correct. reflexivity.
         - reflexivity.
       }
-      simpl_state. eapply Eval_reorg.
+      simpl_state. eapply E_Reorg.
       { etransitivity; [constructor | ].
-        { apply Reorg_end_borrow_m with (p := (encode_anon 5, [0])) (q := (encode_var d, [])) (l := 1).
+        { apply Reorg_End_MutBorrow with (p := (encode_anon 5, [0])) (q := (encode_var d, [])) (l := 2%positive).
           + left. discriminate.
           + reflexivity.
           + reflexivity.
-          + apply decide_not_contains_loan. reflexivity.
+          + compute_done.
           + intros ? ->%prefix_nil. reflexivity. }
           simpl_state.
           constructor.
-          apply Reorg_end_borrow_m with (l := 0) (p := (encode_var a, [])) (q := (encode_anon 5, [])).
+          apply Reorg_End_MutBorrow with (l := 1%positive) (p := (encode_var a, [])) (q := (encode_anon 5, [])).
           + left. discriminate.
           + reflexivity.
           + reflexivity.
-          + apply decide_not_contains_loan. reflexivity.
+          + compute_done.
           + intros ? ->%prefix_nil. reflexivity.
       }
-      simpl_state. apply Eval_nop.
+      simpl_state. apply E_Nop.
     }
     eexists. split.
     - eval_var. constructor.
-    - cbn. reflexivity.
+    - vm_compute. reflexivity.
   Qed.
 End Eval_LLBC_program.

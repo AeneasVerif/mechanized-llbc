@@ -1,5 +1,5 @@
 (* TODO: documentation. *)
-Require Import OptionMonad.
+From rustc Require Import OptionMonad.
 
 From stdpp Require Import fin_maps pmap gmap.
 

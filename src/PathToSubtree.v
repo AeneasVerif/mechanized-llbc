@@ -2,7 +2,7 @@
 From Stdlib Require Import List.
 From Stdlib Require Import PeanoNat.
 Require Import RelationClasses.
-Require Import OptionMonad.
+From rustc Require Import OptionMonad.
 Require Import base.
 From Stdlib Require Import Arith.
 From Stdlib Require Import ZArith.
@@ -1780,21 +1780,23 @@ Section GetSetPath.
     rewrite vget_cons, one_child. simplify_option.
   Qed.
 
-  Lemma not_value_contains_nary P v :
-    ~P (get_node v) -> Forall (not_value_contains P) (children v) ->
+  Lemma not_value_contains_nary P v w :
+    children v = w -> ~P (get_node v) -> Forall (not_value_contains P) w ->
     not_value_contains P v.
   Proof.
-    intros ? ? p valid_p. induction valid_p ; [assumption | ].
-    simpl. rewrite H2. apply IHvalid_p.
-    - apply nth_error_In in H2. intros contra.
-      pose proof ((proj1 (List.Forall_forall (not_value_contains P) _ ) H1) w H2).
-      assert (~P (get_node w)) by (apply (H3 []) ; constructor). auto.
-    - apply nth_error_In in H2. 
-      pose proof ((proj1 (List.Forall_forall (not_value_contains P) _ ) H1) w H2).
-      apply List.Forall_forall. intros w' Hin. apply In_nth_error in Hin as (n & ?).
-      replace w' with (w.[[ [n] ]]) by (rewrite vget_cons, H4 ; reflexivity).
-      intros ? vp. rewrite <- vget_app. apply H3, valid_vpath_app ; split ; auto.
-      apply valid_cons with (w := w'); auto. constructor.
+    intros ? ? ? p valid_p. generalize dependent w.
+    induction valid_p ; intros w' ? ? ; [assumption | ].
+    simpl. rewrite H0. eapply IHvalid_p.
+    - apply nth_error_In in H0. intros contra. rewrite H2 in H0.
+      pose proof ((proj1 (List.Forall_forall (not_value_contains P) _ ) H3) w H0).
+      assert (~P (get_node w)) by (apply (H4 []) ; constructor). auto.
+    - reflexivity.
+    - apply nth_error_In in H0. rewrite H2 in H0.
+      pose proof ((proj1 (List.Forall_forall (not_value_contains P) _ ) H3) w H0).
+      eapply List.Forall_forall. intros w'' Hin. apply In_nth_error in Hin as (n & ?).
+      replace w'' with (w.[[ [n] ]]) by (rewrite vget_cons, H5 ; reflexivity).
+      intros ? vp. rewrite <- vget_app. apply H4, valid_vpath_app ; split ; auto.
+      apply valid_cons with (w := w''); auto. constructor.
   Qed.
 
   Lemma not_state_contains_implies_not_value_contains_sget P S p :

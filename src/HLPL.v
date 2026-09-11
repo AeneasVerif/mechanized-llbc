@@ -10,7 +10,7 @@ From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
 
 Require Import PathToSubtree.
-Require Import OptionMonad.
+From rustc Require Import OptionMonad.
 Local Open Scope option_monad_scope.
 Require Import SimulationUtils.
 
@@ -21,36 +21,64 @@ Inductive value :=
 | VBool (b : bool)
 | VLoc (l : loan_id) (v : value)
 | VPtr (l : loan_id)
-| VTuple (t : list value)
+| VTuple (t : value_list)
+with value_list :=
+| VNil
+| VCons (v : value) (vl : value_list)
 .
 
-Fixpoint value_ind'
-  (P : value -> Type)
-  (fbot : P VBottom)
-  (fint : forall n, P (VInt n))
-  (fbool: forall b, P (VBool b))
-  (floc : ∀ l v, P v → P (VLoc l v))
-  (fptr : forall l, P (VPtr l))
-  (ftuple : ∀ vl : list value, ForallT P vl -> P (VTuple vl))
-  (v : value)
-  : P v :=
-  match v with
-  | VBottom => fbot
-  | VInt n => fint n
-  | VBool b => fbool b
-  | VLoc l v' => floc l v' (value_ind' P fbot fint fbool floc fptr ftuple v')
-  | VPtr l => fptr l
-  | VTuple vl =>
-      ftuple vl 
-      ((fix F vl :=
-        match vl as vl0 return ForallT P vl0 with
-        | [] => @ForallT_nil value P
-        | v' :: vl' =>
-            @ForallT_cons value P v' vl'
-              (value_ind' P fbot fint fbool floc fptr ftuple v')
-              (F vl')
-        end) vl)
-  end.
+Module ValueList.
+  Fixpoint length (vl : value_list) : nat :=
+    match vl with
+    | VNil => 0
+    | VCons _ vl' => S (length vl')
+    end.
+
+  Fixpoint from_list (vl : list value) : value_list :=
+    match vl with
+    | [] => VNil
+    | t :: tl => VCons t (from_list tl)
+    end.
+
+  Fixpoint to_list (vl : value_list) : list value :=
+    match vl with
+    | VNil => []
+    | VCons t tl => t :: (to_list tl)
+    end.
+
+  Lemma from_list_to_list_inv (vl : value_list) :
+    from_list (to_list vl) = vl.
+  Proof. induction vl ; simpl ; congruence. Qed.
+
+  Lemma to_list_from_list_inv (vl : list value) :
+    to_list (from_list vl) = vl.
+  Proof. induction vl ; simpl ; congruence. Qed.
+
+  Lemma to_list_inj (vl0 vl1 : value_list) :
+    to_list vl0 = to_list vl1 -> vl0 = vl1.
+  Proof.
+    intros. apply f_equal with (f := from_list) in H.
+    by rewrite !from_list_to_list_inv in H.
+  Qed.
+
+  Lemma from_list_inj (vl0 vl1 : list value) :
+    from_list vl0 = from_list vl1 -> vl0 = vl1.
+  Proof.
+    intros. apply f_equal with (f := to_list) in H.
+    by rewrite !to_list_from_list_inv in H.
+  Qed.
+
+  Lemma length_from_list (vl : list value) :
+    List.length vl = length (from_list vl).
+  Proof. induction vl; simpl ; congruence. Qed.
+
+  Lemma length_to_list (vl : value_list) :
+    length vl = List.length (to_list vl).
+  Proof. induction vl; simpl ; congruence. Qed.
+
+  Definition Forall (P : value -> Prop) (vl : value_list) : Prop :=
+    List.Forall P (to_list vl).
+End ValueList.
 
 Variant nodes :=
 | NBottom
@@ -79,7 +107,7 @@ Definition HLPL_get_node v := match v with
 | VBool b => NBool b
 | VLoc l _ => NLoc l
 | VPtr l => NPtr l
-| VTuple t => NTuple (List.length t)
+| VTuple t => NTuple (ValueList.length t)
 end.
 
 Definition HLPL_children v := match v with
@@ -88,7 +116,7 @@ Definition HLPL_children v := match v with
 | VBool _ => []
 | VLoc _ v => [v]
 | VPtr l => []
-| VTuple t => t
+| VTuple t => (ValueList.to_list t)
 end.
 
 Definition HLPL_fold c vs := match c, vs with
@@ -96,7 +124,7 @@ Definition HLPL_fold c vs := match c, vs with
 | NBool b, [] => VBool b
 | NLoc l, [v] => VLoc l v
 | NPtr l, [] => VPtr l
-| NTuple n, t => VTuple t
+| NTuple n, t => VTuple (ValueList.from_list t)
 | _, _ => VBottom
 end.
 
@@ -104,9 +132,15 @@ Fixpoint HLPL_weight node_weight v :=
   match v with
   | VLoc l v => node_weight (NLoc l) + HLPL_weight node_weight v
   | VTuple t => node_weight (HLPL_get_node (VTuple t)) +
-                 sum (map (HLPL_weight node_weight) t)
+               HLPL_tuple_weight node_weight t
   | v => node_weight (HLPL_get_node v)
-end.
+end
+with HLPL_tuple_weight node_weight vl :=
+  match vl with
+  | VNil => 0
+  | VCons v vl => (HLPL_weight node_weight v) + (HLPL_tuple_weight node_weight vl)
+  end
+.
 
 Program Instance ValueHLPL : Value value nodes := {
   arity := HLPL_arity;
@@ -116,25 +150,35 @@ Program Instance ValueHLPL : Value value nodes := {
   vweight := HLPL_weight;
   bot := VBottom;
 }.
-Next Obligation. destruct v; reflexivity. Qed.
+Next Obligation.
+  destruct v; try reflexivity.
+  induction t ; simpl in * ; congruence.
+Qed.
 Next Obligation.
   intros [] [] eq_node eq_children; inversion eq_node; inversion eq_children;
-    simpl in *; congruence. 
+    simpl in *; try congruence. 
+  by apply ValueList.to_list_inj in H1 as ->.
 Qed.
 Next Obligation.
  intros [] ? H;
   first [rewrite length_zero_iff_nil in H; rewrite H
         | destruct (length_1_is_singleton H) as [? ->] | idtac ];
-   simpl in * ; congruence.
+   simpl in * ; try congruence.
+ by rewrite <- ValueList.length_from_list, H.
 Qed.
 Next Obligation.
  intros [] ? H;
   first [rewrite length_zero_iff_nil in H; rewrite H
         | destruct (length_1_is_singleton H) as [? ->] | idtac ];
-  reflexivity.
+  try reflexivity.
+ generalize dependent n. induction vs ; simpl in * ; intros. reflexivity.
+ apply f_equal with (f := pred) in H. simpl in H.
+ apply f_equal, (IHvs (pred n)). congruence.
 Qed.
 Next Obligation. reflexivity. Qed.
-Next Obligation. intros ? []; unfold HLPL_children; cbn ; try lia.
+Next Obligation.
+  intros ? []; unfold HLPL_children; cbn ; try lia.
+  induction t ;  simpl ; lia.
 Qed.
 
 Record state := {
@@ -213,6 +257,29 @@ Proof.
   - right. exists vp'; reflexivity.
   - inversion Hvp ; subst. simpl in H2. rewrite nth_error_nil in H2. easy.
 Qed.
+
+Lemma not_value_list_contains_forall (vl : value_list) (P : nodes -> Prop) :
+  not_value_contains P (VTuple vl) <->
+    ~ P (get_node (VTuple vl)) /\ Forall (not_value_contains P) (ValueList.to_list vl).
+Proof.
+  rewrite List.Forall_nth.
+  split ; [ intros H | intros (? & ?) ].
+  - split.
+    + specialize (H []). apply H. constructor.
+    + intros ? ? ? ? **. specialize (H (i :: p)). simpl in H.
+      replace (nth_error (ValueList.to_list vl) i) with
+        (Some (nth i (ValueList.to_list vl) d)) in H. 
+      apply H. eapply valid_cons ; eauto.
+      all: rewrite <- nth_error_nth' ; auto.
+  - intros [ | ] ? ; cbn. 
+    + apply H.
+    + inversion H1 ; subst. simpl in H5. rewrite H5.
+      apply nth_error_length in H5 as Hlen.
+      apply nth_error_nth with (d := VBottom) in H5.
+      specialize (H0 n bot Hlen l). simpl in H0. rewrite H5 in H0. apply H0.
+      auto.
+Qed.
+
 
 Lemma not_value_contains_struct_loc (v : value) (f : nodes -> Prop) :
   forall l,
@@ -397,12 +464,12 @@ Inductive eval_operand : operand -> state -> (value * state) -> Prop :=
       (H : eval_tuple opl S (vl, S')) :
     S |-{op} Tuple opl => (VTuple vl, S')
 where "S |-{op} op => r" := (eval_operand op S r)
-  with eval_tuple : list operand -> state -> (list value * state) -> Prop :=
-  | E_Tuple_Nil S : eval_tuple [] S ([], S)
+  with eval_tuple : list operand -> state -> (value_list * state) -> Prop :=
+  | E_Tuple_Nil S : eval_tuple [] S (VNil, S)
   | E_Tuple_Cons S S' S'' op opl v v'
       (Hop : eval_operand op S (v, S'))
       (Hrec : eval_tuple opl S' (v', S'')) :
-    eval_tuple (op :: opl) S (v :: v', S'')
+    eval_tuple (op :: opl) S (VCons v v', S'')
 .
 
 Variant eval_binary_op : BinOp -> value -> value -> value -> Prop :=
@@ -442,20 +509,18 @@ Qed.
 
 Lemma eval_operand_no_loc (S : state) (op : operand) (vS' : value * state) :
   S |-{op} op => vS' -> not_contains_loc vS'.1
-with  eval_tuple_no_loc (S : state) (opl : list operand) (vlS' : list value * state) :
-  eval_tuple opl S vlS' -> Forall (not_contains_loc) vlS'.1.
+with  eval_tuple_no_loc (S : state) (opl : list operand) (vlS' : value_list * state) :
+  eval_tuple opl S vlS' -> Forall (not_contains_loc) (ValueList.to_list vlS'.1).
 Proof.
   {
-    intros eval_op ; induction eval_op ;
-    try (unfold not_contains_loc ; not_contains).
-  + simpl. by apply copy_no_loc with (v := S.[ pi ]).
-  + simple eapply not_value_contains_nary ; [ easy |].
-    remember (vl, S') as vlS'. replace vl with (vlS'.1) by (subst ; reflexivity).
-    clear HeqvlS'. induction H.
-    - constructor.
-    - simpl in *. constructor ; [ | assumption].
-       replace v with ((v, S'0).1) by (simpl ; reflexivity).
-       apply eval_operand_no_loc with (S := S) (op := op) ; auto.
+    intros eval_op ; induction eval_op.
+    + unfold not_contains_loc ; not_contains.
+    + unfold not_contains_loc ; not_contains.
+    + eapply copy_no_loc. eauto
+    + unfold not_contains_loc ; not_contains.
+    + unfold not_contains_loc ; not_contains.
+    + unfold not_contains_loc ; not_contains. remember (vl, S') as vlS'.
+      replace vl with (vlS'.1) by (rewrite HeqvlS' ; auto). simpl. eauto.
   }
   {
     intros eval_t. induction eval_t ; [ constructor | ].
@@ -467,9 +532,11 @@ Qed.
 Lemma eval_rvalue_no_loc (S: state) (rv : rvalue) (vS : value * state) :
   S |-{rv} rv => vS -> not_contains_loc vS.1.
 Proof.
-  intros Hrv ; induction Hrv ; try (unfold not_contains_loc ; not_contains).
+  intros Hrv ; induction Hrv.
   - eapply eval_operand_no_loc, Heval_op.
-  - induction Hbinop ; simpl ; not_contains.
+  - induction Hbinop ; simpl ; unfold not_contains_loc ; not_contains.
+  - unfold not_contains_loc ; not_contains.
+  - unfold not_contains_loc ; not_contains.
 Qed.
 
 Inductive reorg : state -> state -> Prop :=
@@ -523,14 +590,22 @@ Fixpoint decide_not_value_contains (P : nodes -> bool) v :=
   negb (P (get_node v)) &&
     match v with
       loc(l, w) => decide_not_value_contains P w
-    | VTuple vl =>
-        forallb (decide_not_value_contains P) vl
-    | _ => true end.
+    | VTuple vl => decide_not_value_list_contains P vl
+    | _ => true end
+with decide_not_value_list_contains (P : nodes -> bool) vl :=
+  match vl with
+  | VNil => true
+  | VCons v vl' => decide_not_value_contains P v && decide_not_value_list_contains P vl'
+  end.
 
 Lemma decide_not_value_contains_correct H P v (H_implies_P : forall v, H v -> P v = true) :
-  decide_not_value_contains P v = true -> not_value_contains H v.
+  decide_not_value_contains P v = true -> not_value_contains H v
+with decide_not_value_list_contains_correct H P vl
+       (H_implies_P : forall vl, H vl -> P vl = true) :
+  decide_not_value_list_contains P vl = true ->
+  ValueList.Forall (not_value_contains H) vl.
 Proof.
-  intro decide_is_true. induction v using value_ind'.
+  intro decide_is_true. induction v.
   - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
     subst. cbn in *. intros G%H_implies_P. rewrite G in *. discriminate.
   - intros p valid_p. apply valid_vpath_no_children in valid_p; [ | reflexivity].
@@ -549,13 +624,16 @@ Proof.
   - intros p valid_p. inversion valid_p; subst.
     + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
     + cbn in *. rewrite nth_error_nil in * |-. discriminate.
-  - intros p valid_p. inversion valid_p; subst ; cbn in *.
-    + intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
-    + rewrite H1. apply (ForallT_nth _ vl i w) in H0 ; [ | assumption ].
-      apply H0 ; [ | assumption ].
-      apply andb_prop in decide_is_true as (_ & dit).
-      apply nth_error_In in H1.
-      apply forallb_forall with (x := w) in dit ; auto.
+  - apply not_value_list_contains_forall. split.
+    + apply andb_prop in decide_is_true as (?%negb_true_iff & _).
+      intros ?%H_implies_P. congruence.
+    + eapply decide_not_value_list_contains_correct ; eauto.
+      induction t.
+      * reflexivity.
+      * simpl in *. by apply andb_prop in decide_is_true as (_ & (-> & ->)%andb_prop).
+  - induction vl ; simpl ; [intros | intros (? & ?)%andb_prop ] ; constructor.
+    + eapply decide_not_value_contains_correct ; eassumption.
+    + apply IHvl ; auto.
 Qed.
 
 Definition decide_is_bot v := match v with NBottom => true | _ => false end.
@@ -612,6 +690,8 @@ Notation a6 := 6%positive.
 Notation l1 := 1%positive.
 Notation l2 := 2%positive.
 
+Open Scope rtype_scope.
+
 Definition prog :=
   ASSIGN (x, nil, TInt) <- Use (INT 3) ;;
   ASSIGN (y, nil, TInt) <- &mut (1%positive, nil, TInt).
@@ -627,7 +707,7 @@ Definition main : statement :=
 .
 
 Definition main_pair : statement :=
-  ASSIGN (a, [], TTuple [TInt ; TInt]) <- Use (Tuple [ INT 667 ; INT 1986 ]) ;;
+  ASSIGN (a, [], t[TInt ; TInt]) <- Use (Tuple [ INT 667 ; INT 1986 ]) ;;
   ASSIGN (b, [], TInt) <- Use (Move (a, [ Field (0)], TInt)) ;;
   ASSIGN (c, [], TRef TInt) <- &mut (a, [Field (1)], TInt);;
   Nop

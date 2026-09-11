@@ -22,64 +22,29 @@ Variant proj :=
 Inductive type :=
 | TInt
 | TRef (t : type)
-| TTuple (tl : list type)
-.
+| TTuple (tl : type_list)
+with type_list :=
+| TNil
+| TCons (t : type) (t : type_list).
 
-Section ForallT.
-Inductive ForallT {A : Type} (P : A → Type) : list A → Type :=
-    ForallT_nil : ForallT P []
-  | ForallT_cons : ∀ (x : A) (l : list A), P x → ForallT P l → ForallT P (x :: l).
-End ForallT.
+Declare Scope rtype_scope.
+Notation "'t[' ']'" := (TTuple TNil) : rtype_scope.
+Notation "'t[' x ']'" := (TTuple (TCons x TNil)) : rtype_scope.
+Notation "'t[' x ; y ; .. ; z ']'" :=
+  (TTuple (TCons x (TCons y .. (TCons z TNil) ..))) : rtype_scope.
 
-Lemma ForallT_nth {A : Type} (P : A -> Type) (l : list A) (n : nat) (v : A) :
-  ForallT P l -> nth_error l n = Some v -> P v.
+Scheme type_ind' := Induction for type Sort Prop
+with type_list_ind' := Induction for type_list Sort Prop.
+
+Fixpoint type_eq_dec (t1 t2 : type) : {t1 = t2} + {t1 <> t2}
+with type_list_eq_dec (l1 l2 : type_list) : {l1 = l2} + {l1 <> l2}.
 Proof.
-  intros Hforall nth. generalize dependent n. induction Hforall ; intros n nth.
-  - rewrite nth_error_nil in nth. discriminate.
-  - destruct n ; simpl in nth.
-    + simpl in nth. congruence.
-    + apply (IHHforall n), nth.
-Qed.
+  - decide equality.
+  - decide equality.
+Defined.
 
-Fixpoint type_ind'
-  (P : type -> Type)
-  (fint : P TInt)
-  (fref : ∀ t : type, P t → P (TRef t))
-  (ftuple : ∀ tl : list type, ForallT P tl -> P (TTuple tl))
-  (t : type)
-  : P t :=
-  match t with
-  | TInt => fint
-  | TRef t' => fref t' (type_ind' P fint fref ftuple t')
-  | TTuple tl =>
-      ftuple tl 
-      ((fix F tl :=
-        match tl as tl0 return ForallT P tl0 with
-        | [] => @ForallT_nil type P
-        | t' :: tl' =>
-            @ForallT_cons type P t' tl'
-              (type_ind' P fint fref ftuple t')
-              (F tl')
-        end) tl)
-  end.
-
-Instance EqDec_type : EqDecision type.
-Proof.
-  intro x. induction x using type_ind'; destruct y ;
-    (left ; reflexivity) || (right ; congruence) || idtac.
-  - destruct (IHx y).
-    + subst. left. reflexivity.
-    + right. intros contra. congruence.
-  - generalize dependent tl0 ; induction H ; intros tl0.
-    + destruct tl0 ; [ left ; reflexivity | right ; congruence ].
-    + unfold Decision. destruct tl0.
-      * right. easy.
-      * destruct (decide (x = t)). 
-        ** subst. destruct (IHForallT tl0).
-           *** injection e as <-. left. reflexivity.
-           *** right. congruence.
-        ** right. congruence.
-Qed. 
+Instance EqDec_type : EqDecision type := type_eq_dec.
+Instance EqDec_type_list : EqDecision type_list := type_list_eq_dec.
 
 (* TODO: notation *)
 Definition path := list proj.
