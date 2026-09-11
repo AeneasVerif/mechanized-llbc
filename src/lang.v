@@ -25,7 +25,21 @@ Inductive type :=
 | TTuple (tl : type_list)
 with type_list :=
 | TNil
-| TCons (t : type) (t : type_list).
+| TCons (t : type) (tl : type_list).
+
+Module TypeList.
+  Fixpoint to_list (tl : type_list) : list type :=
+    match tl with
+    | TNil => []
+    | TCons t tl => t :: to_list tl
+    end.
+
+  Fixpoint from_list (tl : list type) : type_list :=
+    match tl with
+    | [] => TNil
+    | t :: tl => TCons t (from_list tl)
+    end.
+End TypeList.
 
 Declare Scope rtype_scope.
 Notation "'t[' ']'" := (TTuple TNil) : rtype_scope.

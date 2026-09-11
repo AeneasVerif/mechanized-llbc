@@ -11,7 +11,7 @@ From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
 
 Require Import PathToSubtree.
-Require Import OptionMonad.
+From rustc Require Import OptionMonad.
 Local Open Scope option_monad_scope.
 Require Import SimulationUtils.
 
@@ -24,44 +24,64 @@ Inductive value :=
 | VMutBorrow (l : loan_id) (v : value)
 | VLoc (l : loan_id) (v : value)
 | VPtr (l : loan_id)
-| VTuple (t : list value)
+| VTuple (t : value_list)
+with value_list :=
+| VNil
+| VCons (v : value) (vl : value_list)
 .
 
-Fixpoint value_ind'
-  (P : value -> Type)
-  (fbot : P VBottom)
-  (fint : forall n, P (VInt n))
-  (fbool: forall b, P (VBool b))
-  (fmutloan : forall l, P (VMutLoan l))
-  (fmutborr : ∀ l v, P v → P (VMutBorrow l v))
-  (floc : ∀ l v, P v → P (VLoc l v))
-  (fptr : forall l, P (VPtr l))
-  (ftuple : ∀ vl : list value, ForallT P vl -> P (VTuple vl))
-  (v : value)
-  : P v :=
-  match v with
-  | VBottom => fbot
-  | VInt n => fint n
-  | VBool b => fbool b
-  | VMutLoan l => fmutloan l
-  | VMutBorrow l v' => fmutborr l v'
-                        (value_ind' P fbot fint fbool fmutloan
-                           fmutborr floc fptr ftuple v')
-  | VLoc l v' => floc l v'
-                        (value_ind' P fbot fint fbool fmutloan
-                           fmutborr floc fptr ftuple v')
-  | VPtr l => fptr l
-  | VTuple vl =>
-      ftuple vl 
-      ((fix F vl :=
-        match vl as vl0 return ForallT P vl0 with
-        | [] => @ForallT_nil value P
-        | v' :: vl' =>
-            @ForallT_cons value P v' vl'
-              (value_ind' P fbot fint fbool fmutloan fmutborr floc fptr ftuple v')
-              (F vl')
-        end) vl)
-  end.
+Module ValueList.
+  Fixpoint length (vl : value_list) : nat :=
+    match vl with
+    | VNil => 0
+    | VCons _ vl' => S (length vl')
+    end.
+
+  Fixpoint from_list (vl : list value) : value_list :=
+    match vl with
+    | [] => VNil
+    | t :: tl => VCons t (from_list tl)
+    end.
+
+  Fixpoint to_list (vl : value_list) : list value :=
+    match vl with
+    | VNil => []
+    | VCons t tl => t :: (to_list tl)
+    end.
+
+  Lemma from_list_to_list_inv (vl : value_list) :
+    from_list (to_list vl) = vl.
+  Proof. induction vl ; simpl ; congruence. Qed.
+
+  Lemma to_list_from_list_inv (vl : list value) :
+    to_list (from_list vl) = vl.
+  Proof. induction vl ; simpl ; congruence. Qed.
+
+  Lemma to_list_inj (vl0 vl1 : value_list) :
+    to_list vl0 = to_list vl1 -> vl0 = vl1.
+  Proof.
+    intros. apply f_equal with (f := from_list) in H.
+    by rewrite !from_list_to_list_inv in H.
+  Qed.
+
+  Lemma from_list_inj (vl0 vl1 : list value) :
+    from_list vl0 = from_list vl1 -> vl0 = vl1.
+  Proof.
+    intros. apply f_equal with (f := to_list) in H.
+    by rewrite !to_list_from_list_inv in H.
+  Qed.
+
+  Lemma length_from_list (vl : list value) :
+    List.length vl = length (from_list vl).
+  Proof. induction vl; simpl ; congruence. Qed.
+
+  Lemma length_to_list (vl : value_list) :
+    length vl = List.length (to_list vl).
+  Proof. induction vl; simpl ; congruence. Qed.
+
+  Definition Forall (P : value -> Prop) (vl : value_list) : Prop :=
+    List.Forall P (to_list vl).
+End ValueList.
 
 Variant nodes :=
 | NBottom
@@ -96,7 +116,7 @@ Definition HLPL_plus_get_node v := match v with
 | VMutBorrow l _ => NMutBorrow l
 | VLoc l _ => NLoc l
 | VPtr l => NPtr l
-| VTuple l => NTuple (List.length l)
+| VTuple l => NTuple (ValueList.length l)
 end.
 
 Definition HLPL_plus_children v := match v with
@@ -107,7 +127,7 @@ Definition HLPL_plus_children v := match v with
 | VMutBorrow _ v => [v]
 | VLoc _ v => [v]
 | VPtr l => []
-| VTuple l => l
+| VTuple l => ValueList.to_list l
 end.
 
 Definition HLPL_plus_fold c vs := match c, vs with
@@ -117,7 +137,7 @@ Definition HLPL_plus_fold c vs := match c, vs with
 | NMutBorrow l, [v] => VMutBorrow l v
 | NLoc l, [v] => VLoc l v
 | NPtr l, [] => VPtr l
-| NTuple _, l => VTuple l
+| NTuple _, l => VTuple (ValueList.from_list l)
 | _, _ => VBottom
 end.
 
@@ -125,10 +145,15 @@ Fixpoint HLPL_plus_weight node_weight v :=
   match v with
   | VMutBorrow l v => node_weight (NMutBorrow l) + HLPL_plus_weight node_weight v
   | VLoc l v => node_weight (NLoc l) + HLPL_plus_weight node_weight v
-  | VTuple t => node_weight (HLPL_plus_get_node (VTuple t)) +
-                 sum (map (HLPL_plus_weight node_weight) t)
+  | VTuple t =>
+      node_weight (NTuple (ValueList.length t)) + HLPL_plus_tuple_weight node_weight t
   | v => node_weight (HLPL_plus_get_node v)
-end.
+end with HLPL_plus_tuple_weight node_weight vl :=
+  match vl with
+  | VNil => 0
+  | VCons v vl => (HLPL_plus_weight node_weight v) + (HLPL_plus_tuple_weight node_weight vl)
+  end
+.
 
 Program Instance ValueHLPL : Value value nodes := {
   arity := HLPL_plus_arity;
@@ -138,25 +163,36 @@ Program Instance ValueHLPL : Value value nodes := {
   vweight := HLPL_plus_weight;
   bot := VBottom;
 }.
-Next Obligation. destruct v; reflexivity. Qed.
+Next Obligation.
+  destruct v; try reflexivity.
+  induction t ; simpl ; [reflexivity | by f_equal].
+Qed.
 Next Obligation.
   intros [] [] eq_node eq_children; inversion eq_node; inversion eq_children;
-    simpl in * ; congruence.
+    simpl in * ; try congruence.
+  by apply ValueList.to_list_inj in H1 as ->.
 Qed.
 Next Obligation.
  intros [] ? H;
   first [rewrite length_zero_iff_nil in H; rewrite H
         | destruct (length_1_is_singleton H) as [? ->] | idtac ];
-   simpl in * ; congruence.
+   simpl in * ; try congruence.
+ by rewrite <- ValueList.length_from_list, H.
 Qed.
 Next Obligation.
  intros [] ? H;
   first [rewrite length_zero_iff_nil in H; rewrite H
         | destruct (length_1_is_singleton H) as [? ->] | idtac ];
-  reflexivity.
+  try reflexivity.
+ generalize dependent n. induction vs ; simpl in * ; intros. reflexivity.
+ apply f_equal with (f := pred) in H. simpl in H.
+ apply f_equal, (IHvs (pred n)). congruence.
 Qed.
 Next Obligation. reflexivity. Qed.
-Next Obligation. intros ? []; unfold HLPL_plus_children; cbn; try lia. Qed.
+Next Obligation.
+  intros ? []; unfold HLPL_plus_children; cbn; try lia.
+  induction t ;  simpl ; lia.
+Qed.
 
 Record state := {
   vars : Pmap value;
@@ -367,90 +403,17 @@ Inductive eval_operand : operand -> state -> (value * state) -> Prop :=
     (H : eval_tuple opl S (vl, S')) :
   S |-{op} Tuple opl => (VTuple vl, S')
 where "S |-{op} op => r" := (eval_operand op S r)
-with eval_tuple : list operand -> state -> (list value * state) -> Prop :=
-| E_Tuple_Nil S : eval_tuple [] S ([], S)
+with eval_tuple : list operand -> state -> (value_list * state) -> Prop :=
+| E_Tuple_Nil S : eval_tuple [] S (VNil, S)
 | E_Tuple_Cons S S' S'' op opl v v'
     (Hop : eval_operand op S (v, S'))
     (Hrec : eval_tuple opl S' (v', S'')) :
-  eval_tuple (op :: opl) S (v :: v', S'')
+  eval_tuple (op :: opl) S (VCons v v', S'')
 .
 Scheme eval_operand_mut := Minimality for eval_operand Sort Prop
 with   eval_tuple_mut   := Minimality for eval_tuple   Sort Prop.
 
 Combined Scheme eval_operand_tuple_mutind from eval_operand_mut, eval_tuple_mut.
-
-(** *** Better induction principle for [eval_operand].
-
-    [eval_operand_mut] (auto-generated above) forces every proof by induction on
-    [eval_operand] to invent a second motive [P0] for [eval_tuple] whenever the
-    [Tuple] case appears.  The principle below avoids this: in the [Tuple] case the
-    caller receives a single [eval_tuple_Forall P] witness — a [Forall2]-shaped
-    predicate that carries, for every element [op_i] evaluated in an intermediate
-    state [S_i], both the underlying [eval_operand op_i S_i (v_i, S_i')] proof AND
-    the [P op_i S_i (v_i, S_i')] instance.  That way no secondary motive is needed
-    at the call site.
-
-    Carrying the raw eval proof is essential: without it the Tuple case only has
-    [P] instances (the simulation motive) but not the structural [eval_operand]
-    proofs needed to thread [leq_base] through the list. *)
-Section eval_operand_ind'.
-
-Variable P : operand -> state -> value * state -> Prop.
-
-Inductive eval_tuple_Forall : list operand -> state -> list value * state -> Prop :=
-| ETF_nil S : eval_tuple_Forall [] S ([], S)
-| ETF_cons S S' S'' op opl v v'
-    (Heval : eval_operand op S (v, S'))       (* raw eval, needed for state threading *)
-    (HP    : P op S (v, S'))                  (* the motive being proved *)
-    (Hrec  : eval_tuple_Forall opl S' (v', S'')) :
-    eval_tuple_Forall (op :: opl) S (v :: v', S'').
-
-End eval_operand_ind'.
-
-(** Soundness: every [eval_tuple_Forall P] is backed by a genuine [eval_tuple]. *)
-Lemma eval_tuple_Forall_eval_tuple P opl S vlS' :
-  eval_tuple_Forall P opl S vlS' -> eval_tuple opl S vlS'.
-Proof.
-  induction 1 as [| ? ? ? ? ? ? ? Heval _ ? IH].
-  - constructor.
-  - econstructor; eassumption.
-Qed.
-
-Fixpoint eval_operand_ind'
-  (P : operand -> state -> value * state -> Prop)
-  (fint  : forall S n, P (Const (IntConst n)) S (VInt n, S))
-  (fbool : forall S b, P (Const (BoolConst b)) S (VBool b, S))
-  (fcopy : forall S p pi v,
-      eval_place S Imm p pi -> copy_val (S.[pi]) v -> P (Copy p) S (v, S))
-  (fmove : forall S p pi,
-      eval_place S Mov p pi ->
-      not_contains_loan (S.[pi]) -> not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
-      P (Move p) S (S.[pi], S.[pi <- bot]))
-  (ftuple : forall S S' opl vl,
-      eval_tuple opl S (vl, S') ->            (* raw proof, for state-threading *)
-      eval_tuple_Forall P opl S (vl, S') ->   (* per-element P instances        *)
-      P (Tuple opl) S (VTuple vl, S'))
-  (op : operand) (s : state) (vs : value * state)
-  (Hop : eval_operand op s vs) {struct Hop}
-  : P op s vs :=
-  match Hop in eval_operand op s vs return P op s vs with
-  | E_IntConst s n                                  => fint s n
-  | E_BoolConst s b                                 => fbool s b
-  | E_Copy s p pi v He Hc                           => fcopy s p pi v He Hc
-  | E_Move s p pi He Hl Hloc Hb                     => fmove s p pi He Hl Hloc Hb
-  | E_Tuple s s' opl vl H =>
-      ftuple s s' opl vl H
-        ((fix F opl s vlS' (H : eval_tuple opl s vlS') {struct H}
-           : eval_tuple_Forall P opl s vlS' :=
-             match H in eval_tuple opl s vlS' return eval_tuple_Forall P opl s vlS' with
-             | E_Tuple_Nil s =>
-                 ETF_nil P s
-             | E_Tuple_Cons s s' s'' op opl v v' Hop Hrec =>
-                 ETF_cons P s s' s'' op opl v v' Hop
-                   (eval_operand_ind' P fint fbool fcopy fmove ftuple op s (v, s') Hop)
-                   (F opl s' (v', s'') Hrec)
-             end) opl s (vl, s') H)
-  end.
 
 Variant eval_binary_op : BinOp -> value -> value -> value -> Prop :=
   | E_Add m n :
@@ -939,27 +902,27 @@ Proof.
   replace vl with vlS.1 by (rewrite HeqvlS ; easy).
   replace S with vlS.2 by (rewrite HeqvlS ; easy).
   clear HeqvlS. induction Heval.
-  - exists (VTuple [], Sl) ; split.
+  - exists (VTuple VNil, Sl) ; split.
     + rewrite Heq.
       apply rt_step. destruct Hle. unfold leq_val_state_base. 
       simpl fst. unfold snd. intros.
       rewrite <- !sset_add_anon.
       replace ((S0 .[ sp_borrow +++ [0] ])) with 
-        ((S0,, a |-> VTuple []) .[ sp_borrow +++ [0] ]) by
+        ((S0,, a |-> VTuple VNil) .[ sp_borrow +++ [0] ]) by
       (autorewrite with spath ; reflexivity).
       apply Leq_MutBorrow_To_Ptr ; [ assumption | | ] ;
         autorewrite with spath ; assumption.
       all: apply valid_spath_diff_fresh_anon with (S := S0) ;
         [ assumption | validity ].
-    + exists [], Sl; split ; [ reflexivity | constructor ].
+    + exists VNil, Sl; split ; [ reflexivity | constructor ].
   - simpl in *. simpl.
 Admitted.
 
-Definition result_as_tuple (vlS : list value * state) :=
+Definition result_as_tuple (vlS : value_list * state) :=
   (VTuple vlS.1, vlS.2).
 
 Definition leq_vals_state_base (leq_base: state -> state -> Prop)
-  (vlSl : list value * state) (vlSr : list value * state) : Prop :=
+  (vlSl : value_list * state) (vlSr : value_list * state) : Prop :=
    leq_val_state_base leq_base (result_as_tuple vlSl) (result_as_tuple vlSr).
 
 Lemma leq_val_state_vals_state_equiv (leq_base: state -> state -> Prop) :
@@ -1085,7 +1048,7 @@ Proof.
   (* We use the new single-motive principle so the Tuple case hands us
      [eval_tuple_Forall P opl S (vl, S')] directly, where [P] is exactly the
      simulation obligation we are proving for each sub-operand. *)
-  induction Heval using eval_operand_ind'.
+  induction Heval.
 
   (* op = Const (IntConst n) *)
   - destruct Hle.
@@ -1175,13 +1138,6 @@ Proof.
           assumption. all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
-
-    + inversion H0 ; subst.
-      assert (leq_base
-            (Si .[ sp_loan <- VLoc l (Si .[ sp_borrow +++ [0] ])]
-             .[ sp_borrow <- ptr (l)]) Si)
-        by (apply Leq_MutBorrow_To_Ptr; assumption).
-      destruct (HP H) as ((vhd & Shd) & ? & ?).
 Admitted.
 
 (* TODO: move in base.v *)

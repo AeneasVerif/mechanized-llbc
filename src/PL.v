@@ -1,3 +1,5 @@
+Require stdpp.base.
+Import -(notations) stdpp.base.
 From chamois Require Import Maps.
 From chamois Require Import Memdata Memtype Memory.
 Require Import base.
@@ -62,11 +64,13 @@ Record PL_state : Type := Build_PL_state {
 Fixpoint sizeof (tau : type) : nat :=
   match tau with
   | TInt | TRef _ => 8
-  | TPair tau1 tau2 => sizeof tau1 + sizeof tau2
-  end.
-
-Lemma sizeof_ge_1 : forall tau, sizeof tau >= 1.
-Proof. induction tau ; simpl ; lia. Qed.
+  | TTuple tl => sizeof_tuple tl
+  end with
+sizeof_tuple (taul : type_list) : nat :=
+  match taul with
+  | TNil => 0
+  | TCons t tl => sizeof t + sizeof_tuple tl
+  end. 
 
 Declare Scope pl_scope.
 Delimit Scope pl_scope with pl.
@@ -133,20 +137,34 @@ Fixpoint valid_access (S : PL_state) (b : block) (off : Z)  (t : type) :=
   match t with
   | TInt => Mem.valid_access (mem S) Mint64 b off Freeable
   | TRef _ => Mem.valid_access (mem S) Many64 b off Freeable
-  | TPair t0 t1 => valid_access S b off t0 /\ valid_access S b (off + sizeof t0) t1
+  | TTuple tl => valid_access_tuple S b off tl
+  end with
+valid_access_tuple (S : PL_state) (b : block) (off : Z)  (tl : type_list) :=
+  match tl with
+  | TNil => True
+  | TCons t tl' =>
+      valid_access S b off t /\ valid_access_tuple S b (off + sizeof t) tl'
   end.
 
 Lemma valid_access_dec :
   forall S b off t,
-    { valid_access S b off t } + { ~ valid_access S b off t }.
+    { valid_access S b off t } + { ~ valid_access S b off t }
+with valid_access_tuple_dec :
+  forall S b off tl,
+    { valid_access_tuple S b off tl } + { ~ valid_access_tuple S b off tl }.
 Proof.
-  intros *. generalize dependent off.
-  induction t ; intros * ; try apply Mem.valid_access_dec. simpl.
-  destruct (IHt1 off).
-  - destruct (IHt2 (off + sizeof t1)).
-    * left ; firstorder.
-    * right ; firstorder.
-  - right ; firstorder.
+  {
+    intros *. generalize dependent off.
+    induction t ; intros * ; try apply Mem.valid_access_dec ;
+      apply valid_access_tuple_dec.
+  }
+  {
+    intros *. generalize dependent off. induction tl ; intros.
+    - left. constructor.
+    - simpl. destruct (valid_access_dec S b off t) ;
+        destruct (IHtl (off + sizeof t)) ;
+        [ left ; auto | | | ] ; right ; firstorder.
+  }
 Defined.
 
 Ltac nodes_to_val :=
@@ -293,16 +311,23 @@ Qed.
 
 Inductive eval_proj (Spl : PL_state) : proj -> (address * type) -> (address * type) -> Prop :=
 | Eval_Deref_Ptr_Locs :
-  forall (addr addr' : address) (t: type),
+  forall (addr addr' : address) (t : type),
     0 <= addr'.2 < Ptrofs.modulus ->
     Spl.m.[addr : TRef t] = Some (make_ptr64 addr') ->
     eval_proj Spl Deref (addr, TRef t) (addr', t)
-| Eval_Field_First :
-  forall (addr : address) (t0 t1 : type),
-    eval_proj Spl (Field First) (addr, TPair t0 t1) (addr, t0)
-| Eval_Field_Second :
-  forall (addr : address) (t0 t1 : type),
-    eval_proj Spl (Field Second) (addr, TPair t0 t1) (addr +o sizeof t0, t1).
+| Eval_Field :
+  forall (addr addr' : address) (t : type) (tl : type_list) (n : nat),
+    eval_proj_tuple Spl n (addr, tl) (addr', t) ->
+    eval_proj Spl (Field n) (addr, TTuple tl) (addr', t)
+with eval_proj_tuple
+       (Spl : PL_state) : nat -> (address * type_list) -> (address * type) -> Prop :=
+| ET_Field_Nil :
+  forall (addr : address) (t : type) (tl : type_list),
+    eval_proj_tuple Spl 0 (addr, TCons t tl) (addr, t)
+| ET_Field_Cons :
+  forall (addr addr' : address) (t t' : type) (tl : type_list) (n : nat),
+    eval_proj_tuple Spl n (addr +o sizeof t, tl) (addr', t') ->
+    eval_proj_tuple Spl (S n) (addr, TCons t tl) (addr', t').
 
 Inductive eval_path (Spl : PL_state) : path -> address * type -> address * type -> Prop :=
 | Eval_nil_addr : forall addr, eval_path Spl [] addr addr
@@ -322,16 +347,25 @@ Lemma eval_proj_deterministic :
   forall Spl proj addr_t0 addr_t1 addr_t2,
     eval_proj Spl proj addr_t0 addr_t1 ->
     eval_proj Spl proj addr_t0 addr_t2 ->
+    addr_t1 = addr_t2
+with eval_proj_tuple_deterministic :
+  forall Spl n addr_tl addr_t1 addr_t2,
+    eval_proj_tuple Spl n addr_tl addr_t1 ->
+    eval_proj_tuple Spl n addr_tl addr_t2 ->
     addr_t1 = addr_t2.
 Proof.
   intros Spl proj ? ? ? Heval_proj1 Heval_proj2.
-  destruct proj ; inversion Heval_proj1 ; subst ; inversion Heval_proj2; subst ; auto.
-  rewrite H0 in H4. injection H4 as Hfst Hsnd _ _ _ _ _ _ _ _ _ _ _ _ _ _
-  ; intros ; subst ; auto. f_equal ; auto.
-  Transparent Ptrofs.repr. unfold Ptrofs.repr in Hsnd. Opaque Ptrofs.repr.
-  rewrite !Ptrofs.Z_mod_modulus_eq, !Z.mod_small in Hsnd ; try lia.
-  rewrite surjective_pairing with (p := addr'), surjective_pairing with (p := addr'0) ;
-    congruence.
+  {
+    induction Heval_proj1 ; subst ; inversion Heval_proj2; subst ; auto.
+    rewrite H0 in H4. injection H4 as Hfst Hsnd _ _ _ _ _ _ _ _ _ _ _ _ _ _ ;
+      intros ; subst ; auto. f_equal ; auto.
+    Transparent Ptrofs.repr. unfold Ptrofs.repr in Hsnd. Opaque Ptrofs.repr.
+    rewrite !Ptrofs.Z_mod_modulus_eq, !Z.mod_small in Hsnd ; try lia.
+    rewrite surjective_pairing with (p := addr'),
+        surjective_pairing with (p := addr'0) ; congruence.
+    eauto.
+  }
+  intros. induction H ; inversion H0 ; subst ; auto.
 Qed.
 
 Lemma eval_path_deterministic :
@@ -377,38 +411,43 @@ Variant write (S : PL_state) (p : place) (t : type) (bytes : list memval)
 
 (* Evaluation of Expressions in PL *)
 Reserved Notation "S  |-{op-pl}  op  =>  r" (at level 60).
-Variant eval_operand : operand -> PL_state -> list memval -> Prop :=
+Inductive eval_operand : operand -> PL_state -> list memval -> Prop :=
 | Eval_IntConst S n :
-  S |-{op-pl} IntConst n => (make_int64 n)
+  S |-{op-pl} Const (IntConst n) => (make_int64 n)
 | Eval_copy S t p bytes
     (Hread : read S p t bytes) :
   S |-{op-pl} Copy p => bytes
 | Eval_move S t p bytes
     (Hread : read S p t bytes) :
   S |-{op-pl} Move p => bytes
-where "S |-{op-pl} op => r" := (eval_operand op S r).
+| Eval_tuple S opl bytes :
+  eval_tuple opl S bytes ->
+  eval_operand (Tuple opl) S bytes
+where "S |-{op-pl} op => r" := (eval_operand op S r)
+with eval_tuple : list operand -> PL_state -> list memval -> Prop :=
+| Eval_TNil S : eval_tuple [] S []
+| Eval_TCons S op opl bytes0 bytes1 :
+  eval_operand op S bytes0 ->
+  eval_tuple opl S bytes1 ->
+  eval_tuple opl S (bytes0 ++ bytes1).
 
 Reserved Notation "S  |-{rv-pl}  rv =>  r" (at level 60).
 Variant eval_rvalue: rvalue -> PL_state -> list memval -> Prop :=
-| Eval_just S op bytes
+| Eval_use S op bytes
   (Hop : S |-{op-pl} op => bytes) :
-  S |-{rv-pl} Just op => bytes
+  S |-{rv-pl} Use op => bytes
 | Eval_bin_op S op_l n_l op_r n_r
     (Hl : S |-{op-pl} op_l => (make_int64 n_l))
     (Hr : S |-{op-pl} op_r => (make_int64 n_r)) :
-    S |-{rv-pl} BinOp op_l op_r => (make_int64 (n_l + n_r))
+    S |-{rv-pl} BinaryOp BAdd op_l op_r => (make_int64 (n_l + n_r))
 | Eval_ptr S t p addr
     (Haddr : read_address S p t addr) :
   S |-{rv-pl} &mut p => (make_ptr64 addr)
-| Eval_pair S op_l bytes_l op_r bytes_r
-    (Hl : S |-{op-pl} op_l => bytes_l)
-    (Hr : S |-{op-pl} op_r => bytes_r) :
-  S |-{rv-pl} Pair op_l op_r => (bytes_l ++ bytes_r)
 where "S |-{rv-pl} rv => r" := (eval_rvalue rv S r).
 
 Reserved Notation "S  |-{stmt-pl}  stmt  =>  r , S'" (at level 50).
 
-Inductive eval_stmt : statement -> statement_result -> PL_state -> PL_state -> Prop :=
+Inductive eval_stmt : statement -> flow_token -> PL_state -> PL_state -> Prop :=
 | Eval_nop S : S |-{stmt-pl} Nop => rUnit, S
 | Eval_seq_unit S0 S1 S2 stmt_l stmt_r r
     (eval_stmt_l : S0 |-{stmt-pl} stmt_l => rUnit, S1)
@@ -435,9 +474,10 @@ Proof.
   injection contra as _ H. destruct (list_app_elem_not_nil sp.2 n H).
 Qed.
     
+(*
 Ltac sp_discriminate_or_find_equalities :=
   match goal with
-  | H1: ?E = HLPL_pairC, H2: ?E = locC (_) |- _ => rewrite H2 in H1 ; discriminate
+  | H1: ?E = HLPL_pairC, H2: ?E = NLoc (_) |- _ => rewrite H2 in H1 ; discriminate
   | H: [?a] = [?b] |- _ => injection H ; intros ; clear H ; try discriminate
   | H: ?l ++ [?a] = [ ] |- _ =>
       destruct (list_app_elem_not_nil l a H)
@@ -460,7 +500,9 @@ Ltac rewrite_pairs :=
           surjective_pairing with (p := sp2) ; congruence) ;
       subst sp1 ; clear H1 H2
   end.
+*)
 
+(*
 (* Concretization of HLPL values to PL values *)
 Section Concretization.
   Variable blockof : positive -> block * type.
@@ -485,24 +527,22 @@ Section Concretization.
   Local Open Scope stdpp_scope.
 
   (** Assigning types to vpath and spath *)
-  Inductive eval_type_val (v : HLPL_val) (ti : type) : vpath -> type -> Prop :=
+  Inductive eval_type_val (v : value) (ti : type) : vpath -> type -> Prop :=
   | Eval_base_type :
     eval_type_val v ti nil ti
   | Eval_loc_type_val vp t l
-    (Hnode : get_node ( v.[[ vp ]] ) = HLPL_locC l)
+    (Hnode : get_node ( v.[[ vp ]] ) = NLoc l)
     (Hrec : eval_type_val v ti vp t) :
     eval_type_val v ti (vp ++ [0%nat]) t
-  | Eval_pair_first_type_val vp t0 t1
-    (Hnode : get_node ( v.[[ vp ]] ) = HLPL_pairC)
-    (Hrec : eval_type_val v ti vp (TPair t0 t1)) :
-    eval_type_val v ti (vp ++ [0%nat]) t0
-  | Eval_pair_second_type_val vp t0 t1
-    (Hnode : get_node ( v.[[ vp ]] ) = HLPL_pairC)
-    (Hrec : eval_type_val v ti vp (TPair t0 t1)) :
-    eval_type_val v ti (vp ++ [1%nat]) t1
+  | Eval_tuple_val vp n len vl t tl
+    (Hnode : get_node ( v.[[ vp ]] ) = NTuple len)
+    (Htuple : List.nth_error (ValueList.to_list vl) n = Some v)
+    (Htype : List.nth_error (TypeList.to_list tl) n = Some t)
+    (Hrec : eval_type_val v ti vp (TTuple tl)) :
+    eval_type_val v ti (vp ++ [ n ]) t
   .
 
-  Inductive eval_type (S : HLPL_state) : spath -> type -> Prop :=
+  Inductive eval_type (S : state) : spath -> type -> Prop :=
   | Eval_type sp t t' bi
       (Hvp : valid_spath S (sp.1, []))
       (Hbo : blockof sp.1 = (bi, t))
@@ -515,14 +555,23 @@ Section Concretization.
       eval_type_val v tinit vp t1 ->
       t0 = t1.
   Proof.
+    pose proof (@list_app_elem_not_nil nat ) as H.
     intros v vp tinit t0 t1 Het0. generalize dependent t1.
-    pose proof (@list_app_elem_not_nil nat).
-    induction Het0 ; intros ? Het' ; inversion Het' ; subst ; auto ;
-      try (sp_discriminate_or_find_equalities ; congruence) ;
-    sp_discriminate_or_find_equalities.
-    - apply IHHet0 ; auto.
-    - specialize (IHHet0 (TPair t2 t4) Hrec). congruence.
-    - specialize (IHHet0 (TPair t3 t2) Hrec). congruence.
+    induction Het0 ; intros ? Het'.
+    - inversion Het' ; subst ; auto.
+      * apply H in H1. contradiction.
+      * apply H in H1. contradiction.
+    - inversion Het' ; subst ; auto.
+      * symmetry in H1. apply H in H1. contradiction.
+      * apply app_inj_tail in H1 as (? & ?) ; subst.
+        rewrite Hnode in Hnode0. injection Hnode0 as <-. auto.
+      * apply app_inj_tail in H1 as (? & ?) ; subst ; congruence.
+    - inversion Het' ; subst.
+      * symmetry in H1. apply H in H1. contradiction.
+      * apply app_inj_tail in H1 as (? & ?) ; subst ; congruence.
+      * apply app_inj_tail in H1 as (? & ?) ; subst.
+        apply IHHet0 in Hrec. injection Hrec as <-.
+        rewrite Htype in Htype0. injection Htype0 as <-. auto.
   Qed.
 
   Lemma eval_type_deterministic :
@@ -536,36 +585,37 @@ Section Concretization.
     assert (t = t2) by congruence ; subst. eapply eval_type_val_deterministic ; eauto.
   Qed.
 
-  Inductive concr_hlpl_val : HLPL_val -> type -> list memval -> Prop :=
+  Inductive concr_hlpl_val : value -> type -> list memval -> Prop :=
   | Concr_lit n :
-    concr_hlpl_val (HLPL_int n) TInt (make_int64 n)
+    concr_hlpl_val (VInt n) TInt (make_int64 n)
   | Concr_bot s t (Hs : s = ListDef.repeat Undef (sizeof t)) : 
-    concr_hlpl_val HLPL_bot t s
-  | Concr_pair v0 t0 bytes0 v1 t1 bytes1
-      (H0 : concr_hlpl_val v0 t0 bytes0)
-      (H1 : concr_hlpl_val v1 t1 bytes1) :
-    concr_hlpl_val (HLPL_pair v0 v1) (TPair t0 t1) (bytes0 ++ bytes1)
+    concr_hlpl_val bot t s
   | Concr_loc l v t bytes
       (Hv : concr_hlpl_val v t bytes) :
-    concr_hlpl_val (HLPL_loc l v) t bytes
+    concr_hlpl_val (VLoc l v) t bytes
   | Concr_ptr_loc l addr t
       (Haddr : addrof l = Some (addr, t)) :
-    concr_hlpl_val (HLPL_ptr l) (TRef t) (make_ptr64 addr)
+    concr_hlpl_val (VPtr l) (TRef t) (make_ptr64 addr)
+  | Concr_tuple vl tl bytes :
+    concr_hlpl_val_tuple vl tl bytes ->
+    concr_hlpl_val (VTuple vl) (TTuple tl) bytes
+  with concr_hlpl_val_tuple : value_list -> type_list -> list memval -> Prop :=
+  | Concr_tuple_Nil : concr_hlpl_val_tuple VNil TNil []
+  | Concr_tuple_Cons v vl t tl bytes0 bytes1 :
+    concr_hlpl_val v t bytes0 ->
+    concr_hlpl_val_tuple vl tl bytes1 ->
+    concr_hlpl_val_tuple (VCons v vl) (TCons t tl) (bytes0 ++ bytes1)
   .
-  Fixpoint concr_hlpl_val_comp (v : HLPL_val) (t : type) :=
+
+  Fixpoint concr_hlpl_val_comp (v : value) (t : type) :=
     match v, t with
-    | HLPL_int n, TInt =>
+    | VInt n, TInt =>
         Some (make_int64 n)
-    | HLPL_bot, _ =>
+    | VBottom, _ =>
         Some (ListDef.repeat Undef (sizeof t))
-    | HLPL_pair v0 v1, TPair t0 t1 =>
-        match concr_hlpl_val_comp v0 t0, concr_hlpl_val_comp v1 t1 with
-        | Some bytes0, Some bytes1 => Some (bytes0 ++ bytes1)
-        | _, _ => None
-        end
-    | HLPL_loc l v, t =>
+    | VLoc l v, t =>
         concr_hlpl_val_comp v t
-    | HLPL_ptr l, TRef t =>
+    | VPtr l, TRef t =>
         match addrof l with
         | Some (addr, t') =>
             if (base.decide (t = t')) then
@@ -574,36 +624,72 @@ Section Concretization.
               None
         | _ => None
         end
+    | VTuple vl, TTuple tl => concr_hlpl_val_tuple_comp vl tl
     | _, _ => None
-   end. 
+    end with
+  concr_hlpl_val_tuple_comp (vl : value_list) (tl : type_list) :=
+    match vl, tl with
+    | VNil, TNil => Some []
+    | VCons v vl, TCons t tl =>
+        let byteso0 := concr_hlpl_val_comp v t in
+        let byteso1 := concr_hlpl_val_tuple_comp vl tl in
+        match byteso0, byteso1 with
+        | Some bytes0, Some bytes1 => Some (bytes0 ++ bytes1)
+        | _, _ => None
+        end
+    | _, _ => None
+    end.
 
   Lemma concr_val_comp_implies_concr_val: forall v t bytes,
-       concr_hlpl_val_comp v t = Some bytes -> concr_hlpl_val v t bytes.
+      concr_hlpl_val_comp v t = Some bytes -> concr_hlpl_val v t bytes
+  with concr_val_tuple_comp_implies_concr_val_tuple : forall vl tl bytes,
+      concr_hlpl_val_tuple_comp vl tl = Some bytes ->
+      concr_hlpl_val_tuple vl tl bytes.
   Proof.
-    intros v ; induction v; intros t bytes H ; subst.
-    - destruct t; simpl in * ;
-        injection H ; intros ; constructor; easy.
-    - destruct t; simpl in * ;
-        try injection H as H; subst ; try constructor ; discriminate.
-    - constructor; auto.
-    - destruct t ; simpl in * ; try discriminate.
-      destruct (addrof l) eqn:Haddr ; try discriminate.
-      destruct p ; destruct (base.decide (t = t0)).
-      * injection H as H ; subst. apply Concr_ptr_loc ; assumption.
-      * discriminate.
-    - destruct t; try discriminate ; simpl in *.
-      remember (concr_hlpl_val_comp v1 t1) as concr1.
-      remember (concr_hlpl_val_comp v2 t2) as concr2.
-      destruct concr1, concr2; try (subst ; discriminate). 
-      injection H as H ; rewrite <- H. constructor ; auto.
+    {
+      intros v ; induction v ; intros.
+      - destruct t; simpl in * ;
+          injection H ; intros ; constructor ; easy. 
+      - destruct t; simpl in * ;
+          try injection H as H; subst ; try constructor ; discriminate.
+      - destruct t; simpl in * ;
+          try injection H as H; subst ; try constructor ; discriminate.
+      - inversion H. constructor. apply IHv, H1.
+      - destruct t ; simpl in * ; try discriminate.
+        destruct (addrof l) eqn:Haddr ; try discriminate.
+        destruct p ; destruct (base.decide (t = t0)).
+        * injection H as H ; subst. apply Concr_ptr_loc, Haddr.
+        * discriminate.
+      - destruct t0 ; inversion H. constructor. auto.
+    }
+    {
+      intros vl. induction vl ; intros.
+      - destruct tl ; inversion H ; subst ; constructor.
+      - destruct tl ; inversion H ; subst. 
+        destruct (concr_hlpl_val_comp v t) eqn:? ;
+          destruct (concr_hlpl_val_tuple_comp vl tl) eqn:? ;
+          inversion H1 ; subst ; constructor.
+        * apply concr_val_comp_implies_concr_val ; auto.
+        * apply IHvl ; auto.
+    }
   Qed.  
 
   Lemma concr_val_implies_concr_val_comp : forall v t bytes,
-       concr_hlpl_val v t bytes -> concr_hlpl_val_comp v t = Some bytes.
+       concr_hlpl_val v t bytes -> concr_hlpl_val_comp v t = Some bytes
+  with concr_val_tuple_implies_concr_val_tuple_comp : forall vl tl bytes,
+       concr_hlpl_val_tuple vl tl bytes -> concr_hlpl_val_tuple_comp vl tl = Some bytes.
   Proof.
-    intros v t bytes H ; induction H; subst ; simpl ; try easy.
-    - rewrite IHconcr_hlpl_val1, IHconcr_hlpl_val2; reflexivity.
-    - rewrite Haddr. destruct (base.decide (t = t)) ; auto. contradiction.
+    {
+      intros v t bytes H ; induction H; subst ; simpl ; try easy.
+      - rewrite Haddr. destruct (decide (t = t)) ; easy.
+      - auto.
+    }
+    {
+      intros. induction H.
+      - constructor.
+      - apply concr_val_implies_concr_val_comp in H.
+        simpl. rewrite H, IHconcr_hlpl_val_tuple. reflexivity.
+    }
   Qed.
 
   Lemma concr_val_eq_concr_val_comp : forall v t bytes,
@@ -614,11 +700,20 @@ Section Concretization.
   Qed.
 
   Lemma concr_val_size : forall v bytes t,
-      concr_hlpl_val v t bytes -> sizeof t = length bytes.
+      concr_hlpl_val v t bytes -> sizeof t = length bytes
+  with concr_val_tuple_size : forall vl bytes tl,
+      concr_hlpl_val_tuple vl tl bytes -> sizeof_tuple tl = length bytes.
   Proof.
-    intros v bytes t Hconcr. induction Hconcr ; auto ; try reflexivity.
-    - rewrite Hs, repeat_length. reflexivity.
-    - rewrite List.length_app. simpl. lia.
+    {
+      intros v bytes t Hconcr. induction Hconcr ; auto ; try reflexivity.
+      - rewrite Hs, repeat_length. reflexivity.
+      - simpl. eauto.
+    }
+    {
+      intros. induction H.
+      - reflexivity.
+      - simpl. rewrite length_app. erewrite concr_val_tuple_size ; eauto.
+    }
   Qed.
 
   Lemma concr_val_add_loc :
@@ -3970,4 +4065,4 @@ Section Tests.
     (ptr (l1)) (TRef TInt) (make_ptr64 (b1, 1)).
   Proof. repeat econstructor. Qed.
 End Tests.
-
+*)

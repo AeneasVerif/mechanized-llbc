@@ -2350,6 +2350,10 @@ Ltac validity0 :=
   | H : get_node (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [?k]) =>
       simple apply valid_vpath_app_last_get_node_ary_gt_index;
       rewrite H; simpl; lia
+  | H : get_node (?v.[[?p]]) = _ |- valid_vpath ?v (?p ++ [0]) =>
+      simple apply valid_vpath_app_last_get_node_not_zeroary;
+      rewrite H;
+      constructor
   | |- valid_vpath _ [] => constructor
   | H : ?v.[[?p]] = _ |- valid_vpath ?v ?p =>
       apply (valid_get_node_vget_not_bot v p);
