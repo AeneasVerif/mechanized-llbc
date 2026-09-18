@@ -876,22 +876,6 @@ Definition forward_simulation_eval_operand :=
 Definition eval_tuple_as_value opl S vS :=
   exists vl S', vS = (VTuple vl, S') /\ eval_tuple opl S (vl, S').
 
-Lemma aux op S S' Sl Sl' v v' vl vl' :
-  (leq_val_state_base leq_base)^* (vl, Sl) (v, S) ->
-  S |-{op} op => (v', S') ->
-  Sl |-{op} op => (vl', Sl') ->
-  (leq_val_state_base leq_base)^* (vl', Sl') (v', S').
-Proof.
-  intros Hle Hop Hop_l. induction Hop ; subst ; inversion Hop_l ; subst.
-  - inversion Hle ; subst.
-    + apply rt_step. intros a **.
-      destruct (exists_fresh_anon2 Sl' S) as (a' & ? & ?).
-      specialize (H a' H2 H3). simpl fst in *. simpl snd in *.
-      remember (Sl',, a' |-> vl) as Sl'_a'. remember (S,, a' |-> v) as S_a'.
-      inversion H ; subst. 
-Admitted.
-
-
 Lemma forward_simulation_eval_tuple opl :
   (forall op, In op opl -> 
          forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op)) ->
@@ -919,18 +903,34 @@ Proof.
   - simpl in *. simpl.
 Admitted.
 
+
 Definition result_as_tuple (vlS : value_list * state) :=
   (VTuple vlS.1, vlS.2).
+
+Lemma leq_val_state_base_tuple_pres
+  (vSl vSr : value * state) (vlSl : value_list * state) :
+  vSl = result_as_tuple vlSl ->
+  (leq_val_state_base leq_base) vSl vSr ->
+  exists vlSr, vSr = result_as_tuple vlSr.
+Proof.
+  intros. destruct (exists_fresh_anon2 vSl.2 vSr.2) as (a & fresh1 & fresh2).
+  specialize (H0 a fresh1 fresh2). inversion H ; subst. cbn in H0.
+  destruct H0.
 
 Definition leq_vals_state_base (leq_base: state -> state -> Prop)
   (vlSl : value_list * state) (vlSr : value_list * state) : Prop :=
    leq_val_state_base leq_base (result_as_tuple vlSl) (result_as_tuple vlSr).
 
-Lemma leq_val_state_vals_state_equiv (leq_base: state -> state -> Prop) :
-  forall vlSl vlSr,
-    (leq_val_state_base leq_base) (result_as_tuple vlSl) (result_as_tuple vlSr) <->
-    (leq_vals_state_base leq_base) vlSl vlSr.
-Proof. auto. Qed.
+Lemma star_lift :
+  forall vlSl vSr,
+    clos_refl_trans_1n _ (leq_val_state_base leq_base) (result_as_tuple vlSl) vSr ->
+    exists vlSr, result_as_tuple vlSr = vSr /\
+              clos_refl_trans (leq_vals_state_base leq_base) vlSl vlSr.
+  Proof.
+    intros. remember (result_as_tuple vlSl) as vSl. generalize dependent vlSl.
+    induction H ; intros.
+    - exists vlSl. split. easy. reflexivity.
+    - specialize (IHclos_refl_trans_1n (VTuple y.1, y.2))
 
 Lemma leq_val_state_star_vals_state_star_equiv (leq_base: state -> state -> Prop) :
   forall vlSl vlSr,
@@ -939,6 +939,18 @@ Lemma leq_val_state_star_vals_state_star_equiv (leq_base: state -> state -> Prop
 Proof.
   intros. split ; intro.
   - remember (result_as_tuple vlSl) as vSl. remember (result_as_tuple vlSr) as vSr.
+    Search (_^*).
+    induction H.
+    * subst ; apply rt_step. apply H.
+    * subst. inversion HeqvSr. assert (vlSl = vlSr)
+        by (rewrite surjective_pairing with (p := vlSl) ;
+            rewrite surjective_pairing with (p := vlSr) ; congruence).
+      subst. reflexivity.
+    * etransitivity ; admit.
+  - induction H.
+    * apply rt_step, H.
+    * reflexivity.
+    * etransitivity ; eauto.
 Admitted.
 
 Lemma forward_simulation_eval_operand' op :
@@ -1035,9 +1047,105 @@ Proof.
   apply eval_operand_tuple_mutind.
 Admitted.
 
+Lemma operand_and_tuple_preserves_HLPL_plus_rel_base_case :
+  (forall op, forward_simulation leq_base (leq_val_state_base leq_base)^*
+           (eval_operand op) (eval_operand op)) /\
+    (forall opl, forward_simulation leq_base (leq_vals_state_base leq_base)^*
+              (eval_tuple opl) (eval_tuple opl)).
+Proof.
+  apply eval_operand_tuple_mutind ; intros. 
+
+  (* op = Const (IntConst n) *)
+  - destruct H.
+    + execution_step. { constructor. }
+      leq_step_right.
+      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+        assumption. all: autorewrite with spath; eassumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
+  (* op = Const (BoolConst b) *)
+  - destruct H.
+    + execution_step. { constructor. }
+      leq_step_right.
+      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+        assumption. all: autorewrite with spath; eassumption. }
+      { autorewrite with spath. reflexivity. }
+      reflexivity.
+
+  (* op = Copy p *)
+  - destruct H.
+    + eval_place_preservation.
+      assert (~prefix pi sp_loan).
+      { eapply not_value_contains_not_prefix.
+        - eapply copy_val_no_mut_loan. eassumption.
+        - rewrite HS_loan. constructor.
+        - validity. }
+      assert (disj pi sp_loan) by solve_comp.
+      assert (~prefix pi sp_borrow).
+      { eapply not_value_contains_not_prefix.
+        - eapply copy_val_no_mut_borrow. eassumption.
+        - rewrite HS_borrow. constructor.
+        - validity. }
+      destruct rel_pi_l_pi_r as [(r & -> & ->) | (-> & ?)].
+      * execution_step.
+        { econstructor. eassumption. autorewrite with spath. eassumption. }
+        leq_step_right.
+        { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+          assumption. all: autorewrite with spath; eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+      * assert (disj pi sp_borrow) by solve_comp.
+        execution_step.
+        { econstructor. eassumption. autorewrite with spath. eassumption. }
+        leq_step_right.
+        { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+          assumption. all: autorewrite with spath; eassumption. }
+        { autorewrite with spath. reflexivity. }
+        reflexivity.
+
+  (* op = Move p *)
+  - destruct H3.
+    eval_place_preservation.
+    assert (disj pi sp_loan) by solve_comp.
+    destruct (decidable_prefix pi sp_borrow) as [(q & <-) | ].
+    (* Case 1: the mutable borrow we're transforming to a pointer is in the moved value. *)
+    * execution_step.
+      { constructor. eassumption. all: autounfold with spath; not_contains. }
+      leq_step_right.
+      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
+                                        (sp_borrow := (anon_accessor a, q)).
+        eauto with spath. all: autorewrite with spath; eassumption. }
+      { autorewrite with spath. reflexivity. }
+      states_eq.
+    (* Case 2: the mutable borrow is disjoint from the moved value. *)
+    * assert (disj pi sp_borrow) by solve_comp.
+      execution_step.
+      { constructor. eassumption. all: autorewrite with spath; assumption. }
+      leq_step_right.
+      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
+        assumption. all: autorewrite with spath; eassumption. }
+      { autorewrite with spath. reflexivity. }
+      states_eq.
+  - specialize (H0 _ H1) as (d & Hle & Heval). inversion Hle ; subst.
+    + exists (VTuple d.1, d.2) ; split.
+      * admit.
+      * constructor. rewrite <- surjective_pairing. assumption.
+    * unfold leq_vals_state_base in Hle.
+      rewrite surjective_pairing with (p := d) in Hle. apply Hle.
+  - exists (VNil, b) ; split. 
+    * destruct H.
+      unfold leq_vals_state_base. simpl. leq_step_right.
+      apply rt_step. unfold leq_vals_state_base. unfold result_as_tuple.
+     rewrite !fst_pair, !snd_pair. 
+    * constructor.
+  - 
+Qed.
 
 Lemma operand_preserves_HLPL_plus_rel op :
-  forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op).
+  forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op)
+with operand_list_preserves_HLPL_plus_rel opl :
+  forward_simulation leq_base^* (leq_vals_state_base leq_base)^* (eval_tuple opl) (eval_tuple opl).
 Proof.
   apply preservation_by_base_case.
   intros Sr vrS'r Heval Sl Hle.
