@@ -2500,50 +2500,6 @@ Hint Rewrite @sget_anon using try assumption; reflexivity : spath.
 Hint Rewrite<- @sget_app : spath.
 Hint Rewrite<- @vget_app : spath.
 
-(* Adding a hint to reslove a relation ~prefix p q using the facts that:
- * - S.[p] does not contain a node c.
- * - S.[q] starts by the node c.
- * To solve the second goal, we need to help auto. When we are using this lemma, there should be a
- * hypothesis S.[q] = v. We are giving the instruction to rewrite S.[q] into v, and then to reduce
- * the expression (get_at_accessorue v) produced, so that it can be solved automatically.
- *)
-Hint Extern 3 (~prefix ?p ?q) =>
-  match goal with
-  | H : get_node (?S.[?q]) = _ |- _ =>
-    simple eapply not_value_contains_not_prefix; [ | rewrite H; cbn | validity]
-  end : spath.
-
-(* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
-   This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
-Ltac not_contains0 :=
-  try assumption;
-  match goal with
-  | |- True => auto
-  | |- not_state_contains ?P (?S,, ?a |-> ?v) =>
-      simple apply not_state_contains_add_anon; not_contains0
-  | |- not_state_contains ?P (?S.[?p <- ?v]) =>
-      simple apply not_state_contains_sset;
-      not_contains0
-  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
-      simple apply not_value_contains_sset_disj;
-        [auto with spath; fail | not_contains0]
-  | |- not_value_contains ?P (?S.[?q <- ?v].[?p]) =>
-      simple apply not_value_contains_sset;
-       [ not_contains0 | not_contains0 | validity0]
-  | H : not_state_contains ?P ?S |- not_value_contains ?P (?S.[?p]) =>
-      simple apply (not_state_contains_implies_not_value_contains_sget _ S p H);
-      validity0
-  | |- not_value_contains ?P (?v.[[?p <- ?w]]) =>
-      simple apply not_value_contains_vset; not_contains0
-  | |- not_value_contains ?P (?S.[?p]) => idtac
-  | |- not_value_contains ?P ?v =>
-      simple apply not_value_contains_zeroary; [reflexivity | ]
-  | |- not_value_contains ?P ?v =>
-      simple eapply not_value_contains_unary; [reflexivity | | not_contains0]
-  | |- _ => idtac
-  end.
-Ltac not_contains := not_contains0; eauto with spath.
-
 (* Populating the "weight" rewrite database: *)
 (* These hints turn operations on naturals onto operations on relatives, so to rewrite
  * sweight_sset: *)

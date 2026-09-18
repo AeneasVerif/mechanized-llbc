@@ -81,7 +81,8 @@ Module ValueList.
 
   Definition Forall (P : value -> Prop) (vl : value_list) : Prop :=
     List.Forall P (to_list vl).
-End ValueList.
+End ValueList
+.
 
 Variant nodes :=
 | NBottom
@@ -946,12 +947,7 @@ Lemma forward_simulation_eval_operand' op :
 Proof.
   intros Htuple.
   apply preservation_by_base_case.
-  intros Sr vrS'r Heval Sl Hle.
-  (* We use the new single-motive principle so the Tuple case hands us
-     [eval_tuple_Forall P opl S (vl, S')] directly, where [P] is exactly the
-     simulation obligation we are proving for each sub-operand. *)
-  induction Heval.
-
+  intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
   (* op = Const (IntConst n) *)
   - destruct Hle.
     + execution_step. { constructor. }

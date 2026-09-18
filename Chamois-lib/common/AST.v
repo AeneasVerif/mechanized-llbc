@@ -1,0 +1,1174 @@
+(* *********************************************************************)
+(*                                                                     *)
+(*              The Compcert verified compiler                         *)
+(*                                                                     *)
+(*          Xavier Leroy, INRIA Paris-Rocquencourt                     *)
+(*                                                                     *)
+(*  Copyright Institut National de Recherche en Informatique et en     *)
+(*  Automatique.  All rights reserved.  This file is distributed       *)
+(*  under the terms of the GNU Lesser General Public License as        *)
+(*  published by the Free Software Foundation, either version 2.1 of   *)
+(*  the License, or  (at your option) any later version.               *)
+(*  This file is also distributed under the terms of the               *)
+(*  INRIA Non-Commercial License Agreement.                            *)
+(*                                                                     *)
+(* *********************************************************************)
+
+(** This file defines a number of data types and operations used in
+  the abstract syntax trees of many of the intermediate languages. *)
+
+From Stdlib Require Import FSets.
+From Stdlib Require Import String.
+Require Import Coqlib Ordered Maps Errors Integers Floats.
+From chamois Require Import OptionMonad.
+Require Archi.
+
+Set Implicit Arguments.
+
+(** * Syntactic elements *)
+
+(** Identifiers (names of local variables, of global symbols and functions,
+  etc) are represented by the type [positive] of positive integers. *)
+
+Definition ident := positive.
+
+Definition ident_eq := peq.
+
+(** Qualified identifier , of the form f.pass.aux
+    where:
+    - f is the name from the source
+    - pass is a suffix indicating which pass generated the name
+    - aux is a suffix internal to the pass
+ *)
+Module QualIdent <: QUALIDENT.
+  Definition depth : nat := 3. (* For now, easily extended *)
+  (* Inductive qident : nat -> Type := *)
+  (* | qiroot {n} (p : positive) : qident (S n) *)
+  (* | qipref {n} (p : positive) (tl : qident n) : qident (S n). *)
+
+  Definition bounded_length (l : list ident) :=
+    (0 <? length l)%nat && (length l <=? depth)%nat = true.
+  Definition t := { l : list ident | bounded_length l }.
+
+  Lemma bounded_length_proofs_unicity : forall l (p1 p2 : bounded_length l),
+      p1 = p2.
+  Proof.
+    intros. apply Eqdep_dec.eq_proofs_unicity. (* Merci David *)
+    intros. destruct (bool_dec x y); auto.
+  Qed.
+
+  Lemma bounded_length_spec : forall l,
+      bounded_length l <-> (0 < length l <= depth)%nat.
+  Proof.
+    intros. unfold bounded_length.
+    now rewrite andb_true_iff, Nat.ltb_lt, Nat.leb_le.
+  Qed.
+
+  Lemma eq : forall (x y: t), { x = y } + { x <> y }.
+  Proof.
+    intros [] [].
+    destruct (list_eq_dec peq x x0); subst; [left|right].
+    - f_equal. apply bounded_length_proofs_unicity.
+    - congruence.
+  Defined.
+
+  (* Fixpoint to_list' {n} (qi: qident n) := *)
+  (*   match qi with *)
+  (*   | qiroot p => [p] *)
+  (*   | qipref p tl => p::to_list' tl *)
+  (*   end. *)
+  Definition to_list (qi : t) := proj1_sig qi.
+
+  Lemma to_list_length : forall qi,
+      (0 < length (to_list qi) <= depth)%nat.
+  Proof.
+    intros []. now apply bounded_length_spec.
+  Qed.
+
+  Lemma to_list_injective : forall i j,
+      to_list i = to_list j ->
+      i = j.
+  Proof.
+    unfold to_list, t.
+    intros [] [] EQ; simpl in *; subst. f_equal.
+    apply bounded_length_proofs_unicity.
+  Qed.
+
+  Import ListNotations.
+
+  Definition of_list (qi: list positive) : t.
+  Proof.
+    refine (exist _ (match qi with [] => [xH] | _ => firstn depth qi end) _).
+    rewrite bounded_length_spec. destruct qi; auto.
+    - unfold depth. simpl. lia.
+    - split.
+      + simpl. lia.
+      + apply firstn_le_length.
+  Defined.
+
+  Lemma of_list_injective : forall i j,
+      (0 < length i <= depth)%nat ->
+      (0 < length j <= depth)%nat ->
+      of_list i = of_list j ->
+      i = j.
+  Proof.
+    intros * LEN1 LEN2 EQ.
+    inv EQ.
+    unfold depth in *.
+    repeat (destruct i, j; simpl in *; try lia); congruence.
+  Qed.
+
+  Lemma to_of_list : forall l, of_list (to_list l) = l.
+  Proof.
+    intros []. unfold of_list, to_list. simpl proj1_sig.
+    assert (match x with [] => [xH] | _::_ => firstn depth x end = x) as EQ1.
+    { rewrite bounded_length_spec in b. unfold depth in *.
+      repeat (destruct x; simpl in *; try lia); auto. }
+    dependent rewrite EQ1.
+    eapply eq_exist_curried with (p:=EQ1); simpl.
+    apply bounded_length_proofs_unicity.
+  Qed.
+
+  Lemma of_to_list : forall l,
+      (0 < length l <= depth)%nat ->
+      to_list (of_list l) = l.
+  Proof.
+    unfold depth, to_list, of_list; simpl proj1_sig.
+    intros * LEN.
+    repeat (destruct l; simpl in *; try lia); auto.
+  Qed.
+
+  Definition root (p : ident) : t.
+  Proof.
+    now refine (exist _ [p] _).
+  Defined.
+
+End QualIdent.
+Definition qualident := QualIdent.t.
+
+(** Add prefix *)
+
+(* Ensures that (1) the prefix is [id] and (2) the pre-prefix is not [id],
+  which guarantees equivalence with the success of [prefix_qualident] *)
+Definition qualident_prefixed (qi: qualident) (id: ident) : Prop :=
+  exists id' tl BOUNDED,
+    qi = exist _ (id::id'::tl) BOUNDED /\ id' <> id.
+
+Definition qualident_eq_prefix' (qi: qualident) (id: ident) : bool :=
+  match proj1_sig qi with
+  | hd::_ => ident_eq hd id
+  | _ => false (* Should never happen *)
+  end.
+
+(* Stronger check *)
+Definition qualident_eq_prefix (qi: qualident) (id: ident) : bool :=
+  match proj1_sig qi with
+  | hd::hd'::_ => ident_eq hd id && negb (ident_eq hd' id)
+  | _ => false
+  end.
+
+Lemma qualident_eq_prefixed : forall qi id,
+    qualident_eq_prefix qi id = true <-> qualident_prefixed qi id.
+Proof.
+  unfold qualident_eq_prefix, qualident_prefixed.
+  intros [[|? []]] *; split; intros; simpl in *; auto; try congruence.
+  all:try split; try extlia.
+  - destruct H as (?&?&?&EQ&NEQ). inv EQ.
+  - destruct (ident_eq i id), (ident_eq i0 id); simpl in *; subst; try congruence.
+    repeat esplit; eauto.
+  - destruct H as (?&?&?&EQ&NEQ). inv EQ.
+    destruct (ident_eq id id), (ident_eq x id); simpl; congruence.
+Qed.
+
+Lemma qualident_prefixed_dec : forall qi id,
+    { qualident_prefixed qi id } + { ~qualident_prefixed qi id }.
+Proof.
+  intros.
+  destruct (qualident_eq_prefix qi id) eqn:EQ; [left|right];
+    rewrite <-qualident_eq_prefixed; congruence.
+Qed.
+
+Program Definition prefix_qualident (pre: ident) (qi: qualident) :
+  sum
+    { qi' : qualident | proj1_sig qi' = pre::proj1_sig qi /\ ~qualident_prefixed qi pre /\ qualident_prefixed qi' pre }
+    { tt : unit | List.length (proj1_sig qi) = QualIdent.depth \/ qualident_eq_prefix' qi pre = true } :=
+  match (List.length (proj1_sig qi) <? QualIdent.depth)%nat && negb (qualident_eq_prefix' qi pre) && negb (qualident_eq_prefix qi pre) with
+  | true => inl (exist _ (pre::proj1_sig qi) (conj _ _))
+  | false => inr (exist _ tt _)
+  end.
+Next Obligation.
+  symmetry in Heq_anonymous. rewrite 2 Bool.andb_true_iff, Nat.ltb_lt in Heq_anonymous.
+  unfold QualIdent.bounded_length, QualIdent.depth in *. simpl.
+  rewrite Nat.leb_le. lia.
+Qed.
+Next Obligation.
+  split.
+  - symmetry in Heq_anonymous. rewrite ? Bool.andb_true_iff, Nat.ltb_lt in Heq_anonymous.
+    destruct Heq_anonymous as (_&NEGB).
+    rewrite <-qualident_eq_prefixed. destruct (qualident_eq_prefix _ _); simpl in *; congruence.
+  - destruct qi as [[]]; simpl in *.
+    1:{ unfold QualIdent.bounded_length in *. simpl in *. congruence. }
+    repeat esplit; eauto.
+    symmetry in Heq_anonymous. rewrite ? Bool.andb_true_iff, Nat.ltb_lt in Heq_anonymous.
+    destruct Heq_anonymous as ((_&NEGB)&_).
+    unfold qualident_eq_prefix' in NEGB. simpl in NEGB.
+    destruct (ident_eq i pre); simpl in *; congruence.
+Qed.
+Next Obligation.
+  destruct qi as (l&BOUNDED); simpl in *.
+  symmetry in Heq_anonymous. rewrite ? Bool.andb_false_iff, Nat.ltb_ge, ? negb_false_iff in Heq_anonymous.
+  destruct Heq_anonymous as [[|]|]; auto.
+  - left. apply Bool.andb_true_iff in BOUNDED as (?&LE). apply Nat.leb_le in LE. lia.
+  - right. unfold qualident_eq_prefix, qualident_eq_prefix' in *.
+    destruct l as [|? []]; simpl in *; try congruence.
+    apply Bool.andb_true_iff in H as (?&?); auto.
+Qed.
+
+Lemma prefix_qualident_ok : forall qi pre,
+    (Datatypes.length (proj1_sig qi) < QualIdent.depth)%nat ->
+    qualident_eq_prefix' qi pre = false ->
+    exists res, prefix_qualident pre qi = inl res.
+Proof.
+  intros * LEN NPREF1.
+  destruct (prefix_qualident pre qi) eqn:PREF; eauto. exfalso.
+  destruct s as (?&[H|H]); [lia|congruence].
+Qed.
+
+Lemma prefix_qualident_not_twice pre : forall qi1 qi2 qi3,
+    prefix_qualident pre qi1 = inl qi2 ->
+    ~prefix_qualident pre (proj1_sig qi2) = inl qi3.
+Proof.
+  intros * PRE1 PRE2. destruct qi2 as ((?&?)&(?&?&?)), qi3 as ((?&?)&(?&NPREF&?)); simpl in *; subst.
+  apply NPREF; auto.
+Qed.
+
+(** It is ordered ! *)
+
+(* Module OrdOpt1 := OrderedOption(OrderedPositive). *)
+(* Module OrdPair1 := OrderedPair(OrderedPositive)(OrdOpt1). *)
+(* Module OrdOpt2 := OrderedOption(OrdPair1). *)
+Module OrderedQualIdent <: OrderedType.
+  Definition t := qualident.
+
+  Definition eq : t -> t -> Prop := eq.
+
+  Inductive lt_lexico : list ident -> list ident -> Prop :=
+  | lt_nil: forall hd2 tl2, lt_lexico nil (hd2::tl2)
+  | lt_cons1: forall hd1 tl1 hd2 tl2,
+      (hd1 < hd2)%positive -> lt_lexico (hd1::tl1) (hd2::tl2)
+  | lt_cons2: forall hd tl1 tl2,
+      lt_lexico tl1 tl2 -> lt_lexico (hd::tl1) (hd::tl2).
+
+  Definition lt (l1 l2 : t) := lt_lexico (proj1_sig l1) (proj1_sig l2).
+
+  Definition eq_refl := @eq_Reflexive t.
+  Definition eq_sym := @eq_Symmetric t.
+  Definition eq_trans := @eq_Transitive t.
+  Definition eq_dec := @QualIdent.eq.
+
+  Lemma lt_trans : forall x y z, lt x y -> lt y z -> lt x z.
+  Proof.
+    unfold lt. intros [] [] []; simpl.
+    clear b b0 b1. revert x0 x1.
+    induction x; intros * Lt1 Lt2; inv Lt1; inv Lt2; try now constructor.
+    - apply lt_cons1. lia.
+    - apply lt_cons2; eauto.
+  Qed.
+
+  Lemma lt_not_eq : forall x y, lt x y -> ~eq x y.
+  Proof.
+    unfold lt. intros [] [] * LT EQ; simpl.
+    inv EQ. simpl in LT. clear b b0.
+    induction x0; inv LT; eauto. lia.
+  Qed.
+
+  Lemma compare : forall x y : t, Compare lt eq x y.
+  Proof.
+    intros.
+    destruct (QualIdent.eq x y); [now apply EQ|].
+    assert ({lt x y} + {lt y x}) as [?|?]; [|apply LT|apply GT]; auto.
+    destruct x as (x&?), y as (y&?).
+    assert (x <> y) as NEQ.
+    { contradict n; subst. f_equal. apply QualIdent.bounded_length_proofs_unicity. }
+    unfold lt; simpl. clear n b b0.
+    revert x y NEQ.
+    induction x; intros [] NEQ.
+    - congruence.
+    - left. constructor.
+    - right. constructor.
+    - destruct (peq a i); subst.
+      + destruct (IHx l); [congruence|left|right]; now apply lt_cons2.
+      + destruct (OrderedPositive.compare a i);
+          try contradiction; [left|right]; constructor; auto.
+  Defined.
+End OrderedQualIdent.
+
+(** The intermediate languages are weakly typed, using the following types: *)
+
+Inductive typ : Type :=
+  | Tint                (**r 32-bit integers or pointers *)
+  | Tfloat              (**r 64-bit double-precision floats *)
+  | Tlong               (**r 64-bit integers *)
+  | Tsingle             (**r 32-bit single-precision floats *)
+  | Tany32              (**r any 32-bit value *)
+  | Tany64.             (**r any 64-bit value, i.e. any value *)
+
+Lemma typ_eq: forall (t1 t2: typ), {t1=t2} + {t1<>t2}.
+Proof. decide equality. Defined.
+Global Opaque typ_eq.
+
+Definition list_typ_eq: forall (l1 l2: list typ), {l1=l2} + {l1<>l2}
+                     := list_eq_dec typ_eq.
+
+Definition Tptr : typ := if Archi.ptr64 then Tlong else Tint.
+
+Definition typesize (ty: typ) : Z :=
+  match ty with
+  | Tint => 4
+  | Tfloat => 8
+  | Tlong => 8
+  | Tsingle => 4
+  | Tany32 => 4
+  | Tany64 => 8
+  end.
+
+Lemma typesize_pos: forall ty, typesize ty > 0.
+Proof. destruct ty; simpl; lia. Qed.
+
+Lemma typesize_Tptr: typesize Tptr = if Archi.ptr64 then 8 else 4.
+Proof. unfold Tptr; destruct Archi.ptr64; auto. Qed.
+
+(** All values of size 32 bits are also of type [Tany32].  All values
+  are of type [Tany64].  This corresponds to the following subtyping
+  relation over types. *)
+
+Definition subtype (ty1 ty2: typ) : bool :=
+  match ty1, ty2 with
+  | Tint, Tint => true
+  | Tlong, Tlong => true
+  | Tfloat, Tfloat => true
+  | Tsingle, Tsingle => true
+  | (Tint | Tsingle | Tany32), Tany32 => true
+  | _, Tany64 => true
+  | _, _ => false
+  end.
+
+Fixpoint subtype_list (tyl1 tyl2: list typ) : bool :=
+  match tyl1, tyl2 with
+  | nil, nil => true
+  | ty1::tys1, ty2::tys2 => subtype ty1 ty2 && subtype_list tys1 tys2
+  | _, _ => false
+  end.
+
+(** To describe function arguments and function return values,
+    we use the more precise types below. *)
+
+Inductive xtype : Type :=
+  | Xbool               (**r Boolean value (0 or 1) *)
+  | Xint8signed         (**r 8-bit signed integer *)
+  | Xint8unsigned       (**r 8-bit unsigned integer *)
+  | Xint16signed        (**r 16-bit signed integer *)
+  | Xint16unsigned      (**r 16-bit unsigned integer *)
+  | Xint                (**r 32-bit integers or pointers *)
+  | Xfloat              (**r 64-bit double-precision floats *)
+  | Xlong               (**r 64-bit integers *)
+  | Xsingle             (**r 32-bit single-precision floats *)
+  | Xptr                (**r pointers and pointer-sized integers *)
+  | Xany32              (**r any 32-bit value *)
+  | Xany64              (**r any 64-bit value, i.e. any value *)
+  | Xvoid.              (**r no meaningful value *)
+
+Definition Xsize_t := if Archi.ptr64 then Xlong else Xint.
+
+Lemma xtype_eq: forall (t1 t2: xtype), {t1=t2} + {t1<>t2}.
+Proof. decide equality. Defined.
+Global Opaque xtype_eq.
+
+Definition inj_type (t: typ) : xtype :=
+  match t with
+  | Tint => Xint
+  | Tfloat => Xfloat
+  | Tlong => Xlong
+  | Tsingle => Xsingle
+  | Tany32 => Xany32
+  | Tany64 => Xany64
+  end.
+
+Definition proj_xtype (x: xtype) : typ :=
+  match x with
+  | Xbool | Xint8signed | Xint8unsigned | Xint16signed | Xint16unsigned | Xint => Tint
+  | Xfloat => Tfloat
+  | Xlong => Tlong
+  | Xsingle => Tsingle
+  | Xptr => Tptr
+  | Xany32 => Tany32
+  | Xany64 => Tany64
+  | Xvoid => Tint
+  end.
+
+Lemma proj_inj_type: forall t, proj_xtype (inj_type t) = t.
+Proof.
+  destruct t; auto.
+Qed.
+
+(** Additionally, function definitions and function calls are annotated
+  by function signatures indicating:
+- the number and types of arguments;
+- the type of the returned value;
+- additional information on which calling convention to use.
+
+These signatures are used in particular to determine appropriate
+calling conventions for the function. *)
+
+Record calling_convention : Type := mkcallconv {
+  cc_vararg: option Z;  (**r variable-arity function (+ number of fixed args) *)
+  cc_unproto: bool;     (**r old-style unprototyped function *)
+  cc_structret: bool    (**r function returning a struct  *)
+}.
+
+Definition cc_default :=
+  {| cc_vararg := None; cc_unproto := false; cc_structret := false |}.
+
+Definition calling_convention_eq (x y: calling_convention) : {x=y} + {x<>y}.
+Proof.
+  decide equality; try (apply bool_dec). decide equality; apply Z.eq_dec.
+Defined.
+Global Opaque calling_convention_eq.
+
+Record signature : Type := mksignature {
+  sig_args: list xtype;
+  sig_res: xtype;
+  sig_cc: calling_convention
+}.
+
+Definition proj_sig_args (s: signature) : list typ := List.map proj_xtype s.(sig_args).
+Definition proj_sig_res (s: signature) : typ := proj_xtype s.(sig_res).
+
+Definition signature_eq: forall (s1 s2: signature), {s1=s2} + {s1<>s2}.
+Proof.
+  generalize xtype_eq, list_eq_dec, calling_convention_eq; decide equality.
+Defined.
+Global Opaque signature_eq.
+
+Declare Scope asttyp_scope.
+Notation "[ ---> y ]" := (mksignature nil y cc_default) : asttyp_scope.
+Notation "[ x ---> y ]" :=
+  (mksignature (@cons xtype x nil) y cc_default) : asttyp_scope.
+Notation "[ x1 ; x2 ; .. ; xn ---> y ]" :=
+  (mksignature (@cons xtype x1 (@cons xtype x2 .. (@cons xtype xn nil) ..)) y cc_default) : asttyp_scope.
+
+Delimit Scope asttyp_scope with asttyp.
+Local Open Scope asttyp_scope.
+
+Definition signature_main :=  [ ---> Xint].
+
+(** Memory accesses (load and store instructions) are annotated by
+  a ``memory chunk'' indicating the type, size and signedness of the
+  chunk of memory being accessed. *)
+
+Inductive memory_chunk : Type :=
+  | Mbool           (**r 8-bit integer containing 0 or 1 *)
+  | Mint8signed     (**r 8-bit signed integer *)
+  | Mint8unsigned   (**r 8-bit unsigned integer *)
+  | Mint16signed    (**r 16-bit signed integer *)
+  | Mint16unsigned  (**r 16-bit unsigned integer *)
+  | Mint32          (**r 32-bit integer, or pointer *)
+  | Mint64          (**r 64-bit integer *)
+  | Mfloat32        (**r 32-bit single-precision float *)
+  | Mfloat64        (**r 64-bit double-precision float *)
+  | Many32          (**r any value that fits in 32 bits *)
+  | Many64          (**r any value *)
+  | Mint32al1       (**r 32-bit integer, alignment 1 (unaligned) *)
+  | Mint64al1.      (**r 64-bit integer, alignment 1 (unaligned) *)
+
+Definition chunk_eq: forall (c1 c2: memory_chunk), {c1=c2} + {c1<>c2}.
+Proof. decide equality. Defined.
+Global Opaque chunk_eq.
+
+Definition Mptr : memory_chunk := if Archi.ptr64 then Mint64 else Mint32.
+
+(** The type (integer/pointer or float) of a chunk. *)
+
+Definition type_of_chunk (c: memory_chunk) : typ :=
+  match c with
+  | Mbool => Tint
+  | Mint8signed => Tint
+  | Mint8unsigned => Tint
+  | Mint16signed => Tint
+  | Mint16unsigned => Tint
+  | Mint32 => Tint
+  | Mint64 => Tlong
+  | Mfloat32 => Tsingle
+  | Mfloat64 => Tfloat
+  | Many32 => Tany32
+  | Many64 => Tany64
+  | Mint32al1 => Tint
+  | Mint64al1 => Tlong
+  end.
+
+Lemma type_of_Mptr: type_of_chunk Mptr = Tptr.
+Proof. unfold Mptr, Tptr; destruct Archi.ptr64; auto. Qed.
+
+(** Same, as an extended type. *)
+
+Definition xtype_of_chunk (c: memory_chunk) : xtype :=
+  match c with
+  | Mbool => Xbool
+  | Mint8signed => Xint8signed
+  | Mint8unsigned => Xint8unsigned
+  | Mint16signed => Xint16signed
+  | Mint16unsigned => Xint16unsigned
+  | Mint32 => Xint
+  | Mint64 => Xlong
+  | Mfloat32 => Xsingle
+  | Mfloat64 => Xfloat
+  | Many32 => Xany32
+  | Many64 => Xany64
+  | Mint32al1 => Xint
+  | Mint64al1 => Xlong
+  end.
+
+Lemma proj_xtype_of_chunk:
+  forall chunk, proj_xtype (xtype_of_chunk chunk) = type_of_chunk chunk.
+Proof.
+  destruct chunk; auto.
+Qed.
+
+(** The chunk that is appropriate to store and reload a value of
+  the given type, without losing information. *)
+
+Definition chunk_of_type (ty: typ) :=
+  match ty with
+  | Tint => Mint32
+  | Tfloat => Mfloat64
+  | Tlong => Mint64
+  | Tsingle => Mfloat32
+  | Tany32 => Many32
+  | Tany64 => Many64
+  end.
+
+Lemma chunk_of_Tptr: chunk_of_type Tptr = Mptr.
+Proof. unfold Mptr, Tptr; destruct Archi.ptr64; auto. Qed.
+
+(** Trapping mode: does undefined behavior result in a trap or an undefined value (e.g. for loads) *)
+Inductive trapping_mode : Type := TRAP | NOTRAP.
+
+Definition trapping_mode_eq : forall x y : trapping_mode,
+    { x=y } + { x <> y}.
+Proof.
+  decide equality.
+Defined.
+
+
+(** Initialization data for global variables. *)
+
+Inductive init_data: Type :=
+  | Init_int8: int -> init_data
+  | Init_int16: int -> init_data
+  | Init_int32: int -> init_data
+  | Init_int64: int64 -> init_data
+  | Init_float32: float32 -> init_data
+  | Init_float64: float -> init_data
+  | Init_space: Z -> init_data
+  | Init_addrof: qualident -> ptrofs -> init_data.  (**r address of symbol + offset *)
+
+Definition init_data_size (i: init_data) : Z :=
+  match i with
+  | Init_int8 _ => 1
+  | Init_int16 _ => 2
+  | Init_int32 _ => 4
+  | Init_int64 _ => 8
+  | Init_float32 _ => 4
+  | Init_float64 _ => 8
+  | Init_addrof _ _ => if Archi.ptr64 then 8 else 4
+  | Init_space n => Z.max n 0
+  end.
+
+Fixpoint init_data_list_size (il: list init_data) {struct il} : Z :=
+  match il with
+  | nil => 0
+  | i :: il' => init_data_size i + init_data_list_size il'
+  end.
+
+Lemma init_data_size_pos:
+  forall i, init_data_size i >= 0.
+Proof.
+  destruct i; simpl; try extlia. destruct Archi.ptr64; lia.
+Qed.
+
+Lemma init_data_list_size_pos:
+  forall il, init_data_list_size il >= 0.
+Proof.
+  induction il; simpl. lia. generalize (init_data_size_pos a); lia.
+Qed.
+
+(** Information attached to global variables. *)
+
+Record globvar (V: Type) : Type := mkglobvar {
+  gvar_info: V;                    (**r language-dependent info, e.g. a type *)
+  gvar_init: list init_data;       (**r initialization data *)
+  gvar_readonly: bool;             (**r read-only variable? (const) *)
+  gvar_volatile: bool;             (**r volatile variable? *)
+  gvar_align: Z                    (**r alignment of the variable (from its type) 
+                                     TODO: do we need to ensure that gvar_align is a power of 2 ?
+                                     in this case, log2 of align could be a better encoding...
+                                   *)
+}.
+
+(** Whole programs consist of:
+- a collection of global definitions (name and description);
+- a set of public names (the names that are visible outside
+  this compilation unit);
+- the name of the ``main'' function that serves as entry point in the program.
+
+A global definition is either a global function or a global variable.
+The type of function descriptions and that of additional information
+for variables vary among the various intermediate languages and are
+taken as parameters to the [program] type.  The other parts of whole
+programs are common to all languages. *)
+
+Inductive globdef (F V: Type) : Type :=
+  | Gfun (f: F)
+  | Gvar (v: globvar V).
+
+Arguments Gfun [F V].
+Arguments Gvar [F V].
+
+Record program (F V: Type) : Type := mkprogram {
+  prog_defs: list (qualident * globdef F V);
+  prog_public: list qualident;
+  prog_main: qualident
+}.
+
+Definition prog_defs_names (F V: Type) (p: program F V) : list qualident :=
+  List.map fst p.(prog_defs).
+
+(** The "definition map" of a program maps names of globals to their definitions.
+  If several definitions have the same name, the one appearing last in [p.(prog_defs)] wins. *)
+
+Module QITree := QITree(QualIdent).
+Module QITree_Properties := Tree_Properties(QITree).
+Definition globmap := QITree.t.
+
+Notation "a !. b" := (QITree.get b a) (at level 1).
+
+Definition prog_defmap (F V: Type) (p: program F V) : globmap (globdef F V) :=
+  QITree_Properties.of_list p.(prog_defs).
+
+Section DEFMAP.
+
+Variables F V: Type.
+Variable p: program F V.
+
+Lemma in_prog_defmap:
+  forall id g, (prog_defmap p)!.id = Some g -> In (id, g) (prog_defs p).
+Proof.
+  apply QITree_Properties.in_of_list.
+Qed.
+
+Lemma prog_defmap_dom:
+  forall id, In id (prog_defs_names p) -> exists g, (prog_defmap p)!.id = Some g.
+Proof.
+  apply QITree_Properties.of_list_dom.
+Qed.
+
+Lemma prog_defmap_unique:
+  forall defs1 id g defs2,
+  prog_defs p = defs1 ++ (id, g) :: defs2 ->
+  ~In id (map fst defs2) ->
+  (prog_defmap p)!.id = Some g.
+Proof.
+  unfold prog_defmap; intros. rewrite H. apply QITree_Properties.of_list_unique; auto.
+Qed.
+
+Lemma prog_defmap_norepet:
+  forall id g,
+  list_norepet (prog_defs_names p) ->
+  In (id, g) (prog_defs p) ->
+  (prog_defmap p)!.id = Some g.
+Proof.
+  apply QITree_Properties.of_list_norepet.
+Qed.
+
+End DEFMAP.
+
+(** * Generic transformations over programs *)
+
+(** We now define a general iterator over programs that applies a given
+  code transformation function to all function descriptions and leaves
+  the other parts of the program unchanged. *)
+
+Section TRANSF_PROGRAM.
+
+Variable A B V: Type.
+Variable transf: A -> B.
+
+Definition transform_program_globdef (idg: qualident * globdef A V) : qualident * globdef B V :=
+  match idg with
+  | (id, Gfun f) => (id, Gfun (transf f))
+  | (id, Gvar v) => (id, Gvar v)
+  end.
+
+Definition transform_program (p: program A V) : program B V :=
+  mkprogram
+    (List.map transform_program_globdef p.(prog_defs))
+    p.(prog_public)
+    p.(prog_main).
+
+End TRANSF_PROGRAM.
+
+(** The following is a more general presentation of [transform_program]:
+- Global variable information can be transformed, in addition to function
+  definitions.
+- The transformation functions can fail and return an error message.
+- The transformation for function definitions receives a global context
+  (derived from the compilation unit being transformed) as additiona
+  argument.
+- The transformation functions receive the name of the global as
+  additional argument. *)
+
+Local Open Scope error_monad_scope.
+
+Section TRANSF_PROGRAM_GEN.
+
+Variables A B V W: Type.
+Variable transf_fun: qualident -> A -> res B.
+Variable transf_var: qualident -> V -> res W.
+
+Definition transf_globvar (i: qualident) (g: globvar V) : res (globvar W) :=
+  do info' <- transf_var i g.(gvar_info);
+  OK (mkglobvar info' g.(gvar_init) g.(gvar_readonly) g.(gvar_volatile) g.(gvar_align)).
+
+Import ListNotations.
+
+Definition errcode_of_qualident (i: qualident) :=
+  (fix aux (i : list positive) :=
+     match i with
+     | [] => []
+     | [f] => [CTX f]
+     | f::tl => CTX f::MSG "."::(aux tl)
+     end) (proj1_sig i).
+
+Fixpoint transf_globdefs (l: list (qualident * globdef A V)) : res (list (qualident * globdef B W)) :=
+  match l with
+  | nil => OK nil
+  | (id, Gfun f) :: l' =>
+    match transf_fun id f with
+      | Error msg => Error (MSG "In function " :: errcode_of_qualident id ++ MSG ": " :: msg)
+      | OK tf =>
+        do tl' <- transf_globdefs l'; OK ((id, Gfun tf) :: tl')
+    end
+  | (id, Gvar v) :: l' =>
+    match transf_globvar id v with
+      | Error msg => Error (MSG "In variable " :: errcode_of_qualident id ++ MSG ": " :: msg)
+      | OK tv =>
+        do tl' <- transf_globdefs l'; OK ((id, Gvar tv) :: tl')
+    end
+  end.
+
+Definition transform_partial_program2 (p: program A V) : res (program B W) :=
+  do gl' <- transf_globdefs p.(prog_defs);
+  OK (mkprogram gl' p.(prog_public) p.(prog_main)).
+
+End TRANSF_PROGRAM_GEN.
+
+(** The following is a special case of [transform_partial_program2],
+  where only function definitions are transformed, but not variable definitions. *)
+
+Section TRANSF_PARTIAL_PROGRAM.
+
+Variable A B V: Type.
+Variable transf_fun: A -> res B.
+
+Definition transform_partial_program (p: program A V) : res (program B V) :=
+  transform_partial_program2 (fun i f => transf_fun f) (fun i v => OK v) p.
+
+End TRANSF_PARTIAL_PROGRAM.
+
+Lemma transform_program_partial_program:
+  forall (A B V: Type) (transf_fun: A -> B) (p: program A V),
+  transform_partial_program (fun f => OK (transf_fun f)) p = OK (transform_program transf_fun p).
+Proof.
+  intros. unfold transform_partial_program, transform_partial_program2.
+  assert (EQ: forall l,
+              transf_globdefs (fun i f => OK (transf_fun f)) (fun i (v: V) => OK v) l =
+              OK (List.map (transform_program_globdef transf_fun) l)).
+  { induction l as [ | [id g] l]; simpl.
+  - auto.
+  - destruct g; simpl; rewrite IHl; simpl. auto. destruct v; auto.
+  }
+  rewrite EQ; simpl. auto.
+Qed.
+
+(** * External functions *)
+
+(* Identifiers for profiling information *)
+Parameter profiling_id : Set.
+Axiom profiling_id_eq : forall (x y : profiling_id), {x=y} + {x<>y}.
+Definition profiling_kind := Z.t.
+
+(** Chunk for memcpy operations *)
+
+Record cpychunk: Set := cpy {
+  cpy_mode: option bool;   (** [None] => no strict overlap
+                               [Some true/Some false] => potential overlap in the same bloc with increasing/decreasing indices *)
+  cpy_sz: positive;        (** number of bytes to copy *)
+  cpy_al: Z;               (** alignment *)
+  cpy_bal: option (Z*Z);   (** best realignment modulo memcpy splits (see Memcpy.v) *)
+}.
+
+Definition cpychunk_eq (x y: cpychunk): { x = y } + { x<>y }.
+  generalize option_eq bool_dec peq zeq; intros. repeat (decide equality). 
+Defined.
+
+Definition ocpy (sz al: Z) : option cpychunk :=
+  if zlt 0 sz then Some (cpy None (Z.to_pos sz) al None) else None.
+
+Definition ocpy_sz (ochk: option cpychunk) :=
+  match ochk with 
+  | None => 0
+  | Some chk => Zpos (cpy_sz chk)
+  end.
+
+Definition ocpy_al (ochk: option cpychunk) :=
+  match ochk with 
+  | None => 1
+  | Some chk => cpy_al chk
+  end.
+
+Definition ocpy_mode (ochk: option cpychunk) :=
+  match ochk with 
+  | None => None
+  | Some chk => cpy_mode chk
+  end.
+
+(** For most languages, the functions composing the program are either
+  internal functions, defined within the language, or external functions,
+  defined outside.  External functions include system calls but also
+  compiler built-in functions.  We define a type for external functions
+  and associated operations. *)
+
+Inductive external_function : Type :=
+  | EF_external (name: string) (sg: signature)
+     (** A system call or library function.  Produces an event
+         in the trace. *)
+  | EF_builtin (name: string) (sg: signature)
+     (** A compiler built-in function.  Behaves like an external, but
+         can be inlined by the compiler. *)
+  | EF_runtime (name: string) (sg: signature)
+     (** A function from the run-time library.  Behaves like an
+         external, but must not be redefined. *)
+  | EF_vload (chunk: memory_chunk)
+     (** A volatile read operation.  If the address given as first argument
+         points within a volatile global variable, generate an
+         event and return the value found in this event.  Otherwise,
+         produce no event and behave like a regular memory load. *)
+  | EF_vstore (chunk: memory_chunk)
+     (** A volatile store operation.   If the address given as first argument
+         points within a volatile global variable, generate an event.
+         Otherwise, produce no event and behave like a regular memory store. *)
+  | EF_malloc
+     (** Dynamic memory allocation.  Takes the requested size in bytes
+         as argument; returns a pointer to a fresh block of the given size.
+         Produces no observable event. *)
+  | EF_free
+     (** Dynamic memory deallocation.  Takes a pointer to a block
+         allocated by an [EF_malloc] external call and frees the
+         corresponding block.
+         Produces no observable event. *)
+  | EF_memcpy (chunk: option cpychunk)
+     (** Block copy or move according to chunk.  [None] skips (ie size o).  *)
+  | EF_annot (kind: positive) (text: string) (targs: list typ)
+     (** A programmer-supplied annotation.  Takes zero, one or several arguments,
+         produces an event carrying the text and the values of these arguments,
+         and returns no value. *)
+  | EF_annot_val (kind: positive) (text: string) (targ: typ)
+     (** Another form of annotation that takes one argument, produces
+         an event carrying the text and the value of this argument,
+         and returns the value of the argument. *)
+  | EF_inline_asm (text: string) (sg: signature) (clobbers: list string)
+     (** Inline [asm] statements.  Semantically, treated like an
+         annotation with no parameters ([EF_annot text nil]).  To be
+         used with caution, as it can invalidate the semantic
+         preservation theorem.  Generated only if [-finline-asm] is
+         given. *)
+  | EF_debug (kind: positive) (text: ident) (targs: list typ)
+     (** Transport debugging information from the front-end to the generated
+         assembly.  Takes zero, one or several arguments like [EF_annot].
+         Unlike [EF_annot], produces no observable event. *)
+  | EF_profiling (id: profiling_id) (kind : profiling_kind).
+     (** Count one profiling event for this identifier and kind.
+         Takes no argument. Produces no observable event. *)
+
+(** The type signature of an external function. *)
+
+Definition ef_sig (ef: external_function): signature :=
+  match ef with
+  | EF_external name sg => sg
+  | EF_builtin name sg => sg
+  | EF_runtime name sg => sg
+  | EF_vload chunk => [Xptr ---> xtype_of_chunk chunk]
+  | EF_vstore chunk => [Xptr; xtype_of_chunk chunk ---> Xvoid]
+  | EF_malloc => [Xsize_t ---> Xptr]
+  | EF_free => [Xptr ---> Xvoid]
+  | EF_memcpy _ => [Xptr; Xptr ---> Xvoid]
+  | EF_annot kind text targs => mksignature (List.map inj_type targs) Xvoid cc_default
+  | EF_annot_val kind text targ => [inj_type targ ---> inj_type targ]
+  | EF_inline_asm text sg clob => sg
+  | EF_profiling id kind => [ ---> Xvoid ]
+  | EF_debug kind text targs => mksignature (List.map inj_type targs) Xvoid cc_default
+  end.
+
+(** Whether an external function should be inlined by the compiler. *)
+
+Definition ef_inline (ef: external_function) : bool :=
+  match ef with
+  | EF_external name sg => false
+  | EF_builtin name sg => true
+  | EF_runtime name sg => false
+  | EF_vload chunk => true
+  | EF_vstore chunk => true
+  | EF_malloc => false
+  | EF_free => false
+  | EF_memcpy _ => true
+  | EF_annot kind text targs => true
+  | EF_annot_val kind text rg => true
+  | EF_inline_asm text sg clob => true
+  | EF_debug kind text targs => true
+  | EF_profiling id kind => true
+  end.
+
+(** Whether an external function must reload its arguments. *)
+
+Definition ef_reloads (ef: external_function) : bool :=
+  match ef with
+  | EF_annot kind text targs => false
+  | EF_debug kind text targs => false
+  | _ => true
+  end.
+
+(** Equality between external functions.  Used in module [Allocation]. *)
+
+Definition external_function_eq: forall (ef1 ef2: external_function), {ef1=ef2} + {ef1<>ef2}.
+Proof.
+  generalize profiling_id_eq ident_eq string_dec signature_eq chunk_eq typ_eq xtype_eq list_eq_dec zeq Int.eq_dec (option_eq cpychunk_eq); intros.
+  decide equality.
+Defined.
+Global Opaque external_function_eq.
+
+(** Function definitions are the union of internal and external functions. *)
+
+Inductive fundef (F: Type): Type :=
+  | Internal: F -> fundef F
+  | External: external_function -> fundef F.
+
+Arguments External [F].
+
+Section TRANSF_FUNDEF.
+
+Variable A B: Type.
+Variable transf: A -> B.
+
+Definition transf_fundef (fd: fundef A): fundef B :=
+  match fd with
+  | Internal f => Internal (transf f)
+  | External ef => External ef
+  end.
+
+End TRANSF_FUNDEF.
+
+Section TRANSF_PARTIAL_FUNDEF.
+
+Variable A B: Type.
+Variable transf_partial: A -> res B.
+
+Definition transf_partial_fundef (fd: fundef A): res (fundef B) :=
+  match fd with
+  | Internal f => do f' <- transf_partial f; OK (Internal f')
+  | External ef => OK (External ef)
+  end.
+
+End TRANSF_PARTIAL_FUNDEF.
+
+(** * Register pairs *)
+
+Set Contextual Implicit.
+
+(** In some intermediate languages (LTL, Mach), 64-bit integers can be
+  split into two 32-bit halves and held in a pair of registers.
+  Syntactically, this is captured by the type [rpair] below. *)
+
+Inductive rpair (A: Type) : Type :=
+  | One (r: A)
+  | Twolong (rhi rlo: A).
+
+Definition typ_rpair (A: Type) (typ_of: A -> typ) (p: rpair A): typ :=
+  match p with
+  | One r => typ_of r
+  | Twolong rhi rlo => Tlong
+  end.
+
+Definition map_rpair (A B: Type) (f: A -> B) (p: rpair A): rpair B :=
+  match p with
+  | One r => One (f r)
+  | Twolong rhi rlo => Twolong (f rhi) (f rlo)
+  end.
+
+Definition regs_of_rpair (A: Type) (p: rpair A): list A :=
+  match p with
+  | One r => r :: nil
+  | Twolong rhi rlo => rhi :: rlo :: nil
+  end.
+
+Fixpoint regs_of_rpairs (A: Type) (l: list (rpair A)): list A :=
+  match l with
+  | nil => nil
+  | p :: l => regs_of_rpair p ++ regs_of_rpairs l
+  end.
+
+Lemma in_regs_of_rpairs:
+  forall (A: Type) (x: A) p, In x (regs_of_rpair p) -> forall l, In p l -> In x (regs_of_rpairs l).
+Proof.
+  induction l; simpl; intros. auto. apply in_app. destruct H0; auto. subst a. auto.
+Qed.
+
+Lemma in_regs_of_rpairs_inv:
+  forall (A: Type) (x: A) l, In x (regs_of_rpairs l) -> exists p, In p l /\ In x (regs_of_rpair p).
+Proof.
+  induction l; simpl; intros. contradiction.
+  rewrite in_app_iff in H; destruct H.
+  exists a; auto.
+  apply IHl in H. firstorder auto.
+Qed.
+
+Definition forall_rpair (A: Type) (P: A -> Prop) (p: rpair A): Prop :=
+  match p with
+  | One r => P r
+  | Twolong rhi rlo => P rhi /\ P rlo
+  end.
+
+(** * Arguments and results to builtin functions *)
+
+Inductive builtin_arg (A: Type) : Type :=
+  | BA (x: A)
+  | BA_int (n: int)
+  | BA_long (n: int64)
+  | BA_float (f: float)
+  | BA_single (f: float32)
+  | BA_loadstack (chunk: memory_chunk) (ofs: ptrofs)
+  | BA_addrstack (ofs: ptrofs)
+  | BA_loadglobal (chunk: memory_chunk) (id: qualident) (ofs: ptrofs)
+  | BA_addrglobal (id: qualident) (ofs: ptrofs)
+  | BA_splitlong (hi lo: builtin_arg A)
+  | BA_addptr (a1 a2: builtin_arg A).
+
+Inductive builtin_res (A: Type) : Type :=
+  | BR (x: A)
+  | BR_none
+  | BR_splitlong (hi lo: builtin_res A).
+
+Definition eq_builtin_arg (A: Type) (eq: forall x y: A, {x=y} + {x<>y}) :
+  forall x y : builtin_arg A, {x=y} + {x<>y}.
+Proof.
+  generalize Int.eq_dec Int64.eq_dec Ptrofs.eq_dec Float.eq_dec Float32.eq_dec
+             chunk_eq QualIdent.eq; intros.
+  decide equality.
+Defined.
+
+Definition eq_builtin_res (A: Type) (eq: forall x y: A, {x=y} + {x<>y}) :
+  forall x y : builtin_res A, {x=y} + {x<>y}.
+Proof.
+  decide equality.
+Defined.
+
+Arguments eq_builtin_arg {A}.
+Arguments eq_builtin_res {A}.
+
+Global Opaque eq_builtin_arg eq_builtin_res.
+
+Fixpoint globals_of_builtin_arg (A: Type) (a: builtin_arg A) : list qualident :=
+  match a with
+  | BA_loadglobal chunk id ofs => id :: nil
+  | BA_addrglobal id ofs => id :: nil
+  | BA_splitlong hi lo => globals_of_builtin_arg hi ++ globals_of_builtin_arg lo
+  | BA_addptr a1 a2 => globals_of_builtin_arg a1 ++ globals_of_builtin_arg a2
+  | _ => nil
+  end.
+
+Definition globals_of_builtin_args (A: Type) (al: list (builtin_arg A)) : list qualident :=
+  List.fold_right (fun a l => globals_of_builtin_arg a ++ l) nil al.
+
+Fixpoint params_of_builtin_arg (A: Type) (a: builtin_arg A) : list A :=
+  match a with
+  | BA x => x :: nil
+  | BA_splitlong hi lo => params_of_builtin_arg hi ++ params_of_builtin_arg lo
+  | BA_addptr a1 a2 => params_of_builtin_arg a1 ++ params_of_builtin_arg a2
+  | _ => nil
+  end.
+
+Definition params_of_builtin_args (A: Type) (al: list (builtin_arg A)) : list A :=
+  List.fold_right (fun a l => params_of_builtin_arg a ++ l) nil al.
+
+Fixpoint params_of_builtin_res (A: Type) (a: builtin_res A) : list A :=
+  match a with
+  | BR x => x :: nil
+  | BR_none => nil
+  | BR_splitlong hi lo => params_of_builtin_res hi ++ params_of_builtin_res lo
+  end.
+
+Fixpoint map_builtin_arg (A B: Type) (f: A -> B) (a: builtin_arg A) : builtin_arg B :=
+  match a with
+  | BA x => BA (f x)
+  | BA_int n => BA_int n
+  | BA_long n => BA_long n
+  | BA_float n => BA_float n
+  | BA_single n => BA_single n
+  | BA_loadstack chunk ofs => BA_loadstack chunk ofs
+  | BA_addrstack ofs => BA_addrstack ofs
+  | BA_loadglobal chunk id ofs => BA_loadglobal chunk id ofs
+  | BA_addrglobal id ofs => BA_addrglobal id ofs
+  | BA_splitlong hi lo =>
+      BA_splitlong (map_builtin_arg f hi) (map_builtin_arg f lo)
+  | BA_addptr a1 a2 =>
+      BA_addptr (map_builtin_arg f a1) (map_builtin_arg f a2)
+  end.
+
+Local Open Scope option_monad_scope.
+
+Fixpoint map_builtin_arg_opt {A B} (f: A -> option B) (arg: builtin_arg A) : option (builtin_arg B) :=
+  match arg with
+  | BA x => SOME res <- (f x) IN Some (BA res)
+  | BA_int n => Some (BA_int n)
+  | BA_long n => Some (BA_long n)
+  | BA_float f => Some (BA_float f)
+  | BA_single s => Some (BA_single s)
+  | BA_loadstack chunk ptr => Some (BA_loadstack chunk ptr)
+  | BA_addrstack ptr => Some (BA_addrstack ptr)
+  | BA_loadglobal chunk id ptr => Some (BA_loadglobal chunk id ptr)
+  | BA_addrglobal id ptr => Some (BA_addrglobal id ptr)
+  | BA_splitlong ba1 ba2 => 
+      SOME ba1' <- map_builtin_arg_opt f ba1 IN
+      SOME ba2' <- map_builtin_arg_opt f ba2 IN
+      Some (BA_splitlong ba1' ba2')
+  | BA_addptr ba1 ba2 =>
+      SOME ba1' <- map_builtin_arg_opt f ba1 IN
+      SOME ba2' <- map_builtin_arg_opt f ba2 IN
+      Some (BA_addptr ba1' ba2')
+  end.
+
+Fixpoint map_builtin_res (A B: Type) (f: A -> B) (a: builtin_res A) : builtin_res B :=
+  match a with
+  | BR x => BR (f x)
+  | BR_none => BR_none
+  | BR_splitlong hi lo =>
+      BR_splitlong (map_builtin_res f hi) (map_builtin_res f lo)
+  end.
+
+(** Which kinds of builtin arguments are supported by which external function. *)
+
+Inductive builtin_arg_constraint : Type :=
+  | OK_default
+  | OK_const
+  | OK_addrstack
+  | OK_addressing
+  | OK_all.
