@@ -78,6 +78,8 @@ Fixpoint partial_sizeof_tuple (taul : type_list) (n : nat) : nat :=
   | _, _ => 0
   end. 
 
+Notation pst := partial_sizeof_tuple.
+
 Lemma sizeof_tuple_sum (taul : type_list) :
   sizeof_tuple taul = sum (map sizeof (TypeList.to_list taul)).
 Proof. induction taul ; simpl ; congruence. Qed.
@@ -142,6 +144,16 @@ Lemma addr_add_offset_snd : forall (addr : address) (off : Z),
 Proof.
   intros addr off. rewrite surjective_pairing with (p := addr). auto.
 Qed.
+
+Lemma addr_add_offset_0 : forall (addr : address),
+    addr +o 0 = addr.
+Proof.
+  intro. unfold "+o". rewrite Z.add_0_r. rewrite <- surjective_pairing. reflexivity.
+Qed.
+
+Lemma addr_add_offset_assoc : forall (addr : address) (off1 off2 : Z),
+    addr +o (off1 + off2) = addr +o off1 +o off2.
+Proof. intros. unfold "+o". cbn. rewrite Z.add_assoc. reflexivity. Qed.
 
 Lemma bi_add_offset : forall (bi : block) (off1 off2 : Z),
     (bi, off1 + off2) = (bi, off1) +o off2.
@@ -212,10 +224,11 @@ Ltac nodes_to_val :=
       destruct v eqn:? ; simpl in H ; try congruence ;
       try (injection H ; intros ; subst) ; clear H ;
       nodes_to_val ;
-      assert (get_node v = r) by (
-          match goal with
-          | H0 : v = _ |- _ =>
-              rewrite H0 ; reflexivity end)
+      try (
+          assert (get_node v = r) by (
+            match goal with
+            | H0 : v = _ |- _ =>
+                rewrite H0 ; reflexivity end))
   | _ => idtac
   end.
 
@@ -431,6 +444,17 @@ Proof.
   eapply eval_path_deterministic ; eauto.
 Qed.
 
+Lemma eval_proj_tuple_pst Spl addr tl t :
+  forall k, TypeList.nth_error tl k = Some t ->
+       eval_proj_tuple Spl k (addr, tl) (addr +o pst tl k, t).
+Proof.
+  generalize dependent addr. induction tl ; intros.
+  - cbn in H. congruence.
+  - destruct k ; cbn in H.
+    * injection H as ->. cbn. rewrite addr_add_offset_0. constructor.
+    * constructor. cbn. rewrite Nat2Z.inj_add, addr_add_offset_assoc. auto.
+Qed.
+
 (** Read in PL state *)
 Definition read_address (Spl : PL_state) (p : place) (t : type) (addr : address): Prop :=
     Spl |-{p} p =>^{pl} (addr, t).
@@ -574,6 +598,7 @@ Section Concretization.
     eval_type_val v ti (vp ++ [0%nat]) t
   | Eval_tuple_val vp n len t tl
     (Hnode : get_node ( v.[[ vp ]] ) = NTuple len)
+    (Htypelist_size : TypeList.length tl = len)
     (Htype : TypeList.nth_error tl n = Some t)
     (Hrec : eval_type_val v ti vp (TTuple tl)) :
     eval_type_val v ti (vp ++ [ n ]) t
@@ -676,6 +701,10 @@ Section Concretization.
         end
     | _, _ => None
     end.
+
+  Lemma concr_val_tuple_implies_valuelist_typelist_same_size vl tl bytes :
+    concr_hlpl_val_tuple vl tl bytes -> ValueList.length vl = TypeList.length tl.
+  Proof. intro H ; induction H ; cbn ; congruence. Qed.
 
   Lemma concr_val_comp_implies_concr_val: forall v t bytes,
       concr_hlpl_val_comp v t = Some bytes -> concr_hlpl_val v t bytes
@@ -905,6 +934,7 @@ Section Concretization.
     off_vpath_equiv v t off t' (vp ++ [0%nat])
   | Offset_vpath_tuple n len off vp t' tl
       (Htuple : get_node (v.[[ vp ]]) = NTuple len)
+      (Htypelist_size : TypeList.length tl = len)
       (Htype : TypeList.nth_error tl n = Some t')
       (Hrec : off_vpath_equiv v t off (TTuple tl) vp) :
           off_vpath_equiv v t (off + partial_sizeof_tuple tl n) t' (vp ++ [n]).
@@ -950,11 +980,12 @@ Section Concretization.
   Lemma Addr_spath_tuple_n:
     forall S sp addr t tl len n,
       get_node (S.[ sp ]) = NTuple len ->
+      TypeList.length tl = len ->
       TypeList.nth_error tl n = Some t ->
       addr ~^{S, (TTuple tl)} sp ->
       addr +o (partial_sizeof_tuple tl n) ~^{S, t} (sp +++ [n%nat]).
   Proof.
-    intros * Hnode Htl Hequiv.
+    intros * Hnode Hlen Htl Hequiv.
     inversion Hequiv ; subst. econstructor ; eauto. simpl.
     eapply Offset_vpath_tuple ; eauto.
     rewrite <- sget_app. unfold app_spath_vpath. simpl.
@@ -995,7 +1026,7 @@ Section Concretization.
       (exists off, off_vpath_equiv v tinit off t vp) <-> eval_type_val v tinit vp t.
   Proof.
     intros v vp tinit t ; split ; [intros (off & Hvequiv) | intros Het ].
-    { induction Hvequiv ; subst ; econstructor ; eassumption. }
+    { induction Hvequiv ; subst ; econstructor ; eauto. }
     {
       induction Het.
       - exists 0. econstructor ; eauto.
@@ -1029,18 +1060,16 @@ Section Concretization.
       generalize dependent v'.
       induction H ; intros ; subst ; simpl.
       - constructor.
-      - nodes_to_val. specialize (IHoff_vpath_equiv (HLPL_pair v' h2)).
-        rewrite vset_app_split, Heqh. simpl. eapply Offset_vpath_pair_first ; eauto.
-        rewrite vset_vget_equal ; auto.
-        apply valid_get_node_vget_not_bot. simpl in *. intros ?. congruence.
-      - nodes_to_val. specialize (IHoff_vpath_equiv (HLPL_pair h1 v')).
-        rewrite vset_app_split, Heqh. simpl. eapply Offset_vpath_pair_second; eauto.
-        rewrite vset_vget_equal ; auto.
-        apply valid_get_node_vget_not_bot. simpl in *. intros ?. congruence.
-      - nodes_to_val. specialize (IHoff_vpath_equiv (loc (l, v'))). simpl in H0.
-        rewrite vset_app_split, Heqh. simpl. eapply Offset_vpath_loc ; auto.
+      - nodes_to_val. specialize (IHoff_vpath_equiv (loc (l, v'))).
+        rewrite vset_app_split, Heqv0. simpl. eapply Offset_vpath_loc ; auto.
         rewrite vset_vget_equal ; eauto.
         apply valid_get_node_vget_not_bot. simpl in *. intros ?. congruence.
+      - nodes_to_val. apply f_equal with (f := get_node) in Heqv0 as H'.
+        specialize (IHoff_vpath_equiv (v.[[ vp ]].[[ [n] <- v']])).
+        rewrite <- vset_app_split in IHoff_vpath_equiv.
+        econstructor ; eauto.
+        rewrite get_node_vset_vget_strict_prefix. simpl in H'. rewrite <- H0. apply H'.
+        repeat econstructor.
     }
     {
       remember (v .[[ vp <- v']]) as vi. generalize dependent v'.
@@ -1049,24 +1078,17 @@ Section Concretization.
       - nodes_to_val.
         rewrite get_node_vset_vget_strict_prefix in H0 by (repeat econstructor).
         nodes_to_val.
-        assert (v .[[ vp ++ [0%nat] <- v']] = v .[[ vp <- HLPL_pair v' h4]]) by
-          (rewrite vset_app_split, Heqh0 ; auto).
-        specialize (IHoff_vpath_equiv _ H1).
-        eapply Offset_vpath_pair_first ; eauto.
-      - nodes_to_val.
-        rewrite get_node_vset_vget_strict_prefix in H0 by (repeat econstructor).
-        nodes_to_val.
-        assert (v .[[ vp ++ [1%nat] <- v']] = v .[[ vp <- HLPL_pair h3 v']]) by
-          (rewrite vset_app_split, Heqh0 ; auto).
-        specialize (IHoff_vpath_equiv _ H1).
-        eapply Offset_vpath_pair_second ; eauto.
-      - nodes_to_val.
-        rewrite get_node_vset_vget_strict_prefix in H0 by (repeat econstructor).
-        nodes_to_val.
         assert (v .[[ vp ++ [0%nat] <- v']] = v .[[ vp <- loc (l, v')]]) by
-          (rewrite vset_app_split, Heqh0 ; auto).
+          (rewrite vset_app_split, Heqv1 ; auto).
         specialize (IHoff_vpath_equiv _ H1).
         eapply Offset_vpath_loc ; eauto.
+      - nodes_to_val.
+        specialize (IHoff_vpath_equiv (v.[[ vp ]].[[ [n] <- v']])).
+        rewrite <- vset_app_split in IHoff_vpath_equiv.
+        econstructor ; eauto.
+        apply f_equal with (f := get_node) in Heqv0.
+        rewrite get_node_vset_vget_strict_prefix in Heqv0 by (repeat econstructor).
+        rewrite <- H0. apply Heqv0.
     }
   Qed.
       
@@ -1081,27 +1103,19 @@ Section Concretization.
       induction Hvequiv ; subst.
       - apply Offset_vpath_base ; auto.
       - apply not_vprefix_app in Hpref. apply IHHvequiv in Hpref as Hvequiv'.
-        eapply Offset_vpath_pair_first ; eauto.
-        rewrite get_node_vset_vget_not_prefix ; auto.
-      - apply not_vprefix_app in Hpref. apply IHHvequiv in Hpref as Hvequiv'.
-        eapply Offset_vpath_pair_second ; eauto.
-        rewrite get_node_vset_vget_not_prefix ; auto.
-      - apply not_vprefix_app in Hpref. apply IHHvequiv in Hpref as Hvequiv'.
         eapply Offset_vpath_loc ; eauto.
         rewrite get_node_vset_vget_not_prefix ; eauto.
+      - apply not_vprefix_app in Hpref.
+        econstructor ; eauto. rewrite get_node_vset_vget_not_prefix ; eauto.
     }
     {
       induction Hvequiv ; subst.
       - apply Offset_vpath_base.
       - apply not_vprefix_app in Hpref. apply IHHvequiv in Hpref as Hvequiv'.
-        eapply Offset_vpath_pair_first ; eauto.
-        rewrite get_node_vset_vget_not_prefix in Hpair ; eauto.
-      - apply not_vprefix_app in Hpref. apply IHHvequiv in Hpref as Hvequiv'.
-        eapply Offset_vpath_pair_second ; eauto.
-        rewrite get_node_vset_vget_not_prefix in Hpair ; eauto.
-      - apply not_vprefix_app in Hpref. apply IHHvequiv in Hpref as Hvequiv'.
         eapply Offset_vpath_loc ; eauto.
         rewrite get_node_vset_vget_not_prefix in Hloc ; eauto.
+      - apply not_vprefix_app in Hpref. econstructor ; eauto.
+        rewrite get_node_vset_vget_not_prefix in Htuple ; eauto.
     }
   Qed.
 
@@ -1184,14 +1198,11 @@ Section Concretization.
       t1 = t2.
   Proof.
     intros vinit tinit vp. induction vp using rev_ind ; intros.
-    - inversion H ; inversion H0 ; subst ; try sp_discriminate_or_find_equalities; auto.
     - inversion H ; inversion H0 ; subst ;
-        repeat (try sp_discriminate_or_find_equalities ; try rewrite_pairs).
-      * assert (Hpt : TPair t1 t3 = TPair t2 t5) by (eapply IHvp ; eauto).
-        injection Hpt ; intros ; subst ; auto.
-      * assert (Hpt : TPair t0 t1 = TPair t4 t2) by (eapply IHvp ; eauto).
-        injection Hpt ; intros ; subst ; auto.
-      * eapply IHvp ; eauto.
+        try sp_discriminate_or_find_equalities; auto.
+    - inversion H ; inversion H0 ; subst ;
+        repeat (try sp_discriminate_or_find_equalities) ; subst ; eauto.
+      assert (TTuple tl = TTuple tl0) by eauto. congruence.
   Qed.
 
   (* Addr_spath_equiv is a function: given state S and spath sp, addr and t are unique *)
@@ -1202,15 +1213,15 @@ Section Concretization.
       off1 = off2.
   Proof.
     intros vinit tinit vp. induction vp using rev_ind ; intros.
-    - inversion H ; inversion H0 ; subst ; try sp_discriminate_or_find_equalities; auto.
     - inversion H ; inversion H0 ; subst ;
-        repeat (try sp_discriminate_or_find_equalities ; try rewrite_pairs).
+        try sp_discriminate_or_find_equalities; auto.
+    - inversion H ; inversion H0 ; subst ;
+        repeat (try sp_discriminate_or_find_equalities).
       * eapply IHvp ; eauto.
       * assert (off = off0) by (eapply IHvp ; eauto). subst.
-        assert (TPair t0 t1 = TPair t4 t2)
+        assert (TTuple tl = TTuple tl0)
           by (eapply off_vpath_equiv_deterministic_type ; eauto).
         congruence.
-      * eapply IHvp ; eauto.
   Qed.
 
   Lemma off_vpath_equiv_deterministic:
@@ -1264,9 +1275,14 @@ Section Concretization.
       off_vpath_equiv vinit tinit off t vp ->
       valid_vpath vinit vp.
   Proof.
-    intros vinit vp off t tinit Hvequiv. induction Hvequiv ; subst ; auto ; 
-      try (apply valid_vpath_app ; split ; auto ; nodes_to_val ; repeat econstructor).
-    repeat econstructor.
+    intros vinit vp off t tinit Hvequiv. induction Hvequiv ; subst ; auto. 
+    - constructor.
+    - apply valid_vpath_app ; split ; auto ; nodes_to_val ; repeat econstructor.
+    - apply valid_vpath_app ; split ; auto ; nodes_to_val ; repeat constructor.
+    apply ex_intro with (x := t'), TypeList.nth_valid_access in Htype. 
+    rewrite <- H, <- ValueList.nth_valid_access in Htype. destruct Htype.
+    apply valid_cons with (w := x) ; [ | constructor].
+    cbn. rewrite <- ValueList.nth_error_value_list_list_equiv. congruence.
   Qed.
 
   Lemma addr_spath_equiv_implies_valid_spath :
@@ -1294,38 +1310,29 @@ Section Concretization.
       + exists t2, off2. rewrite app_nil_r in H. repeat split ; auto ; try lia.
         rewrite Z.sub_diag. constructor.
       + inversion H ; subst.
-        * apply f_equal with (f := LB.last) in H3. simpl in H3.
-          rewrite app_assoc, LB.last_snoc in H3. discriminate.
-        * rewrite app_assoc in H3. apply app_inj_tail in H3 as [? ?] ; subst.
-          destruct (IHvp2 (TPair t2 t3) _ _ Hrec) as (t1 & off1 & ? & ? & ?).
-          exists t1, off1 ; repeat split ; auto.
-          apply Offset_vpath_pair_first with (t1 := t3) ; auto.
-          rewrite <- vget_app ; auto.
-        * rewrite app_assoc in H3. apply app_inj_tail in H3 as [? ?] ; subst.
-          destruct (IHvp2 _ _ _ Hrec) as (tint & offint & ? & ? & ?).
-          exists tint, offint ; repeat split ; auto ; try lia.
-          replace (off + sizeof t1 - offint) with (off - offint + sizeof t1) by lia.
-          eapply Offset_vpath_pair_second ; auto. rewrite <- vget_app ; auto.
+        * apply f_equal with (f := LB.list.last) in H3. simpl in H3.
+          rewrite app_assoc, LB.list.last_snoc in H3. discriminate.
         * rewrite app_assoc in H3. apply app_inj_tail in H3 as [? ?] ; subst.
           destruct (IHvp2 _ _ _ Hrec) as (tint & offint & ? & ? & ?).
           exists tint, offint ; repeat split ; auto.
           apply Offset_vpath_loc with (l := l); auto. rewrite <- vget_app ; auto.
+        * rewrite app_assoc in H3. apply app_inj_tail in H3 as [? ?] ; subst.
+          apply IHvp2 in Hrec as (t1 & off1 & ? & ? & ?).
+          exists t1, off1 ; repeat split ; auto. lia.
+          rewrite Z.add_sub_swap. econstructor ; eauto.
+          rewrite <- vget_app. assumption.
     - destruct H as (t1 & off1 & ? & ? & ?).
       remember (off2 - off1) as offdiff. generalize dependent off2.
       induction H1 ; intros.
       + rewrite app_nil_r. replace off2 with off1 by lia ; auto.
-      + specialize (IHoff_vpath_equiv off2 H Heqoffdiff).
-        rewrite app_assoc. eapply Offset_vpath_pair_first ; eauto.
-        rewrite vget_app ; auto.
-      + assert (0 <= off) by (eapply offset_is_positive ; eauto).
-        assert (off2 - sizeof t2 >= off1) by lia.
-        assert (off = off2 - sizeof t2 - off1) by lia.
-        specialize (IHoff_vpath_equiv (off2 - sizeof t2) H3 H4).
-        rewrite app_assoc. replace off2 with (off2 - sizeof t2 + sizeof t2) by lia.
-        eapply Offset_vpath_pair_second; eauto. rewrite vget_app ; auto.
       + rewrite app_assoc. apply Offset_vpath_loc with (l := l).
         * rewrite vget_app ; auto.
         * apply IHoff_vpath_equiv ; auto.
+      + rewrite <- vget_app in Htuple.
+        replace off2 with (off + off1 + partial_sizeof_tuple tl n) by lia. 
+        rewrite app_assoc. econstructor ; eauto.
+        pose proof (offset_is_positive _ _ _ _ _ H1).
+        apply IHoff_vpath_equiv ; lia.
   Qed.
   
   Lemma off_vpath_equiv_compose :
@@ -1414,10 +1421,9 @@ Section Concretization.
       apply valid_vpath_app in Hvp0 as [Hvp0 _]. apply vset_same_valid_rev in Hvp0.
       rewrite vget_app, vset_vget_equal in H1 ; auto.
       inversion H0 ; sp_discriminate_or_find_equalities. 
-      - rewrite vset_vget_equal in Hpair ; auto. simpl in Hpair. congruence.
-      - rewrite vset_vget_equal in Hpair ; auto. simpl in Hpair. congruence.
       - simpl in H1. apply off_vpath_equiv_vset_eq in Hrec.
         apply off_vpath_equiv_compose. repeat econstructor ; eauto.
+      - rewrite vset_vget_equal in Htuple; auto. simpl in Htuple. congruence.
     } 
   Qed.
 
@@ -1455,7 +1461,7 @@ Section Concretization.
 
   Lemma remove_loc_addr_spath_equiv_suffix :
     forall S addr t p suff l,
-      get_node (S.[p]) = locC (l) ->
+      get_node (S.[p]) = NLoc l ->
       addr ~^{S.[p <- S.[p +++ [0%nat] ] ], t} (p +++ suff) <->
         addr ~^{S, t} (p +++ [0%nat] ++ suff) /\
           valid_spath S p.
@@ -1464,9 +1470,9 @@ Section Concretization.
     {
       nodes_to_val.
       assert (vsp : valid_spath S p)
-        by (apply get_not_bot_valid_spath ; rewrite Heqh ; discriminate).
+        by (apply get_not_bot_valid_spath ; rewrite Heqv ; discriminate).
       split ; auto.
-      rewrite sget_app, Heqh in H. simpl in H.
+      rewrite sget_app, Heqv in H. simpl in H.
       apply addr_spath_equiv_compose in H.
       destruct H as (t' & addr' & off & eq & equiv & vequiv).
       assert (vsp' : valid_spath S (p.1, [])) 
@@ -1478,10 +1484,10 @@ Section Concretization.
       apply addr_spath_equiv_compose.
       exists t', addr', off ; repeat split ; auto.
       + rewrite <- Addr_spath_loc with (l := l) ; auto.
-      + rewrite sget_app, Heqh. simpl. rewrite sset_sget_equal in vequiv ; auto.
+      + rewrite sget_app, Heqv. simpl. rewrite sset_sget_equal in vequiv ; auto.
     }
     {
-      nodes_to_val. rewrite sget_app, Heqh. simpl.
+      nodes_to_val. rewrite sget_app, Heqv. simpl.
       destruct H as (equiv & vsp).
       rewrite app_spath_vpath_assoc in equiv.
       apply addr_spath_equiv_compose in equiv.
@@ -1490,12 +1496,12 @@ Section Concretization.
       exists t', addr', off ; repeat split ; auto.
       + apply addr_spath_equiv_sset_equal. 
         apply Addr_spath_loc with (l := l) ; auto.
-      + rewrite sget_app, Heqh in vequiv. simpl in vequiv.
+      + rewrite sget_app, Heqv in vequiv. simpl in vequiv.
         rewrite sset_sget_equal ; auto.
     }
   Qed.
 
-  Record Compatible (S : HLPL_state) : Prop :=
+  Record Compatible (S : state) : Prop :=
     mkCompatible
       {
         block_dom :
@@ -1506,11 +1512,11 @@ Section Concretization.
       ; correct_addrof :
         forall (sp : spath) (addr : address) t l,
           addr ~^{S, t} sp ->
-          get_node (S.[sp]) = HLPL_locC l ->
+          get_node (S.[sp]) = NLoc l ->
           addrof l = Some (addr, t)
       ; reachable_loc :
         forall l sp,
-          get_node (S.[sp]) = HLPL_locC l ->
+          get_node (S.[sp]) = NLoc l ->
           exists addr t, addr ~^{S, t} sp
       }.
 
@@ -1528,7 +1534,7 @@ Section Concretization.
   Definition le_block : relation (list memval) := Forall2 le_val.
   Global Instance IsPreorderBlock: PreOrder le_block.
   Search (PreOrder _ -> PreOrder (Forall2 _)).
-  apply list_relations.PreOrder_instance_1, IsPreorderVal. Qed.
+  apply list_relations.list.PreOrder_instance_1, IsPreorderVal. Qed.
 
   Lemma le_block_not_contains_poison :
     forall bytes bytes', le_block bytes bytes' -> ~ (In Undef bytes') -> bytes = bytes'.
@@ -1570,7 +1576,7 @@ Section Concretization.
 
   Infix "<={pl}" := le_pl_state (at level 70).
 
-  Definition le_pl_hlpl (Spl : PL_state) (S : HLPL_state) : Prop :=
+  Definition le_pl_hlpl (Spl : PL_state) (S : state) : Prop :=
     exists Spl', Compatible S /\ concr_hlpl S Spl' /\ Spl <={pl} Spl'.
 
   Lemma le_block_poison :
@@ -1590,32 +1596,127 @@ Section Concretization.
   (** Concretization of states/values implies correct types for values. *)
   Lemma val_concr_implies_correct_type_size :
     forall v t bytes,
-      concr_hlpl_val v t bytes -> sizeof t = length bytes.
+      concr_hlpl_val v t bytes -> sizeof t = length bytes
+  with tuple_val_concr_implies_correct_type_list_size :
+    forall vl tl bytes,
+      concr_hlpl_val_tuple vl tl bytes -> sizeof_tuple tl = length bytes.
   Proof.
-    intros v t bytes Hconcr. induction Hconcr ; auto.
-    - subst s. rewrite repeat_length. reflexivity.
-    - rewrite List.length_app. simpl. rewrite IHHconcr1, IHHconcr2. reflexivity.
+    {
+      intros v t bytes Hconcr. induction Hconcr ; auto.
+      - subst s. rewrite repeat_length. reflexivity.
+      - eapply tuple_val_concr_implies_correct_type_list_size ; eauto.
+    }
+    {
+      intros vl tl bytes Hconcr. induction Hconcr. 
+      - reflexivity.
+      - cbn. rewrite length_app. apply val_concr_implies_correct_type_size in H.
+        apply f_equal2 ; assumption.
+    }
   Qed.
 
   (* Lookup mem lemmas*)
-  Lemma lookup_mem_pair :
-    forall Spl addr t0 t1 bytes0 bytes1,
-      length bytes0 = sizeof t0 ->
-      length bytes1 = sizeof t1 ->
-      Spl.m.[ addr : TPair t0 t1 ] = Some (bytes0 ++ bytes1) <->
-        Spl.m.[ addr : t0 ] = Some bytes0 /\ Spl.m.[ addr +o sizeof t0 : t1 ] = Some bytes1.
+  Lemma Forall2_map_r {A B B'} (g : B -> B') (R : A -> B' -> Prop) l1 l2 :
+    Forall2 R l1 (map g l2) <-> Forall2 (fun x y => R x (g y)) l1 l2.
   Proof.
-    intros Spl addr t0 t1 bytes0 bytes1 Hlen0 Hlen1. split ; intros H.
-    - simpl in H. rewrite Nat2Z.inj_add in H.
-      apply Mem.loadbytes_split in H as (bytes0' & bytes1' & load0 & load1 & eq) ;
-        try lia ; simpl.
-      apply Mem.loadbytes_length in load0 as len0. rewrite Nat2Z.id in len0.
-      apply LB.app_inj_1 in eq as (eq0 & eq1) ;
-        repeat constructor ; congruence.
-    - simpl in *. destruct H as (load0 & load1). rewrite Nat2Z.inj_add. 
-      apply Mem.loadbytes_concat ; auto ; lia.
+    revert l1. induction l2 ; split ; intro H.
+    - inversion H. constructor. 
+    - inversion H. cbn. constructor.
+    - cbn in H. inversion H ; subst. apply IHl2 in H4. constructor ; auto.
+    - cbn. inversion H ; subst. apply IHl2 in H4. constructor ; auto.
   Qed.
-                                   
+
+  Lemma lookup_mem_tuple:
+    forall Spl addr tl bytes_list,
+      Forall2 (fun bytes t => length bytes = sizeof t) bytes_list (TypeList.to_list tl) ->
+      Spl.m.[ addr : TTuple tl ] = Some (concat bytes_list) <->
+        length bytes_list = TypeList.length tl /\
+          forall i bytes t, List.nth_error bytes_list i = Some bytes ->
+                       TypeList.nth_error tl i = Some t ->
+                         Spl.m.[ addr +o partial_sizeof_tuple tl i : t ] = Some bytes.
+  Proof.
+    intros ? (bi, off) * Hforall. split.
+    {
+      intros H. generalize dependent bytes_list.
+      generalize dependent off. generalize dependent bi.
+      induction tl ; intros.
+      - inversion Hforall ; subst. cbn. repeat constructor. intros ? ? ? ? [=].
+      - inversion Hforall ; subst. cbn in H. rewrite Nat2Z.inj_add in H.
+        apply Mem.loadbytes_split in H as (bytes1 & bytes2 & Hload1 & Hload2 & Heq) ;
+          try lia.
+        apply Mem.loadbytes_length in Hload1 as Hlen1, Hload2 as Hlen2.
+        rewrite Nat2Z.id in Hlen1, Hlen2.
+        apply LB.list.app_inj_1 in Heq as (Heqx & Heql) ; [ | congruence].
+        apply (IHtl bi (off + sizeof t)) in H4 as (Hlen & Hforall') ;
+          [ | cbn ; congruence]. split ; [ cbn ; congruence | ].
+        intros. cbn. destruct i eqn:Ei ; subst.
+        * rewrite Z.add_0_r. injection H as <-. injection H0 as <-. assumption.
+        * cbn in Hforall'. cbn in H0, H. rewrite Nat2Z.inj_add, Z.add_assoc.
+          apply Hforall' ; auto.
+    }
+    {
+      intros (Hlen & H). generalize dependent tl.
+      generalize dependent off. generalize dependent bi.
+      induction bytes_list; cbn in * ; intros.
+      - inversion Hforall ; subst. destruct tl ; [ | discriminate Hlen].
+        apply Mem.loadbytes_empty ; cbn ; lia.
+      - inversion Hforall ; subst. destruct tl ; [ discriminate H2 | ].
+        cbn. injection H2 as -> ->. rewrite Nat2Z.inj_add.
+        eapply Mem.loadbytes_concat ; try lia.
+        * specialize (H 0%nat a t eq_refl eq_refl). rewrite Z.add_0_r in H. assumption.
+        * apply IHbytes_list ; auto. intros [] **.
+          ** destruct tl ; [ discriminate H1 | ].
+             cbn ; rewrite Nat2Z.inj_0, Z.add_0_r. injection H1 as ->.
+             auto. specialize (H (S 0) bytes t0). cbn in H.
+             rewrite Nat.add_0_r in H. apply H ; [ | reflexivity ].
+             rewrite <- H0. reflexivity.
+          ** destruct tl ; [ discriminate H1 | ].
+             specialize (H (S (S n)) bytes t0). cbn in *.
+             rewrite !Nat2Z.inj_add, !Z.add_assoc in *. apply H ; auto.
+    }
+  Qed.
+
+  Lemma lookup_mem_tuple':
+    forall Spl addr tl bytes,
+      Spl.m.[ addr : TTuple tl ] = Some (bytes) ->
+      forall i, (0 <= i < TypeList.length tl)%nat ->
+           exists t, TypeList.nth_error tl i = Some t /\
+                Spl.m.[ addr +o pst tl i : t ] =
+                  Some (firstn (sizeof t) (skipn (pst tl i) bytes)).
+  Proof.
+    intros ? (bi, off) tl.
+    generalize dependent off. generalize dependent bi. cbn.
+    induction tl ; cbn ; intros bi off bytes Hread i boundsi.
+    - lia.
+    - destruct i.
+      * exists t ; split ; [ reflexivity | rewrite Z.add_0_r, skipn_0 ].
+        rewrite Nat2Z.inj_add in Hread. apply Mem.loadbytes_split in Hread ; try lia.
+        destruct Hread as (bytes1 & bytes2 & Hread1 & _ & Heq). subst.
+        apply Mem.loadbytes_length in Hread1 as Hlen1. rewrite Nat2Z.id in Hlen1.
+        rewrite <- Hlen1, LB.list.take_app_length. congruence.
+      * rewrite Nat2Z.inj_add in Hread. apply Mem.loadbytes_split in Hread ; try lia.
+        destruct Hread as (bytes1 & bytes2 & Hread1 & Hread2 & Heq).
+        apply IHtl with (i := i) in Hread2 ; [ | lia].
+        apply Mem.loadbytes_length in Hread1 as Hlen1. rewrite Nat2Z.id in Hlen1.
+        rewrite Nat2Z.inj_add, Z.add_assoc, Heq, list_basics.list.drop_app_add' ; auto.
+  Qed.
+
+  Lemma state_concr_val_tuple_implies_concr_val :
+    forall vl v tl t bytes n,
+      concr_hlpl_val_tuple vl tl bytes ->
+      ValueList.nth_error vl n = Some v ->
+      TypeList.nth_error tl n = Some t ->
+      concr_hlpl_val v t (firstn (sizeof t) (skipn (pst tl n) bytes)) .
+  Proof.
+    intros * H. generalize dependent v. generalize dependent t. generalize dependent n.
+    induction H ; intros.
+    - discriminate.
+    - apply concr_val_size in H as Hlen0. destruct n.
+      * injection H1 as <- ; injection H2 as <-.
+        rewrite skipn_0, Hlen0, LB.list.take_app_length' ; auto.
+      * specialize (IHconcr_hlpl_val_tuple _ _ _ H1 H2). cbn.
+        rewrite Hlen0, LB.list.drop_app_add. assumption.
+  Qed.
+
   (* Concretization of states implies concretization of values *)
   Lemma state_concr_implies_val_concr : 
     forall S Spl sp v,
@@ -1627,14 +1728,14 @@ Section Concretization.
   Proof.
     induction sp using ListBackInd.state_path_back_ind ;
       intros v Hconcr Hvspn HSx ;
-    pose proof Hconcr as [Hconcr_mem Hconcr_env].
+      pose proof Hconcr as [Hconcr_mem Hconcr_env].
     remember (blockof enc_x).1 as bi. remember (blockof enc_x).2 as t.
     assert (Heqbit : blockof enc_x = (bi, t))
       by (subst ; rewrite <- surjective_pairing ; reflexivity).
     - destruct (Hconcr_mem _ _ _ _ Hvspn HSx Heqbit) as
         ((bytes & Hconcr_val & Hmem) & access).
       assert (Hequiv : (bi, 0) ~^{S, t} (enc_x, []))
-      by (eapply Addr_spath_base ; eauto ; eapply Offset_vpath_base). 
+        by (eapply Addr_spath_base ; eauto ; eapply Offset_vpath_base). 
       exists (bi, 0), t, bytes. repeat split ; auto. simpl.
       Transparent Mem.loadbytes. unfold Mem.loadbytes. Opaque Mem.loadbytes.
       rewrite Z.add_0_l.
@@ -1644,32 +1745,38 @@ Section Concretization.
       apply valid_spath_app in Hvspn as Htemp ; destruct Htemp as (Hvsp & Hvvp).
       destruct (S.[sp]) eqn:E ;
         try (apply not_valid_spath_app_last_get_node_arity in Hvspn as [] ;
-        rewrite E ; simpl ; lia).
+             rewrite E ; simpl ; lia).
       + assert (H : exists (addr : address) (t : type) (bytes : list memval),
                    addr ~^{S, t} sp /\
                      concr_hlpl_val (loc ((l), (y))) t bytes /\
-                     Spl.m.[addr : t] = Some bytes) by auto.
+                     Spl.m.[addr : t] = Some bytes) by (apply IHsp ; auto).
         destruct H as (addr & t & bytes & Hequiv & Hconcr_val & Hval_mem).
         destruct n ; simpl in HSx.
         * exists addr, t, bytes. repeat split ; auto.
           ** inversion Hequiv ; subst.
              rewrite <- Addr_spath_loc with (l := l); auto. rewrite E ; auto.
           ** inversion Hconcr_val ; subst ; auto.
-        * inversion Hvvp ; subst. simpl in H2. rewrite nth_error_nil in H2. congruence.
-      + assert (H : exists (addr : address) (t : type) (bytes : list memval),
-                   addr ~^{S, t} sp /\
-                     concr_hlpl_val (HLPL_pair y1 y2) t bytes /\
-                     Spl.m.[addr : t] = Some bytes ) by auto.
-        destruct H as (addr & t & bytes & Hequiv & Hconcr_val & Hval_mem).
-        inversion Hconcr_val ; subst v0 v1 t bytes.
-        apply concr_val_size in H4 as Hsize_t0, H5 as Hsize_t1.
-        apply lookup_mem_pair in Hval_mem as [Hval_t0 Hval_t1] ; auto.
-        destruct n as [ | [ | ] ] ; simpl in *.
-        * exists addr, t0, bytes0. repeat split ; try congruence ; auto.
-          eapply Addr_spath_pair_first ; eauto. rewrite E ; auto.
-        * exists (addr +o sizeof t0), t1, bytes1 ; repeat split ; try congruence ; auto.
-          eapply Addr_spath_pair_second; eauto. rewrite E ; auto.
-        * inversion Hvvp ; subst. simpl in H2. rewrite nth_error_nil in H2. congruence.
+        * inversion Hvvp ; subst. simpl in H2. rewrite nth_error_nil in H2.
+          congruence.
+      + assert (H : exists (addr : address) (t0 : type) (bytes : list memval),
+                   addr ~^{S, t0} sp /\
+                     concr_hlpl_val (VTuple t) t0 bytes /\
+                     Spl.m.[addr : t0] = Some bytes).
+        eapply IHsp ; auto.
+        destruct H as (addr & t0 & bytes & Hequiv & Hconcr_val & Hval_mem).
+        inversion Hequiv ; subst. inversion Hconcr_val ; subst.
+        apply concr_val_tuple_implies_valuelist_typelist_same_size in H1 as ?.
+        apply lookup_mem_tuple' with (i := n) in Hval_mem as (t' & Ht' & Hload).
+        exists (addr +o partial_sizeof_tuple tl n), t',
+          (firstn (sizeof t') (skipn (pst tl n) bytes)) ; repeat split ; auto.
+        * eapply Addr_spath_tuple_n ; eauto. rewrite E. cbn. f_equal.
+          eapply concr_val_tuple_implies_valuelist_typelist_same_size ; eauto.
+        * eapply state_concr_val_tuple_implies_concr_val ; eauto.
+          cbn. apply ex_intro with (x := t'), TypeList.nth_valid_access in Ht'.
+          rewrite <- H0 in Ht'. apply ValueList.nth_valid_access in Ht' as (? & ?).
+          rewrite <- ValueList.nth_error_value_list_list_equiv, H2. reflexivity.
+        * rewrite <- H0. inversion Hvvp ; subst. apply nth_error_length in H5.
+          cbn in H5. rewrite ValueList.length_to_list. lia.
   Qed.
 
   Lemma state_concr_implies_val_concr_at_addr : 
@@ -1803,7 +1910,7 @@ Section Concretization.
     - nodes_to_val.
       assert (Hvsp : valid_spath S sp) by
         (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
-      assert (Htemp: exists bytes, concr_hlpl_val (HLPL_ptr l) t bytes /\
+      assert (Htemp: exists bytes, concr_hlpl_val (VPtr l) t bytes /\
                       Spl'.m.[addr : t] = Some bytes).
       { apply state_concr_implies_val_concr_at_addr with (S := S) (sp := sp) ; auto. }
       destruct Htemp as (bytes & Hconcr_val & Hlu_addr). inversion Hconcr_val ; subst.
@@ -1811,7 +1918,7 @@ Section Concretization.
         (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
       assert (Htemp : exists (addr : address) (t : type) (bytes : list memval),
                  addr ~^{S, t} sp' /\
-                   concr_hlpl_val (HLPL_loc l h) t bytes /\
+                   concr_hlpl_val (VLoc l v) t bytes /\
                    Spl'.m.[addr : t] = Some bytes).
       { apply state_concr_implies_val_concr ; auto. }.
       destruct Htemp as (addr' & t' & bytes & Hequiv' & Hconcr_val' & Hlu_addr').
@@ -1828,24 +1935,17 @@ Section Concretization.
       apply le_block_not_contains_poison in H1 ; subst ; auto.
       apply make_ptr64_not_contain_Undef.
     - nodes_to_val.
-      assert (Htemp: exists bytes, concr_hlpl_val (HLPL_pair h1 h2) t bytes /\
+      assert (Hvsp : valid_spath S sp) by
+        (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
+      assert (Htemp: exists bytes, concr_hlpl_val (VTuple t0) t bytes /\
                       Spl'.m.[addr : t] = Some bytes).
-      assert (Hvsp : valid_spath S sp) by
-        (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
       { apply state_concr_implies_val_concr_at_addr with (S := S) (sp := sp) ; auto. }
       destruct Htemp as (bytes & Hconcr_val & _). inversion Hconcr_val ; subst.
-      exists addr, t0 ; split ; try constructor.
-      eapply Addr_spath_pair_first ; eauto.
-    - nodes_to_val.
-      assert (Hvsp : valid_spath S sp) by
-        (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
-      assert (Htemp: exists bytes, concr_hlpl_val (HLPL_pair h1 h2) t bytes /\
-                             Spl'.m.[addr : t] = Some bytes).
-      { apply state_concr_implies_val_concr_at_addr with (S := S) (sp := sp) ; auto. }
-      destruct Htemp as (bytes & Hconcr_val & _). inversion Hconcr_val ; subst.
-      exists (addr +o sizeof t0), t1 ; split.
-      * constructor.
-      * eapply Addr_spath_pair_second ; eauto. 
+      apply concr_val_tuple_implies_valuelist_typelist_same_size in H0.
+      rewrite H0 in index. apply TypeList.nth_valid_access in index as (t & ?).
+      exists (addr +o pst tl k), t ; split.
+      * constructor. apply eval_proj_tuple_pst ; assumption.
+      * eapply Addr_spath_tuple_n ; eauto. rewrite Heqv. cbn. congruence.
   Qed.
 
   Lemma spath_address_loc_simul :
@@ -1960,42 +2060,36 @@ Section Concretization.
   Lemma concr_val_equiv_concr_copy_val :
     forall v v_copy t bytes, 
       HLPL_No_Anon.copy_val v v_copy ->
-      concr_hlpl_val v t bytes <-> concr_hlpl_val v_copy t bytes.
+      concr_hlpl_val v t bytes <-> concr_hlpl_val v_copy t bytes
+  with concr_val_tuple_equiv_concr_copy_val_tuple :
+    forall vl vl_copy tl bytes, 
+      HLPL_No_Anon.copy_tuple_val vl vl_copy ->
+      concr_hlpl_val_tuple vl tl bytes <-> concr_hlpl_val_tuple vl_copy tl bytes.
   Proof.
-    intros v v_copy t bytes Hcopy. split ; intros Hconcr_val.
     {
-      generalize dependent v_copy. induction Hconcr_val ; intros v_copy Hcopy.
-      - inversion Hcopy ; constructor.
-      - inversion Hcopy.
-      - inversion Hcopy ; subst.
-        specialize (IHHconcr_val1 v1' H3). specialize (IHHconcr_val2 v2' H4).
-        constructor ; auto.
-      - inversion Hcopy ; subst. specialize (IHHconcr_val v_copy H2) ; auto.
-      - inversion Hcopy ; subst. constructor ; auto.
+      intros v v_copy t bytes Hcopy. split ; intros Hconcr_val.
+      - induction Hcopy ; auto.
+        * inversion Hconcr_val ; subst. auto.
+        * inversion Hconcr_val ; subst. constructor.
+          rewrite <- concr_val_tuple_equiv_concr_copy_val_tuple ; eauto.
+      - induction Hcopy ; auto.
+        * constructor. auto.
+        * inversion Hconcr_val ; subst. constructor.
+          rewrite concr_val_tuple_equiv_concr_copy_val_tuple ; eauto.
     }
     {
-      generalize dependent bytes. generalize dependent t. generalize dependent v_copy.
-      induction v ; intros v_copy Hcopy t bytes Hconcr_val.
-      - inversion Hcopy.
-      - inversion Hcopy ; subst ; auto.
-      - inversion Hcopy ; subst. specialize (IHv v_copy H2 t bytes Hconcr_val).
-        constructor ; auto.
-      - inversion Hcopy ; subst. inversion Hconcr_val ; subst. constructor ; auto.
-      - inversion Hcopy ; subst. inversion Hconcr_val ; subst.
-        specialize (IHv1 v1' H3 t0 bytes0 H6). specialize (IHv2 v2' H4 t1 bytes1 H7).
-        constructor ; auto.
+      intros vl vl_copy tl bytes Hcopy. split ; intro Hconcr_val.
+      - generalize dependent bytes. generalize dependent tl.
+        induction Hcopy ; intros.
+        * inversion Hconcr_val ; subst ; constructor.
+        * inversion Hconcr_val ; subst ; constructor ; auto.
+          rewrite <- concr_val_equiv_concr_copy_val ; eauto.
+      - generalize dependent bytes. generalize dependent tl.
+        induction Hcopy ; intros.
+        * inversion Hconcr_val ; subst ; constructor.
+        * inversion Hconcr_val ; subst ; constructor ; auto.
+          rewrite concr_val_equiv_concr_copy_val ; eauto.
     }
-  Qed.
-
-  Lemma le_mem_range_perm_eq :
-    forall mem1 mem2 b lo hi k p,
-      le_mem mem1 mem2 -> 
-      Mem.range_perm mem1 b lo hi k p <->
-        Mem.range_perm mem2 b lo hi k p.
-  Proof.
-    intros * (perms & _) ; split ; intro H ;
-      intros ofs le ; specialize (H ofs le) ;
-      unfold Mem.perm in * ; congruence.
   Qed.
 
   Lemma le_mem_storebytes_None_equiv :
