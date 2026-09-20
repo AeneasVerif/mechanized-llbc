@@ -125,7 +125,7 @@ Definition lookup_env (enc_x : positive) (S : PL_state) : option block :=
   end.
 
 Definition lookup_type_env (enc_x : positive) (S : PL_state) : option type :=
-  match PTree.get x (env S) with
+  match PTree.get enc_x (env S) with
   | None => None
   | Some (_, T) => Some T
   end.
