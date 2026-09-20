@@ -579,13 +579,6 @@ where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
 
 (* Test the semantics *)
 
-Lemma valid_vpath_no_children v p (valid_p : valid_vpath v p) (H : children v = []) : p = [].
-Proof.
-  induction valid_p as [ | ? ? ? ? G].
-  - reflexivity.
-  - rewrite H, nth_error_nil in G. inversion G.
-Qed.
-
 Fixpoint decide_not_value_contains (P : nodes -> bool) v :=
   negb (P (get_node v)) &&
     match v with

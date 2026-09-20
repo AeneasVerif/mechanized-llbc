@@ -714,6 +714,13 @@ Section GetSetPath.
     -> ~vstrict_prefix p q.
   Proof. intros ? ? not_prefix ?. eapply not_prefix, vstrict_prefix_one_child; eassumption. Qed.
 
+  Lemma valid_vpath_no_children v p (valid_p : valid_vpath v p) (no_child : children v = []) : p = [].
+  Proof.
+    induction valid_p as [ | ? ? ? ? G].
+    - reflexivity.
+    - rewrite no_child, nth_error_nil in G. inversion G.
+  Qed.
+
   (* All of the lemmas to reduce an expression of the form [v.[[q <- w]].[[p]]], depending on the
    * following cases:
    * - p = q
