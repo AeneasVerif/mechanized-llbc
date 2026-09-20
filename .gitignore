@@ -1,5 +1,9 @@
 _build
 .lia.cache
+.nia.cache
+.nra.cache
 *.vo*
 *.glob
-src/*.aux
+*.aux
+.Makefile.d
+Makefile.conf
