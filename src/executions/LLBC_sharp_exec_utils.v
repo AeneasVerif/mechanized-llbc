@@ -2,7 +2,8 @@
 From Stdlib Require Import List.
 Import ListNotations.
 From stdpp Require Import decidable pmap sorting.
-Require Import OptionMonad base PathToSubtree SimulationUtils lang.
+From rustc Require Import  OptionMonad.
+Require Import base PathToSubtree SimulationUtils lang.
 Require Import Symbolic_states Symbolic_relations LLBC_sharp.
 
 Open Scope option_monad_scope.
@@ -109,8 +110,8 @@ Defined.
 (* TODO: change definition of [eval_place]. *)
 Definition compute_eval_place S perm p : option {sp | S |-{p} p =>^{perm} sp}.
 Proof.
-  destruct (get_at_accessor S (encode_var (fst p))) as [v | ] eqn:get_at_p; [ | exact None].
-  destruct (compute_eval_path S perm (snd p) (encode_var (fst p), [])) as [(q & eval_to_q) | ];
+  destruct (get_at_accessor S (encode_var (fst (fst p)))) as [v | ] eqn:get_at_p; [ | exact None].
+  destruct (compute_eval_path S perm (snd (fst p)) (encode_var (fst (fst p)), [])) as [(q & eval_to_q) | ];
     [ | exact None].
   apply Some. exists q. split; [ | exact eval_to_q]. exists v. split.
   - exact get_at_p.
@@ -151,7 +152,7 @@ Qed.
 
 Definition compute_eval_op S : forall op, option {v | S |-{op} op => v}.
 Proof.
-  intros [ [n | b] | p | p].
+  intros [ [n | b] | p | p | l].
   (* Case [IntConst n] *)
   - apply Some. eexists. apply E_IntConst.
   (* Case [BoolConst b] *)
@@ -167,6 +168,8 @@ Proof.
     apply Some. exists (w, S). econstructor.
     + exact eval_p.
     + apply compute_copy_val_correct, eval_to_w.
+  (* Case [Tuple l] *)
+  - exact None.
 Defined.
 
 Definition compute_eval_bin_op bin_op v0 v1 :=

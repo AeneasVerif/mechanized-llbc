@@ -3,7 +3,6 @@ From Stdlib Require Import List.
 Import ListNotations.
 From stdpp Require Import decidable pmap.
 Require Import base PathToSubtree SimulationUtils lang.
-Require Import Symbolic_states Symbolic_relations LLBC_sharp LLBC_sharp_exec_utils.
 
 Open Scope option_monad_scope.
 (** The program we execute is:
@@ -30,17 +29,22 @@ Notation cond := 4%positive.
 Close Scope stdpp_scope.
 
 (** Note that we have to introduce a temporary variable [cond] to store the result of the comparison. *)
+(** TODO: Introduce boolean type *)
 Definition f :=
-  ASSIGN (cond, []) <- BinaryOp BLe (Copy (x, [])) (Copy (y, []));;
-  IF Copy (cond, []) {{
-    ASSIGN (z, []) <- &mut (x, [])
+  ASSIGN (cond, [], TInt) <- BinaryOp BLe (Copy (x, [], TInt)) (Copy (y, [], TInt));;
+  IF Move (cond, [], TInt) {{
+    ASSIGN (z, [], TRef TInt) <- &mut (x, [], TInt)
   }}
   ELSE {{
-    ASSIGN (z, []) <- &mut (y, [])
+    ASSIGN (z, [], TRef TInt) <- &mut (y, [], TInt)
   }};;
-  ASSIGN (z, [Deref]) <- BinaryOp BAdd (Copy (z, [Deref])) (Const (IntConst 1));;
-  ASSIGN (x, []) <- BinaryOp BAdd (Copy (x, [])) (Const (IntConst 2))
+  ASSIGN (z, [Deref], TInt) <- BinaryOp BAdd (Copy (z, [Deref], TInt)) (Const (IntConst 1));;
+  ASSIGN (x, [], TInt) <- BinaryOp BAdd (Copy (x, [], TInt)) (Const (IntConst 2))
 .
+
+(* Conflicting constructors for type [type] (file << src/lang.v >> and [LLBC_type]
+   (file << src/Symbolic_states.v >>, we import [LLBC_type] later .*)
+Require Import Symbolic_states Symbolic_relations LLBC_sharp LLBC_sharp_exec_utils.
 
 Open Scope stdpp.
 (** We execute the function [f] on the most general state. The arguments << x >> and << y >> are initialized as symbolic values, while the local variables are uninitialized. *)
@@ -67,7 +71,7 @@ Definition join_state : state := {|
     x := loan^m(TInt, lx);
     y := loan^m(TInt, ly);
     z := borrow^m(lz, VSymbolic TInt);
-    cond := VSymbolic TBool
+    cond := VBottom
   ]};
   anons := empty;
   abstractions := {[

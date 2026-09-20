@@ -17,6 +17,9 @@ src/SimulationUtils.v
 src/Symbolic_relations.v
 src/Symbolic_states.v
 src/executions/overwriteInnerLoan.v
+src/executions/LLBC_sharp_exec_utils.v
+src/executions/loop.v
+src/executions/choose.v
 Chamois-lib/lib/Maps.v
 Chamois-lib/common/AST.v
 Chamois-lib/common/Errors.v

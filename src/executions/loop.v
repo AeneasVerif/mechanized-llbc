@@ -4,7 +4,6 @@ From Stdlib Require Import List.
 Import ListNotations.
 From stdpp Require Import decidable pmap.
 Require Import base PathToSubtree SimulationUtils lang.
-Require Import Symbolic_states Symbolic_relations LLBC_sharp LLBC_sharp_exec_utils.
 
 (** The program we execute is:
 <<
@@ -46,22 +45,27 @@ Notation cond := 5%positive.
 Close Scope stdpp_scope.
 
 (** Note that we have to introduce a temporary variable [cond] to store the result of the comparison. *)
+(** TODO: Introduce boolean type *)
 Definition f :=
-  ASSIGN (b, []) <- &mut (a, []) ;;
-  ASSIGN (i, []) <- Use (Const (IntConst 0)) ;;
+  ASSIGN (b, [], TRef TInt) <- &mut (a, [], TInt) ;;
+  ASSIGN (i, [], TInt) <- Use (Const (IntConst 0)) ;;
   LOOP {{
-    ASSIGN (cond, []) <- BinaryOp BLe (Copy (n, [])) (Copy (i, [])) ;;
-    IF Copy (cond, []) {{
+    ASSIGN (cond, [], TInt) <- BinaryOp BLe (Copy (n, [], TInt)) (Copy (i, [], TInt)) ;;
+    IF Move (cond, [], TInt) {{
       Break
     }}
     ELSE {{
-      ASSIGN (i, []) <- BinaryOp BAdd (Copy (i, [])) (Const (IntConst 1)) ;;
-      ASSIGN (b, []) <- &mut (b, [Deref]) ;;
-      ASSIGN (b, [Deref]) <- BinaryOp BAdd (Copy (b, [Deref])) (Const (IntConst 1)) ;;
+      ASSIGN (i, [], TInt) <- BinaryOp BAdd (Copy (i, [], TInt)) (Const (IntConst 1)) ;;
+      ASSIGN (b, [], TRef TInt) <- &mut (b, [Deref], TInt) ;;
+      ASSIGN (b, [Deref], TInt) <- BinaryOp BAdd (Copy (b, [Deref], TInt)) (Const (IntConst 1)) ;;
       Continue
     }}
   }}
 .
+
+(* Conflicting constructors for type [type] (file << src/lang.v >> and [LLBC_type]
+   (file << src/Symbolic_states.v >>, we import [LLBC_type] later .*)
+Require Import Symbolic_states Symbolic_relations LLBC_sharp LLBC_sharp_exec_utils.
 
 Open Scope stdpp.
 (** We execute the function [f] on the most general state. The arguments << x >> and << y >> are initialized as symbolic values, while the local variables are uninitialized. *)
@@ -160,7 +164,6 @@ Proof.
     (** We only need to unitialize the binding << cond |-> true >> *)
     { apply leq_singleton. unfold B_inv. simpl_map.
       eexists. split; [reflexivity | ].
-      refine (try_compute (compute_uninitialize_value (encode_var cond, []) _) _ _ _).
       reflexivity. }
 
     (** Evaluation of the else branch. *)
@@ -191,8 +194,7 @@ Proof.
     { apply leq_singleton. unfold B_inv. simpl_map.
       (** Unitializing the binding << cond |-> false >>. *)
       eapply prove_leq_symbolic; [ | ].
-      { refine (try_compute (compute_uninitialize_value (encode_var cond, []) _) _ _ _).
-        reflexivity. }
+      { reflexivity. }
       simpl_state.
       (** Turning the anonymous binding << _ |-> borrow^m(l1, loan^m(int, l2)) >> into
          an abstraction. *)
