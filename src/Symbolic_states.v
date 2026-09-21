@@ -1,7 +1,6 @@
 (** * Mechanized_LLBC.Symbolic_states : Definition of symbolic states (LLBC# and LLBC+) and properties. *)
 Require Import base.
 Require Import lang.
-Require Import SimulationUtils.
 From Stdlib Require Import List.
 Import ListNotations.
 From Stdlib Require Import PeanoNat Lia.

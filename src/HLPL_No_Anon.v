@@ -13,7 +13,6 @@ Close Scope stdpp_scope.
 Require Import PathToSubtree.
 From rustc Require Import OptionMonad.
 Local Open Scope option_monad_scope.
-Require Import SimulationUtils.
 
 (** * Definition of HLPL values and states. *)
 Inductive value :=

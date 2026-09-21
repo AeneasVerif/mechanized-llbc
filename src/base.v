@@ -1,9 +1,23 @@
 (* TODO: documentation. *)
-From rustc Require Import OptionMonad.
+From Stdlib Require Import Relations.
 
 From stdpp Require Import fin_maps pmap gmap.
 
+From rustc Require Import OptionMonad.
+
 Local Open Scope option_monad_scope.
+
+Arguments clos_refl_trans {_}.
+(* TODO: give a scope. *)
+Global Notation "R ^*" := (clos_refl_trans R).
+
+(** Chaining two relations. *)
+Definition chain {A B C} (RAB : A -> B -> Prop) (RBC : B -> C -> Prop) a c :=
+  exists b, RAB a b /\ RBC b c.
+
+Global Instance reflexive_chain {A} (R S : relation A) `{Reflexive A R} `{Reflexive A S} :
+  Reflexive (chain R S).
+Proof. intros x. exists x. split; reflexivity. Qed.
 
 Lemma fst_pair {A B} (a : A) (b : B) : fst (a, b) = a. Proof. reflexivity. Qed.
 

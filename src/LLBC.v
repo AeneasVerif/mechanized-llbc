@@ -1,7 +1,6 @@
 (** * Mechanized_LLBC.LLBC : definition of LLBC states. *)
 Require Import base.
 Require Import lang.
-Require Import SimulationUtils.
 From Stdlib Require Import List.
 Import ListNotations.
 From Stdlib Require Import PeanoNat Lia.

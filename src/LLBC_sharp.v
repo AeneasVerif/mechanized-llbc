@@ -1,7 +1,133 @@
 (** * Mechanized_LLBC.LLBC_sharp : Semantics of LLBC#. *)
-From stdpp Require Import fin_maps.
-Require Import base PathToSubtree SimulationUtils lang.
-Require Import Symbolic_states Symbolic_relations.
+From stdpp Require Import pmap fin_maps.
+Require Import base PathToSubtree lang.
+Require Import Symbolic_states.
+
+(** * Symbolic relations. *)
+(** A version of to-abs that is limited compared to the paper. Currently, we can only turn into a
+   region abstraction a value of the form:
+   - borrow^m l σ (with σ a symbolic value)
+   - borrow^m l0 (loan^m l1)
+   Consequently, a single region abstraction is created.
+ *)
+Variant to_abs : value -> Pmap value -> Prop :=
+| ToAbs_MutReborrow l0 l1 kb kl ty (Hk : kb <> kl) :
+    to_abs (borrow^m(l0, loan^m(ty, l1)))
+           ({[kb := (borrow^m(l0, VSymbolic ty)); kl := loan^m(ty, l1)]})%stdpp
+| ToAbs_MutBorrow l v k ty (Htype : is_of_type ty v)
+    (v_no_loan : not_contains_loan v) (v_no_borrow : not_contains_borrow v) :
+    to_abs (borrow^m(l, v)) ({[k := (borrow^m(l, VSymbolic ty))]})%stdpp
+.
+
+Definition measure S := sweight (fun _ => 1) S + size (abstractions S).
+Notation abs_measure S := (map_sum (vweight (fun _ => 1)) S).
+
+Variant leq_state_base_n : nat -> state -> state -> Prop :=
+| Leq_ToSymbolic_n S sp ty (Htype : is_of_type ty (S.[sp]))
+    (no_loan : not_contains_loan (S.[sp])) (no_borrow : not_contains_borrow (S.[sp])) :
+    leq_state_base_n (vweight (fun _ => 1) (S.[sp])) S (S.[sp <- VSymbolic ty])
+| Leq_ToAbs_n S a i v A
+    (fresh_a : fresh_anon S a)
+    (fresh_i : fresh_abstraction S i)
+    (Hto_abs : to_abs v A) :
+    leq_state_base_n (vweight (fun _ => 1) v) (S,, a |-> v) (S,,, i |-> A)
+(* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
+ * contain any loan or borrow, no region abstraction is created. *)
+| Leq_RemoveAnon_n S a v
+    (fresh_a : fresh_anon S a)
+    (no_loan : not_contains_loan v)
+    (no_borrow : not_contains_borrow v) :
+    leq_state_base_n (1 + vweight (fun _ => 1) v) (S,, a |-> v) S
+| Leq_MoveValue_n S sp a
+    (no_outer_loan : not_contains_outer_loan (S.[sp]))
+    (fresh_a : fresh_anon S a)
+    (valid_sp : valid_spath S sp)
+    (sp_not_in_borrow : not_in_borrow S sp)
+    (sp_in_abstraction : not_in_abstraction sp) :
+    leq_state_base_n 0 S (S.[sp <- bot],, a |-> S.[sp])
+| Leq_MergeAbs_n S i j A B C
+    (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
+    (Hmerge : merge_abstractions A B C) :
+    i <> j -> leq_state_base_n (abs_measure A + abs_measure B - abs_measure C + 2)
+                                (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
+| Leq_Fresh_MutLoan_n S sp l' a ty
+    (fresh_l' : is_fresh l' S)
+    (fresh_a : fresh_anon S a)
+    (valid_sp : valid_spath S sp)
+    (sp_not_in_abstraction : not_in_abstraction sp)
+    (Htype : is_of_type ty (S.[sp])) :
+    leq_state_base_n 0 S (S.[sp <- loan^m(ty, l')],, a |-> borrow^m(l', S.[sp]))
+| Leq_Reborrow_MutBorrow_n (S : state) (sp : spath) (l0 l1 : loan_id) (a : anon) ty
+    (fresh_l1 : is_fresh l1 S)
+    (fresh_a : fresh_anon S a)
+    (get_borrow_l0 : get_node (S.[sp]) = nborrow^m(l0))
+    (sp_not_in_abstraction : not_in_abstraction sp)
+    (Htype : is_of_type ty (S.[sp +++ [0] ])) :
+    leq_state_base_n 0 S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(ty, l1)))
+| Leq_Abs_ClearValue_n S i j v
+    (get_at_i_j : abstraction_element S i j  = Some v)
+    (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
+    leq_state_base_n (1 + vweight (fun _ => 1) v) S (remove_abstraction_value S i j)
+| Leq_AnonValue_n S a (is_fresh : fresh_anon S a) :
+    leq_state_base_n 0 S (S,, a |-> bot)
+.
+
+(* Note: the definition is duplicated in [leq_state_base_n].
+ * Perhaps we should only define leq_state_base_n, and define [leq_state_base Sl Sr] as
+ * [exists n, leq_state_base_n n Sl Sr]. *)
+Variant leq_state_base : state -> state -> Prop :=
+(* Contrary to the article, symbolic values should be typed. Thus, only an integer can be converted
+ * to a symbolic value for the moment. *)
+| Leq_ToSymbolic S sp ty (Htype : is_of_type ty (S.[sp]))
+    (no_loan : not_contains_loan (S.[sp])) (no_borrow : not_contains_borrow (S.[sp])) :
+    leq_state_base S (S.[sp <- VSymbolic ty])
+| Leq_ToAbs S a i v A
+    (fresh_a : fresh_anon S a)
+    (fresh_i : fresh_abstraction S i)
+    (Hto_abs : to_abs v A) :
+    leq_state_base (S,, a |-> v) (S,,, i |-> A)
+(* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
+ * contain any loan or borrow, no region abstraction is created. *)
+| Leq_RemoveAnon S a v
+    (fresh_a : fresh_anon S a)
+    (no_loan : not_contains_loan v)
+    (no_borrow : not_contains_borrow v) :
+    leq_state_base (S,, a |-> v) S
+| Leq_MoveValue S sp a
+    (no_outer_loan : not_contains_outer_loan (S.[sp]))
+    (fresh_a : fresh_anon S a)
+    (valid_sp : valid_spath S sp)
+    (sp_not_in_borrow : not_in_borrow S sp)
+    (sp_not_in_abstraction : not_in_abstraction sp) :
+    leq_state_base S (S.[sp <- bot],, a |-> S.[sp])
+(* Note: for the merge, we reuse the region abstraction at i. Maybe we should use another region
+ * abstraction index k? *)
+| Leq_MergeAbs S i j A B C
+    (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
+    (Hmerge : merge_abstractions A B C) :
+    i <> j -> leq_state_base (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
+| Leq_Fresh_MutLoan S sp l' a ty
+    (fresh_l' : is_fresh l' S)
+    (fresh_a : fresh_anon S a)
+    (valid_sp : valid_spath S sp)
+    (sp_not_in_abstraction : not_in_abstraction sp)
+    (Htype : is_of_type ty (S.[sp])) :
+    leq_state_base S (S.[sp <- loan^m(ty, l')],, a |-> borrow^m(l', S.[sp]))
+| Leq_Reborrow_MutBorrow (S : state) (sp : spath) (l0 l1 : loan_id) (a : anon) ty
+    (fresh_l1 : is_fresh l1 S)
+    (fresh_a : fresh_anon S a)
+    (get_borrow_l0 : get_node (S.[sp]) = nborrow^m(l0))
+    (sp_not_in_abstraction : not_in_abstraction sp)
+    (Htype : is_of_type ty (S.[sp +++ [0] ])) :
+    leq_state_base S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(ty, l1)))
+| Leq_Abs_ClearValue S i j v
+    (get_at_i_j : abstraction_element S i j = Some v)
+    (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
+    leq_state_base S (remove_abstraction_value S i j)
+| Leq_AnonValue S a (is_fresh : fresh_anon S a) : leq_state_base S (S,, a |-> bot)
+.
+
+Definition leq_symbolic := chain equiv_states leq_state_base^*.
 
 Inductive eval_proj (S : state) perm : proj -> spath -> spath -> Prop :=
 (* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
@@ -11,6 +137,46 @@ Inductive eval_proj (S : state) perm : proj -> spath -> spath -> Prop :=
     eval_proj S perm Deref q (q +++ [0])
 .
 
+Section Leq_state_base_n_is_leq_state_base.
+  Hint Constructors leq_state_base : core.
+  Hint Constructors leq_state_base_n : core.
+  Lemma leq_state_base_n_is_leq_state_base Sl Sr :
+    leq_state_base Sl Sr <-> exists n, leq_state_base_n n Sl Sr.
+  Proof.
+    split.
+    - intros [ ]; eexists; eauto.
+    - intros (n & [ ]); eauto.
+  Qed.
+End Leq_state_base_n_is_leq_state_base.
+
+(** A branching state [Br] is more general than a branching state [Bl] if for any token [r], if [Bl] maps a control-flow token [r] to a symbolic state [Sl] ([lookup r Bl = Some Sl]), then [Br] maps [r] to a more general state [Sr] ([lookup r Br = Some Sr] and [leq_symbolic Sl Sr]).
+
+   Note that the domain of [Br] can be bigger than the domain of [Bl]. There can be computations that terminate on a token [r] that are abstracted by [Bl] but not [Br]. *)
+Variant leq_option_symbolic : relation (option state) :=
+  | LeqNone oSr : leq_option_symbolic None oSr
+  | LeqSome Sl Sr : leq_symbolic Sl Sr -> leq_option_symbolic (Some Sl) (Some Sr).
+
+Definition leq_branching (Bl Br : branching_state) :=
+  forall r, leq_option_symbolic (lookup r Bl) (lookup r Br).
+
+(** In the ICPF article, Ho et al introduce a join operation, described with non-deterministic computation rules. However, we are not interested in an algorithm for joins. The join [Bjoin] of two states [B0] and [B1] can be provided by an oracle, we do not describe the computation rules. We only require two properties.
+   - The state [B_join] is an upper bound of [B0] and [B1], that means that we have [leq_branching B0 Bjoin] and [leq_branching Bs Bjoin].
+   - If a control-flow token [r] is not in the domain of [Bl] (respectively [Br]), then [lookup r Bjoin = lookup r Br] (respectively [lookup r Bjoin = lookup r Bl]).
+
+   The second condition is here to ensure that LLBC is a stable subset of LLBC#. In particular, the join of a state [B = {[r := S]}] and the empty state can only be [B].
+ *)
+Variant option_is_join :
+  option state -> option state -> option state -> Prop :=
+  | UpperBound_None_None : option_is_join None None None
+  | UpperBound_Some_None S0 : option_is_join (Some S0) None (Some S0)
+  | UpperBound_None_Some S1 : option_is_join None (Some S1) (Some S1)
+  | UpperBound_Some_Some S0 S1 S2 : leq_symbolic S0 S2 -> leq_symbolic S1 S2 ->
+      option_is_join (Some S0) (Some S1) (Some S2).
+
+Definition is_join (B0 B1 Bjoin : branching_state) :=
+  forall r, option_is_join (lookup r B0) (lookup r B1) (lookup r Bjoin).
+
+(** * Operational semantics. *)
 (* TODO: eval_path represents a computation, that evaluates and accumulate the result over [...] *)
 Inductive eval_path (S : state) perm : path -> spath -> spath -> Prop :=
 (* Corresponds to R-Base and W-Base in the article. *)

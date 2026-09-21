@@ -12,10 +12,12 @@ src/LLBC.v
 src/OptionMonad.v
 src/PathToSubtree.v
 src/PL.v
-src/Simulation_LLBC_plus.v
-src/SimulationUtils.v
-src/Symbolic_relations.v
 src/Symbolic_states.v
+src/simulations/SimulationUtils.v
+src/simulations/Symbolic_relations.v
+src/simulations/Simulation_HLPL_plus.v
+src/simulations/Simulation_LLBC_plus.v
+src/simulations/Simulation_LLBC_sharp_LLBC_plus.v
 src/executions/overwriteInnerLoan.v
 src/executions/LLBC_sharp_exec_utils.v
 src/executions/loop.v
