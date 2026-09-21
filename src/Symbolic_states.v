@@ -354,8 +354,8 @@ Variant is_of_type : LLBC_type -> value -> Prop :=
  * The trick we use is to say that storing a value w in place p (in the state S) does not change
  * the type of the potential mutable borrows that contains p. *)
 Definition store_compatible_types S p v :=
-  forall q, strict_prefix q p -> is_mut_borrow (get_node (S.[q])) ->
-    exists ty, is_of_type ty (S.[p]) /\ is_of_type ty v.
+  (exists q, strict_prefix q p /\ is_mut_borrow (get_node (S.[q]))) ->
+  exists ty, is_of_type ty (S.[p]) /\ is_of_type ty v.
 
 (* [add_anons S A S'] : when we end an abstraction region A, we need to add its values as anonymous
  * binding in a state S. The property [add_anons S A S'] relates this state S and this
@@ -1967,8 +1967,8 @@ Lemma store_compatible_types_vset_symbolic S p v q ty :
   store_compatible_types S p (v.[[q <- VSymbolic ty]]) ->
   is_of_type ty (v.[[q]]) -> store_compatible_types S p v.
 Proof.
-  intros H G p0 Hprefix get_mut_borrow.
-  specialize (H p0 Hprefix get_mut_borrow).
+  intros H G ancestor_borrow. specialize (H ancestor_borrow).
+  destruct ancestor_borrow as (p0 & Hprefix & get_mut_borrow).
   destruct Hprefix as (i & r & <-). destruct H as (ty' & type_at_p & type_at_v).
   exists ty'. split; [assumption | ].
   rewrite <-(vset_same v q). erewrite <-vset_twice_equal.
@@ -1983,20 +1983,19 @@ Lemma store_compatible_types_sset S p v w q ty :
   store_compatible_types (S.[q <- w]) p v ->
   is_of_type ty w -> is_of_type ty (S.[q]) -> store_compatible_types S p v.
 Proof.
-  intros not_strict_prefix H ? G p0 Hprefix get_mut_borrow.
-  specialize (H p0 Hprefix).
-  (* TODO: are there lemmas to solve this? *)
+  intros not_strict_prefix H ? G (p0 & Hprefix & get_mut_borrow).
   assert (~(strict_prefix q p0)).
   { intros ?. apply not_strict_prefix. etransitivity; eassumption. }
   (* For now, we use the trick that we cannot type mutable borrows. It is a real hack, because at
    * some point we want to type mutable borrows. *)
-  (* I think it would be cleaner to use the hypothesis that S.[q] does not contain mutable
+  (* I think it would be cleaner to use the hypothesis that [S.[q]] does not contain mutable
    * borrows. *)
   assert (q <> p0).
   { intros <-. revert get_mut_borrow. inversion G; inversion 1. }
-  rewrite get_node_sset_sget_not_prefix in H by solve_comp. specialize (H get_mut_borrow).
-  destruct H as (ty' & ? & ?). exists ty'. split; [ | assumption].
-  eapply is_of_type_sset_rev; try eassumption.
+  edestruct H as (ty' & ? & ?).
+  { exists p0. split; [assumption | ].
+    rewrite get_node_sset_sget_not_prefix by solve_comp. assumption. }
+  exists ty'. split; [ | assumption]. eapply is_of_type_sset_rev; try eassumption.
 Qed.
 
 Lemma store_compatible_types_add_abstraction S p v i A
@@ -2004,12 +2003,14 @@ Lemma store_compatible_types_add_abstraction S p v i A
   store_compatible_types (S,,, i |-> A) p v <-> store_compatible_types S p v.
 Proof.
   split.
-  - intros Hcomp q Hprefix get_mut_borrow.
-    specialize (Hcomp q Hprefix). destruct Hprefix as (j & r & <-).
-    autorewrite with spath in Hcomp. auto.
-  - intros Hcomp q Hprefix get_mut_borrow.
+  - intros Hcomp (q & Hprefix & get_mut_borrow).
+    destruct Hprefix as (j & r & <-).
+    unfold store_compatible_types in Hcomp. autorewrite with spath in Hcomp.
+    apply Hcomp. exists q. autorewrite with spath. split; [ | assumption].
+    eexists _, _. reflexivity.
+  - intros Hcomp (q & Hprefix & get_mut_borrow).
     destruct (Hprefix) as (j & r & <-). autorewrite with spath in get_mut_borrow |- *.
-    eapply Hcomp; eassumption.
+    eapply Hcomp. exists q. auto.
 Qed.
 
 Lemma store_compatible_types_add_anon S p v a w
@@ -2017,19 +2018,20 @@ Lemma store_compatible_types_add_anon S p v a w
   store_compatible_types (S,, a |-> w) p v <-> store_compatible_types S p v.
 Proof.
   split.
-  - intros Hcomp q Hprefix get_mut_borrow.
-    specialize (Hcomp q Hprefix). destruct Hprefix as (i & r & <-).
-    autorewrite with spath in Hcomp. auto.
-  - intros Hcomp q Hprefix get_mut_borrow.
+  - intros Hcomp (q & Hprefix & get_mut_borrow).
+    destruct Hprefix as (i & r & <-).
+    unfold store_compatible_types in Hcomp. autorewrite with spath in Hcomp. apply Hcomp.
+    exists q. autorewrite with spath. split; [ | assumption]. eexists _, _; reflexivity.
+  - intros Hcomp (q & Hprefix & get_mut_borrow).
     destruct (Hprefix) as (i & r & <-). autorewrite with spath in get_mut_borrow |- *.
-    eapply Hcomp; eassumption.
+    eapply Hcomp. exists q. split; assumption.
 Qed.
 
 Lemma store_compatible_types_moved_value S sp sp_store v :
   not_in_borrow S sp -> ~strict_prefix sp sp_store ->
   store_compatible_types (S.[sp <- bot]) sp_store v -> store_compatible_types S sp_store v.
 Proof.
-  intros Hnot_in_borrow H Hcomp q prefix_q_sp_store get_mut_borrow.
+  intros Hnot_in_borrow H Hcomp (q & prefix_q_sp_store & get_mut_borrow).
   destruct (decidable_prefix (q +++ [0]) sp) as [prefix_q_sp | ].
   - exfalso. eapply Hnot_in_borrow; [eassumption | ].
     destruct prefix_q_sp as (? & <-). autorewrite with spath. eexists 0, _. reflexivity.
@@ -2037,8 +2039,8 @@ Proof.
     { solve_comp. intros ?. apply H. transitivity q; assumption. }
     assert (disj sp_store sp).
     { destruct prefix_q_sp_store as (? & ? & <-). solve_comp. }
-    specialize (Hcomp q prefix_q_sp_store).
-    autorewrite with spath in Hcomp. auto.
+    unfold store_compatible_types in Hcomp. autorewrite with spath in Hcomp.
+    apply Hcomp. exists q. autorewrite with spath. auto.
 Qed.
 
 Lemma store_compatible_types_rename_mut_borrow_val S p q v l0 l1 :
@@ -2046,8 +2048,8 @@ Lemma store_compatible_types_rename_mut_borrow_val S p q v l0 l1 :
   store_compatible_types S p (rename_mut_borrow_val v q l1) ->
   store_compatible_types S p v.
 Proof.
-  intros get_borrow_q Hcomp r prefix_r_p get_borrow_r.
-  specialize (Hcomp r prefix_r_p get_borrow_r).
+  intros get_borrow_q Hcomp borrow_prefix. specialize (Hcomp borrow_prefix).
+  destruct borrow_prefix as (r & prefix_r_p & get_borrow_r).
   destruct Hcomp as (ty' & ? & ?). exists ty'. split; [assumption | ].
   eapply is_of_type_rename_mut_borrow_val; eassumption.
 Qed.
@@ -2057,11 +2059,10 @@ Lemma store_compatible_types_rename_mut_borrow S p q v l0 l1 :
   store_compatible_types (rename_mut_borrow S q l1) p v ->
   store_compatible_types S p v.
 Proof.
-  intros ? Hcomp r prefix_r_p get_borrow.
+  intros ? Hcomp (r & prefix_r_p & get_borrow).
   assert (is_mut_borrow (get_node ((rename_mut_borrow S q l1).[ r]))) as get_borrow'.
   { destruct (decidable_spath_eq q r) as [<- | ]; autorewrite with spath; easy. }
-  specialize (Hcomp r prefix_r_p get_borrow').
-  destruct Hcomp as (ty & ? & ?). exists ty. split; [ | assumption].
+  destruct Hcomp as (ty & ? & ?); [eauto | ]. exists ty. split; [ | assumption].
   eapply is_of_type_rename_mut_borrow; eassumption.
 Qed.
 
@@ -2070,8 +2071,9 @@ Lemma store_compatible_types_remove_abstraction_value S sp v i j :
   store_compatible_types (remove_abstraction_value S i j) sp v ->
   store_compatible_types S sp v.
 Proof.
-  intros ? Hcomp q Hstrict_prefix get_borrow. destruct (Hstrict_prefix) as (? & ? & <-).
-  specialize (Hcomp q Hstrict_prefix). autorewrite with spath in Hcomp. auto.
+  intros ? Hcomp (q & Hstrict_prefix & get_borrow). destruct (Hstrict_prefix) as (? & ? & <-).
+  unfold store_compatible_types in Hcomp. autorewrite with spath in Hcomp.
+  apply Hcomp. exists q. autorewrite with spath. auto.
 Qed.
 
 (** ** Automation *)

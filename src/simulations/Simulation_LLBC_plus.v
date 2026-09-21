@@ -1868,7 +1868,7 @@ Proof.
         assert (is_of_type ty (Sl.[ sp_store <- vr].[ sp +++ [0] ])).
         { destruct (decidable_prefix (sp +++ [0]) sp_store) as [(r & <-) | ].
           - autorewrite with spath.
-            destruct (Hstore_type sp) as (ty' & G & ?).
+            destruct Hstore_type as (ty' & G & ?); [exists sp; split | ].
             + autorewrite with spath. exists 0, r. reflexivity.
             + autorewrite with spath. constructor.
             + eapply vset_preserves_type; try eassumption.
@@ -1925,10 +1925,9 @@ Lemma _store_compatible_types_permutation perm S sp v :
     (permutation_spath perm sp) (rename_value (loan_id_names perm) v) ->
   store_compatible_types S sp v.
 Proof.
-  intros Hperm valid_sp Hcomp q Hprefix Hmut_borrow.
+  intros Hperm valid_sp Hcomp (q & Hprefix & Hmut_borrow).
   remember (get_node (S.[q])) eqn:EQN. destruct Hmut_borrow as [l]. symmetry in EQN.
-  specialize (Hcomp (permutation_spath perm q)).
-  destruct Hcomp as (ty & type_S & type_v).
+  destruct Hcomp as (ty & type_S & type_v); [exists (permutation_spath perm q); split | ].
   - destruct Hprefix as (? & ? & <-). rewrite <-_permutation_spath_app.
     eexists _, _. reflexivity.
   - autorewrite with spath. rewrite EQN. constructor.
@@ -1941,7 +1940,7 @@ Qed.
 Lemma store_compatible_types_rename_value S p v r :
   store_compatible_types S p v -> store_compatible_types S p (rename_value r v).
 Proof.
-  intros Hcomp q Hprefix get_mut_borrow. specialize (Hcomp q Hprefix get_mut_borrow).
+  intros Hcomp borrow_prefix. specialize (Hcomp borrow_prefix).
   destruct Hcomp as (ty & ? & ?). exists ty. split; [assumption | ].
   apply rename_value_preserves_type. assumption.
 Qed.

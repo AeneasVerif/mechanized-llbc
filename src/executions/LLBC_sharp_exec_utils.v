@@ -233,16 +233,7 @@ Instance EqDecision_type : EqDecision LLBC_type.
 Proof. intros ? ?. unfold Decision. decide equality. Defined.
 
 Lemma store_compatible_types_nil S acc v : store_compatible_types S (acc, []) v.
-Proof. intros q prefix_q_nil%not_strict_prefix_nil. contradiction. Qed.
-
-Lemma store_compatible_types_borrow S acc v ty :
-  is_of_type ty v -> is_of_type ty (S.[(acc, [0])]) ->
-  store_compatible_types S (acc, [0]) v.
-Proof.
-  intros ? ? q. replace (acc, [0]) with ((acc, []) +++ [0]) by reflexivity.
-  rewrite strict_prefix_app_last. intros ->%prefix_nil _.
-  exists ty. split; assumption.
-Qed.
+Proof. intros (q & prefix_q_nil%not_strict_prefix_nil & _). contradiction. Qed.
 
 (** This function is used to prove limited cases of [store_compatible_types].
    Ideally, to be as general as possible when showing
@@ -268,9 +259,8 @@ Proof.
   - intros _ _. apply store_compatible_types_nil.
   - repeat autodestruct. intros ?%compute_type_correct ?%compute_type_correct.
     intros -> EQN -> -> -> ->%bool_decide_eq_true_1.
-    eapply store_compatible_types_borrow.
-    + eassumption.
-    + unfold sget. cbn [fst]. rewrite EQN. assumption.
+    intros _. eexists. split; [ | eassumption].
+    unfold sget. cbn [fst]. rewrite EQN. assumption.
 Qed.
 
 Definition decide_not_contains_outer_loan v :=
