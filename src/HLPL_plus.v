@@ -457,7 +457,7 @@ Hint Extern 0 (nptr( _ ) <> _) => discriminate : spath.
  * evaluated to a pair (v, S). *)
 Variant store (p : place) : value * state -> state -> Prop :=
 | Store v S (sp : spath) (a : anon)
-  (eval_p : (S,, a |-> v) |-{p} p =>^{Mut} sp)
+  (eval_p : S |-{p} p =>^{Mut} sp)
   (no_outer_loc : not_contains_outer_loc (S.[sp]))
   (no_outer_loan : not_contains_outer_loan (S.[sp])) :
   fresh_anon S a -> store p (v, S) (S.[sp <- v],, a |-> S.[sp])
