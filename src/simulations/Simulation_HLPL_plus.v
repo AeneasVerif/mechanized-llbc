@@ -20,7 +20,6 @@ Require Import SimulationUtils.
 Record well_formed (S : state) : Prop := {
   at_most_one_mut_borrow l : at_most_one_node (nborrow^m(l)) S;
   at_most_one_mut_loan l : at_most_one_node (nloan^m(l)) S;
-  at_most_one_loc l : at_most_one_node (nloc(l)) S;
   no_mut_loan_ptr l p : get_node (S.[p]) = nloan^m(l) -> not_state_contains (eq nptr(l)) S;
   no_mut_loan_loc l p : get_node (S.[p]) = nloan^m(l) -> not_state_contains (eq nloc(l)) S;
 }.
@@ -30,8 +29,9 @@ Notation scount c S := (sweight (indicator c) S).
 (** To automate well-formedness proofs, we use an equivalent linear property. *)
 Record well_formed_alt (S : state) l : Prop := {
   at_most_one_mut_borrow_alt : scount (nborrow^m(l)) S <= 1;
-  no_mut_loan_loc_alt : scount (nloan^m(l)) S + scount (nloc(l)) S <= 1;
-  no_mut_loan_ptr_alt : scount (nloan^m(l)) S > 0 -> scount (nptr(l)) S <= 0;
+  no_mut_loan_alt : scount (nloan^m(l)) S <= 1;
+  no_mut_loan_ptr_loc_alt :
+    scount (nloan^m(l)) S > 0 -> (scount (nloc(l)) S + scount (nptr(l)) S) <= 0;
 }.
 
 Lemma well_formedness_equiv S : well_formed S <-> forall l, well_formed_alt S l.
@@ -39,25 +39,15 @@ Proof.
   split.
   - intros WF l. destruct WF. split.
     + rewrite<- decide_at_most_one_node; easy.
-    + specialize (at_most_one_mut_loan0 l).
-      rewrite decide_at_most_one_node in at_most_one_mut_loan0; [ | discriminate].
-      specialize (at_most_one_loc0 l).
-      rewrite decide_at_most_one_node in at_most_one_loc0; [ | discriminate ].
-      apply Nat.le_1_r in at_most_one_mut_loan0. destruct (at_most_one_mut_loan0).
-      * lia.
-      * assert (scount nloan^m(l) S > 0) as (p & ? & ?%indicator_non_zero)%sweight_non_zero by lia.
-        specialize (no_mut_loan_loc0 l p).
-        apply not_state_contains_implies_weight_zero
-          with (weight := indicator (nloc(l))) in no_mut_loan_loc0;
-          [lia | apply indicator_non_zero | auto].
+    + rewrite<- decide_at_most_one_node; easy.
     + intros (p & _ & H%indicator_non_zero)%sweight_non_zero.
-      symmetry in H. specialize (no_mut_loan_ptr0 _ _ H).
-      rewrite Nat.le_0_r. eapply not_state_contains_implies_weight_zero; [ | eassumption].
-      intros ?. apply indicator_non_zero.
+      symmetry in H. specialize (no_mut_loan_loc0 _ _ H). specialize (no_mut_loan_ptr0 _ _ H).
+      rewrite Nat.le_0_r, Nat.eq_add_0.
+      split; eapply not_state_contains_implies_weight_zero;
+        try apply indicator_non_zero; assumption.
   - intros WF. split; intros l; destruct (WF l).
     + apply decide_at_most_one_node; [discriminate | ]. assumption.
-    + apply decide_at_most_one_node; [discriminate | ]. lia.
-    + apply decide_at_most_one_node; [discriminate | ]. lia.
+    + apply decide_at_most_one_node; [discriminate | ]. assumption.
     + intros p Hp.
       assert (valid_p : valid_spath S p) by validity.
       apply weight_sget_node_le with (weight := indicator (nloan^m(l))) in valid_p.
