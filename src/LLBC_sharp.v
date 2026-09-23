@@ -278,6 +278,32 @@ Variant reorg : state -> state -> Prop :=
     (Hadd_anons : add_anons S A' S') : reorg (S,,, i' |-> A') S'
 .
 
+Variant reorg_n : nat -> state -> state -> Prop :=
+(* Ends a borrow when it's not in an abstraction: *)
+| Reorg_End_MutBorrow_n S (p q : spath) l ty
+    (get_loan : get_node (S.[p]) = nloan^m(ty, l)) (get_borrow : get_node (S.[q]) = nborrow^m(l))
+    (type_borrow : is_of_type ty (S.[q +++ [0] ]))
+    (Hno_loan : not_contains_loan (S.[q +++ [0] ])) (Hnot_in_borrow : not_in_borrow S q)
+    (Hdisj : disj p q)
+    (loan_not_in_abstraction : not_in_abstraction p)
+    (borrow_not_in_abstraction : not_in_abstraction q) :
+    reorg_n 0 S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
+(* Ends a borrow when it's in an abstraction: *)
+(* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
+| Reorg_End_MutBorrow_in_abstraction_n S q i' j' l ty
+    (get_loan : abstraction_element S i' j' = Some (loan^m(ty, l)))
+    (get_borrow : get_node (S.[q]) = nborrow^m(l))
+    (type_borrow : is_of_type ty (S.[q +++ [0] ]))
+    (Hno_loan : not_contains_loan (S.[q +++ [0] ])) (Hnot_in_borrow : not_in_borrow S q)
+    (borrow_not_in_abstraction : not_in_abstraction q) :
+    reorg_n (vweight (fun _ => 1) (S.[q +++ [0] ])) S ((remove_abstraction_value S i' j').[q <- bot])
+(* q refers to a path in abstraction A, at index j. *)
+| Reorg_End_Abstraction_n S i' A' S'
+    (fresh_i' : fresh_abstraction S i')
+    (A_no_loans : map_Forall (fun _ => not_contains_loan) A')
+    (Hadd_anons : add_anons S A' S') : reorg_n 0 (S,,, i' |-> A') S'
+.
+
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)
 Variant store (p : place) : value * state -> state -> Prop :=

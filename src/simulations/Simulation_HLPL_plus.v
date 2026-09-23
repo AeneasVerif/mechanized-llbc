@@ -1213,6 +1213,17 @@ Hint Rewrite measure_ptr : weight.
 Lemma measure_bot : vweight measure_node bot = 0. Proof. reflexivity. Qed.
 Hint Rewrite measure_bot : weight.
 
+Lemma prove_reorg_step {S} {reorg leq : relation S} S0 S1 Sr:
+  reorg S0 S1 -> (exists Sl, leq Sl Sr /\ reorg^* S1 Sl) ->
+  exists Sl, leq Sl Sr /\ reorg^* S0 Sl.
+Proof.
+  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
+  etransitivity; [constructor | ]; eassumption.
+Qed.
+
+Ltac reorg_step := eapply prove_reorg_step.
+Ltac reorg_done := eexists; split; [ | reflexivity].
+
 Lemma reorg_preserves_HLPL_plus_rel :
   well_formed_forward_simulation_r well_formed leq_base^* leq_base^* reorg^* reorg^*.
 Proof.
