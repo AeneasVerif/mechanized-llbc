@@ -815,48 +815,20 @@ Section Concretization.
     intros until vp. generalize dependent v. induction vp ; intros.
     - simpl app. simpl in H. rewrite H. simpl.
       inversion H0 ; subst ; congruence.
-    - replace (a :: vp) with ([a] ++ vp) in * by reflexivity.
-      rewrite vget_app in H. rewrite _vset_app_split.
-      eapply IHvp in H.
-      destruct v ; inversion H ; subst ; auto.
+    - destruct v ; inversion H ; subst ; inversion H0 ; subst ; auto.
       + destruct a ; cbn in H ; [ | rewrite nth_error_nil, Hbot, vget_bot in H ; auto ].
-        cbn. inversion H0 ; subst. constructor. eauto.
-      + inversion H0 ; subst. induction H3.
-        * cbn. repeat constructor.
-        * destruct a.
-          ** cbn in H2.
-
-      + destruct (nth_error (ValueList.to_list t0) a) eqn:Ev ;
-          [ |  rewrite Hbot, vget_bot in H2 ; inversion H2].
-        cbn. rewrite Ev, vget_app, H2. cbn.
-        inversion H0 ; subst. inversion H3 ; subst.
+        cbn. constructor. eauto.
+      + generalize dependent a. induction H3.
         * repeat constructor.
-        * induction a.
-          ** cbn. rewrite ValueList.from_list_to_list_inv. repeat constructor ; auto.
-             cbn in H. specialize (IHvp v0 _ _ _ H H1).
-             rewrite vget_app, H in IHvp. apply IHvp.
-          ** constructor. cbn. constructor ; [ assumption | ].
-             cbn in Ev, H. rewrite Ev in H.
-
-    - destruct v ; inversion H ; subst ; auto.
-      + destruct a ; auto. simpl in *. constructor. 
-        inversion H0 ; subst. eauto.
-      + cbn. rewrite vget_app, H2. cbn.
-        replace VBottom with bot in H2 by reflexivity. 
-        destruct (nth_error (ValueList.to_list t0) a) eqn:E.
-        * induction t0 ; cbn.
-          ** inversion H0 ; subst ; inversion H3 ; subst. repeat constructor.
-          ** destruct a eqn:Ea.
-             *** cbn. inversion H0 ; subst ; inversion H3 ; subst.
-                 repeat constructor ; auto.
-                 **** cbn in H. specialize (IHvp  v0 l t bytes0 H H5).
-                      rewrite vget_app, H in IHvp. apply IHvp.
-                 **** rewrite ValueList.from_list_to_list_inv. assumption.
-             *** cbn.
-        * admit.
-
+        * intros. destruct a.
+          ** cbn. rewrite ValueList.from_list_to_list_inv. repeat constructor ; eauto.
+          ** specialize (IHconcr_hlpl_val_tuple (Concr_tuple _ _ _ H3) a H1).
+             cbn in H2. rewrite H2 in IHconcr_hlpl_val_tuple.
+             specialize (IHconcr_hlpl_val_tuple eq_refl).
+             cbn. rewrite vget_app, H2. repeat constructor ; [ assumption | ].
+             inversion IHconcr_hlpl_val_tuple ; subst.
+             rewrite vget_app, H2 in H6. auto.
   Qed.
-
 
   Lemma concr_val_deterministic :
     forall v t bytes0 bytes1,
