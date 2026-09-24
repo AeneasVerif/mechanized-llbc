@@ -176,8 +176,9 @@ Proof.
     (* TODO: computation procedures for reorganization steps. *)
     (** Ending the loan [lz] ... *)
     { constructor.
-      eapply Reorg_End_MutBorrow_in_abstraction
-        with (i' := 1%positive) (j' := 3%positive) (q := (encode_var 3%positive, [])).
+      remove_abstraction 1%positive. remove_abstraction_element 3%positive.
+      apply Reorg_End_MutBorrow_in_abstraction with (q := (encode_var 3%positive, [])).
+      - reflexivity.
       - reflexivity.
       - reflexivity.
       - constructor.

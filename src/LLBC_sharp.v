@@ -64,10 +64,10 @@ Variant leq_state_base_n : nat -> state -> state -> Prop :=
     (sp_not_in_abstraction : not_in_abstraction sp)
     (Htype : is_of_type ty (S.[sp +++ [0] ])) :
     leq_state_base_n 0 S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(ty, l1)))
-| Leq_Abs_ClearValue_n S i j v
-    (get_at_i_j : abstraction_element S i j  = Some v)
+| Leq_Abs_ClearValue_n S i j v A
+    (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
-    leq_state_base_n (1 + vweight (fun _ => 1) v) S (remove_abstraction_value S i j)
+    leq_state_base_n (1 + vweight (fun _ => 1) v) (S,,, i |-> insert j v A) (S,,, i |-> A)
 | Leq_AnonValue_n S a (is_fresh : fresh_anon S a) :
     leq_state_base_n 0 S (S,, a |-> bot)
 .
@@ -120,10 +120,10 @@ Variant leq_state_base : state -> state -> Prop :=
     (sp_not_in_abstraction : not_in_abstraction sp)
     (Htype : is_of_type ty (S.[sp +++ [0] ])) :
     leq_state_base S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(ty, l1)))
-| Leq_Abs_ClearValue S i j v
-    (get_at_i_j : abstraction_element S i j = Some v)
+| Leq_Abs_ClearValue S i j v A
+    (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
-    leq_state_base S (remove_abstraction_value S i j)
+    leq_state_base (S,,, i |-> insert j v A) (S,,, i |-> A)
 | Leq_AnonValue S a (is_fresh : fresh_anon S a) : leq_state_base S (S,, a |-> bot)
 .
 
@@ -264,13 +264,13 @@ Variant reorg : state -> state -> Prop :=
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
 (* Ends a borrow when it's in an abstraction: *)
 (* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
-| Reorg_End_MutBorrow_in_abstraction S q i' j' l ty
-    (get_loan : abstraction_element S i' j' = Some (loan^m(ty, l)))
+| Reorg_End_MutBorrow_in_abstraction S q i' j' A' l ty
+    (fresh_i' : fresh_abstraction S i') (fresh_j' : lookup j' A' = None)
     (get_borrow : get_node (S.[q]) = nborrow^m(l))
     (type_borrow : is_of_type ty (S.[q +++ [0] ]))
     (Hno_loan : not_contains_loan (S.[q +++ [0] ])) (Hnot_in_borrow : not_in_borrow S q)
     (borrow_not_in_abstraction : not_in_abstraction q) :
-    reorg S ((remove_abstraction_value S i' j').[q <- bot])
+    reorg (S,,, i' |-> insert j' (loan^m(ty, l)) A') (S.[q <- bot],,, i' |-> A')
 (* q refers to a path in abstraction A, at index j. *)
 | Reorg_End_Abstraction S i' A' S'
     (fresh_i' : fresh_abstraction S i')
@@ -290,13 +290,13 @@ Variant reorg_n : nat -> state -> state -> Prop :=
     reorg_n 0 S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
 (* Ends a borrow when it's in an abstraction: *)
 (* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
-| Reorg_End_MutBorrow_in_abstraction_n S q i' j' l ty
-    (get_loan : abstraction_element S i' j' = Some (loan^m(ty, l)))
+| Reorg_End_MutBorrow_in_abstraction_n S q i' j' A' l ty
+    (fresh_i' : fresh_abstraction S i') (fresh_j' : lookup j' A' = None)
     (get_borrow : get_node (S.[q]) = nborrow^m(l))
     (type_borrow : is_of_type ty (S.[q +++ [0] ]))
     (Hno_loan : not_contains_loan (S.[q +++ [0] ])) (Hnot_in_borrow : not_in_borrow S q)
     (borrow_not_in_abstraction : not_in_abstraction q) :
-    reorg_n (vweight (fun _ => 1) (S.[q +++ [0] ])) S ((remove_abstraction_value S i' j').[q <- bot])
+    reorg_n (vweight (fun _ => 1) (S.[q +++ [0] ])) (S,,, i' |-> insert j' (loan^m(ty, l)) A') (S.[q <- bot],,, i' |-> A')
 (* q refers to a path in abstraction A, at index j. *)
 | Reorg_End_Abstraction_n S i' A' S'
     (fresh_i' : fresh_abstraction S i')

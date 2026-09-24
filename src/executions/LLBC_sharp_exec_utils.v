@@ -370,6 +370,15 @@ Ltac remove_abstraction i :=
       rewrite ?remove_add_abstraction_ne by congruence
   end.
 
+Lemma remove_abstraction_element S i j v A :
+  lookup j A = Some v -> S,,, i |-> A = S,,, i |-> (insert j v (delete j A)).
+Proof. intros ?%insert_delete_id. congruence. Qed.
+
+Ltac remove_abstraction_element j :=
+  lazymatch goal with
+  | |- ?leq_star ?S _ => erewrite (remove_abstraction_element _ _ j) by reflexivity
+  end.
+
 (** This tactic turns a state that contains an anonymous binding [a] into the form [S,, a |-> v]. *)
 Ltac remove_anon a :=
   lazymatch goal with
