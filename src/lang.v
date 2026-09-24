@@ -28,6 +28,12 @@ with type_list :=
 | TCons (t : type) (tl : type_list).
 
 Module TypeList.
+  Fixpoint length (tl : type_list) : nat :=
+    match tl with
+    | TNil => 0
+    | TCons _ tl' => S (length tl')
+    end.
+
   Fixpoint to_list (tl : type_list) : list type :=
     match tl with
     | TNil => []
@@ -39,6 +45,31 @@ Module TypeList.
     | [] => TNil
     | t :: tl => TCons t (from_list tl)
     end.
+
+  Lemma length_from_list (tl : list type) :
+    List.length tl = length (from_list tl).
+  Proof. induction tl; simpl ; congruence. Qed.
+
+  Lemma length_to_list (tl : type_list) :
+    length tl = List.length (to_list tl).
+  Proof. induction tl; simpl ; congruence. Qed.
+
+  Fixpoint nth_error (tl : type_list) (n : nat) : option type :=
+    match tl, n with
+    | TCons t tl, 0 => Some t
+    | TCons t tl, S n => nth_error tl n
+    | TNil, _ => None
+    end.
+
+  Lemma nth_error_type_list_list_equiv tl n :
+    nth_error tl n = List.nth_error (to_list tl) n.
+  Proof.
+    generalize dependent n. induction tl ; intro.
+    - rewrite nth_error_nil. reflexivity.
+    - destruct n.
+      * reflexivity.
+      * cbn. rewrite IHtl. reflexivity.
+  Qed.
 End TypeList.
 
 Declare Scope rtype_scope.

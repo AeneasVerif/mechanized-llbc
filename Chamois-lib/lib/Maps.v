@@ -34,7 +34,8 @@
   inefficient implementation of maps as functions is also provided.
 *)
 
-Require Import Coqlib OptionMonad.
+From chamois Require Import OptionMonad.
+Require Import Coqlib.
 Require Import Impure.ImpHCons.
 Import Notations.
 

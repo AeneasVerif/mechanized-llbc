@@ -502,7 +502,6 @@ Ltac rewrite_pairs :=
   end.
 *)
 
-(*
 (* Concretization of HLPL values to PL values *)
 Section Concretization.
   Variable blockof : positive -> block * type.
@@ -716,6 +715,76 @@ Section Concretization.
     }
   Qed.
 
+  Lemma concr_val_tuple_implies_concr_val vl tl bytes :
+    concr_hlpl_val_tuple vl tl bytes ->
+    forall n v, List.nth_error (ValueList.to_list vl) n = Some v ->
+             exists bytes0 bytesa bytesn t,
+             concr_hlpl_val v t bytesa /\ bytes = bytes0 ++ bytesa ++ bytesn /\
+               List.nth_error (TypeList.to_list tl) n = Some t.
+  Proof.
+    intro H. induction H ; intros.
+    - rewrite nth_error_nil in H. congruence.
+    - destruct n.
+      * injection H1 as <-. cbn.
+        exists [], bytes0, bytes1, t. repeat split ; auto.
+      * destruct (IHconcr_hlpl_val_tuple _ _ H1)
+          as (bytes0' & bytesa & bytesn' & t' & concr_val & bytes_eq & Htype). subst.
+        exists (bytes0 ++ bytes0'), bytesa, bytesn', t'. repeat split; auto.
+        rewrite <- !app_assoc. reflexivity.
+  Qed.
+
+  Lemma concr_val_tuple_implies_concr_val' :
+    forall vl tl bytes,
+      concr_hlpl_val_tuple vl tl bytes <->
+      exists bytes_list,
+        concat bytes_list = bytes /\
+          ValueList.length vl = length bytes_list /\
+          TypeList.length tl = length bytes_list /\
+          Forall (fun n => forall v t,
+                      ValueList.nth_error vl n = Some v ->
+                      TypeList.nth_error tl n = Some t ->
+                      exists bytesn,
+                        List.nth_error bytes_list n = Some bytesn /\
+                          concr_hlpl_val v t bytesn)
+            (seq 0 (List.length bytes_list)).
+  Proof.
+    intros ; split ; intros.
+    {
+      induction H ; intros.
+      - cbn. exists []. repeat split ; try reflexivity.
+        apply Forall_forall. intros ; discriminate.
+      - destruct (IHconcr_hlpl_val_tuple)
+          as (bytes_list & bytes_eq & vl_len & tl_len & Hforall).
+        exists (bytes0 :: bytes_list). split ; [ cbn ; rewrite bytes_eq ; reflexivity | ].
+        cbn. repeat split ; try congruence ; constructor.
+        * intros ? ? [=<-] [=<-]. cbn. exists bytes0 ; split ; [ reflexivity | assumption ].
+        * rewrite <- seq_shift, Forall_map with (f := S) ; assumption.
+    }
+    {
+      generalize dependent bytes. generalize dependent tl. generalize dependent vl.
+      induction vl ; intros ;
+      destruct H as (bytes_list & bytes_eq & vlen & tlen & Hforall).
+      - cbn in vlen, tlen. rewrite <- vlen in tlen.
+        destruct bytes_list ; destruct tl ; try discriminate. cbn in bytes_eq.
+        subst ; constructor.
+      - cbn in vlen. destruct bytes_list ; destruct tl ; try discriminate.
+        subst. cbn. inversion Hforall ; subst.
+        destruct (H1 _ _ eq_refl eq_refl) as (bytes0 & [=->] & concr0).
+        constructor ; [ assumption | ].
+        rewrite <- seq_shift, Forall_map in H2. cbn in H2.
+        apply IHvl. eexists ; repeat split ; eauto.
+    }
+  Qed.
+
+  Lemma concr_val_tuple_implies_concr_val'' :
+    forall vl t bytes,
+      concr_hlpl_val (VTuple vl) t bytes ->
+      forall n : nat, n <= ValueList.length vl ->
+               exists v, ValueList.nth_error vl n = Some v /\
+               exists tl t', t = TTuple tl /\ TypeList.nth_error tl n = Some t' /\
+                          concr_hlpl_val v t' bytes.
+  Admitted.
+
   Lemma concr_val_add_loc :
     forall v vp l t bytes,
       concr_hlpl_val v t bytes ->
@@ -723,11 +792,17 @@ Section Concretization.
   Proof.
     intros until vp. generalize dependent v. induction vp ; intros.
     - simpl. constructor ; auto.
-    - destruct v ; inversion H ; subst ; auto.
+    - induction v ; inversion H ; subst ; auto.
       + destruct a ; auto. simpl. constructor. auto.
-      + destruct a as [ | [  | ] ] ; auto ; simpl.
-        * specialize (IHvp _ l _ _ H2). constructor ; auto.
-        * specialize (IHvp _ l _ _ H5). constructor ; auto.
+      + generalize dependent a. induction H1 ; intro a.
+        * simpl ; repeat constructor.
+        * induction a.
+          ** cbn. repeat constructor ; auto.
+             rewrite ValueList.from_list_to_list_inv. assumption.
+          ** cbn. assert (concr_hlpl_val (VTuple vl) (TTuple tl) bytes1)
+               by (constructor ; assumption). repeat constructor. assumption.
+             specialize (IHconcr_hlpl_val_tuple H2 a).
+             inversion IHconcr_hlpl_val_tuple ; subst ; auto.
   Qed.
 
   Lemma concr_val_remove_loc :
@@ -736,16 +811,52 @@ Section Concretization.
       concr_hlpl_val v t bytes ->
       concr_hlpl_val (v.[[vp <- v.[[ vp ++ [0%nat] ]] ]]) t bytes.
   Proof.
+    assert (Hbot : VBottom = bot) by reflexivity.
     intros until vp. generalize dependent v. induction vp ; intros.
     - simpl app. simpl in H. rewrite H. simpl.
-      inversion H0 ; try congruence.
+      inversion H0 ; subst ; congruence.
+    - replace (a :: vp) with ([a] ++ vp) in * by reflexivity.
+      rewrite vget_app in H. rewrite _vset_app_split.
+      eapply IHvp in H.
+      destruct v ; inversion H ; subst ; auto.
+      + destruct a ; cbn in H ; [ | rewrite nth_error_nil, Hbot, vget_bot in H ; auto ].
+        cbn. inversion H0 ; subst. constructor. eauto.
+      + inversion H0 ; subst. induction H3.
+        * cbn. repeat constructor.
+        * destruct a.
+          ** cbn in H2.
+
+      + destruct (nth_error (ValueList.to_list t0) a) eqn:Ev ;
+          [ |  rewrite Hbot, vget_bot in H2 ; inversion H2].
+        cbn. rewrite Ev, vget_app, H2. cbn.
+        inversion H0 ; subst. inversion H3 ; subst.
+        * repeat constructor.
+        * induction a.
+          ** cbn. rewrite ValueList.from_list_to_list_inv. repeat constructor ; auto.
+             cbn in H. specialize (IHvp v0 _ _ _ H H1).
+             rewrite vget_app, H in IHvp. apply IHvp.
+          ** constructor. cbn. constructor ; [ assumption | ].
+             cbn in Ev, H. rewrite Ev in H.
+
     - destruct v ; inversion H ; subst ; auto.
       + destruct a ; auto. simpl in *. constructor. 
         inversion H0 ; subst. eauto.
-      + destruct a as [ | [  | ] ] ; auto ; simpl in * ; inversion H0 ; subst.
-        * specialize (IHvp _ l t0 bytes0 H2 H4). constructor ; auto.
-        * specialize (IHvp _ l t1 bytes1 H2 H7). constructor ; auto.
+      + cbn. rewrite vget_app, H2. cbn.
+        replace VBottom with bot in H2 by reflexivity. 
+        destruct (nth_error (ValueList.to_list t0) a) eqn:E.
+        * induction t0 ; cbn.
+          ** inversion H0 ; subst ; inversion H3 ; subst. repeat constructor.
+          ** destruct a eqn:Ea.
+             *** cbn. inversion H0 ; subst ; inversion H3 ; subst.
+                 repeat constructor ; auto.
+                 **** cbn in H. specialize (IHvp  v0 l t bytes0 H H5).
+                      rewrite vget_app, H in IHvp. apply IHvp.
+                 **** rewrite ValueList.from_list_to_list_inv. assumption.
+             *** cbn.
+        * admit.
+
   Qed.
+
 
   Lemma concr_val_deterministic :
     forall v t bytes0 bytes1,
@@ -754,7 +865,7 @@ Section Concretization.
       bytes0 = bytes1.
   Proof. intros. apply concr_val_implies_concr_val_comp in H, H0. congruence. Qed.
 
-  Definition concr_hlpl_mem (S : HLPL_state) (m : Mem.mem) : Prop :=
+  Definition concr_hlpl_mem (S : state) (m : Mem.mem) : Prop :=
     forall enc_x bi t v,
       valid_spath S (enc_x, []) ->
       S.[ (enc_x, []) ] = v ->
@@ -764,18 +875,18 @@ Section Concretization.
           Mem.getN (sizeof t) 0 ((Mem.mem_contents m) # bi) = bytes) /\ 
         (Mem.range_perm m bi 0 (sizeof t) Cur Freeable).
 
-  Definition concr_hlpl_env (S : HLPL_state) (env : PTree.t (block * type)) : Prop :=
+  Definition concr_hlpl_env (S : state) (env : PTree.t (block * type)) : Prop :=
     forall enc_x bi t,
       valid_spath S (enc_x, []) ->
       blockof enc_x = (bi, t) ->
       env ## enc_x = Some (bi, t).
 
-  Definition concr_hlpl (S : HLPL_state) (Spl : PL_state) : Prop :=
+  Definition concr_hlpl (S : state) (Spl : PL_state) : Prop :=
     concr_hlpl_mem S (mem Spl) /\ concr_hlpl_env S (env Spl).
 
   (** [add_spath_equiv S Spl addr sp] is inhabited when reading in S.[p] corresponds dto reading in Spl.mem(addr) *)
 
-  Inductive off_vpath_equiv (v : HLPL_val) (t : type) :
+  Inductive off_vpath_equiv (v : val) (t : type) :
     offset -> type -> vpath -> Prop :=
   | Offset_vpath_base :
     off_vpath_equiv v t (0%nat) t nil

@@ -47,6 +47,13 @@ Module ValueList.
     | VCons t tl => t :: (to_list tl)
     end.
 
+  Fixpoint nth_error (vl : value_list) (n : nat) : option value :=
+    match vl, n with
+    | VCons v vl, 0 => Some v
+    | VCons v vl, S n => nth_error vl n
+    | VNil, _ => None
+    end.
+
   Lemma from_list_to_list_inv (vl : value_list) :
     from_list (to_list vl) = vl.
   Proof. induction vl ; simpl ; congruence. Qed.
@@ -67,6 +74,16 @@ Module ValueList.
   Proof.
     intros. apply f_equal with (f := to_list) in H.
     by rewrite !to_list_from_list_inv in H.
+  Qed.
+
+  Lemma nth_error_value_list_list_equiv vl n :
+    nth_error vl n = List.nth_error (to_list vl) n.
+  Proof.
+    generalize dependent n. induction vl ; intro.
+    - rewrite nth_error_nil. reflexivity.
+    - destruct n.
+      * reflexivity.
+      * cbn. rewrite IHvl. reflexivity.
   Qed.
 
   Lemma length_from_list (vl : list value) :

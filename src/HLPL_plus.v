@@ -916,6 +916,7 @@ Proof.
   intros. destruct (exists_fresh_anon2 vSl.2 vSr.2) as (a & fresh1 & fresh2).
   specialize (H0 a fresh1 fresh2). inversion H ; subst. cbn in H0.
   destruct H0.
+Abort.
 
 Definition leq_vals_state_base (leq_base: state -> state -> Prop)
   (vlSl : value_list * state) (vlSr : value_list * state) : Prop :=
@@ -926,11 +927,11 @@ Lemma star_lift :
     clos_refl_trans_1n _ (leq_val_state_base leq_base) (result_as_tuple vlSl) vSr ->
     exists vlSr, result_as_tuple vlSr = vSr /\
               clos_refl_trans (leq_vals_state_base leq_base) vlSl vlSr.
-  Proof.
-    intros. remember (result_as_tuple vlSl) as vSl. generalize dependent vlSl.
-    induction H ; intros.
-    - exists vlSl. split. easy. reflexivity.
-    - specialize (IHclos_refl_trans_1n (VTuple y.1, y.2))
+Proof.
+  intros. remember (result_as_tuple vlSl) as vSl. generalize dependent vlSl.
+  induction H ; intros.
+  - exists vlSl. split. easy. reflexivity.
+Abort.
 
 Lemma leq_val_state_star_vals_state_star_equiv (leq_base: state -> state -> Prop) :
   forall vlSl vlSr,
@@ -1131,8 +1132,9 @@ Proof.
     + exists (VTuple d.1, d.2) ; split.
       * admit.
       * constructor. rewrite <- surjective_pairing. assumption.
-    * unfold leq_vals_state_base in Hle.
-      rewrite surjective_pairing with (p := d) in Hle. apply Hle.
+    + unfold leq_vals_state_base in Hle.
+      admit.
+    + admit.
   - exists (VNil, b) ; split. 
     * destruct H.
       unfold leq_vals_state_base. simpl. leq_step_right.
