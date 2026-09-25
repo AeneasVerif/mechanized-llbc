@@ -72,6 +72,45 @@ sizeof_tuple (taul : type_list) : nat :=
   | TCons t tl => sizeof t + sizeof_tuple tl
   end. 
 
+Fixpoint partial_sizeof_tuple (taul : type_list) (n : nat) : nat :=
+  match taul, n with
+  | TCons t tl, S n => sizeof t + partial_sizeof_tuple tl n
+  | _, _ => 0
+  end. 
+
+Lemma sizeof_tuple_sum (taul : type_list) :
+  sizeof_tuple taul = sum (map sizeof (TypeList.to_list taul)).
+Proof. induction taul ; simpl ; congruence. Qed.
+
+Lemma partial_sizeof_tuple_firstn_sum (taul : type_list) (n : nat) :
+    partial_sizeof_tuple taul n = sum (map sizeof (firstn n (TypeList.to_list taul))).
+Proof.
+  generalize dependent n. induction taul ; intro.
+  - cbn. rewrite LB.list.take_nil. reflexivity.
+  - destruct n.
+    * reflexivity.
+    * cbn. rewrite IHtaul. reflexivity.
+Qed.
+
+Lemma partial_sizeof_tuple_leq_sizeof_tuple (taul : type_list) (n : nat) : 
+  partial_sizeof_tuple taul n <= sizeof_tuple taul.
+Proof.
+  generalize dependent n.
+  induction taul ; destruct n ; cbn ; try lia. specialize (IHtaul n). lia.
+Qed.
+
+Lemma partial_sizeof_tuple_last (taul : type_list) :
+  forall n t, TypeList.nth_error taul n = Some t ->
+         partial_sizeof_tuple taul n + sizeof t =
+           Z.of_nat (partial_sizeof_tuple taul (S n)).
+Proof.
+  induction taul ; intros.
+  - discriminate.
+  - destruct n.
+    * injection H as <-. destruct taul ; cbn ; lia.
+    * apply IHtaul in H. cbn. lia.
+Qed.
+
 Declare Scope pl_scope.
 Delimit Scope pl_scope with pl.
 
@@ -474,10 +513,9 @@ Proof.
   injection contra as _ H. destruct (list_app_elem_not_nil sp.2 n H).
 Qed.
     
-(*
 Ltac sp_discriminate_or_find_equalities :=
   match goal with
-  | H1: ?E = HLPL_pairC, H2: ?E = NLoc (_) |- _ => rewrite H2 in H1 ; discriminate
+  | H1: ?E = NTuple _, H2: ?E = NLoc (_) |- _ => rewrite H2 in H1 ; discriminate
   | H: [?a] = [?b] |- _ => injection H ; intros ; clear H ; try discriminate
   | H: ?l ++ [?a] = [ ] |- _ =>
       destruct (list_app_elem_not_nil l a H)
@@ -486,12 +524,13 @@ Ltac sp_discriminate_or_find_equalities :=
       destruct (list_app_elem_not_nil l a H)
   | H: ?l1 ++ [?a1] = ?l2 ++ [?a2] |- _ =>
       assert (Hlen_one : length [ a1 ] = length [ a2 ]) by reflexivity ;
-      destruct (LB.app_inj_2 _ _ _ _ Hlen_one H) ;
+      destruct (LB.list.app_inj_2 _ _ _ _ Hlen_one H) ;
       clear H Hlen_one ; subst
   | H: ?sp +++ [?n] = (?enc_x, []) |- _ =>
       destruct (spath_app_elem_not_nil sp n enc_x H)
   end.
 
+(*
 Ltac rewrite_pairs :=
   match goal with
   | H1 : ?sp1.1 = ?sp2.1, H2 : ?sp1.2 = ?sp2.2 |- _ =>
@@ -533,10 +572,9 @@ Section Concretization.
     (Hnode : get_node ( v.[[ vp ]] ) = NLoc l)
     (Hrec : eval_type_val v ti vp t) :
     eval_type_val v ti (vp ++ [0%nat]) t
-  | Eval_tuple_val vp n len vl t tl
+  | Eval_tuple_val vp n len t tl
     (Hnode : get_node ( v.[[ vp ]] ) = NTuple len)
-    (Htuple : List.nth_error (ValueList.to_list vl) n = Some v)
-    (Htype : List.nth_error (TypeList.to_list tl) n = Some t)
+    (Htype : TypeList.nth_error tl n = Some t)
     (Hrec : eval_type_val v ti vp (TTuple tl)) :
     eval_type_val v ti (vp ++ [ n ]) t
   .
@@ -869,7 +907,7 @@ Section Concretization.
       (Htuple : get_node (v.[[ vp ]]) = NTuple len)
       (Htype : TypeList.nth_error tl n = Some t')
       (Hrec : off_vpath_equiv v t off (TTuple tl) vp) :
-          off_vpath_equiv v t off t' (vp ++ [n]).
+          off_vpath_equiv v t (off + partial_sizeof_tuple tl n) t' (vp ++ [n]).
 
   Lemma offset_is_positive :
     forall v ti off t vp,
@@ -914,7 +952,7 @@ Section Concretization.
       get_node (S.[ sp ]) = NTuple len ->
       TypeList.nth_error tl n = Some t ->
       addr ~^{S, (TTuple tl)} sp ->
-      addr ~^{S, t} (sp +++ [n%nat]).
+      addr +o (partial_sizeof_tuple tl n) ~^{S, t} (sp +++ [n%nat]).
   Proof.
     intros * Hnode Htl Hequiv.
     inversion Hequiv ; subst. econstructor ; eauto. simpl.
@@ -937,32 +975,34 @@ Section Concretization.
     - inversion Hequiv ; subst. simpl fst in *. simpl snd in *.
       rewrite (spath_var_app_vpath sp), sget_app in Hnode.
       pose proof app_cons_not_nil.
-      inversion Hvequiv ; subst ; try congruence.
-      * eapply Offset_vpath_loc.
+      inversion Hvequiv ; subst ; sp_discriminate_or_find_equalities ; try congruence.
+      econstructor ; eauto.
   Qed.
-      
 
   Lemma off_vpath_equiv_sizeof :
     forall vi ti t off vp,
       off_vpath_equiv vi ti off t vp ->
       off + sizeof t <= sizeof ti.
-  Proof. intros. induction H ; simpl in * ; try lia. Qed.
+  Proof.
+    intros. induction H ; simpl in * ; try lia.
+    rewrite <- Z.add_assoc.
+    rewrite partial_sizeof_tuple_last by assumption.
+    pose proof (partial_sizeof_tuple_leq_sizeof_tuple tl (S n)). lia.
+  Qed.
 
   Lemma off_vpath_equiv_eval_type :
     forall v vp tinit t,
       (exists off, off_vpath_equiv v tinit off t vp) <-> eval_type_val v tinit vp t.
   Proof.
     intros v vp tinit t ; split ; [intros (off & Hvequiv) | intros Het ].
-    { induction Hvequiv ; subst ; try (econstructor ; eassumption). }
+    { induction Hvequiv ; subst ; econstructor ; eassumption. }
     {
       induction Het.
       - exists 0. econstructor ; eauto.
       - destruct IHHet as (off & Hvequiv).
         exists off. eapply Offset_vpath_loc ; eauto.
       - destruct IHHet as (off & Hvequiv).
-        exists off. eapply Offset_vpath_pair_first ; eauto.
-      - destruct IHHet as (off & Hvequiv).
-        exists (off + sizeof t0). eapply Offset_vpath_pair_second ; eauto.
+        exists (off + partial_sizeof_tuple tl n). eapply Offset_vpath_tuple ; eauto.
     }
   Qed.
 
