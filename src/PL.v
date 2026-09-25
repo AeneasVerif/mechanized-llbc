@@ -858,22 +858,18 @@ Section Concretization.
 
   (** [add_spath_equiv S Spl addr sp] is inhabited when reading in S.[p] corresponds dto reading in Spl.mem(addr) *)
 
-  Inductive off_vpath_equiv (v : val) (t : type) :
-    offset -> type -> vpath -> Prop :=
+  Inductive off_vpath_equiv (v : value) (t : type) : offset -> type -> vpath -> Prop :=
   | Offset_vpath_base :
     off_vpath_equiv v t (0%nat) t nil
-  | Offset_vpath_pair_first off vp t0 t1
-      (Hpair : get_node (v.[[ vp ]]) = HLPL_pairC)
-      (Hrec : off_vpath_equiv v t off (TPair t0 t1) vp) :
-    off_vpath_equiv v t off t0 (vp ++ [0%nat])
-  | Offset_vpath_pair_second off vp t0 t1
-      (Hpair : get_node (v.[[ vp ]]) = HLPL_pairC)
-      (Hrec : off_vpath_equiv v t off (TPair t0 t1) vp) :
-    off_vpath_equiv v t (off + sizeof t0) t1 (vp ++ [1%nat])
   | Offset_vpath_loc off vp t' l
-      (Hloc : get_node (v.[[ vp ]]) = HLPL_locC l)
+      (Hloc : get_node (v.[[ vp ]]) = NLoc l)
       (Hrec : off_vpath_equiv v t off t' vp) :
-    off_vpath_equiv v t off t' (vp ++ [0%nat]).
+    off_vpath_equiv v t off t' (vp ++ [0%nat])
+  | Offset_vpath_tuple n len off vp t' tl
+      (Htuple : get_node (v.[[ vp ]]) = NTuple len)
+      (Htype : TypeList.nth_error tl n = Some t')
+      (Hrec : off_vpath_equiv v t off (TTuple tl) vp) :
+          off_vpath_equiv v t off t' (vp ++ [n]).
 
   Lemma offset_is_positive :
     forall v ti off t vp,
@@ -895,7 +891,7 @@ Section Concretization.
     - eapply offset_less_modulus ; eauto.
   Qed.
 
-  Inductive addr_spath_equiv (S : HLPL_state) : address -> type -> spath -> Prop :=
+  Inductive addr_spath_equiv (S : state) : address -> type -> spath -> Prop :=
   | Addr_spath_base sp v addr tinit t
       (H : blockof sp.1 = (addr.1, tinit))
       (Hsp1 : S.[(sp.1, [])] = v)
@@ -913,35 +909,23 @@ Section Concretization.
     eapply offset_range ;eauto.
   Qed.
 
-  Lemma Addr_spath_pair_first :
-    forall S sp addr t0 t1,
-      get_node (S.[ sp ]) = HLPL_pairC ->
-      addr ~^{S, (TPair t0 t1)} sp ->
-      addr ~^{S, t0} (sp +++ [0%nat]).
+  Lemma Addr_spath_tuple_n:
+    forall S sp addr t tl len n,
+      get_node (S.[ sp ]) = NTuple len ->
+      TypeList.nth_error tl n = Some t ->
+      addr ~^{S, (TTuple tl)} sp ->
+      addr ~^{S, t} (sp +++ [n%nat]).
   Proof.
-    intros S sp addr t0 t1 Hnode Hequiv.
+    intros * Hnode Htl Hequiv.
     inversion Hequiv ; subst. econstructor ; eauto. simpl.
-    eapply Offset_vpath_pair_first ; eauto.
+    eapply Offset_vpath_tuple ; eauto.
     rewrite <- sget_app. unfold app_spath_vpath. simpl.
-    rewrite <- surjective_pairing ; assumption.
-  Qed.
-
-  Lemma Addr_spath_pair_second:
-    forall S sp addr t0 t1,
-      get_node (S.[ sp ]) = HLPL_pairC ->
-      addr ~^{S, (TPair t0 t1)} sp ->
-      (addr +o sizeof t0) ~^{S, t1} (sp +++ [1%nat]).
-  Proof.
-    intros S sp addr t0 t1 Hnode Hequiv.
-    inversion Hequiv ; subst. econstructor ; eauto. simpl.
-    eapply Offset_vpath_pair_second ; eauto.
-    rewrite <- sget_app. unfold app_spath_vpath. simpl.
-    rewrite <- surjective_pairing ; assumption.
+    rewrite <- surjective_pairing ; eassumption.
   Qed.
 
   Lemma Addr_spath_loc :
     forall S sp addr t l,
-      get_node (S.[ sp ]) = HLPL_locC l ->
+      get_node (S.[ sp ]) = NLoc l ->
       addr ~^{S, t} sp <->
       addr ~^{S, t} (sp +++ [0%nat]).
   Proof.
@@ -952,8 +936,9 @@ Section Concretization.
       rewrite <- surjective_pairing ; assumption.
     - inversion Hequiv ; subst. simpl fst in *. simpl snd in *.
       rewrite (spath_var_app_vpath sp), sget_app in Hnode.
-      inversion Hvequiv ; subst ; sp_discriminate_or_find_equalities ; try congruence.
-      econstructor ; eauto.
+      pose proof app_cons_not_nil.
+      inversion Hvequiv ; subst ; try congruence.
+      * eapply Offset_vpath_loc.
   Qed.
       
 
