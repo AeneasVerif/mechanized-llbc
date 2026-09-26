@@ -357,12 +357,12 @@ Definition store_compatible_types S p v :=
   (exists q, strict_prefix q p /\ is_mut_borrow (get_node (S.[q]))) ->
   exists ty, is_of_type ty (S.[p]) /\ is_of_type ty v.
 
-(* [add_anons S A S'] : when we end an abstraction region A, we need to add its values as anonymous
- * binding in a state S. The property [add_anons S A S'] relates this state S and this
- * abstraction A to a state S' with anonymous bindings added. *)
-Variant add_anons : state -> Pmap value -> state -> Prop :=
-  | AddAnons S A anons' : union_maps (anons S) A anons' ->
-      add_anons S A {|vars := vars S; anons := anons'; abstractions := abstractions S|}
+(** [add_anons S A S'] : when we end an abstraction region A, we need to add its values as anonymous
+   binding in a state S. The property [add_anons S A S'] relates this state S and this
+   abstraction A to a state S' with anonymous bindings added. *)
+Definition add_anons (S : state) (A : Pmap value) (S' : state) : Prop :=
+  exists B, equiv_map A B /\ map_disjoint (anons S) B /\
+  S' = {|vars := vars S; anons := union (anons S) B; abstractions := abstractions S|}
 .
 
 Definition get_loan_id c :=
@@ -385,7 +385,10 @@ Inductive remove_loans A B : Pmap value -> Pmap value-> Prop :=
       remove_loans A B (delete i A') (delete j B')
 .
 
-Definition merge_abstractions A B C := exists A0 B0, remove_loans A B A0 B0 /\ union_maps A0 B0 C.
+Definition merge_abstractions A B C :=
+  exists A0 B0 A1 B1,
+    remove_loans A B A0 B0 /\ equiv_map A0 A1 /\ equiv_map B0 B1 /\
+    map_disjoint B0 B1 /\ C = union A1 B1.
 
 Definition remove_anon a S :=
   {| vars := vars S; anons := delete a (anons S); abstractions := abstractions S|}.
@@ -553,11 +556,11 @@ Record state_equivalence := {
 }.
 
 Definition valid_accessor_permutation perm S :=
-  is_permutation (anons_perm perm) (anons S) /\
-  map_Forall2 (fun k => is_permutation (M := Pmap)) (abstractions_perm perm) (abstractions S).
+  is_equivalence_map (anons_perm perm) (anons S) /\
+  map_Forall2 (fun k => is_equivalence_map (M := Pmap)) (abstractions_perm perm) (abstractions S).
 
 Definition valid_loan_id_names (loan_map : loan_id_map) S :=
-  map_inj loan_map /\ subseteq (loan_set_state S) (dom loan_map)
+  partial_inj_map loan_map /\ subseteq (loan_set_state S) (dom loan_map)
 .
 
 Definition is_state_equivalence perm S :=
@@ -590,14 +593,14 @@ Lemma rename_state_preserves_accessor_perm_validity r perm S :
 Proof.
   split.
   - intros (H & G). split.
-    + eapply is_permutation_dom_eq; [apply dom_fmap_L | exact H].
+    + eapply is_equivalence_map_dom_eq; [apply dom_fmap_L | exact H].
     + intros i. specialize (G i). cbn in G. simpl_map.
       destruct (lookup i (abstractions S)); [ | exact G].
-      inversion G. constructor. eapply is_permutation_dom_eq; [apply dom_fmap_L | eassumption].
+      inversion G. constructor. eapply is_equivalence_map_dom_eq; [apply dom_fmap_L | eassumption].
   - intros (H & G). split.
-    + apply is_permutation_fmap. exact H.
+    + apply is_equivalence_map_fmap. exact H.
     + intros i. specialize (G i). cbn. simpl_map. inversion G; constructor.
-      apply is_permutation_fmap. assumption.
+      apply is_equivalence_map_fmap. assumption.
 Qed.
 
 Lemma rename_accessors_rename_state_commute p0 p1 S :
@@ -605,11 +608,11 @@ Lemma rename_accessors_rename_state_commute p0 p1 S :
   rename_accessors p1 (rename_state p0 S) = rename_state p0 (rename_accessors p1 S).
 Proof.
   intros ((H & ?) & G). unfold rename_accessors, rename_state. cbn. f_equal.
-  - apply pkmap_fmap, map_inj_equiv. assumption.
+  - apply pkmap_fmap. assumption.
   - rewrite map_zip_with_fmap_2, map_fmap_zip_with. apply map_eq.
     intros i. specialize (G i). rewrite !map_lookup_zip_with.
     inversion G as [? ? (? & _) | ]; [ | reflexivity]. cbn. f_equal.
-    apply pkmap_fmap, map_inj_equiv. assumption.
+    apply pkmap_fmap. assumption.
 Qed.
 
 Corollary apply_state_permutation_alt perm S :
@@ -689,15 +692,15 @@ Proof.
   apply permutation_accessor_is_Some in Some_i, Some_j.
   destruct Some_i.
   - inversion Some_j. f_equal. eapply encode_inj. congruence.
-  - inversion Some_j. f_equal. eapply inj_anons_perm; [eassumption.. | ].
-    eapply encode_inj. auto.
+  - inversion Some_j as [ | a' ? get_a' | ]. f_equal. eapply inj_anons_perm; [auto | ].
+    setoid_rewrite get_a. setoid_rewrite get_a'. f_equal. eapply encode_inj. auto.
   - specialize (inj_abstractions_perm i).
     inversion inj_abstractions_perm as [q A (inj_p & _) | ]; [ | congruence].
     replace q with p in * by congruence.
     inversion Some_j as [| | i'' ? q' ? get_i'' ? _H eq_encode].
     f_equal. apply encode_inj in eq_encode. inversion eq_encode. subst. f_equal.
     rewrite get_i in get_i''. replace q' with p in * by congruence.
-    eapply inj_p; [eassumption.. | congruence].
+    eapply inj_p; [auto | congruence].
 Qed.
 
 Lemma permutation_accessor_is_equivalence S perm :
@@ -712,12 +715,12 @@ Proof.
       apply sum_maps_is_Some in Hi'.
       destruct Hi' as [(? & -> & _) | (? & -> & G)]; rewrite decode'_encode.
       * auto.
-      * rewrite <-dom_anons_perm in G. destruct G as (? & G). setoid_rewrite G. auto.
+      * apply dom_anons_perm in G. destruct G as (? & G). setoid_rewrite G. auto.
     + rewrite decode'_encode. revert Hij'. rewrite lookup_flatten.
       specialize (inj_abstractions_perm i').
       inversion inj_abstractions_perm as [? A (_ & dom_A) | ];
           [ | intros (? & ?); discriminate].
-      cbn. rewrite <-dom_A. intros (? & ->). auto.
+      cbn. intros (? & ->)%dom_A. auto.
 Qed.
 
 Lemma perm_at_var perm v : permutation_accessor perm (encode_var v) = Some (encode_var v).
@@ -756,18 +759,17 @@ Proof.
     destruct G as [ | | i ? p ? get_p_i].
     + rewrite !get_at_var. reflexivity.
     + rewrite !get_at_anon. unfold apply_state_permutation; cbn.
-      erewrite lookup_pkmap by (rewrite <-?map_inj_equiv; eassumption). reflexivity.
+      erewrite lookup_pkmap by (rewrite <-?partial_inj_map_equiv; eassumption). reflexivity.
     + rewrite !get_at_abstraction.
       specialize (Habs_perm i). rewrite get_p_i in Habs_perm.
       inversion Habs_perm as [? A (? & _) _p get_A_i | ]; subst.
       erewrite abstraction_rename_accessors by eauto.
-      symmetry. apply lookup_pkmap; rewrite <-?map_inj_equiv; assumption.
+      symmetry. apply lookup_pkmap; rewrite <-?partial_inj_map_equiv; assumption.
   - destruct H as (Hanons_perm & Habs_perm).
     unfold get_map. cbn. rewrite !size_sum_maps.
-    rewrite size_pkmap by now apply permutation_is_equivalence. f_equal.
-    apply size_flatten.
+    rewrite size_pkmap by assumption. f_equal. apply size_flatten.
     intros i. rewrite map_lookup_zip_with. specialize (Habs_perm i). destruct Habs_perm.
-    + constructor. symmetry. apply size_pkmap, permutation_is_equivalence. assumption.
+    + constructor. symmetry. apply size_pkmap. assumption.
     + constructor.
 Qed.
 
@@ -1346,37 +1348,43 @@ Lemma add_anons_delete S i A v S' :
   lookup i A = None -> add_anons S (insert i v A) S' ->
   exists a, fresh_anon S a /\ add_anons (S,, a |-> v) A S'.
 Proof.
-  intros i_fresh H. inversion H as [? ? ? Hunion]; subst.
-  apply union_maps_insert_r_l in Hunion; [ | exact i_fresh].
-  destruct Hunion as (a & G & fresh_a).
-  exists a. unfold fresh_anon. rewrite get_at_anon. split; [assumption | ].
-  refine (AddAnons (S,, a |-> v) _ _ G).
+  intros i_fresh H. inversion H as [B (Hequiv & Hdisj & ->)].
+  apply equiv_map_delete in Hequiv; [ | assumption].
+  destruct Hequiv as (a & get_B_v & Hequiv).
+  assert (lookup a (anons S) = None). { eapply map_disjoint_Some_r; eassumption. }
+  exists a. split.
+  - unfold fresh_anon. rewrite get_at_anon. assumption.
+  - exists (delete a B). split; [assumption | ]. split.
+    + set_solver.
+    + cbn. f_equal. rewrite union_insert_delete by assumption. reflexivity.
 Qed.
 
 Lemma add_anons_insert S A S' i v a :
   fresh_anon S' a -> lookup i A = None -> add_anons S A S' ->
   add_anons S (insert i v A) (S',, a |-> v).
 Proof.
-  unfold fresh_anon. rewrite get_at_anon. intros fresh_a ? H. inversion H. subst.
-  unfold add_anon. cbn in *. constructor. eapply UnionInsert with (j := a).
-  - rewrite eq_None_not_Some. intros (w & G). eapply union_contains_left in G; [ | eassumption].
-    assert (Some w = None). { rewrite <-fresh_a, <-G. reflexivity. } discriminate.
-  - assumption.
-  - apply union_maps_insert_l; assumption.
+  unfold fresh_anon. rewrite get_at_anon. intros fresh_a ? H.
+  destruct H as [B (Hequiv & Hdisj & ->)].
+  apply lookup_union_None_1 in fresh_a. destruct fresh_a as (fresh_a & ?).
+  eapply equiv_map_insert_2 in Hequiv; [ | eassumption..].
+  eexists. split; [exact Hequiv | ]. split.
+  - rewrite <-not_elem_of_dom in fresh_a. set_solver.
+  - cbn. f_equal. apply insert_union_r. assumption.
 Qed.
 
 Lemma add_anons_empty S S' : add_anons S empty S' -> S = S'.
 Proof.
-  intros H. destruct S. inversion H as [? ? ? G]; subst. inversion G; subst; cbn in *.
-  - reflexivity.
-  - exfalso. eapply insert_non_empty. eassumption.
+  intros (? & ->%equiv_map_empty & ? & ->). rewrite map_union_empty. destruct S. reflexivity.
 Qed.
 
 Lemma add_anons_singleton S i v S' : add_anons S (singletonM i v) S' ->
   exists a, fresh_anon S a /\ S' = S,, a |-> v.
 Proof.
-  intros (a & fresh_a & H)%(add_anons_delete _ i _ v); [ | now simpl_map].
-  exists a. split; [assumption | ]. apply add_anons_empty in H. congruence.
+  intros (? & (a & ->)%equiv_map_singleton & fresh_a & ->).
+  apply map_disjoint_singleton_r in fresh_a. exists a.
+  split.
+  - unfold fresh_anon. rewrite get_at_anon. assumption.
+  - rewrite <-insert_union_singleton_r by assumption. destruct S. reflexivity.
 Qed.
 
 (* An alternative definition of add_anon. *)
@@ -1390,18 +1398,31 @@ Inductive add_anons' : state -> Pmap value -> state -> Prop :=
 Lemma add_anons_alt S A S' : add_anons S A S' <-> add_anons' S A S'.
 Proof.
   split.
-  - intros H. destruct H as [? ? ? H]. remember (anons S) as _anons eqn:EQN.
-    revert S EQN. induction H as [ | ? A anons' i a v ? ? ? IH].
-    + intros S ->. destruct S; cbn. constructor.
-    + intros S ->. apply AddAnons_insert with (a := a);
-      [assumption | unfold fresh_anon; now rewrite get_at_anon | ].
-      specialize (IH (S,, a |-> v)). unfold add_anon in IH. cbn in IH.
-      apply IH. reflexivity.
+  - intros (B & equiv_A_B & Hdisj & ->). revert S A Hdisj equiv_A_B.
+    induction B as [ | a v B get_B_a _ IHB] using map_first_key_ind.
+    + intros S ? _ empty_A. symmetry in empty_A. apply equiv_map_empty in empty_A. subst.
+      rewrite map_union_empty. destruct S. constructor.
+    + intros S A Hdisj equiv_A. symmetry in equiv_A.
+      apply equiv_map_delete in equiv_A; [ | assumption].
+      destruct equiv_A as (i & get_A_v & equiv_A). symmetry in equiv_A.
+      apply insert_delete_id in get_A_v. rewrite <-get_A_v.
+      rewrite map_disjoint_insert_r in Hdisj. destruct Hdisj as (fresh_a & Hdisj).
+      econstructor.
+      * simpl_map. reflexivity.
+      * unfold fresh_anon. rewrite get_at_anon. exact fresh_a.
+      * rewrite <-insert_union_r, insert_union_l by assumption.
+        apply IHB; [ | assumption]. cbn. rewrite <-not_elem_of_dom in get_B_a. set_solver.
   - induction 1 as [S | ? ? ? ? ? ? ? fresh_a ? IH].
-    + destruct S. constructor. constructor.
-    + inversion IH; subst. unfold add_anon in *; cbn in *. constructor.
+    + exists empty. split; [reflexivity | ]. split; [set_solver | ].
+      rewrite map_union_empty. destruct S. reflexivity.
+    + destruct IH as (B & equiv_A_B & Hdisj & ->). cbn in *.
+      rewrite map_disjoint_insert_l in Hdisj. destruct Hdisj as (get_B_a & Hdisj).
       unfold fresh_anon in fresh_a. rewrite get_at_anon in fresh_a.
-      econstructor; eassumption.
+      rewrite <-insert_union_l, insert_union_r by assumption.
+      exists (insert a v B). split; [ | split].
+      * apply equiv_map_insert_2; assumption.
+      * rewrite <-not_elem_of_dom in fresh_a, get_B_a. set_solver.
+      * reflexivity.
 Qed.
 
 (* Commutation lemmas for add_anons. *)
@@ -2224,9 +2245,9 @@ Lemma id_state_permutation_is_valid_accessor_permutation S :
   valid_accessor_permutation (id_state_permutation S) S.
 Proof.
   split.
-  - apply id_permutation_is_permutation.
+  - apply id_permutation_is_equivalence_map.
   - intros i. cbn. simpl_map. destruct (lookup i (abstractions S)); constructor.
-    apply id_permutation_is_permutation.
+    apply id_permutation_is_equivalence_map.
 Qed.
 
 Instance reflexive_accessor_perm : Reflexive equiv_states_up_to_accessor_permutation.
@@ -2238,7 +2259,7 @@ Qed.
 
 Definition id_loan_map (L : Pset) : Pmap positive := set_to_map (fun l => (l, l)) L.
 
-Lemma id_loan_map_inj L : map_inj (id_loan_map L).
+Lemma id_loan_partial_inj_map L : partial_inj_map (id_loan_map L).
 Proof.
  intros ? ? (? & _ & ?)%lookup_set_to_map; [ | auto].
  intros ? ? (? & _ & ?)%lookup_set_to_map; [ | auto]. congruence.
@@ -2280,7 +2301,7 @@ Instance reflexive_rename_loan : Reflexive equiv_states_up_to_loan_renaming.
 Proof.
   intros S. exists (id_loan_map (loan_set_state S)). split.
   - split.
-    + apply id_loan_map_inj.
+    + apply id_loan_partial_inj_map.
     + rewrite dom_id_loan_map. reflexivity.
   - symmetry. apply rename_state_identity.
 Qed.
@@ -2301,7 +2322,7 @@ Proof.
   - split.
     + assumption.
     + intros i. cbn. simpl_map. destruct (lookup i (abstractions S)); constructor.
-      apply id_permutation_is_permutation.
+      apply id_permutation_is_equivalence_map.
   - unfold rename_accessors. destruct S, S'. cbn in *. subst. f_equal.
     apply map_eq. intros i. rewrite map_lookup_zip_with. simpl_map.
     destruct (lookup i _); cbn; f_equal. symmetry. apply apply_id_permutation.
@@ -2457,7 +2478,7 @@ Proof.
   destruct (p0_perm) as (? & H). destruct p1_perm as (? & G).
   split.
   - apply compose_permutation; [assumption | ].
-    eapply is_permutation_dom_eq; [ | eassumption]. reflexivity.
+    eapply is_equivalence_map_dom_eq; [ | eassumption]. reflexivity.
   - intros i. specialize (H i). specialize (G i).
     revert G. cbn. rewrite !map_lookup_zip_with. inversion H.
     + cbn. inversion 1. constructor. apply compose_permutation; assumption.
@@ -2469,7 +2490,7 @@ Definition compose_state_permutation p1 p0 := {|
   loan_id_names := map_compose (loan_id_names p1) (loan_id_names p0);
 |}.
 
-Lemma is_permutation_compose S p1 p0 :
+Lemma is_equivalence_map_compose S p1 p0 :
   is_state_equivalence p0 S -> is_state_equivalence p1 (apply_state_permutation p0 S) ->
   is_state_equivalence (compose_state_permutation p1 p0) S.
 Proof.
@@ -2565,7 +2586,7 @@ Instance equiv_states_transitive : Transitive equiv_states.
 Proof.
   intros S ? ? (p0 & p0_perm & ->) (p1 & p1_perm & ->).
   exists (compose_state_permutation p1 p0). split.
-  - apply is_permutation_compose; assumption.
+  - apply is_equivalence_map_compose; assumption.
   - apply apply_state_permutation_compose; assumption.
 Qed.
 
@@ -2573,7 +2594,7 @@ Instance transitive_equiv_val_state : Transitive equiv_val_state.
 Proof.
   intros (v & S) (? & ?) (? & ?) (p0 & ? & H & -> & ->) (p1 & ? & G & -> & ->).
   exists (compose_state_permutation p1 p0). split.
-  - apply is_permutation_compose; assumption.
+  - apply is_equivalence_map_compose; assumption.
   - rewrite apply_state_permutation_compose, rename_value_compose by assumption.
     split; [ | auto].
     intros l Hl. specialize (H l Hl).
@@ -2601,10 +2622,10 @@ Lemma invert_valid_accessor_perm perm S :
   valid_accessor_permutation (invert_accessor_perm perm) (rename_accessors perm S).
 Proof.
   intros (? & Habs_perm). split.
-  - apply invert_permutation_is_permutation. assumption.
+  - apply invert_permutation_is_equivalence_map. assumption.
   - intros i. specialize (Habs_perm i). cbn. simpl_map. rewrite map_lookup_zip_with.
     inversion Habs_perm as [? ? ? | ].
-    + constructor. apply invert_permutation_is_permutation. assumption.
+    + constructor. apply invert_permutation_is_equivalence_map. assumption.
     + constructor.
 Qed.
 
@@ -2612,7 +2633,7 @@ Lemma invert_valid_loan_id_names perm S :
   valid_loan_id_names perm S ->
   valid_loan_id_names (invert_permutation perm) (rename_state perm S).
 Proof.
-  intros (loan_map_inj & Hinclusion). split.
+  intros (loan_partial_inj_map & Hinclusion). split.
   + apply invert_permutation_inj. assumption.
   + intros l. rewrite elem_of_loan_set_state. intros (p & get_l).
     rewrite rename_state_sget in get_l.
@@ -2624,7 +2645,7 @@ Proof.
     apply elem_of_loan_set_state. exists p. assumption.
 Qed.
 
-Lemma invert_state_permutation_is_permutation perm S :
+Lemma invert_state_permutation_is_equivalence_map perm S :
   is_state_equivalence perm S ->
   is_state_equivalence (invert_state_permutation perm) (apply_state_permutation perm S).
 Proof.
@@ -2650,7 +2671,7 @@ Qed.
 Lemma apply_invert_state_permutation perm S (H : is_state_equivalence perm S) :
   apply_state_permutation (invert_state_permutation perm) (apply_state_permutation perm S) = S.
 Proof.
-  rewrite apply_state_permutation_compose; auto using invert_state_permutation_is_permutation.
+  rewrite apply_state_permutation_compose; auto using invert_state_permutation_is_equivalence_map.
   destruct H as (((? & ?) & H) & ?). unfold apply_state_permutation. cbn.
   rewrite <-rename_state_compose by auto using invert_valid_loan_id_names.
   rewrite rename_state_invert_permutation by assumption.
@@ -2666,13 +2687,13 @@ Qed.
 Instance equiv_states_symmetric : Symmetric equiv_states.
 Proof.
   intros S ? (p & Hp & ->). exists (invert_state_permutation p). split.
-  - apply invert_state_permutation_is_permutation. assumption.
+  - apply invert_state_permutation_is_equivalence_map. assumption.
   - symmetry. apply apply_invert_state_permutation. assumption.
 Qed.
 
 (* Note: we do a similar reasonning to prove that that invert_state_permutation is a permutation.
  * Some parts could be factorized. *)
-Lemma loan_set_rename_value v m (Hv : subseteq (loan_set_val v) (dom m)) (Hm : map_inj m) :
+Lemma loan_set_rename_value v m (Hv : subseteq (loan_set_val v) (dom m)) (Hm : partial_inj_map m) :
   subseteq (loan_set_val (rename_value m v)) (dom (invert_permutation m)).
 Proof.
   intros l (q & Hq)%elem_of_loan_set_val.
@@ -2689,7 +2710,7 @@ Instance equiv_val_state_symmetric : Symmetric equiv_val_state.
 Proof.
   intros (v & S) (? & ?) (p & Hp & Hv & -> & ->). exists (invert_state_permutation p).
   split; [ | split; [ | split] ].
-  - apply invert_state_permutation_is_permutation. assumption.
+  - apply invert_state_permutation_is_equivalence_map. assumption.
   - apply loan_set_rename_value; [exact Hv | apply Hp].
   - symmetry. apply apply_invert_state_permutation. assumption.
   - cbn. rewrite rename_value_compose.
@@ -2796,7 +2817,7 @@ Proof.
       rewrite <-EQN_A in dom_abs.
       remember (lookup i (abstractions (S.[sp <- v]))).
       inversion dom_abs as [? ? eq_dom | ]; subst. constructor.
-      unfold is_permutation. destruct G. setoid_rewrite <-elem_of_dom.
+      unfold is_equivalence_map. destruct G. setoid_rewrite <-elem_of_dom.
       rewrite <-eq_dom. setoid_rewrite elem_of_dom. split; assumption.
     + assert (fresh_abstraction S i) as G by easy.
       rewrite fresh_abstraction_sset in G. rewrite G. constructor.
@@ -2878,8 +2899,8 @@ Proof.
   destruct p_is_state_equiv as (((? & eq_dom) & Habstractions_perm) & (? & ?)).
   split; split.
   - cbn. split.
-    + apply map_inj_insert; [ | assumption]. intros ? get_i.
-      erewrite lookup_pkmap in fresh_b; [ | now apply map_inj_equiv | eassumption].
+    + apply partial_inj_map_insert; [ | assumption]. intros ? get_i.
+      erewrite lookup_pkmap in fresh_b; [ | now apply partial_inj_map_equiv | eassumption].
       rewrite eq_None_not_Some, lookup_fmap, fmap_is_Some, <-eq_dom, get_i in fresh_b. auto.
     + setoid_rewrite lookup_insert_is_Some. intros i. specialize (eq_dom i). tauto.
   - exact Habstractions_perm.
@@ -3027,9 +3048,9 @@ Proof.
 Qed.
 
 Lemma add_anons_rename_accessors perm p S0 A S1 S'1 :
-  is_permutation (anons_perm perm) (anons S0) ->
-  map_Forall2 (fun k => is_permutation (M := Pmap)) (abstractions_perm perm) (abstractions S0) ->
-  is_permutation p A ->
+  is_equivalence_map (anons_perm perm) (anons S0) ->
+  map_Forall2 (fun k => is_equivalence_map (M := Pmap)) (abstractions_perm perm) (abstractions S0) ->
+  is_equivalence_map p A ->
   let S'0 := rename_accessors perm S0 in
   let B := apply_permutation p A in
   add_anons S0 A S1 -> add_anons S'0 B S'1 ->
@@ -3063,7 +3084,7 @@ Proof.
 Qed.
 
 Lemma add_anons_equiv perm p S0 A S1 S'1 :
-  is_state_equivalence perm S0 -> is_permutation p A ->
+  is_state_equivalence perm S0 -> is_equivalence_map p A ->
   subseteq (loan_set_abstraction A) (dom (loan_id_names perm)) ->
   let S'0 := apply_state_permutation perm S0 in
   let B := apply_permutation p (rename_set (loan_id_names perm) A) in
@@ -3076,10 +3097,10 @@ Proof.
     pose proof (loan_set_add_anons _ _ _ Hadd_anons). set_solver.
   - apply (add_anons_rename_state (loan_id_names perm)) in Hadd_anons.
     eapply add_anons_rename_accessors; [.. | eassumption].
-    + apply is_permutation_fmap. assumption.
+    + apply is_equivalence_map_fmap. assumption.
     + intros i. specialize (H i). cbn in *. simpl_map. destruct (lookup i (abstractions S0)); [ | assumption].
-      inversion H. constructor. apply is_permutation_fmap. assumption.
-    + apply is_permutation_fmap. assumption.
+      inversion H. constructor. apply is_equivalence_map_fmap. assumption.
+    + apply is_equivalence_map_fmap. assumption.
     + eassumption.
 Qed.
 
@@ -3094,7 +3115,7 @@ Definition add_abstraction_perm perm i p := {|
 |}.
 
 Lemma add_abstraction_valid_accessor_permutation S perm p i A :
-  valid_accessor_permutation perm S -> is_permutation p A ->
+  valid_accessor_permutation perm S -> is_equivalence_map p A ->
   valid_accessor_permutation (add_abstraction_accessor_permutation perm i p) (S,,, i |-> A).
 Proof.
   intros (? & ?) ?. split.
@@ -3104,7 +3125,7 @@ Qed.
 
 (* Note: the hypothesis [fresh_abstraction S i] could be removed. *)
 Lemma add_abstraction_perm_equivalence perm S i A p :
-  is_state_equivalence perm S -> is_permutation p A ->
+  is_state_equivalence perm S -> is_equivalence_map p A ->
   subseteq (loan_set_abstraction A) (dom (loan_id_names perm)) -> fresh_abstraction S i ->
   is_state_equivalence (add_abstraction_perm perm i p) (S,,, i |-> A).
 Proof.
@@ -3129,7 +3150,7 @@ Proof.
 Qed.
 
 Lemma rename_accessors_add_abstraction S perm p i A :
-  fresh_abstraction S i -> valid_accessor_permutation perm S -> is_permutation p A ->
+  fresh_abstraction S i -> valid_accessor_permutation perm S -> is_equivalence_map p A ->
   rename_accessors (add_abstraction_accessor_permutation perm i p) (S,,, i |-> A) =
   rename_accessors perm S,,, i |-> apply_permutation p A.
 Proof.
@@ -3143,16 +3164,16 @@ Proof.
       destruct perm_rel as [ | | i' ? ? ? perm_at_i].
       * rewrite !get_at_var. reflexivity.
       * rewrite !get_at_anon. cbn. erewrite lookup_pkmap;
-          [reflexivity | apply map_inj_equiv, G | assumption].
+          [reflexivity | apply partial_inj_map_equiv, G | assumption].
       * erewrite !get_at_abstraction.
         destruct (decide (i = i')) as [<- | ].
         -- cbn in *. simpl_map. inversion perm_at_i; subst. symmetry. cbn.
-           apply lookup_pkmap; [apply map_inj_equiv, p_is_perm | assumption].
+           apply lookup_pkmap; [apply partial_inj_map_equiv, p_is_perm | assumption].
         -- cbn in *. simpl_map. rewrite map_lookup_zip_with, perm_at_i. cbn.
            destruct Hstate_perm as (_ & Habstractions_perm).
            specialize (Habstractions_perm i'). rewrite perm_at_i in Habstractions_perm.
            inversion Habstractions_perm as [? B (? & _) | ].
-           cbn. symmetry. apply lookup_pkmap; [apply map_inj_equiv | ]; assumption.
+           cbn. symmetry. apply lookup_pkmap; [apply partial_inj_map_equiv | ]; assumption.
     + cbn. rewrite !size_sum_maps.
       rewrite flatten_insert by now rewrite fresh_A.
       rewrite flatten_insert by (apply map_lookup_zip_with_None; auto).
@@ -3170,7 +3191,7 @@ Proof.
 Qed.
 
 Lemma permutation_add_abstraction S perm p i A :
-  fresh_abstraction S i -> is_state_equivalence perm S -> is_permutation p A ->
+  fresh_abstraction S i -> is_state_equivalence perm S -> is_equivalence_map p A ->
   subseteq (loan_set_abstraction A) (dom (loan_id_names perm)) ->
   apply_state_permutation (add_abstraction_perm perm i p) (S,,, i |-> A) =
   apply_state_permutation perm S,,, i |-> apply_permutation p (rename_set (loan_id_names perm) A).
@@ -3180,7 +3201,7 @@ Proof.
     (try apply add_abstraction_valid_accessor_permutation; assumption).
   cbn. rewrite rename_accessors_add_abstraction by assumption.
   rewrite rename_state_add_abstraction.
-  - rewrite pkmap_fmap; [reflexivity | apply map_inj_equiv, G].
+  - rewrite pkmap_fmap; [reflexivity | apply partial_inj_map_equiv, G].
   - unfold fresh_abstraction. cbn. rewrite map_lookup_zip_with, H.
     destruct (lookup i _); reflexivity.
 Qed.
@@ -3191,7 +3212,7 @@ Lemma equiv_add_abstraction S S' i A :
 Proof.
   intros (perm & Hperm & ->) ?.
   exists (add_abstraction_accessor_permutation perm i (id_permutation A)).
-  pose proof (id_permutation_is_permutation A). split.
+  pose proof (id_permutation_is_equivalence_map A). split.
   - apply add_abstraction_valid_accessor_permutation; assumption.
   - rewrite rename_accessors_add_abstraction by assumption.
     rewrite apply_id_permutation. reflexivity.
@@ -3209,7 +3230,7 @@ Lemma remove_abstraction_perm_equivalence perm S i A :
   fresh_abstraction S i ->
   is_state_equivalence perm (S,,, i |-> A) ->
   is_state_equivalence (remove_abstraction_perm perm i) S /\
-  exists p, is_permutation p A /\ perm = add_abstraction_perm (remove_abstraction_perm perm i) i p /\ subseteq (loan_set_abstraction A) (dom (loan_id_names (remove_abstraction_perm perm i))).
+  exists p, is_equivalence_map p A /\ perm = add_abstraction_perm (remove_abstraction_perm perm i) i p /\ subseteq (loan_set_abstraction A) (dom (loan_id_names (remove_abstraction_perm perm i))).
 Proof.
   intros ? ((? & H) & (? & ?)). rewrite loan_set_add_abstraction in * |- by assumption.
   split; [split; split | ].
@@ -3368,7 +3389,7 @@ Proof.
   exists k. split; [split; split | split].
   - assumption.
   - intros i'. destruct (decide (i = i')) as [<- | ].
-    + cbn. simpl_map. constructor. apply is_permutation_insert; [ | assumption..].
+    + cbn. simpl_map. constructor. apply is_equivalence_map_insert; [ | assumption..].
       rewrite get_v. auto.
     + specialize (H i'). cbn in *. simpl_map. assumption.
   - assumption.
@@ -3383,7 +3404,7 @@ Proof.
   - cbn. rewrite map_lookup_zip_with. simpl_map. cbn.
     erewrite lookup_pkmap.
     + rewrite lookup_fmap, get_v. reflexivity.
-    + apply map_inj_equiv, map_inj_insert; [assumption | apply p_perm].
+    + apply partial_inj_map_equiv, partial_inj_map_insert; [assumption | apply p_perm].
     + simpl_map. reflexivity.
 Qed.
 
@@ -3401,8 +3422,8 @@ Proof.
 Qed.
 
 Lemma remove_loans_equiv A B A' B' (H : remove_loans A B A' B') :
-  forall pA' pB', is_permutation pA' A' -> is_permutation pB' B' ->
-    exists pA pB, is_permutation pA A /\ is_permutation pB B /\
+  forall pA' pB', is_equivalence_map pA' A' -> is_equivalence_map pB' B' ->
+    exists pA pB, is_equivalence_map pA A /\ is_equivalence_map pB B /\
       remove_loans (apply_permutation pA A) (apply_permutation pB B)
                    (apply_permutation pA' A') (apply_permutation pB' B').
 Proof.
@@ -3415,7 +3436,7 @@ Proof.
     destruct (exist_fresh (map_img (SA := Pset) pA')) as (i' & Hi').
     destruct (exist_fresh (map_img (SA := Pset) pB')) as (j' & Hj').
     rewrite not_elem_of_map_img in Hi', Hj'.
-    eapply is_permutation_insert in perm_A', perm_B'; [ | auto..].
+    eapply is_equivalence_map_insert in perm_A', perm_B'; [ | auto..].
     specialize (IH _ _ perm_A' perm_B'). edestruct IH as (pA & pB & perm_A & perm_B & IH').
     exists pA, pB. split; [assumption | ]. split; [assumption | ].
     erewrite <-(insert_delete_id A') in IH'; [ | eassumption].
@@ -3429,8 +3450,8 @@ Proof.
 Qed.
 
 Lemma merge_abstractions_equiv A B C pC :
-  is_permutation pC C -> merge_abstractions A B C ->
-  exists pA pB, is_permutation pA A /\ is_permutation pB B /\
+  is_equivalence_map pC C -> merge_abstractions A B C ->
+  exists pA pB, is_equivalence_map pA A /\ is_equivalence_map pB B /\
     merge_abstractions (apply_permutation pA A) (apply_permutation pB B) (apply_permutation pC C).
 Proof.
   intros perm_C (A' & B' & Hremove & union_A'_B').
@@ -3463,7 +3484,7 @@ Proof.
     rewrite perm_at_anon.
     specialize (anons_g b).
     cbn in anons_g. erewrite lookup_pkmap in anons_g;
-      [ | apply map_inj_equiv, inj_anons_f | eassumption].
+      [ | apply partial_inj_map_equiv, inj_anons_f | eassumption].
     rewrite<-anons_g in get_a. destruct get_a as (c & get_c).
     setoid_rewrite get_c. reflexivity.
 
@@ -3477,7 +3498,7 @@ Proof.
     destruct p_perm as (inj_p & dom_p). rewrite <-dom_p in get_j'.
     destruct get_j' as (j' & get_j'). rewrite !get_j'. cbn. rewrite perm_at_abstraction, <-H1. cbn.
     destruct q_perm as (_ & dom_q). specialize (dom_q j').
-    erewrite lookup_pkmap in dom_q; [ | apply map_inj_equiv, inj_p | eassumption].
+    erewrite lookup_pkmap in dom_q; [ | apply partial_inj_map_equiv, inj_p | eassumption].
     rewrite <-dom_q in get_v. destruct get_v as (? & ->). reflexivity.
 Qed.
 
@@ -3514,7 +3535,7 @@ Lemma is_fresh_apply_permutation perm S l l' :
 Proof.
   intros Hperm H. erewrite <-apply_invert_state_permutation at 1 by eassumption.
   eapply _is_fresh_apply_permutation.
-  - apply invert_state_permutation_is_permutation. assumption.
+  - apply invert_state_permutation_is_equivalence_map. assumption.
   - apply lookup_Some_invert_permutation; [apply Hperm | apply H].
 Qed.
 
@@ -3538,7 +3559,7 @@ Proof.
   intros ? valid_sp. split.
   - apply _not_in_borrow_apply_permutation; assumption.
   - intros ?. eapply _not_in_borrow_apply_permutation.
-    + apply invert_state_permutation_is_permutation. assumption.
+    + apply invert_state_permutation_is_equivalence_map. assumption.
     + apply permutation_valid_spath; assumption.
     + rewrite apply_invert_state_permutation by assumption.
       cbn. erewrite invert_state_permutation_spath; try eassumption. apply H.
