@@ -946,14 +946,14 @@ Section PKMap.
     - symmetry. apply apply_permutation_compose; assumption.
   Qed.
 
-  Lemma is_permutation_insert p (m : M V) i j :
-    is_Some (lookup i m) -> (forall k, lookup k p <> Some j)  ->
-    is_permutation p (delete i m) -> is_permutation (insert i j p) m.
+  Lemma is_permutation_insert p m i j (v : V) :
+    lookup i m = None -> (forall k, lookup k p <> Some j)  ->
+    is_permutation p m -> is_permutation (insert i j p) (insert i v m).
   Proof.
     intros ? ? (inj_p & eq_dom). split.
     - apply map_inj_insert; assumption.
-    - intros i'. rewrite lookup_insert_is_Some, eq_dom, lookup_delete_is_Some.
-      destruct (decide (i = i')) as [<- | ]; intuition.
+    - intros i'. rewrite lookup_insert_is_Some, eq_dom.
+      destruct (decide (i = i')) as [<- | ]; simpl_map; intuition.
   Qed.
 
   Lemma is_permutation_delete p i (v : V) m (G : lookup i m = None) :
@@ -1202,8 +1202,7 @@ Section UnionMaps.
       { rewrite eq_None_not_Some. destruct perm_pB as (_ & ->). rewrite i_notin. auto. }
       destruct (exist_fresh (map_img (SA := Pset) pB)) as (i' & Hi').
       rewrite not_elem_of_map_img in Hi'.
-      erewrite <-(delete_insert_id B) in perm_pB by eassumption.
-      eapply is_permutation_insert in perm_pB; [ | simpl_map; eauto..].
+      eapply is_permutation_insert in perm_pB; [ | eassumption..].
       eexists _, _. split; [exact perm_pA | ]. split; [exact perm_pB | ].
       erewrite apply_permutation_insert; [ | apply perm_pB | simpl_map; eauto..].
       rewrite delete_insert_id by assumption.

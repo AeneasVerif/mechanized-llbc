@@ -189,22 +189,22 @@ Proof.
 
   - apply (extend_state_permutation (loan_set_val v)) in valid_perm.
     destruct valid_perm as (perm' & valid_perm & ? & ->). clear perm.
-    eapply add_abstraction_value_perm_equivalence in valid_perm; [ | eassumption..].
-    destruct valid_perm as (k & valid_perm & G & get_at_i_k). rewrite G.
-    execution_step. { eexists. split; [exact valid_perm | reflexivity]. }
-    rewrite rename_value_no_loan_id in get_at_i_k by now apply loan_set_id_empty.
-    erewrite permutation_remove_abstraction_value.
-    { eapply Leq_Abs_ClearValue_n; eassumption. }
-    { eassumption. }
-    (* TODO: separate lemma *)
-    { unfold abstraction_element in get_at_i_j.
-      rewrite get_at_abstraction, bind_Some in get_at_i_j.
-      destruct get_at_i_j as (A & get_A & _).
-      rewrite perm_at_abstraction. cbn.
-      destruct valid_perm as ((_ & abs_valid) & _). specialize (abs_valid i).
-      rewrite get_A in abs_valid. cbn in abs_valid. simpl_map.
-      destruct (lookup i (abstractions_perm _)); [ | inversion abs_valid].
-      cbn. simpl_map. reflexivity. }
+    process_state_equivalence. autorewrite with spath.
+    destruct (exist_fresh (map_img (SA := Pset) p)) as (j' & fresh_j').
+    assert (lookup j p = None).
+    { destruct perm_A as (_ & Hdom). now rewrite eq_None_not_Some, Hdom, <-eq_None_not_Some. }
+    rewrite not_elem_of_map_img in fresh_j'.
+    eapply is_permutation_insert in perm_A; [ | eassumption..].
+    assert (subseteq (loan_set_abstraction (insert j v A)) (dom (loan_id_names (remove_abstraction_perm perm' i)))).
+    { unfold loan_set_abstraction. rewrite map_fold_insert_L; set_solver. }
+    execution_step.
+    { eexists. split; [ | reflexivity]. apply add_abstraction_perm_equivalence; eassumption. }
+    autorewrite with spath. (* TODO: hints *) rewrite fmap_insert.
+    erewrite apply_permutation_insert;
+      [ | apply perm_A | now rewrite lookup_fmap, fresh_j | now simpl_map].
+    rewrite delete_insert_id by assumption.
+    erewrite <-vsize_rename_value.
+    apply Leq_Abs_ClearValue_n; eauto with spath. apply lookup_pkmap_None. assumption.
 
   - process_state_equivalence.
     execution_step. { eexists. split; [exact valid_perm | reflexivity]. }
@@ -336,12 +336,8 @@ Proof.
     + rewrite rename_state_sget, get_node_rename_value, get_borrow_l0. reflexivity.
     + assumption.
     + rewrite rename_state_sget. eauto with spath.
-  - rewrite rename_state_remove_abstraction_value.
-    eapply Leq_Abs_ClearValue.
-    + unfold abstraction_element in *. rewrite get_at_abstraction in *. cbn. simpl_map.
-      destruct (lookup i _); [ | discriminate]. cbn in *. simpl_map. reflexivity.
-    + auto with spath.
-    + auto with spath.
+  - rewrite !rename_state_add_abstraction, fmap_insert by assumption.
+    apply Leq_Abs_ClearValue; auto with spath. rewrite lookup_fmap, fresh_j. reflexivity.
   - rewrite rename_state_add_anon by auto with spath.
     apply Leq_AnonValue. auto with spath.
 Qed.
@@ -447,12 +443,8 @@ Proof.
       { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1) (a := a0).
         all: eauto with spath. not_contains. all: autorewrite with spath; eassumption. }
       states_eq.
-  - autorewrite with spath in * |-. process_state_eq.
-    intros b. rewrite !fst_pair, !snd_pair. intros fresh_b _.
-    eapply prove_rel.
-    { eapply Leq_Abs_ClearValue with (i := i) (j := j).
-      autorewrite with spath. all: eassumption. }
-    autorewrite with spath. reflexivity.
+  - process_state_eq. intros b. rewrite !fst_pair, !snd_pair. intros fresh_b _.
+    rewrite <-!add_abstraction_add_anon. eapply Leq_Abs_ClearValue; assumption.
   - process_state_eq.
     intros b. rewrite !fst_pair, !snd_pair. intros _ (? & ?)%fresh_anon_add_anon.
     rewrite add_anon_commute by congruence.
