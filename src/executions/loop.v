@@ -178,7 +178,7 @@ Proof.
       eapply eval_seq_unit.
       { eapply E_Assign.
         { refine (try_compute (compute_borrow_mut l2 _ _) _ _ _). reflexivity. }
-       { refine (try_compute (compute_eval_store 1%positive _ _) _ _ _). reflexivity. }
+        { refine (try_compute (compute_eval_store 1%positive _ _) _ _ _). reflexivity. }
       }
       simpl_state.
       (** Evaluation of the assigment << *b += 1 >> *)
