@@ -16,6 +16,7 @@ fn f(mut a: i32, mut b: i32, mut c: i32) {
     else {
         y = &mut b;
     }
+    *x += 1;
     a += 1;
     *y += 1;
 }
