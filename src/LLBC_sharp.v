@@ -64,6 +64,12 @@ Variant leq_state_base_n : nat -> state -> state -> Prop :=
     (sp_not_in_abstraction : not_in_abstraction sp)
     (Htype : is_of_type ty (S.[sp +++ [0] ])) :
     leq_state_base_n 0 S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(ty, l1)))
+| Leq_Borrow_Abstraction_n S i j A l' a ty'
+    (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
+    (fresh_l' : is_fresh l' (S,,, i |-> A))
+    (fresh_a : fresh_anon S a) :
+    leq_state_base_n 0 (S,,, i |-> A)
+                       (S,,, i |-> insert j (loan^m(ty', l')) A,, a |-> borrow^m(l', VSymbolic ty'))
 | Leq_Abs_ClearValue_n S i j v A
     (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
@@ -120,6 +126,12 @@ Variant leq_state_base : state -> state -> Prop :=
     (sp_not_in_abstraction : not_in_abstraction sp)
     (Htype : is_of_type ty (S.[sp +++ [0] ])) :
     leq_state_base S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(ty, l1)))
+| Leq_Borrow_Abstraction S i j A l' a ty'
+    (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
+    (fresh_l' : is_fresh l' (S,,, i |-> A))
+    (fresh_a : fresh_anon S a) :
+    leq_state_base (S,,, i |-> A)
+                   (S,,, i |-> insert j (loan^m(ty', l')) A,, a |-> borrow^m(l', VSymbolic ty'))
 | Leq_Abs_ClearValue S i j v A
     (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :

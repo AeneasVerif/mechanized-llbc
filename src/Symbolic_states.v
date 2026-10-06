@@ -997,7 +997,7 @@ Lemma fresh_anon_add_abstraction S a i A : fresh_anon (S,,, i |-> A) a <-> fresh
 Proof. unfold fresh_anon. rewrite !get_at_anon. reflexivity. Qed.
 
 Hint Rewrite fresh_anon_add_abstraction : spath.
-Hint Resolve<- fresh_anon_add_abstraction : spath.
+Hint Resolve<- fresh_anon_add_abstraction : spath weight.
 
 Lemma fresh_abstraction_add_abstraction S i j A :
   i <> j -> fresh_abstraction S j <-> fresh_abstraction (S,,, i |-> A) j.
