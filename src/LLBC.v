@@ -276,26 +276,42 @@ Variant store (p : place) : value * state -> state -> Prop :=
   fresh_anon S a -> store p (v, S) (S.[sp <- v],, a |-> S.[sp])
 .
 
-(* TODO: take fuel into account and delete this notation. *)
-Reserved Notation "S  |-{stmt}  stmt  =>  r , S'" (at level 50).
-
-Inductive eval_stmt : statement -> flow_token -> state -> state -> Prop :=
-  | E_Nop S : S |-{stmt} Nop => rUnit, S
-  | E_Panic S : S |-{stmt} Panic => rPanic, S
-  | E_Seq_Unit S0 S1 S2 stmt_l stmt_r r (eval_stmt_l : S0 |-{stmt} stmt_l => rUnit, S1)
-      (eval_stmt_r : S1 |-{stmt} stmt_r => r, S2) :  S0 |-{stmt} stmt_l;; stmt_r => r, S2
-  | E_Seq_Propagate S0 S1 stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l => rPanic, S1) :
-      S0 |-{stmt} stmt_l;; stmt_r => rPanic, S1
-  | E_Assign S vS' S'' p rv : (S |-{rv} rv => vS') -> store p vS' S'' ->
-      S |-{stmt} ASSIGN p <- rv => rUnit, S''
-  | E_IfThenElse_T S S' S'' cond stmt_if stmt_else r
+Inductive eval_stmt : nat -> statement -> state -> option (flow_token * state) -> Prop :=
+  | E_Step_Zero s S : S |-{stmt} s ~>{0} None
+  | E_Nop n S : S |-{stmt} Nop ~>{1 + n} Some (rUnit, S)
+  | E_Panic n S : S |-{stmt} Panic ~>{1 + n} Some (rPanic, S)
+  | E_Break n S : S |-{stmt} Break ~>{1 + n} Some (rBreak, S)
+  | E_Continue n S : S |-{stmt} Continue ~>{1 + n} Some (rContinue, S)
+  | E_Seq_Unit n S0 S1 R stmt_l stmt_r (eval_stmt_l : S0 |-{stmt} stmt_l ~>{1 + n} Some (rUnit, S1))
+      (eval_stmt_r : S1 |-{stmt} stmt_r ~>{1 + n} R) :  S0 |-{stmt} stmt_l;; stmt_r ~>{1 + n} R
+  | E_Seq_Propagate n S0 S1 r stmt_l stmt_r (no_unit : r <> rUnit)
+      (eval_stmt_l : S0 |-{stmt} stmt_l ~>{1 + n} Some (r, S1)) :
+      S0 |-{stmt} stmt_l;; stmt_r ~>{1 + n} Some (r, S1)
+  | E_Seq_Interrupt n S0 stmt_l stmt_r
+      (eval_stmt_l : S0 |-{stmt} stmt_l ~>{1 + n} None) :
+      S0 |-{stmt} stmt_l;; stmt_r ~>{1 + n} None
+  | E_Assign n S vS' S'' p rv
+      (eval_rv : S |-{rv} rv => vS') (Hstore : store p vS' S'') :
+      S |-{stmt} ASSIGN p <- rv ~>{1 + n} Some (rUnit, S'')
+  | E_IfThenElse_T n S S' R cond stmt_if stmt_else
       (eval_cond : S |-{op} cond => (VBool true, S')) :
-      S' |-{stmt} stmt_if => r, S'' ->
-      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) => r, S''
-  | E_IfThenElse_F S S' S'' cond stmt_if stmt_else r
+      S' |-{stmt} stmt_if ~>{1 + n} R ->
+      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) ~>{1 + n} R
+  | E_IfThenElse_F n S S' R cond stmt_if stmt_else
       (eval_cond : S |-{op} cond => (VBool false, S')) :
-      S' |-{stmt} stmt_else => r, S'' ->
-      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) => r, S''
-  | E_Reorg S0 S1 S2 stmt r (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt => r, S2) :
-      S0 |-{stmt} stmt => r, S2
-where "S |-{stmt} stmt => r , S'" := (eval_stmt stmt r S S').
+      S' |-{stmt} stmt_else ~>{1 + n} R ->
+      S |-{stmt} (IF cond {{ stmt_if }} ELSE {{ stmt_else }}) ~>{1 + n} R
+  | E_Reorg n S0 S1 R stmt (Hreorg : reorg^* S0 S1) (Heval : S1 |-{stmt} stmt ~>{1 + n} R) :
+      S0 |-{stmt} stmt ~>{1 + n} R
+  | E_Loop_Stop n S body r r' S1
+      (eval_body : S |-{stmt} body ~>{1 + n} Some (r, S1))
+      (next_tag : end_loop_tag r = Some r') :
+      S |-{stmt} (LOOP {{ body }}) ~>{1 + n} Some (r', S1)
+  | E_Loop_Interrupt n S body
+      (eval_body : S |-{stmt} body ~>{1 + n} None) :
+      S |-{stmt} (LOOP {{ body }}) ~>{1 + n} None
+  | E_Loop_Continue n S body S1 R2
+      (eval_body : S |-{stmt} body ~>{1 + n} Some (rContinue, S1))
+      (Heval2 : S1 |-{stmt} (LOOP {{ body }}) ~>{n} R2) :
+      S |-{stmt} (LOOP {{ body }}) ~>{1 + n} R2
+where "S |-{stmt} stmt ~>{ n } R" := (eval_stmt n stmt S R) : llbc_scope.

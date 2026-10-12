@@ -115,7 +115,7 @@ Section Eval_LLBC_program.
     autorewrite with core.
 
   Lemma safe_main :
-    exists end_state, eval_stmt main rUnit init_state end_state /\
+    exists end_state, init_state |-{stmt} main ~>{1} Some (rUnit, end_state) /\
       exists pi, eval_place end_state Imm ((a, [], TInt) : place) pi /\ end_state.[pi] = VInt 58.
   Proof.
     eexists. split. {

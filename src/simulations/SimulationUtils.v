@@ -232,7 +232,15 @@ Proof. intros. transitivity Sm; [constructor | ]; assumption. Qed.
 Section WellFormedSimulations.
   Context {state : Type}.
   Context (leq_base : state -> state -> Prop).
+  Context (reorg : state -> state -> Prop).
   Context (well_formed : state -> Prop).
+  Context (leq_base_preserves_wf_r : forall a b, well_formed b -> leq_base a b -> well_formed a).
+  Context (reorg_preserves_wf : forall a b, reorg a b -> well_formed a -> well_formed b).
+
+  (* Well-formedness is preserved by sequences of the base. *)
+  Lemma leq_preserves_well_formedness Sl Sr :
+    well_formed Sr -> leq_base^* Sl Sr -> well_formed Sl.
+  Proof. intros ?. induction 1; eauto. Qed.
 
   (* Preservation of reorgs require well-formedness. However, well-formedness for related states is
    * not proved the same in LLBC+ and HLPL+:
@@ -271,21 +279,16 @@ Section WellFormedSimulations.
    * However, this proof scheme is wrong in general. Our strategy is to exhibit a measure |.| from
    * states to a well-founded order, that is decreasing by applications of < and reorg.
    *)
-  Lemma preservation_reorg_r (reorg : state -> state -> Prop)
+  Lemma preservation_reorg_r
     (measure : state -> nat)
     (leq_decreasing : forall a b, leq_base a b -> measure a < measure b)
     (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
-    (leq_base_preserves_wf_r : forall a b, well_formed b -> leq_base a b -> well_formed a)
-    (reorg_preserves_wf : forall a b, reorg a b -> well_formed a -> well_formed b)
     (H : well_formed_forward_simulation_r leq_base leq_base^* reorg reorg^*) :
     well_formed_forward_simulation_r leq_base^* leq_base^* reorg^* reorg^*.
   Proof.
     (* Sequences of reorgenizations make the measure decrease. *)
     assert (forall S S', reorg^* S S' -> measure S' <= measure S).
     { intros ? ? Hreorg. induction Hreorg; subst; eauto using Nat.lt_le_incl, Nat.le_trans. }
-    (* The well-formedness is preserved by sequences of the base. *)
-    assert (forall Sl Sr, well_formed Sr -> leq_base^* Sl Sr -> well_formed Sl).
-    { intros ? ? ? G. induction G; eauto. }
     intros Sr. remember (measure Sr) as n eqn:EQN. revert Sr EQN.
     induction n as [? IH] using lt_wf_ind. intros Sr -> Sr' well_formed_Sr reorg_Sr_Sr'.
     destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using clos_refl_trans_ind_right'.
@@ -302,7 +305,10 @@ Section WellFormedSimulations.
       by eauto.
     assert (exists Sl'', leq_base^* Sl'' Sm'' /\ reorg^* Sl' Sl'')
       as (? & ? & ?).
-    { eapply IH; [ | reflexivity | | eassumption..]; eauto using Nat.le_lt_trans. }
+    { eapply IH;
+        [ | reflexivity | | eassumption..];
+        [eauto using Nat.le_lt_trans | eauto using leq_preserves_well_formedness].
+    }
     eexists. split; eapply rt_trans; eassumption.
   Qed.
 End WellFormedSimulations.

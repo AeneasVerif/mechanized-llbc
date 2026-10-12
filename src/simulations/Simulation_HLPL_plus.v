@@ -1228,10 +1228,10 @@ Lemma reorg_preserves_HLPL_plus_rel :
   well_formed_forward_simulation_r well_formed leq_base^* leq_base^* reorg^* reorg^*.
 Proof.
   eapply preservation_reorg_r with (measure := sweight measure_node).
-  { intros Sl Sr Hle. destruct Hle; weight_inequality. }
-  { intros ? ? Hreorg. destruct Hreorg; weight_inequality. }
   { apply leq_base_preserves_wf_r. }
   { apply reorg_preserves_well_formedness. }
+  { intros Sl Sr Hle. destruct Hle; weight_inequality. }
+  { intros ? ? Hreorg. destruct Hreorg; weight_inequality. }
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
   (* Case Reorg_End_MutBorrow: *)
   - intros ? Hle. destruct Hle.
@@ -1396,61 +1396,127 @@ Proof.
                 { eapply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
                     assumption. all: autorewrite with spath; eassumption. }
                 states_eq.
-Admitted.
-
-(** * Simulation proofs for statement evaluation. *)
-Lemma stmt_preserves_well_formedness S s r S' :
-S |-{stmt} s => r, S' -> well_formed S -> well_formed S'.
-Proof.
-  intros eval_s. induction eval_s.
-  - auto.
-  - auto.
-  - auto.
-  - intros.
-      assert (well_formed_state_value vS') by eauto using rvalue_preserves_well_formedness.
-      eauto using store_preserves_well_formedness.
-  - intros. apply IHeval_s. eauto using reorgs_preserve_well_formedness.
-  - intros. apply IHeval_s. eapply operand_preserves_well_formedness'; eassumption.
-  - intros. apply IHeval_s. eapply operand_preserves_well_formedness'; eassumption.
 Qed.
 
-Lemma stmt_preserves_HLPL_plus_rel s r :
-well_formed_forward_simulation_r well_formed leq_base^* leq_base^* (eval_stmt s r) (eval_stmt s r).
+(** * Simulation proofs for statement evaluation. *)
+Lemma stmt_preserves_well_formedness n S s R :
+  S |-{stmt} s ~>{n} R -> forall r S', R = Some (r, S') -> well_formed S -> well_formed S'.
+Proof.
+  induction 1; try congruence; eauto.
+  - intros ? ? [=<- <-] ?. eapply store_preserves_well_formedness; [eassumption | ].
+    eapply rvalue_preserves_well_formedness; eassumption.
+  - intros r S'' -> ?.
+    apply operand_preserves_well_formedness in eval_cond; [ | assumption].
+    apply well_formed_state_value_implies_well_formed_state in eval_cond; [ | not_contains].
+    eauto.
+  - intros r S'' -> ?.
+    apply operand_preserves_well_formedness in eval_cond; [ | assumption].
+    apply well_formed_state_value_implies_well_formed_state in eval_cond; [ | not_contains].
+    eauto.
+  - intros r S -> ?. eauto using reorgs_preserve_well_formedness.
+  - intros ? ? [=<- <-]. eauto.
+Qed.
+
+Variant leq_result : option (flow_token * state) -> option (flow_token * state) -> Prop :=
+  | Leq_Termination r Sl Sh : leq_base^* Sl Sh -> leq_result (Some (r, Sl)) (Some (r, Sh))
+  | Leq_Interruption : leq_result None None
+.
+
+Lemma no_loan_in_bool b : not_contains_loan (VBool b).
+Proof. not_contains. Qed.
+
+Lemma no_borrow_in_bool b : not_contains_borrow (VBool b).
+Proof. not_contains. Qed.
+
+Lemma _leq_val_state_boolean vl Sl Sh b :
+  leq_val_state_base leq_base (vl, Sl) (VBool b, Sh) -> vl = VBool b /\ leq_base Sl Sh.
+Proof.
+  destruct (exists_fresh_anon2 Sl Sh) as (a & fresh_a_l & fresh_a_h).
+  intros H. specialize (H a fresh_a_l fresh_a_h). cbn [fst snd] in H.
+  remember (Sl,, a |-> vl) eqn:EQN_l. remember (Sh,, a |-> VBool b) eqn:EQN_h.
+  destruct H; subst.
+  - assert (fst sp_loan <> anon_accessor a).
+    { intros ?. autorewrite with spath in HS_loan.
+      eapply no_loan_in_bool; [ | rewrite HS_loan; constructor]. validity. }
+    assert (fst sp_borrow <> anon_accessor a).
+    { intros ?. autorewrite with spath in HS_borrow.
+      eapply no_borrow_in_bool; [ | rewrite HS_borrow; constructor]. validity. }
+    autorewrite with spath in *.
+    apply states_add_anon_eq in EQN_l; [ | auto with spath..].
+    destruct EQN_l as (<- & <-). split; [reflexivity | ].
+    eapply Leq_MutBorrow_To_Ptr; eassumption.
+Qed.
+
+Lemma leq_val_state_boolean vl Sl Sh b :
+  (leq_val_state_base leq_base)^* (vl, Sl) (VBool b, Sh) ->
+  vl = VBool b /\ leq_base^* Sl Sh.
+Proof.
+  intros H.
+  remember (vl, Sl) eqn:EQN_l. remember (VBool b, Sh) eqn:EQN_h.
+  revert vl Sl Sh EQN_l EQN_h.
+  induction H as [ | | ? (vm & Sm) ? _ IH_l _ IH_r]; intros vl Sl Sh -> EQN_h; subst.
+  - apply _leq_val_state_boolean in H. destruct H. split; [ | constructor]; assumption.
+  - inversion EQN_h. split; reflexivity.
+  - edestruct IH_r as (? & ?); [reflexivity.. | ]. subst.
+    edestruct IH_l as (? & ?); [reflexivity.. | ].
+    split; [assumption | ]. etransitivity; eassumption.
+Qed.
+
+Lemma stmt_preserves_HLPL_plus_rel n s :
+  well_formed_forward_simulation_r well_formed leq_base^* leq_result (eval_stmt n s) (eval_stmt n s).
 Proof.
   intros Sr Sr' WF_Sr Heval Sl Hle. revert Sl Hle. induction Heval; intros Sl Hle.
-  - eexists. split; [eassumption | constructor].
-  - specialize (IHHeval1 WF_Sr _ Hle).
-      destruct IHHeval1 as (Sl' & ? & ?).
-      edestruct IHHeval2 as (Sl'' & ? & ?);
+  - execution_step; constructor.
+  - execution_step. { constructor. } { constructor. assumption. }
+  - execution_step. { constructor. } { constructor. assumption. }
+  - execution_step. { constructor. } { constructor. assumption. }
+  - execution_step. { constructor. } { constructor. assumption. }
+  - specialize (IHHeval1 WF_Sr _ Hle). destruct IHHeval1 as (? & Hleq_1 & ?).
+    inversion Hleq_1. subst.
+    edestruct IHHeval2 as (Rl & ? & ?);
       [eauto using stmt_preserves_well_formedness | eassumption | ].
-      exists Sl''. split; [assumption | ]. eapply E_Seq_Unit; eassumption.
-  - specialize (IHHeval WF_Sr _ Hle).
-      destruct IHHeval as (Sl' & ? & ?).
-      exists Sl'. split; [assumption | ].
-      apply E_Seq_Propagate. assumption.
+    execution_step. { eapply E_Seq_Unit; eassumption. } { assumption. }
+  - specialize (IHHeval WF_Sr _ Hle). destruct IHHeval as (? & Hleq_1 & ?).
+    inversion Hleq_1. subst.
+    execution_step. { apply E_Seq_Propagate; eassumption. } constructor. assumption.
+  - specialize (IHHeval WF_Sr _ Hle). destruct IHHeval as (? & Hleq_1 & ?).
+    inversion Hleq_1. subst.
+    execution_step. { apply E_Seq_Interrupt. assumption. } constructor.
   - pose proof (_eval_rv := eval_rv). apply rvalue_preserves_HLPL_plus_rel in _eval_rv.
-      destruct (_eval_rv _ Hle) as (vSl' & leq_vSl_vS' & eval_Sl).
-      apply store_preserves_HLPL_plus_rel in Hstore.
-      apply leq_val_state_no_loan_right in leq_vSl_vS';
+    destruct (_eval_rv _ Hle) as (vSl' & leq_vSl_vS' & eval_Sl).
+    apply store_preserves_HLPL_plus_rel in Hstore.
+    apply leq_val_state_no_loan_right in leq_vSl_vS';
       [ | eapply eval_rvalue_no_loan; exact eval_rv..].
-      destruct (Hstore _ leq_vSl_vS') as (Sl'' & leq_Sl'' & store_vSl').
-      exists Sl''. split; [assumption | ]. econstructor; eassumption.
+    destruct (Hstore _ leq_vSl_vS') as (Sl'' & leq_Sl'' & store_vSl').
+    execution_step. { eapply E_Assign; eassumption. } constructor. assumption.
+  - eapply operand_preserves_well_formedness in WF_Sr; [ | exact eval_cond].
+    apply well_formed_state_value_implies_well_formed_state in WF_Sr; [ | not_contains].
+    apply operand_preserves_HLPL_plus_rel in eval_cond. specialize (eval_cond _ Hle).
+    destruct eval_cond as ((? & S1_l) & Hle_1 & eval_cond).
+    apply leq_val_state_boolean in Hle_1. destruct Hle_1 as (-> & Hle_1).
+    edestruct IHHeval as (Rl & Hle_2 & ?); [eassumption.. | ].
+    execution_step. { eapply E_IfThenElse_T; eassumption. } assumption.
+  - eapply operand_preserves_well_formedness in WF_Sr; [ | exact eval_cond].
+    apply well_formed_state_value_implies_well_formed_state in WF_Sr; [ | not_contains].
+    apply operand_preserves_HLPL_plus_rel in eval_cond. specialize (eval_cond _ Hle).
+    destruct eval_cond as ((? & S1_l) & Hle_1 & eval_cond).
+    apply leq_val_state_boolean in Hle_1. destruct Hle_1 as (-> & Hle_1).
+    edestruct IHHeval as (Rl & Hle_2 & ?); [eassumption.. | ].
+    execution_step. { eapply E_IfThenElse_F; eassumption. } assumption.
   - assert (well_formed S1) by eauto using reorgs_preserve_well_formedness.
-      apply reorg_preserves_HLPL_plus_rel in Hreorg; [ | assumption].
-      destruct (Hreorg _ Hle) as (Sl1 & leq_Sl1 & reorg_Sl1).
-      edestruct IHHeval as (Sl2 & leq_Sl2 & eval_in_Sl2); [ assumption | eassumption | ].
-      exists Sl2. split; [assumption | ].
-      apply E_Reorg with (S1 := Sl1); assumption.
-  - assert (well_formed S') by eauto using operand_preserves_well_formedness'.
-      apply operand_preserves_HLPL_plus_rel in eval_cond.
-      edestruct eval_cond as ((vl & S'l) & Hleq' & eval_cond_l); [eassumption | ].
-      apply leq_val_state_bool in Hleq'. destruct Hleq' as (-> & Hleq').
-      edestruct IHHeval as (S''l & ? & ?); [eassumption.. | ].
-      exists S''l. split; [eassumption | ]. eapply E_IfThenElse_T; eassumption.
-  - assert (well_formed S') by eauto using operand_preserves_well_formedness'.
-      apply operand_preserves_HLPL_plus_rel in eval_cond.
-      edestruct eval_cond as ((vl & S'l) & Hleq' & eval_cond_l); [eassumption | ].
-      apply leq_val_state_bool in Hleq'. destruct Hleq' as (-> & Hleq').
-      edestruct IHHeval as (S''l & ? & ?); [eassumption.. | ].
-      exists S''l. split; [eassumption | ]. eapply E_IfThenElse_F; eassumption.
+    apply reorg_preserves_HLPL_plus_rel in Hreorg; [ | assumption].
+    destruct (Hreorg _ Hle) as (Sl1 & leq_Sl1 & reorg_Sl1).
+    edestruct IHHeval as (Rl & Hle_2 & eval_in_Sl2); [ assumption | eassumption | ].
+    execution_step. { eapply E_Reorg; eassumption. } assumption.
+  - specialize (IHHeval WF_Sr _ Hle). destruct IHHeval as (Rl & Hle_1 & Heval_1).
+    inversion Hle_1. subst.
+    execution_step. { eapply E_Loop_Stop; eassumption. } constructor. assumption.
+  - specialize (IHHeval WF_Sr _ Hle). destruct IHHeval as (Rl & Hle_1 & Heval_1).
+    inversion Hle_1. subst.
+    execution_step. { eapply E_Loop_Interrupt; eassumption. } constructor.
+  - specialize (IHHeval1 WF_Sr _ Hle). destruct IHHeval1 as (? & _Hle_1 & Heval_1).
+    inversion _Hle_1 as [? ? ? Hle_1 | ]. subst.
+    eapply stmt_preserves_well_formedness in WF_Sr; [ | eauto..].
+    specialize (IHHeval2 WF_Sr _ Hle_1). destruct IHHeval2 as (Rl & Hle_2 & Heval_2).
+    execution_step. { eapply E_Loop_Continue; eassumption. } assumption.
 Qed.
