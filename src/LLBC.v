@@ -171,7 +171,7 @@ Definition eval_place S perm (p : place) pi :=
   let pi_0 := (encode_var (fst (fst p)), []) in
   valid_spath S pi_0 /\ eval_path S perm (snd (fst p)) (encode_var (fst (fst p)), []) pi.
 
-Local Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
+Global Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
 Lemma eval_proj_valid S perm proj q r (H : eval_proj S perm proj q r) : valid_spath S r.
 Proof.
@@ -219,7 +219,7 @@ Inductive copy_val : value -> value -> Prop :=
 
 Variant eval_operand : operand -> state -> (value * state) -> Prop :=
 | E_IntConst S n : S |-{op} Const (IntConst n) => (VInt n, S)
-| E_BoolConst S n : S |-{op} Const (IntConst n) => (VInt n, S)
+| E_BoolConst S b : S |-{op} Const (BoolConst b) => (VBool b, S)
 | E_Copy S (p : place) pi v
     (Heval_place : eval_place S Imm p pi) (Hcopy_val : copy_val (S.[pi]) v) :
     S |-{op} Copy p => (v, S)
@@ -257,8 +257,7 @@ Variant eval_rvalue : rvalue -> state -> (value * state) -> Prop :=
       S |-{rv} (&mut p) => (borrow^m(l, S.[pi]), S.[pi <- loan^m(l)])
 where "S |-{rv} rv => r" := (eval_rvalue rv S r).
 
-Definition not_in_borrow (S : state) p :=
-  forall q, prefix q p -> is_mut_borrow (get_node (S.[q])) -> q = p.
+Notation not_in_borrow := (no_ancestor is_mut_borrow).
 
 Inductive reorg : state -> state -> Prop :=
 | Reorg_End_MutBorrow S (p q : spath) l :
@@ -271,7 +270,7 @@ Inductive reorg : state -> state -> Prop :=
  * evaluated to a pair (v, S). *)
 Variant store (p : place) : value * state -> state -> Prop :=
 | Store v S (sp : spath) (a : anon)
-  (eval_p : (S,, a |-> v) |-{p} p =>^{Mut} sp)
+  (eval_p : S |-{p} p =>^{Mut} sp)
   (no_outer_loan : not_contains_outer_loan (S.[sp])) :
   fresh_anon S a -> store p (v, S) (S.[sp <- v],, a |-> S.[sp])
 .
