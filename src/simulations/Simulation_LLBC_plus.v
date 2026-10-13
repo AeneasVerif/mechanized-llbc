@@ -3583,6 +3583,17 @@ Proof.
   - rewrite (delete_id _ _ EQN) in Hleq_B. auto.
 Qed.
 
+Lemma end_loop_delete_rContinue B : end_loop (delete rContinue B) = end_loop B.
+Proof.
+  destruct (lookup rContinue B) as [S | ] eqn:EQN.
+  - apply insert_delete_id in EQN. rewrite <-EQN at 2.
+    unfold end_loop. rewrite pkmap_insert.
+    + reflexivity.
+    + apply partial_inj_end_loop_tag.
+    + apply lookup_delete_eq.
+  - now setoid_rewrite delete_id.
+Qed.
+
 Lemma stmt_preserves_LLBC_plus_rel n s :
   forward_simulation leq_symbolic leq_branching (eval_stmt n s) (eval_stmt n s).
 Proof.
@@ -3684,7 +3695,8 @@ Proof.
     destruct Hcontinue as [(? & ?) | (S1_l & ? & Hleq_S1 & ?)].
     + execution_step.
       { eapply E_Loop_Stop; eauto with spath. }
-      etransitivity; eauto with spath.
+      etransitivity; [eauto with spath | ].
+      rewrite end_loop_delete_rContinue. eauto with spath.
     + apply IHHeval2 in Hleq_S1. destruct Hleq_S1 as (B2_l & Hleq'' & Heval2_l).
       execution_join_state.
       { eapply E_Loop_Continue; eauto with spath. }

@@ -55,6 +55,6 @@ Inductive eval_stmt : nat -> statement -> state -> branching_state -> Prop :=
       (no_unit : lookup rUnit B1 = None)
       (Hcontinue : lookup rContinue B1 = Some S1)
       (Heval2 : S1 |-{stmt} (LOOP {{ body }}) ~>{n} B2)
-      (His_join : is_join (end_loop (delete rContinue B1)) B2 Bend) :
+      (His_join : is_join (end_loop B1) B2 Bend) :
       S |-{stmt} (LOOP {{ body }}) ~>{1 + n} Bend
 where "S |-{stmt} stmt ~>{ n } B" := (eval_stmt n stmt S B) : llbc_plus_scope.

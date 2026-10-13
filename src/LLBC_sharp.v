@@ -374,7 +374,7 @@ Inductive eval_stmt : statement -> state -> branching_state -> Prop :=
       (eval_body : S0 |-# body ~> B1)
       (* An iteration that yields `rUnit` gets stuck. *)
       (no_unit : lookup rUnit B1 = None)
-      (leq_B1_Bend : leq_branching (end_loop (delete rContinue B1)) Bend)
+      (leq_B1_Bend : leq_branching (end_loop B1) Bend)
       (Hcontinue : lookup rContinue B1 = Some S1)
       (Heval2 : S1 |-# (LOOP {{ body }}) ~> Bend) :
        S0 |-# (LOOP {{ body }}) ~> Bend
@@ -383,7 +383,7 @@ Inductive eval_stmt : statement -> state -> branching_state -> Prop :=
       (eval_body : Sinv |-# body ~> Binv)
       (inv_preservation : lookup rContinue Binv = Some Sinv)
       (no_unit : lookup rUnit Binv = None) :
-      Sinv |-# (LOOP {{ body }}) ~> (end_loop (delete rContinue Binv))
+      Sinv |-# (LOOP {{ body }}) ~> (end_loop Binv)
   | Consequence_Precondition s Sl Sr B
       (Hweaken : leq_symbolic Sl Sr) (Heval : Sr |-# s ~> B) :
       Sl |-# s ~> B

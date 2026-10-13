@@ -65,7 +65,8 @@ Proof.
       destruct (lookup_token_cases _ _ _ rContinue leq_B1 Hcontinue)
         as [(? & ?) | (S1_l & ? & leq_S1 & leq_B1')].
       * execution_step. { apply LLBC_plus.E_Loop_Stop; eauto with spath. }
-        etransitivity; eauto with spath.
+        etransitivity; [eauto with spath | ].
+        rewrite end_loop_delete_rContinue. assumption.
       * eapply LLBC_sharp.Consequence_Precondition in eval_Sr2; [ | exact leq_S1].
         apply IHn in eval_Sr2. destruct eval_Sr2 as (B2_l & ? & ?).
         execution_join_state.
@@ -79,7 +80,7 @@ Proof.
         as [(? & ?) | (S1 & ? & leq_S1 & leq_B1')].
       * execution_step. { apply LLBC_plus.E_Loop_Stop; eauto with spath. }
         apply leq_end_loop. assumption.
-      * assert (S1 |-# LOOP {{ body }} ~> (end_loop (delete rContinue Binv))) as eval_S1.
+      * assert (S1 |-# LOOP {{ body }} ~> (end_loop Binv)) as eval_S1.
         { eapply LLBC_sharp.Consequence_Precondition; [exact leq_S1 | ].
           apply LLBC_sharp.E_Loop_Invariant; assumption. }
         apply IHn in eval_S1. destruct eval_S1 as (B2 & leq_B2 & eval_to_B2).
