@@ -61,6 +61,16 @@ Module TypeList.
     | TNil, _ => None
     end.
 
+  Lemma nth_valid_access (tl : type_list) (n : nat) :
+    (exists v, nth_error tl n = Some v) <-> n < length tl.
+  Proof.
+    generalize dependent n. induction tl ; split.
+    - intros (? & [=]).
+    - intros ?%Nat.nlt_0_r. by exfalso.
+    - destruct n ; cbn. lia. intros ?%IHtl. lia.
+    - destruct n ; cbn. repeat econstructor. by intros ?%Nat.succ_lt_mono%IHtl.
+  Qed.
+
   Lemma nth_error_type_list_list_equiv tl n :
     nth_error tl n = List.nth_error (to_list tl) n.
   Proof.

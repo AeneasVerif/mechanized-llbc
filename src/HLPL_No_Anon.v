@@ -54,6 +54,16 @@ Module ValueList.
     | VNil, _ => None
     end.
 
+  Lemma nth_valid_access (vl : value_list) (n : nat) :
+    (exists v, nth_error vl n = Some v) <-> n < length vl.
+  Proof.
+    generalize dependent n. induction vl ; split.
+    - intros (? & [=]).
+    - intros ?%Nat.nlt_0_r. by exfalso.
+    - destruct n ; cbn. lia. intros ?%IHvl. lia.
+    - destruct n ; cbn. repeat econstructor. by intros ?%Nat.succ_lt_mono%IHvl.
+  Qed.
+
   Lemma from_list_to_list_inv (vl : value_list) :
     from_list (to_list vl) = vl.
   Proof. induction vl ; simpl ; congruence. Qed.
