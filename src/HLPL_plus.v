@@ -353,15 +353,15 @@ Inductive reorg : state -> state -> Prop :=
     disj p q -> get_node (S.[p]) = nloan^m(l) -> get_node (S.[q]) = nborrow^m(l) ->
     not_contains_loan (S.[q +++ [0] ]) -> not_in_borrow S q ->
     reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
-| Reorg_end_ptr S (p : spath) l :
+| Reorg_End_Ptr S (p : spath) l :
     get_node (S.[p]) = nptr(l) -> (*not_in_borrow S p ->*) reorg S (S.[p <- bot])
-| Reorg_end_loc S (p : spath) l :
+| Reorg_End_Loc S (p : spath) l :
     get_node (S.[p]) = nloc(l) -> not_state_contains (eq nptr(l)) S ->
     reorg S (S.[p <- S.[p +++ [0] ] ])
 .
 
 (* Automatically resolving the goals of the form `nptr(l) <> _`, used to prove the condition
-   `not_state_contains (eq nptr(l)) S` of the rule Reorg_end_loc. *)
+   `not_state_contains (eq nptr(l)) S` of the rule Reorg_End_Loc. *)
 Hint Extern 0 (nptr( _ ) <> _) => discriminate : spath.
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been

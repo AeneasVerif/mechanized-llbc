@@ -539,15 +539,15 @@ Proof.
 Qed.
 
 Inductive reorg : state -> state -> Prop :=
-| Reorg_end_ptr S (p : spath) l :
+| Reorg_End_Ptr S (p : spath) l :
     get_node (S.[p]) = NPtr(l) -> reorg S (S.[p <- bot])
-| Reorg_end_loc S (p : spath) l :
+| Reorg_End_Loc S (p : spath) l :
     get_node (S.[p]) = NLoc(l) -> not_state_contains (eq (NPtr l)) S ->
     reorg S (S.[p <- S.[p +++ [0] ] ])
 .
 
 (* Automatically resolving the goals of the form `ptrC(l) <> _`, used to prove the condition
-   `not_state_contains (eq ptrC(l)) S` of the rule Reorg_end_loc. *)
+   `not_state_contains (eq ptrC(l)) S` of the rule Reorg_End_Loc. *)
 Hint Extern 0 (NPtr( _ ) <> _) => discriminate : spath.
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been

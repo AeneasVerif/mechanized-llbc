@@ -1038,9 +1038,9 @@ Proof.
         { eapply at_most_one_mut_borrow. eassumption.
           rewrite H1. reflexivity. assumption. }
         reorg_step.
-        { eapply Reorg_end_ptr with (p := sp_borrow). autorewrite with spath. reflexivity. }
+        { eapply Reorg_End_Ptr with (p := sp_borrow). autorewrite with spath. reflexivity. }
         reorg_step.
-        { eapply Reorg_end_loc with (p := sp_loan).
+        { eapply Reorg_End_Loc with (p := sp_loan).
           autorewrite with spath. reflexivity.
           assert (not_state_contains (eq nptr(l)) S).
           { eapply no_mut_loan_ptr. eassumption. rewrite HS_loan. reflexivity. }
@@ -1094,7 +1094,7 @@ Proof.
       * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by solve_comp.
         rewrite<- (app_spath_vpath_assoc sp_borrow [0] q) in *.
         reorg_step.
-        { eapply Reorg_end_ptr with (p := sp_loan +++ [0] ++ q).
+        { eapply Reorg_End_Ptr with (p := sp_loan +++ [0] ++ q).
           autorewrite with spath. eassumption. }
         reorg_done.
         le_step_right.
@@ -1104,7 +1104,7 @@ Proof.
       * assert (disj sp_borrow p) by solve_comp.
         assert (disj sp_loan p) by solve_comp.
         reorg_step.
-        { eapply Reorg_end_ptr with (p := p). autorewrite with spath. eassumption. }
+        { eapply Reorg_End_Ptr with (p := p). autorewrite with spath. eassumption. }
         reorg_done.
         le_step_right.
          { eapply Le_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
@@ -1119,7 +1119,7 @@ Proof.
       * assert (prefix (sp_borrow +++ [0]) p) as (q & <-) by solve_comp.
         autorewrite with spath in *.
         reorg_step.
-        { eapply Reorg_end_loc with (p := sp_loan +++ [0] ++ q).
+        { eapply Reorg_End_Loc with (p := sp_loan +++ [0] ++ q).
           autorewrite with spath. eassumption. not_contains. cbn. congruence. }
         reorg_done.
         le_step_right.
@@ -1135,7 +1135,7 @@ Proof.
               assert (vdisj q r) by solve_comp.
               autorewrite with spath in *.
               reorg_step.
-              { eapply Reorg_end_loc with (p := p).
+              { eapply Reorg_End_Loc with (p := p).
                 autorewrite with spath; eassumption.
                 repeat apply not_state_contains_sset.
                 assumption. all: not_contains.
@@ -1150,7 +1150,7 @@ Proof.
            ++ assert (disj p sp_loan) by solve_comp.
               autorewrite with spath in *.
               reorg_step.
-              { eapply Reorg_end_loc with (p := p).
+              { eapply Reorg_End_Loc with (p := p).
                 autorewrite with spath; eassumption.
                 repeat apply not_state_contains_sset.
                 assumption. all: not_contains. cbn. congruence. }
@@ -1166,7 +1166,7 @@ Proof.
             ++ assert (prefix (p +++ [0]) sp_loan) as (r & <-) by solve_comp.
                 rewrite<- app_spath_vpath_assoc in *.
                 reorg_step.
-                { eapply Reorg_end_loc with (p := p).
+                { eapply Reorg_End_Loc with (p := p).
                     autorewrite with spath; eassumption.
                     repeat apply not_state_contains_sset.
                     assumption. all: not_contains. cbn. congruence. }
@@ -1179,7 +1179,7 @@ Proof.
                 * we end. *)
             ++ assert (disj p sp_loan) by solve_comp.
                 reorg_step.
-                { eapply Reorg_end_loc with (p := p).
+                { eapply Reorg_End_Loc with (p := p).
                     autorewrite with spath; eassumption.
                     repeat apply not_state_contains_sset.
                     assumption. all: not_contains. cbn. congruence. }
