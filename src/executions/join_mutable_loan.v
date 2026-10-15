@@ -147,39 +147,39 @@ Proof.
     }
 
     (** The state [join_state] is more abstract than the state at the end of the if branch. *)
-    { apply leq_singleton.
-      eapply prove_leq_symbolic; [constructor | ].
+    { apply le_singleton.
+      eapply prove_le_symbolic; [constructor | ].
       { remove_anon 1%positive.
-        eapply Leq_ToAbs with (i := A_extra); [reflexivity.. | ].
+        eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
         apply ToAbs_MutBorrow with (k := 1%positive); [constructor | compute_done..]. }
       simpl_state.
-      eapply prove_leq_symbolic; [ | ].
-      { eapply (Leq_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ ly Ay 2%positive 3%positive);
+      eapply prove_le_symbolic; [ | ].
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ ly Ay 2%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
-      eapply prove_leq_symbolic; [ | ].
-      { eapply (Leq_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lbx Ab 1%positive 2%positive);
+      eapply prove_le_symbolic; [ | ].
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lbx Ab 1%positive 2%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
-      eapply prove_leq_symbolic; [ | ].
-      { eapply (Leq_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lx Ax 2%positive 3%positive);
+      eapply prove_le_symbolic; [ | ].
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lx Ax 2%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
-      eapply prove_leq_symbolic; [constructor | ].
+      eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction Ax. remove_abstraction A_extra.
         rewrite remove_add_abstraction_ne by discriminate.
-        apply Leq_MergeAbs; [reflexivity.. | | discriminate].
+        apply Le_MergeAbs; [reflexivity.. | | discriminate].
         eexists _, _. split; [apply Remove_nothing | ].
         apply UnionInsert with (j := 1%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
-      eapply prove_leq_symbolic; [ | ].
+      eapply prove_le_symbolic; [ | ].
       { remove_abstraction Ab. remove_abstraction Ay.
         rewrite remove_add_abstraction_ne by discriminate.
-        eapply leq_borrow_abs with (l := lby) (ty := TInt) (ja := 3%positive) (jb := 1%positive).
+        eapply le_borrow_abs with (l := lby) (ty := TInt) (ja := 3%positive) (jb := 1%positive).
         all: compute_done. }
       reflexivity.
     }
@@ -191,39 +191,39 @@ Proof.
     }
 
     (** The state [join_state] is more abstract than the state at the end of the else branch. *)
-    { apply leq_singleton.
-      eapply prove_leq_symbolic; [constructor | ].
+    { apply le_singleton.
+      eapply prove_le_symbolic; [constructor | ].
       { remove_anon 1%positive.
-        eapply Leq_ToAbs with (i := A_extra); [reflexivity.. | ].
+        eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
         apply ToAbs_MutBorrow with (k := 2%positive); [constructor | compute_done..]. }
       simpl_state.
-      eapply prove_leq_symbolic; [ | ].
-      { eapply (Leq_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lx Ax 1%positive 3%positive);
+      eapply prove_le_symbolic; [ | ].
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lx Ax 1%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
-      eapply prove_leq_symbolic; [ | ].
-      { eapply (Leq_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ lby Ab 1%positive 3%positive);
+      eapply prove_le_symbolic; [ | ].
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ lby Ab 1%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
-      eapply prove_leq_symbolic; [ | ].
-      { eapply (Leq_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ ly Ay 1%positive 3%positive);
+      eapply prove_le_symbolic; [ | ].
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ ly Ay 1%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
-      eapply prove_leq_symbolic; [constructor | ].
+      eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction Ay. remove_abstraction A_extra.
         rewrite remove_add_abstraction_ne by discriminate.
-        apply Leq_MergeAbs; [reflexivity.. | | discriminate].
+        apply Le_MergeAbs; [reflexivity.. | | discriminate].
         eexists _, _. split; [apply Remove_nothing | ].
         apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
-      eapply prove_leq_symbolic; [ | ].
+      eapply prove_le_symbolic; [ | ].
       { remove_abstraction Ab. remove_abstraction Ax.
         rewrite remove_add_abstraction_ne by discriminate.
-        eapply leq_borrow_abs with (l := lbx) (ty := TInt) (ja := 2%positive) (jb := 2%positive).
+        eapply le_borrow_abs with (l := lbx) (ty := TInt) (ja := 2%positive) (jb := 2%positive).
         all: compute_done. }
       reflexivity.
     }

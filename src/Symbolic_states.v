@@ -1145,7 +1145,7 @@ Hint Rewrite sset_same : spath.
 Hint Rewrite app_nil_l : spath.
 Hint Rewrite vset_at_borrow : spath.
 
-(* When changing the id of a mutable borrow at p, generally using the rule Leq_Reborrow_MutBorrow,
+(* When changing the id of a mutable borrow at p, generally using the rule Le_Reborrow_MutBorrow,
  * accessing any other node that the one in sp is unchanged. *)
 Lemma get_node_rename_mut_borrow S p q l1
   (H : is_mut_borrow (get_node (S.[p]))) (diff_p_q : p <> q) :

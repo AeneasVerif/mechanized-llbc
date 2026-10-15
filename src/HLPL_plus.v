@@ -417,8 +417,8 @@ Inductive eval_stmt : nat -> statement -> state -> option (flow_token * state) -
       S |-{stmt} (LOOP {{ body }}) ~>{1 + n} R2
 where "S |-{stmt} stmt ~>{ n } R" := (eval_stmt n stmt S R) : hlpl_plus_scope.
 
-Inductive leq_base : state -> state -> Prop :=
-| Leq_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
+Inductive le_base : state -> state -> Prop :=
+| Le_MutBorrow_To_Ptr S l sp_loan sp_borrow (Hdisj : disj sp_loan sp_borrow)
     (HS_loan : get_node (S.[sp_loan]) = nloan^m(l))
     (HS_borrow : get_node (S.[sp_borrow]) = nborrow^m(l)) :
-    leq_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
+    le_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.

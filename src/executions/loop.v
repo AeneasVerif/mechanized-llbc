@@ -125,8 +125,8 @@ Proof.
 
   (** The loop invariant is satisfied when entering the loop. *)
   apply Consequence_Precondition with (Sr := S_inv).
-  { eapply prove_leq_symbolic.
-    { apply Leq_Reborrow_MutBorrow_Abs
+  { eapply prove_le_symbolic.
+    { apply Le_Reborrow_MutBorrow_Abs
         with (sp := (encode_var b, [])) (l1 := l1) (i := 1%positive)
               (kb := 1%positive) (kl := 2%positive).
       - compute_done.
@@ -136,8 +136,8 @@ Proof.
       - discriminate.
       - constructor. }
     simpl_state.
-    eapply prove_leq_symbolic; [constructor | ].
-    { apply Leq_ToSymbolic with (sp := (encode_var i, [])).
+    eapply prove_le_symbolic; [constructor | ].
+    { apply Le_ToSymbolic with (sp := (encode_var i, [])).
       - constructor.
       - compute_done.
       - compute_done. }
@@ -162,7 +162,7 @@ Proof.
 
     (** The invariant is satisfied when breaking from the loop. *)
     (** We only need to unitialize the binding << cond |-> true >> *)
-    { apply leq_singleton. unfold B_inv. simpl_map.
+    { apply le_singleton. unfold B_inv. simpl_map.
       eexists. split; [reflexivity | ].
       reflexivity. }
 
@@ -191,22 +191,22 @@ Proof.
       apply E_Continue. }
 
     (** The invariant is satisfied when continuing the loop. *)
-    { apply leq_singleton. unfold B_inv. simpl_map.
+    { apply le_singleton. unfold B_inv. simpl_map.
       (** Unitializing the binding << cond |-> false >>. *)
-      eapply prove_leq_symbolic; [ | ].
+      eapply prove_le_symbolic; [ | ].
       { reflexivity. }
       simpl_state.
       (** Turning the anonymous binding << _ |-> borrow^m(l1, loan^m(int, l2)) >> into
          an abstraction. *)
-      eapply prove_leq_symbolic; [constructor | ].
-      { remove_anon 1%positive. apply Leq_ToAbs with (i := 2%positive); [reflexivity.. | ].
+      eapply prove_le_symbolic; [constructor | ].
+      { remove_anon 1%positive. apply Le_ToAbs with (i := 2%positive); [reflexivity.. | ].
         apply ToAbs_MutReborrow with (kb := 1%positive) (kl := 2%positive). discriminate. }
       simpl_state.
       (** Merging the abstractions, and removing loan identifier [l1]. *)
       (* TODO: computation. *)
-      eapply prove_leq_symbolic; [constructor | ].
+      eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
-        apply Leq_MergeAbs; [reflexivity.. | | discriminate].
+        apply Le_MergeAbs; [reflexivity.. | | discriminate].
         eexists _, _. split.
         { eapply Remove_MutLoan with (i := 2%positive) (j := 1%positive).
           apply Remove_nothing. simpl_map. reflexivity. simpl_map. reflexivity. }

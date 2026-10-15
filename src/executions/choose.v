@@ -104,28 +104,28 @@ Proof.
     }
 
     (** The state [join_state] is more abstract than the state at the end of the if branch. *)
-    { apply leq_singleton. unfold branching_state. simpl_map. simpl_state.
-      eapply prove_leq_symbolic.
-      { eapply Leq_Reborrow_MutBorrow_Abs
+    { apply le_singleton. unfold branching_state. simpl_map. simpl_state.
+      eapply prove_le_symbolic.
+      { eapply Le_Reborrow_MutBorrow_Abs
           with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive)
                (kb := 1%positive) (kl := 3%positive);
           try compute_done.
         eapply var_not_in_abstraction; reflexivity. reflexivity. constructor. }
       simpl_state.
-      eapply prove_leq_symbolic.
-      { eapply Leq_Fresh_MutLoan_Abs
+      eapply prove_le_symbolic.
+      { eapply Le_Fresh_MutLoan_Abs
           with (sp := (encode_var y, [])) (l' := ly) (i := 2%positive) (k := 2%positive);
           [compute_done | now eapply var_not_in_abstraction | compute_done.. | constructor]. }
       simpl_state.
-      eapply prove_leq_symbolic; [constructor | ].
+      eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
-        eapply Leq_MergeAbs; [reflexivity.. | | discriminate].
+        eapply Le_MergeAbs; [reflexivity.. | | discriminate].
         econstructor. eexists. split. constructor.
         eapply UnionInsert with (j := 2%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
-      eapply prove_leq_symbolic; [constructor | ].
-      { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])). constructor. all: compute_done. }
+      eapply prove_le_symbolic; [constructor | ].
+      { eapply Le_ToSymbolic with (sp := (encode_var z, [0])). constructor. all: compute_done. }
       simpl_state.
       reflexivity. }
 
@@ -137,28 +137,28 @@ Proof.
 
     (** The state [join_state] is more abstract than the state at the end of the else branch. *)
     (* TODO: computation procedures for relation steps. *)
-    { apply leq_singleton. unfold branching_state. simpl_map. simpl_state.
-      eapply prove_leq_symbolic.
-      { eapply Leq_Reborrow_MutBorrow_Abs
+    { apply le_singleton. unfold branching_state. simpl_map. simpl_state.
+      eapply prove_le_symbolic.
+      { eapply Le_Reborrow_MutBorrow_Abs
           with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive)
                       (kb := 2%positive) (kl := 3%positive);
           try compute_done.
         eapply var_not_in_abstraction; reflexivity. reflexivity. constructor. }
       simpl_state.
-      eapply prove_leq_symbolic.
-      { eapply Leq_Fresh_MutLoan_Abs
+      eapply prove_le_symbolic.
+      { eapply Le_Fresh_MutLoan_Abs
           with (sp := (encode_var x, [])) (l' := lx) (i := 2%positive) (k := 1%positive);
           [compute_done | now eapply var_not_in_abstraction | compute_done.. | constructor]. }
       simpl_state.
-      eapply prove_leq_symbolic; [constructor | ].
+      eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
-        apply Leq_MergeAbs; [reflexivity.. | | discriminate].
+        apply Le_MergeAbs; [reflexivity.. | | discriminate].
         econstructor. eexists. split. constructor.
         eapply UnionInsert with (j := 1%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
-      eapply prove_leq_symbolic; [constructor | ].
-      { eapply Leq_ToSymbolic with (sp := (encode_var z, [0])); [constructor | compute_done..]. }
+      eapply prove_le_symbolic; [constructor | ].
+      { eapply Le_ToSymbolic with (sp := (encode_var z, [0])); [constructor | compute_done..]. }
       reflexivity. }
   }
 

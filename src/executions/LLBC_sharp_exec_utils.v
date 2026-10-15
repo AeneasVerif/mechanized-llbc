@@ -9,12 +9,12 @@ Require Import Symbolic_states Symbolic_relations LLBC_sharp.
 Open Scope option_monad_scope.
 
 (** * Derived rules and helping lemmas. *)
-Lemma prove_leq_symbolic Sl Sm Sr :
-  leq_state_base^* Sl Sm -> leq_symbolic Sm Sr -> leq_symbolic Sl Sr.
+Lemma prove_le_symbolic Sl Sm Sr :
+  le_state_base^* Sl Sm -> le_symbolic Sm Sr -> le_symbolic Sl Sr.
 Proof.
   intros H (? & G & ?).
-  pose proof leq_equiv_states_commute as Hsim.
-  apply sim_leq_equiv in Hsim. specialize (Hsim _ _ G _ H).
+  pose proof le_equiv_states_commute as Hsim.
+  apply sim_le_equiv in Hsim. specialize (Hsim _ _ G _ H).
   edestruct Hsim as (Sl' & ? & ?).
   exists Sl'. split; [assumption | ]. etransitivity; eassumption.
 Qed.
@@ -54,9 +54,9 @@ Proof.
       + not_contains_outer.
       + exact Hstore_type.
       + exact fresh_a. }
-  { apply leq_singleton. simpl_map.
-    eapply prove_leq_symbolic; [ | reflexivity]. constructor.
-    apply Leq_RemoveAnon; auto with spath. }
+  { apply le_singleton. simpl_map.
+    eapply prove_le_symbolic; [ | reflexivity]. constructor.
+    apply Le_RemoveAnon; auto with spath. }
 Qed.
 
 (** * Computation procedures for LLBC## execution. *)
@@ -352,20 +352,20 @@ Proof.
   - exact None.
 Defined.
 
-Definition compute_uninitialize_value (sp : spath) S : option {S' | leq_state_base^* S S'}.
+Definition compute_uninitialize_value (sp : spath) S : option {S' | le_state_base^* S S'}.
 Proof.
   destruct (decide (not_contains_loan (S.[sp]))); [ | exact None].
   destruct (decide (not_contains_borrow (S.[sp]))); [ | exact None].
   destruct (compute_not_in_borrow S sp) as [(? & ?) | ]; [ | exact None].
   destruct (compute_not_in_abstraction sp); [ | exact None].
-  apply Some. exists (S.[sp <- bot]). apply leq_uninitialize_value; assumption.
+  apply Some. exists (S.[sp <- bot]). apply le_uninitialize_value; assumption.
 Defined.
 
 (** This tactic turns a state that contains an abstraction region [i] into the form
   [S,,, i |-> A], or [S,,, j |-> B,,, i |-> A]. *)
 Ltac remove_abstraction i :=
   lazymatch goal with
-  | |- ?leq_star ?S _ =>
+  | |- ?le_star ?S _ =>
       erewrite<- (add_remove_abstraction i _ S) by reflexivity;
       rewrite ?remove_add_abstraction_ne by congruence
   end.
@@ -376,13 +376,13 @@ Proof. intros ?%insert_delete_id. congruence. Qed.
 
 Ltac remove_abstraction_element j :=
   lazymatch goal with
-  | |- ?leq_star ?S _ => erewrite (remove_abstraction_element _ _ j) by reflexivity
+  | |- ?le_star ?S _ => erewrite (remove_abstraction_element _ _ j) by reflexivity
   end.
 
 (** This tactic turns a state that contains an anonymous binding [a] into the form [S,, a |-> v]. *)
 Ltac remove_anon a :=
   lazymatch goal with
-  | |- ?leq_star ?S _ => erewrite<- (add_anon_remove_anon S a) by reflexivity
+  | |- ?le_star ?S _ => erewrite<- (add_anon_remove_anon S a) by reflexivity
   end.
 
 (** * Pretty-printing of states. *)
@@ -415,12 +415,12 @@ Proof.
     + cbn in IH |- *. congruence.
 Qed.
 
-Definition leq_item {A} : relation (positive * A) := fun x y => (fst x <= fst y)%positive.
-Instance RelDecision_leq_item {A} : RelDecision (leq_item (A := A)).
-Proof. unfold RelDecision, Decision, leq_item. intros. apply Pos.le_dec. Defined.
+Definition le_item {A} : relation (positive * A) := fun x y => (fst x <= fst y)%positive.
+Instance RelDecision_le_item {A} : RelDecision (le_item (A := A)).
+Proof. unfold RelDecision, Decision, le_item. intros. apply Pos.le_dec. Defined.
 
 Definition pretty_print_map {A} (m : Pmap A) :=
-  list_to_map' (merge_sort leq_item (map_to_list m)).
+  list_to_map' (merge_sort le_item (map_to_list m)).
 
 Lemma pretty_print_map_correct {A} (m : Pmap A) : pretty_print_map m = m.
 Proof.
@@ -456,7 +456,7 @@ Lemma simpl_state_rel (A : Type) (R : state -> A -> Prop) a S S' :
   pretty_print_state S = S' -> R S' a -> R S a.
 Proof. rewrite pretty_print_state_correct. congruence. Qed.
 
-(** When we have a relation [R S a] (for example, [leq_state S S'] or [S |-# s ~> B], we only
+(** When we have a relation [R S a] (for example, [le_state S S'] or [S |-# s ~> B], we only
    reduce the state [S] and not the other terms. *)
 Ltac simpl_state :=
   lazymatch goal with

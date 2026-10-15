@@ -14,29 +14,29 @@ Local Open Scope llbc_plus_scope.
 
 (** * Tactics to structure the proof. *)
 (** The goal is to complete a simulation diagram, that is a property of the form:
-   [(exists r s S'l, leq_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q)]
+   [(exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q)]
    Note that this property contains a weight inequality [r + s <= p + q]. The idea is taht we
    are going to perform reorganization and abstraction steps that have weight. The total weight
    is stored in an "accumulator" acc. More generally, we are going to prove the property:
-   [(exists r s S'l, leq_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ acc + r + s <= p + q)]
+   [(exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ acc + r + s <= p + q)]
 
    To complete a diagram, we first perform reorganization steps using tactic
    tactic [reorg_step], each time incremeting the accumulator. Once all steps have been
    performed, we apply [reorg_done], leaving a goal of the form:
-   [(exists r s S'l, leq_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ acc + r + s <= p + q)]
+   [(exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ acc + r + s <= p + q)]
 
-   Then, we can do abstraction steps with [eapply prove_leq_step] (or occasionally
-   [eapply prove_leq_steps]), each time incrementing the accumulator. Once all steps have been
-   performed, we apply [leq_done], leaving two goals: an equivalence (between [S'h] and the state
+   Then, we can do abstraction steps with [eapply prove_le_step] (or occasionally
+   [eapply prove_le_steps]), each time incrementing the accumulator. Once all steps have been
+   performed, we apply [le_done], leaving two goals: an equivalence (between [S'h] and the state
    obtained from [Sl] by successive reorganization and abstraction steps) and the inequality
    [acc <= p + q].
  *)
-(** TODO: the lemmas [prove_leq_step] and [prove_leq_step_0] should be part of the
-   tactic [leq_step_left]. *)
+(** TODO: the lemmas [prove_le_step] and [prove_le_step_0] should be part of the
+   tactic [le_step_left]. *)
 Lemma prove_reorg_steps acc q Sl S'l S'h n :
   reorg_n^{q} Sl S'l ->
-  (exists r s S''l, leq_n r S''l S'h /\ reorg_n^{s} S'l S''l /\ (acc + q) + r + s <= n) ->
-  (exists r s S''l, leq_n r S''l S'h /\ reorg_n^{s} Sl S''l /\ acc + r + s <= n).
+  (exists r s S''l, le_n r S''l S'h /\ reorg_n^{s} S'l S''l /\ (acc + q) + r + s <= n) ->
+  (exists r s S''l, le_n r S''l S'h /\ reorg_n^{s} Sl S''l /\ acc + r + s <= n).
 Proof.
   intros ? (r & s & S''l & ? & ? & ?). exists r, (q + s), S''l.
   split; [assumption | ]. split; [ | lia]. eapply MC_trans; eassumption.
@@ -46,80 +46,80 @@ Qed.
   is added to the accumulator. *)
 Lemma prove_reorg_step acc q Sl S'l S'h n :
   reorg_n q Sl S'l ->
-  (exists r s S''l, leq_n r S''l S'h /\ reorg_n^{s} S'l S''l /\ (acc + q) + r + s <= n) ->
-  (exists r s S''l, leq_n r S''l S'h /\ reorg_n^{s} Sl S''l /\ acc + r + s <= n).
+  (exists r s S''l, le_n r S''l S'h /\ reorg_n^{s} S'l S''l /\ (acc + q) + r + s <= n) ->
+  (exists r s S''l, le_n r S''l S'h /\ reorg_n^{s} Sl S''l /\ acc + r + s <= n).
 Proof. intros ?. apply prove_reorg_steps. constructor. assumption. Qed.
 
 (* This lemma is applied when an accumulator has not yet been introduced. It is initalized with
   the weight parameter [q] of the reorganization rule. *)
 Lemma prove_reorg_step_0 q Sl S'l S'h n :
   reorg_n q Sl S'l ->
-  (exists r s S''l, leq_n r S''l S'h /\ reorg_n^{s} S'l S''l /\ q + r + s <= n) ->
-  (exists r s S''l, leq_n r S''l S'h /\ reorg_n^{s} Sl S''l /\ r + s <= n).
+  (exists r s S''l, le_n r S''l S'h /\ reorg_n^{s} S'l S''l /\ q + r + s <= n) ->
+  (exists r s S''l, le_n r S''l S'h /\ reorg_n^{s} Sl S''l /\ r + s <= n).
 Proof. apply (prove_reorg_step 0). Qed.
 
 Lemma reorg_done acc n Sl S'h :
-  (exists r, leq_n r Sl S'h /\ acc + r <= n) ->
-  (exists r s S'l, leq_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ acc + r + s <= n).
+  (exists r, le_n r Sl S'h /\ acc + r <= n) ->
+  (exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ acc + r + s <= n).
 Proof.
   intros (r & ? & ?). exists r, 0, Sl. repeat split; [assumption | apply MC_refl | lia].
 Qed.
 
 (* This tactic is used when no accumulator has been introduced. *)
 Lemma reorg_done_0 n Sl S'h :
-  (exists r, leq_n r Sl S'h /\ r <= n) ->
-  (exists r s S'l, leq_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= n).
+  (exists r, le_n r Sl S'h /\ r <= n) ->
+  (exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= n).
 Proof. apply (reorg_done 0). Qed.
 
-Lemma leq_n_steps acc p n Sl Sm Sr :
-  leq_state_base_n^{p} Sl Sm -> (exists r, leq_n r Sm Sr /\ (acc + p) + r <= n) ->
-  exists r, leq_n r Sl Sr /\ acc + r <= n.
+Lemma le_n_steps acc p n Sl Sm Sr :
+  le_state_base_n^{p} Sl Sm -> (exists r, le_n r Sm Sr /\ (acc + p) + r <= n) ->
+  exists r, le_n r Sl Sr /\ acc + r <= n.
 Proof.
   intros H (r & (Sr' & G & ?) & ?).
-  destruct (sim_equiv_leq_n _ leq_n_equiv_states_commute _ _ _ G _ H) as (Sl' & ? & ?).
+  destruct (sim_equiv_le_n _ le_n_equiv_states_commute _ _ _ G _ H) as (Sl' & ? & ?).
   exists (p + r). split; [ | lia]. exists Sl'. split; [assumption | ].
   eapply MC_trans; eassumption.
 Qed.
 
-Lemma leq_n_step acc p n Sl Sm Sr :
-  leq_state_base_n p Sl Sm -> (exists r, leq_n r Sm Sr /\ (acc + p) + r <= n) ->
-  exists r, leq_n r Sl Sr /\ acc + r <= n.
-Proof. intros ?. apply leq_n_steps. constructor. assumption. Qed.
+Lemma le_n_step acc p n Sl Sm Sr :
+  le_state_base_n p Sl Sm -> (exists r, le_n r Sm Sr /\ (acc + p) + r <= n) ->
+  exists r, le_n r Sl Sr /\ acc + r <= n.
+Proof. intros ?. apply le_n_steps. constructor. assumption. Qed.
 
 (** This lemma is applied when an accumulator has not yet been introduced. It is initalized with
   the weight parameter [p] of the abstraction rule. *)
-Lemma leq_n_step_0 p n Sl Sm Sr :
-  leq_state_base_n p Sl Sm -> (exists r, leq_n r Sm Sr /\ p + r <= n) ->
-  exists r, leq_n r Sl Sr /\ r <= n.
-Proof. apply (leq_n_step 0). Qed.
+Lemma le_n_step_0 p n Sl Sm Sr :
+  le_state_base_n p Sl Sm -> (exists r, le_n r Sm Sr /\ p + r <= n) ->
+  exists r, le_n r Sl Sr /\ r <= n.
+Proof. apply (le_n_step 0). Qed.
 
-Lemma leq_done acc n Sl Sr :
-  equiv_states Sl Sr -> acc <= n -> exists r, leq_n r Sl Sr /\ acc + r <= n.
+Lemma le_done acc n Sl Sr :
+  equiv_states Sl Sr -> acc <= n -> exists r, le_n r Sl Sr /\ acc + r <= n.
 Proof.
   intros ? ?. exists 0. split; [ | lia]. exists Sr. split; [assumption | apply MC_refl].
 Qed.
 
-Lemma prove_leq_n n Sl Sr Sr' :
-  leq_state_base_n^{n} Sl Sr -> equiv_states Sr Sr' -> leq_n n Sl Sr'.
+Lemma prove_le_n n Sl Sr Sr' :
+  le_state_base_n^{n} Sl Sr -> equiv_states Sr Sr' -> le_n n Sl Sr'.
 Proof.
   intros H G.
-  pose proof leq_n_equiv_states_commute as Hsim.
-  eapply sim_equiv_leq_n in Hsim. specialize (Hsim _ _ G _ H).
+  pose proof le_n_equiv_states_commute as Hsim.
+  eapply sim_equiv_le_n in Hsim. specialize (Hsim _ _ G _ H).
   destruct Hsim as (Sl' & ? & ?). exists Sl'. split; assumption.
 Qed.
 
 Ltac reorg_step := first [eapply prove_reorg_step | eapply prove_reorg_step_0].
 Ltac reorg_steps := eapply prove_reorg_steps.
 Ltac reorg_done := first [apply reorg_done | apply reorg_done_0].
-Ltac leq_done := apply leq_done.
+Ltac le_done := apply le_done.
 
 (* TODO: find meaningful names. *)
-Lemma _prove_leq_val_state_anon_left vl Sl vm Sm vSr b w
+Lemma _prove_le_val_state_anon_left vl Sl vm Sm vSr b w
   (fresh_b : fresh_anon Sl b)
   (G : forall a, fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
-       exists vSm, leq_state_base (Sl,, a |-> vl,, b |-> w) vSm /\ vSm = Sm,, a |-> vm) :
-  leq_val_state_ut (vm, Sm) vSr ->
-  leq_val_state_ut (vl, Sl,, b |-> w) vSr.
+       exists vSm, le_state_base (Sl,, a |-> vl,, b |-> w) vSm /\ vSm = Sm,, a |-> vm) :
+  le_val_state_ut (vm, Sm) vSr ->
+  le_val_state_ut (vl, Sl,, b |-> w) vSr.
 Proof.
   intros ?. etransitivity; [ | eassumption]. eexists.  split; [reflexivity | ]. constructor.
   intros a (? & ?)%fresh_anon_add_anon ?. rewrite !fst_pair, !snd_pair.
@@ -127,11 +127,11 @@ Proof.
   destruct (G a) as (? & ? & ->); try assumption. rewrite fresh_anon_add_anon. auto.
 Qed.
 
-Lemma _prove_leq_val_state_left_to_right vl Sl vm Sm vSr
+Lemma _prove_le_val_state_left_to_right vl Sl vm Sm vSr
   (G : forall a, fresh_anon Sl a ->
-       exists vSm, leq_state_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm) :
-  leq_val_state_ut (vm, Sm) vSr ->
-  leq_val_state_ut (vl, Sl) vSr.
+       exists vSm, le_state_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm) :
+  le_val_state_ut (vm, Sm) vSr ->
+  le_val_state_ut (vl, Sl) vSr.
 Proof.
   intros ?. etransitivity; [ | eassumption]. eexists. split; [reflexivity | ]. constructor.
   intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
@@ -140,48 +140,48 @@ Qed.
 
 (** This tactic is used to prove a goal of the form [(vl, Sl) < ?vSr] without
     exhibiting the existential variable [?vSr]. *)
-Ltac leq_step_left :=
+Ltac le_step_left :=
   let a := fresh "a" in
   let H := fresh "H" in
   lazymatch goal with
-  |  |- ?leq_star^* (?vl, ?Sl,, ?b |-> ?w) ?vSr =>
-      eapply prove_leq_val_state_anon_left;
+  |  |- ?le_star^* (?vl, ?Sl,, ?b |-> ?w) ?vSr =>
+      eapply prove_le_val_state_anon_left;
         [eauto with spath |
          intros a ? ?; eexists; split |
         ]
-  |  |- leq_val_state_ut (?vl, ?Sl,, ?b |-> ?w) ?vSr =>
-      eapply _prove_leq_val_state_anon_left;
+  |  |- le_val_state_ut (?vl, ?Sl,, ?b |-> ?w) ?vSr =>
+      eapply _prove_le_val_state_anon_left;
         [eauto with spath |
          intros a ? ?; eexists; split |
         ]
-  (** When proving a goal [leq (vl, Sl) ?vSr], using this tactic creates three subgoals:
-      - [leq_base (Sl,, a |-> v) ?vSm]
+  (** When proving a goal [le (vl, Sl) ?vSr], using this tactic creates three subgoals:
+      - [le_base (Sl,, a |-> v) ?vSm]
       - [?vSm = ?Sm,, a |-> ?vm]
-      - [leq (?vm, ?Sm) ?vSr] *)
-  | |- ?leq_star^* (?vl, ?Sl) ?vSr =>
-      eapply prove_leq_val_state_left_to_right;
+      - [le (?vm, ?Sm) ?vSr] *)
+  | |- ?le_star^* (?vl, ?Sl) ?vSr =>
+      eapply prove_le_val_state_left_to_right;
         [intros a ?; rewrite <-?fresh_anon_sset in H; eexists; split; [
           repeat rewrite <-add_abstraction_add_anon |
           ] |
         ]
-  | |- leq_val_state_ut (?vl, ?Sl) ?vSr =>
-      eapply _prove_leq_val_state_left_to_right;
+  | |- le_val_state_ut (?vl, ?Sl) ?vSr =>
+      eapply _prove_le_val_state_left_to_right;
         [intros a ?; rewrite <-?fresh_anon_sset in H; eexists; split; [
           repeat rewrite <-add_abstraction_add_anon |
           ] |
         ]
-  | |- exists r, leq_n r ?Sl ?Sr /\ r <= ?n => eapply leq_n_step_0
-  | |- exists r, leq_n r ?Sl ?Sr /\ ?acc + r <= ?n => eapply leq_n_step
-  | |- ?leq_star ?Sl ?Sr => eapply leq_step_left
+  | |- exists r, le_n r ?Sl ?Sr /\ r <= ?n => eapply le_n_step_0
+  | |- exists r, le_n r ?Sl ?Sr /\ ?acc + r <= ?n => eapply le_n_step
+  | |- ?le_star ?Sl ?Sr => eapply le_step_left
   end.
 
 (* TODO: meaningful name. *)
-Lemma _prove_leq_val_state_add_anon vl Sl vm Sm vSr b w
+Lemma _prove_le_val_state_add_anon vl Sl vm Sm vSr b w
   (fresh_b : fresh_anon Sl b)
   (G : forall a, fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
-       exists vSm, leq_state_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm,, b |-> w) :
-  leq_val_state_ut (vm, Sm,, b |-> w) vSr ->
-  leq_val_state_ut (vl, Sl) vSr.
+       exists vSm, le_state_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm,, b |-> w) :
+  le_val_state_ut (vm, Sm,, b |-> w) vSr ->
+  le_val_state_ut (vl, Sl) vSr.
 Proof.
   intros ?. etransitivity; [ | eassumption]. eexists. split; [reflexivity | ]. constructor.
   intros a ? (? & ?)%fresh_anon_add_anon. rewrite !fst_pair, !snd_pair.
@@ -204,20 +204,20 @@ Qed.
  * Sm,, a |-> vm,, b |-> w = Sm,, b |-> w,, a |-> vm
  * Using (2), that shows that (vl, Sl) < (vm, Sm,, b |-> w).
  *)
-Ltac leq_val_state_add_anon :=
+Ltac le_val_state_add_anon :=
   let a := fresh "a" in
   let H := fresh "H" in
   lazymatch goal with
-  |  |- ?leq_star^* (?vl, ?Sl) ?vSr =>
-      eapply prove_leq_val_state_add_anon;
+  |  |- ?le_star^* (?vl, ?Sl) ?vSr =>
+      eapply prove_le_val_state_add_anon;
         (* The hypothesis fresh_anon Sl b should be resolved automatically, because there should be
          * a single hypothesis of the form "fresh_anon Sr b" in the context, with Sr an expression
          * of Sl, that can be used. *)
         [eauto with spath; fail |
             intros a H; rewrite <-?fresh_anon_sset in H; eexists; split |
         ]
-  |  |- leq_val_state_ut (?vl, ?Sl) ?vSr =>
-      eapply _prove_leq_val_state_add_anon;
+  |  |- le_val_state_ut (?vl, ?Sl) ?vSr =>
+      eapply _prove_le_val_state_add_anon;
         (* The hypothesis fresh_anon Sl b should be resolved automatically, because there should be
          * a single hypothesis of the form "fresh_anon Sr b" in the context, with Sr an expression
          * of Sl, that can be used. *)
@@ -343,7 +343,7 @@ Definition rel_change_anon a (p q : spath) := p = q /\ fst p <> anon_accessor a.
 (* Relates two equal paths pi_l and pi_r such that:
  * - Neither is in the anonymous variable a.
  * - Neither is under a given spath sp. *)
-(* Used by the rules Leq_MoveValue and Leq_Fresh_MutLoan. *)
+(* Used by the rules Le_MoveValue and Le_Fresh_MutLoan. *)
 Definition rel_change_anon_not_in_spath sp a pi_l pi_r :=
   rel_change_anon a pi_l pi_r /\ ~strict_prefix sp pi_l.
 
@@ -746,134 +746,134 @@ Qed.
 Hint Resolve is_fresh_copy : spath.
 
 Lemma operand_preserves_LLBC_plus_rel op :
-  forward_simulation leq_state_base^* (leq_val_state_base leq_state_base)^* (eval_operand op) (eval_operand op).
+  forward_simulation le_state_base^* (le_val_state_base le_state_base)^* (eval_operand op) (eval_operand op).
 Proof.
   apply preservation_by_base_case.
   intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
   (* op = IntConst n *)
   - destruct Hle.
     + execution_step. { constructor. }
-      leq_step_left.
-      { eapply Leq_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
+      le_step_left.
+      { eapply Le_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_step_left.
-      { apply Leq_ToAbs with (a := a) (i := i) (A := A).
+      le_step_left.
+      { apply Le_ToAbs with (a := a) (i := i) (A := A).
         all: autorewrite with spath; assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_step_left.
-      { apply Leq_RemoveAnon with (a := a); autorewrite with spath; try assumption; validity. }
+      le_step_left.
+      { apply Le_RemoveAnon with (a := a); autorewrite with spath; try assumption; validity. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
-      { apply Leq_MoveValue with (sp := sp) (a := a).
+      le_val_state_add_anon.
+      { apply Le_MoveValue with (sp := sp) (a := a).
         all: autorewrite with spath; eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_step_left.
-      { apply (Leq_MergeAbs _ i j A B C); assumption. }
+      le_step_left.
+      { apply (Le_MergeAbs _ i j A B C); assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
-      { apply (Leq_Fresh_MutLoan _ sp l' a). not_contains.
+      le_val_state_add_anon.
+      { apply (Le_Fresh_MutLoan _ sp l' a). not_contains.
         eassumption.
         autorewrite with spath. validity. assumption. autorewrite with spath. eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
-      { apply (Leq_Reborrow_MutBorrow _ sp l0 l1 a). not_contains. eassumption.
+      le_val_state_add_anon.
+      { apply (Le_Reborrow_MutBorrow _ sp l0 l1 a). not_contains. eassumption.
         autorewrite with spath. assumption. assumption. autorewrite with spath.  eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
+      le_val_state_add_anon.
       { rewrite <-add_abstraction_add_anon.
-        eapply Leq_Borrow_Abstraction with (j := j) (a := a) (l' := l') (ty' := ty').
+        eapply Le_Borrow_Abstraction with (j := j) (a := a) (l' := l') (ty' := ty').
         auto with spath. assumption. not_contains.
         apply fresh_anon_add_anon in H0. destruct H0. auto with spath. }
       { autorewrite with spath. reflexivity. }
       states_eq.
     + execution_step. { constructor. }
-      leq_step_left.
-      { apply (Leq_Abs_ClearValue _ i j v); autorewrite with spath; assumption. }
+      le_step_left.
+      { apply (Le_Abs_ClearValue _ i j v); autorewrite with spath; assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
-      { apply (Leq_AnonValue _ a); [assumption.. | ]. eassumption. }
+      le_val_state_add_anon.
+      { apply (Le_AnonValue _ a); [assumption.. | ]. eassumption. }
       { reflexivity. }
       reflexivity.
 
   (* op = BoolConst n *)
   - destruct Hle.
     + execution_step. { constructor. }
-      leq_step_left.
-      { eapply Leq_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
+      le_step_left.
+      { eapply Le_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_step_left.
-      { apply Leq_ToAbs with (a := a) (i := i) (A := A).
+      le_step_left.
+      { apply Le_ToAbs with (a := a) (i := i) (A := A).
         all: autorewrite with spath; assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_step_left.
-      { apply Leq_RemoveAnon with (a := a); autorewrite with spath; try assumption; validity. }
+      le_step_left.
+      { apply Le_RemoveAnon with (a := a); autorewrite with spath; try assumption; validity. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
-      { apply Leq_MoveValue with (sp := sp) (a := a).
+      le_val_state_add_anon.
+      { apply Le_MoveValue with (sp := sp) (a := a).
         all: autorewrite with spath; eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_step_left.
-      { apply (Leq_MergeAbs _ i j A B C); assumption. }
+      le_step_left.
+      { apply (Le_MergeAbs _ i j A B C); assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
-      { apply (Leq_Fresh_MutLoan _ sp l' a). not_contains. assumption. validity.
+      le_val_state_add_anon.
+      { apply (Le_Fresh_MutLoan _ sp l' a). not_contains. assumption. validity.
         assumption. autorewrite with spath. eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
-      { apply (Leq_Reborrow_MutBorrow _ sp l0 l1 a). not_contains. assumption.
+      le_val_state_add_anon.
+      { apply (Le_Reborrow_MutBorrow _ sp l0 l1 a). not_contains. assumption.
         autorewrite with spath. assumption. assumption. autorewrite with spath.  eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
+      le_val_state_add_anon.
       { rewrite <-add_abstraction_add_anon.
-         eapply Leq_Borrow_Abstraction with (j := j) (a := a) (l' := l') (ty' := ty').
+         eapply Le_Borrow_Abstraction with (j := j) (a := a) (l' := l') (ty' := ty').
          auto with spath. assumption. not_contains.
          apply fresh_anon_add_anon in H0. destruct H0. auto with spath. }
       { autorewrite with spath. reflexivity. }
       states_eq.
     + execution_step. { constructor. }
-      leq_step_left.
-      { apply (Leq_Abs_ClearValue _ i j v); autorewrite with spath; assumption. }
+      le_step_left.
+      { apply (Le_Abs_ClearValue _ i j v); autorewrite with spath; assumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
     + execution_step. { constructor. }
-      leq_val_state_add_anon.
-      { apply (Leq_AnonValue _ a); [assumption.. | ]. eassumption. }
+      le_val_state_add_anon.
+      { apply (Le_AnonValue _ a); [assumption.. | ]. eassumption. }
       { reflexivity. }
       reflexivity.
 
   (* op = copy p *)
   - destruct Hle.
-    (* Leq-ToSymbolic *)
+    (* Le-ToSymbolic *)
     + eval_place_preservation.
       assert (not_contains_loan (S.[pi])).
       { eapply not_value_contains_sset_rev.
@@ -887,13 +887,13 @@ Proof.
           [ | validity | assumption | autorewrite with spath; assumption].
           destruct Hcopy_val as (w & q' & Hcopy_val & -> & get_int').
         execution_step. { econstructor; eassumption. }
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := pi +++ q); autorewrite with spath; eassumption. }
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := pi +++ q); autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         pose proof (copy_no_mut_borrow _ _ Hcopy_val).
         pose proof (copy_no_loan _ _ Hcopy_val).
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, q')).
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := (anon_accessor a, q')).
           all: autorewrite with spath. eassumption.
           all: apply not_value_contains_vget; eauto with spath. }
         { autorewrite with spath. reflexivity. }
@@ -901,28 +901,28 @@ Proof.
       (* Case 2: we don't copy the newly introduced symbolic value. *)
       * assert (disj pi sp) by solve_comp. autorewrite with spath in Hcopy_val.
         execution_step. { econstructor; eassumption. }
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
 
-    (* Leq-ToAbs *)
+    (* Le-ToAbs *)
     + eval_place_preservation. autorewrite with spath in Hcopy_val.
       execution_step. { econstructor; [eassumption | ]. autorewrite with spath. eassumption. }
-      leq_step_left.
-      { apply Leq_ToAbs with (i := i); eauto with spath. }
+      le_step_left.
+      { apply Le_ToAbs with (i := i); eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
-    (* Leq-RemoveAnon *)
+    (* Le-RemoveAnon *)
     + eval_place_preservation.
       execution_step. { econstructor; [eassumption | ]. autorewrite with spath. eassumption. }
-      leq_step_left.
-      { apply Leq_RemoveAnon; eauto with spath. }
+      le_step_left.
+      { apply Le_RemoveAnon; eauto with spath. }
       { reflexivity. }
       reflexivity.
 
-    (* Leq-MoveValue *)
+    (* Le-MoveValue *)
     + eval_place_preservation.
       destruct rel_pi_l_pi_r as [(-> & ? & ?) | (r & -> & ->)].
       (* Case 1: the place we copy is not in the moved value. *)
@@ -935,8 +935,8 @@ Proof.
           eapply vset_same_valid. validity. }
         assert (disj pi sp) by solve_comp. autorewrite with spath in Hcopy_val.
         execution_step. { econstructor; eassumption. }
-        leq_val_state_add_anon.
-        { apply Leq_MoveValue with (a := a) (sp := sp); eauto with spath.
+        le_val_state_add_anon.
+        { apply Le_MoveValue with (a := a) (sp := sp); eauto with spath.
           autorewrite with spath. assumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
@@ -944,21 +944,21 @@ Proof.
        * borrows. *)
       * autorewrite with spath in Hcopy_val.
         execution_step. { econstructor; eassumption. }
-        leq_val_state_add_anon.
-        { apply Leq_MoveValue with (a := a) (sp := sp); eauto with spath.
+        le_val_state_add_anon.
+        { apply Le_MoveValue with (a := a) (sp := sp); eauto with spath.
           autorewrite with spath. assumption. }
         { autorewrite with spath. reflexivity. }
         reflexivity.
 
-    (* Leq-MergeAbs *)
+    (* Le-MergeAbs *)
     + eval_place_preservation. autorewrite with spath in Hcopy_val.
       execution_step. { econstructor. eassumption. autorewrite with spath. eassumption. }
-      leq_step_left.
-      { apply Leq_MergeAbs; eauto with spath. }
+      le_step_left.
+      { apply Le_MergeAbs; eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
-    (* Leq-Fresh-MutLoan *)
+    (* Le-Fresh-MutLoan *)
     + eval_place_preservation.
       rewrite sget_add_anon in Hcopy_val by assumption.
       assert (~prefix pi sp).
@@ -968,13 +968,13 @@ Proof.
         apply vset_same_valid. validity. }
       assert (disj pi sp) by solve_comp. autorewrite with spath in Hcopy_val.
       execution_step. { econstructor; eassumption. }
-      leq_val_state_add_anon.
-      { apply Leq_Fresh_MutLoan with (sp := sp) (l' := l'); eauto with spath. not_contains.
+      le_val_state_add_anon.
+      { apply Le_Fresh_MutLoan with (sp := sp) (l' := l'); eauto with spath. not_contains.
         autorewrite with spath. eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
-    (* Leq-Reborrow-MutBorrow *)
+    (* Le-Reborrow-MutBorrow *)
     + eval_place_preservation. rewrite sget_add_anon in Hcopy_val by assumption.
       assert (~prefix pi sp).
       { intros (q & <-). autorewrite with spath in Hcopy_val.
@@ -983,19 +983,19 @@ Proof.
         apply vset_same_valid. validity. }
       autorewrite with spath in Hcopy_val.
       execution_step. { econstructor; eassumption. }
-      leq_val_state_add_anon.
-      { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1); eauto with spath.
+      le_val_state_add_anon.
+      { apply Le_Reborrow_MutBorrow with (sp := sp) (l1 := l1); eauto with spath.
         not_contains. all: autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
-    (* Leq-Borrow-Abstraction *)
+    (* Le-Borrow-Abstraction *)
     + eval_place_preservation.
       autorewrite with spath in Hcopy_val.
       execution_step. { econstructor; eassumption. }
-      leq_val_state_add_anon.
+      le_val_state_add_anon.
       { rewrite <-add_abstraction_add_anon.
-         eapply Leq_Borrow_Abstraction with (j := j) (a := a) (l' := l') (ty' := ty').
+         eapply Le_Borrow_Abstraction with (j := j) (a := a) (l' := l') (ty' := ty').
          auto with spath. assumption.
          (* TODO: automate. *)
          not_contains. eapply is_fresh_copy; [ | eassumption]. not_contains.
@@ -1003,26 +1003,26 @@ Proof.
       { autorewrite with spath. reflexivity. }
       states_eq.
 
-    (* Leq-Abs-ClearValue *)
+    (* Le-Abs-ClearValue *)
     + eval_place_preservation.
       execution_step. { econstructor. eassumption. autorewrite with spath. eassumption. }
-      leq_step_left.
-      { eapply Leq_Abs_ClearValue with (i := i) (j := j). autorewrite with spath.
+      le_step_left.
+      { eapply Le_Abs_ClearValue with (i := i) (j := j). autorewrite with spath.
         all: eassumption. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
-    (* Leq-AnonValue *)
+    (* Le-AnonValue *)
     + eval_place_preservation. autorewrite with spath in Hcopy_val.
       execution_step. { econstructor; eassumption. }
-      leq_val_state_add_anon.
-      { apply Leq_AnonValue with (a := a). assumption. }
+      le_val_state_add_anon.
+      { apply Le_AnonValue with (a := a). assumption. }
       { reflexivity. }
       reflexivity.
 
   (* op = move p *)
   - destruct Hle.
-    (* Leq-ToSymbolic *)
+    (* Le-ToSymbolic *)
     + eval_place_preservation.
       execution_step.
       { constructor. eassumption. not_contains. not_contains. }
@@ -1030,8 +1030,8 @@ Proof.
 
       (* Case 1: the value we turn into a symbolic value is in the place we move. *)
       * autorewrite with spath in * |-.
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, q)).
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := (anon_accessor a, q)).
           all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         states_eq.
@@ -1039,31 +1039,31 @@ Proof.
       (* Case 2: the value we turn into a symbolic value is disjoint to the place we move. *)
       * assert (disj pi sp) by solve_comp.
         autorewrite with spath in * |-.
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := sp). all: autorewrite with spath; eassumption. }
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := sp). all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         states_eq.
 
-    (* Leq-ToAbs *)
+    (* Le-ToAbs *)
     + eval_place_preservation.
       autorewrite with spath in *.
       execution_step. { apply E_Move. eassumption. all: autorewrite with spath; assumption. }
       autorewrite with spath in *.
-      leq_step_left.
-      { apply Leq_ToAbs with (a := a) (i := i); [ | autorewrite with spath | ]; eauto with spath. }
+      le_step_left.
+      { apply Le_ToAbs with (a := a) (i := i); [ | autorewrite with spath | ]; eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
-    (* Leq-RemoveAnon *)
+    (* Le-RemoveAnon *)
     + eval_place_preservation.
       execution_step. { apply E_Move. eassumption. all: autorewrite with spath; eassumption. }
-      autorewrite with spath. leq_step_left.
-      { apply Leq_RemoveAnon with (a := a). eauto with spath.
+      autorewrite with spath. le_step_left.
+      { apply Le_RemoveAnon with (a := a). eauto with spath.
         all: autorewrite with spath; assumption. }
       { reflexivity. }
       reflexivity.
 
-    (* Leq-MoveValue *)
+    (* Le-MoveValue *)
     + eval_place_preservation.
       (* The place pi we move does not contain any bottom value is the right state, as a
        * condition of the move rule.
@@ -1075,43 +1075,43 @@ Proof.
       assert (disj pi sp) by solve_comp.
       autorewrite with spath in * |-.
       execution_step. { apply E_Move; eassumption. }
-      leq_val_state_add_anon.
-       { apply Leq_MoveValue with (sp := sp) (a := a).
+      le_val_state_add_anon.
+       { apply Le_MoveValue with (sp := sp) (a := a).
          autorewrite with spath; assumption. auto with spath. validity.
          eauto with spath. assumption. }
        { autorewrite with spath. reflexivity. }
       states_eq.
 
-    (* Leq-MergeAbs *)
+    (* Le-MergeAbs *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
       execution_step. { apply E_Move. eassumption. all: autorewrite with spath; assumption. }
-      autorewrite with spath. leq_step_left.
-      { apply Leq_MergeAbs with (A := A) (B := B) (i := i) (j := j); eauto with spath. }
+      autorewrite with spath. le_step_left.
+      { apply Le_MergeAbs with (A := A) (B := B) (i := i) (j := j); eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
-    (* Leq-Fresh-MutLoan *)
+    (* Le-Fresh-MutLoan *)
     + eval_place_preservation.
       autorewrite with spath in * |-.
       (* Because the path pi we move does not contain any loan, it cannot contain the spath sp
        * where the mutable loan is written. *)
-      (* Note: this is similar to a reasonning we do for the case Leq_MoveValue. Make a lemma? *)
+      (* Note: this is similar to a reasonning we do for the case Le_MoveValue. Make a lemma? *)
       assert (~prefix pi sp).
       { intros (q & <-). autorewrite with spath in move_no_loan.
         eapply move_no_loan with (p := q). apply vset_same_valid. validity.
         autorewrite with spath. constructor. }
       assert (disj pi sp) by solve_comp. autorewrite with spath in *.
       execution_step. { apply E_Move; eassumption. }
-      leq_val_state_add_anon.
-      { apply Leq_Fresh_MutLoan with (sp := sp) (l' := l').
+      le_val_state_add_anon.
+      { apply Le_Fresh_MutLoan with (sp := sp) (l' := l').
         (* TODO: the tactic not_contains should solve it. *)
         not_contains.
         eassumption. all: autorewrite with spath. validity. assumption. eassumption. }
       { autorewrite with spath. reflexivity. }
       states_eq.
 
-    (* Leq-Reborrow-MutBorrow *)
+    (* Le-Reborrow-MutBorrow *)
     + eval_place_preservation.
       (* TODO: time wasted by the rule `sget_reborrow_mut_borrow_not_prefix`. *)
       autorewrite with spath in * |-. (* TODO: long. *)
@@ -1122,11 +1122,11 @@ Proof.
         { apply E_Move. eassumption.
           eapply not_contains_rename_mut_borrow; eauto with spath.
           eapply not_contains_rename_mut_borrow; eauto with spath. }
-         leq_val_state_add_anon.
+         le_val_state_add_anon.
         (* Because the place we reborrow was at sp +++ q, and that we move and return S.[sp],
          * the borrow is now in the anonymous value we evaluate a0, at path q. *)
          (* TODO: rename a0 *)
-        { apply Leq_Reborrow_MutBorrow with (sp := (anon_accessor a0, q)) (l1 := l1).
+        { apply Le_Reborrow_MutBorrow with (sp := (anon_accessor a0, q)) (l1 := l1).
           not_contains. eassumption. autorewrite with spath. eassumption. eauto with spath.
           autorewrite with spath in Htype |- *. exact Htype. }
         { autorewrite with spath. reflexivity. }
@@ -1136,38 +1136,38 @@ Proof.
       * assert (disj pi sp) by solve_comp.
         autorewrite with spath in * |-. execution_step.
         { apply E_Move; eassumption. }
-        leq_val_state_add_anon.
-        { apply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1).
+        le_val_state_add_anon.
+        { apply Le_Reborrow_MutBorrow with (sp := sp) (l1 := l1).
           not_contains. eassumption. all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         autorewrite with spath. reflexivity.
 
-    (* Leq-Borrow-Abstraction *)
+    (* Le-Borrow-Abstraction *)
     + eval_place_preservation. autorewrite with spath in * |-.
       execution_step. { econstructor. eassumption. all: autorewrite with spath; assumption. }
-      leq_val_state_add_anon.
+      le_val_state_add_anon.
       { autorewrite with spath. rewrite <-add_abstraction_add_anon.
-         eapply Leq_Borrow_Abstraction with (j := j) (a := a) (l' := l') (ty' := ty').
+         eapply Le_Borrow_Abstraction with (j := j) (a := a) (l' := l') (ty' := ty').
          auto with spath. assumption. not_contains.
          apply fresh_anon_add_anon in H2. destruct H2. auto with spath. }
       { autorewrite with spath. reflexivity. }
       states_eq.
 
-    (* Leq-Abs-ClearValue *)
+    (* Le-Abs-ClearValue *)
     + eval_place_preservation. autorewrite with spath in * |-.
       execution_step. { constructor. eassumption. all: autorewrite with spath; assumption. }
       autorewrite with spath.
-      leq_step_left.
-      { eapply Leq_Abs_ClearValue with (i := i) (j := j); auto with spath. }
+      le_step_left.
+      { eapply Le_Abs_ClearValue with (i := i) (j := j); auto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
 
-    (* Leq-AnonValue *)
+    (* Le-AnonValue *)
     + eval_place_preservation.
       autorewrite with spath in *.
       execution_step. { econstructor; eassumption. }
-      leq_val_state_add_anon.
-      { apply Leq_AnonValue; eassumption. }
+      le_val_state_add_anon.
+      { apply Le_AnonValue; eassumption. }
       { reflexivity. }
       reflexivity.
 Qed.
@@ -1204,8 +1204,8 @@ Proof.
     etransitivity; [apply loan_set_sget | apply H].
 Qed.
 
-Lemma operand_preserves_leq op :
-  forward_simulation leq_symbolic leq_val_state (eval_operand op) (eval_operand op).
+Lemma operand_preserves_le op :
+  forward_simulation le_symbolic le_val_state (eval_operand op) (eval_operand op).
 Proof.
   apply forward_simulation_chain.
   - apply operand_preserves_equiv.
@@ -1225,10 +1225,10 @@ Lemma boolean_does_not_contain_borrow v : is_of_type TBool v -> not_contains_bor
 Proof. inversion 1; not_contains. Qed.
 Hint Resolve boolean_does_not_contain_borrow : spath.
 
-Lemma leq_val_state_base_integer vl Sl vr Sr :
-  leq_val_state_base leq_state_base (vl, Sl) (vr, Sr) ->
+Lemma le_val_state_base_integer vl Sl vr Sr :
+  le_val_state_base le_state_base (vl, Sl) (vr, Sr) ->
   is_of_type TInt vr -> not_contains_loan vr ->
-  (vl = vr /\ leq_state_base Sl Sr) \/
+  (vl = vr /\ le_state_base Sl Sr) \/
   (is_of_type TInt vl /\ not_contains_loan vl /\ vr = VSymbolic TInt /\ Sl = Sr).
 Proof.
   destruct (exists_fresh_anon2 Sl Sr) as (a & fresh_a_l & fresh_a_r).
@@ -1264,7 +1264,7 @@ Proof.
       - apply vset_same_valid. validity.
       - autorewrite with spath. constructor. }
     autorewrite with spath in *. process_state_eq.
-    left. split; [reflexivity | ]. apply Leq_Fresh_MutLoan; auto. not_contains.
+    left. split; [reflexivity | ]. apply Le_Fresh_MutLoan; auto. not_contains.
   - destruct (decide (fst sp = anon_accessor a)).
     { autorewrite with spath in * |-. process_state_eq.
       exfalso. eapply integer_does_not_contain_borrow.
@@ -1272,7 +1272,7 @@ Proof.
       - apply vset_same_valid. validity.
       - autorewrite with spath. constructor. }
     autorewrite with spath in *. process_state_eq.
-    left. split; [reflexivity | ]. apply Leq_Reborrow_MutBorrow; auto. not_contains.
+    left. split; [reflexivity | ]. apply Le_Reborrow_MutBorrow; auto. not_contains.
   - process_state_eq. left. split; [reflexivity | ].
     constructor; try assumption. not_contains.
   - autorewrite with spath in *. process_state_eq.
@@ -1280,25 +1280,25 @@ Proof.
   - process_state_eq. left. split; [reflexivity | ]. constructor. assumption.
 Qed.
 
-Definition leq_integer_state (vSl vSr : value * state) :=
+Definition le_integer_state (vSl vSr : value * state) :=
   let (vl, Sl) := vSl in
   let (vr, Sr) := vSr in
-  (vl = vr \/ is_of_type TInt vl /\ not_contains_loan vl /\ vr = VSymbolic TInt) /\ leq_state_base^* Sl Sr.
+  (vl = vr \/ is_of_type TInt vl /\ not_contains_loan vl /\ vr = VSymbolic TInt) /\ le_state_base^* Sl Sr.
 
-Lemma leq_val_state_integer vSl vSr :
-  (leq_val_state_base leq_state_base)^* vSl vSr ->
-  is_of_type TInt (fst vSr) -> not_contains_loan (fst vSr) -> leq_integer_state vSl vSr.
+Lemma le_val_state_integer vSl vSr :
+  (le_val_state_base le_state_base)^* vSl vSr ->
+  is_of_type TInt (fst vSr) -> not_contains_loan (fst vSr) -> le_integer_state vSl vSr.
 Proof.
   intros H Htype no_loan.
-  induction H as [(v & S) | (vl & Sl) (vm & Sm) (vr & Sr) ? ? leq_step]
+  induction H as [(v & S) | (vl & Sl) (vm & Sm) (vr & Sr) ? ? le_step]
     using clos_refl_trans_ind_left'.
   - split; [ | reflexivity]. left. reflexivity.
-  - eapply leq_val_state_base_integer in leq_step; [ | eassumption..].
-    destruct leq_step as [(? & ?) | (? & ? & ? & ?)]; subst.
+  - eapply le_val_state_base_integer in le_step; [ | eassumption..].
+    destruct le_step as [(? & ?) | (? & ? & ? & ?)]; subst.
     + destruct IHclos_refl_trans; [assumption.. | ]. split; [assumption | ].
       transitivity Sm; [ | constructor]; assumption.
     + destruct IHclos_refl_trans as ([ | (? & ? & ?)] & ?); [assumption.. | | ];
-        subst; unfold leq_integer_state; auto.
+        subst; unfold le_integer_state; auto.
 Qed.
 
 Lemma to_abs_not_contains v A l :
@@ -1331,9 +1331,9 @@ Lemma le_no_loan v0 v1 w (H : eval_binary_op BLe v0 v1 w) :
   not_contains_loan v0 /\ not_contains_loan v1 /\ not_contains_loan w.
 Proof. inversion H; repeat split; not_contains. Qed.
 
-Lemma leq_base_implies_leq_val_state_base Sl Sr v
+Lemma le_base_implies_le_val_state_base Sl Sr v
   (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
-  leq_state_base^* Sl Sr -> leq_val_state_ut (v, Sl) (v, Sr).
+  le_state_base^* Sl Sr -> le_val_state_ut (v, Sl) (v, Sr).
 Proof.
   intros H. eexists. split; [reflexivity | ].
   induction H as [Sl Sr H | | ].
@@ -1349,18 +1349,18 @@ Proof.
     + rewrite fresh_anon_add_anon in fresh_a_r. destruct fresh_a_r.
       rewrite <-add_anon_commute, <-sset_add_anon by congruence || eauto with spath.
       erewrite <-(sget_add_anon _ a) by eauto with spath.
-      apply Leq_MoveValue ; eauto with spath. autorewrite with spath. assumption.
+      apply Le_MoveValue ; eauto with spath. autorewrite with spath. assumption.
     + rewrite <-!add_abstraction_add_anon. constructor; auto with spath.
     + rewrite fresh_anon_add_anon in fresh_a_r. destruct fresh_a_r.
       rewrite <-add_anon_commute, <-sset_add_anon by congruence || eauto with spath.
       erewrite <-(sget_add_anon _ a) by eauto with spath.
-      apply Leq_Fresh_MutLoan; eauto with spath.
+      apply Le_Fresh_MutLoan; eauto with spath.
       * not_contains.
       * autorewrite with spath. assumption.
     + rewrite fresh_anon_add_anon in fresh_a_r. destruct fresh_a_r.
       rewrite <-add_anon_commute, <-sset_add_anon by congruence || eauto with spath.
       erewrite <-(sget_add_anon _ a) by eauto with spath.
-      apply Leq_Reborrow_MutBorrow; autorewrite with spath; auto with spath. not_contains.
+      apply Le_Reborrow_MutBorrow; autorewrite with spath; auto with spath. not_contains.
     + autorewrite with spath in fresh_a_r. apply fresh_anon_add_anon in fresh_a_r.
       destruct fresh_a_r. rewrite add_anon_commute by congruence.
       rewrite <-!(add_abstraction_add_anon _ a).
@@ -1452,15 +1452,15 @@ Proof.
   - eapply fresh_B, lookup_insert_eq.
 Qed.
 
-Lemma leq_val_state_by_equiv vSl vSr :
-  equiv_val_state_up_to_loan_renaming vSl vSr -> leq_val_state_ut vSl vSr.
+Lemma le_val_state_by_equiv vSl vSr :
+  equiv_val_state_up_to_loan_renaming vSl vSr -> le_val_state_ut vSl vSr.
 Proof. exists vSr. split; [assumption | reflexivity]. Qed.
 
 Lemma rvalue_preserves_LLBC_plus_rel rv :
-  forward_simulation leq_state_base^* leq_val_state_ut (eval_rvalue rv) (eval_rvalue rv).
+  forward_simulation le_state_base^* le_val_state_ut (eval_rvalue rv) (eval_rvalue rv).
 Proof.
   apply preservation_by_base_case.
-  intros Sr vSr eval_rv Sl Hleq. destruct eval_rv.
+  intros Sr vSr eval_rv Sl Hle. destruct eval_rv.
   - apply operand_preserves_LLBC_plus_rel in Heval_op.
     edestruct Heval_op as (vS'l & ? & ?); [constructor; eassumption | ].
     exists vS'l. split.
@@ -1468,135 +1468,135 @@ Proof.
     + constructor. assumption.
 
   - apply operand_preserves_LLBC_plus_rel in eval_op_0, eval_op_1.
-    edestruct eval_op_0 as ((v0l & S'l) & leq_S'l_S' & H); [constructor; eassumption | ].
+    edestruct eval_op_0 as ((v0l & S'l) & le_S'l_S' & H); [constructor; eassumption | ].
     destruct binop.
     + destruct (add_is_integer _ _ _ Hbinop) as (? & ? & ?).
       destruct (add_no_loan _ _ _ Hbinop) as (? & ? & ?).
-      apply leq_val_state_integer in leq_S'l_S'; [ | assumption..].
-      destruct leq_S'l_S' as (Hv0 & leq_S'l_S').
-      edestruct eval_op_1 as ((v1l & S''l) & leq_S''l_S'' & ?); [exact leq_S'l_S' | ].
-      apply leq_val_state_integer in leq_S''l_S''; [ | assumption..].
-      destruct leq_S''l_S'' as (Hv1 & leq_S''l_S'').
+      apply le_val_state_integer in le_S'l_S'; [ | assumption..].
+      destruct le_S'l_S' as (Hv0 & le_S'l_S').
+      edestruct eval_op_1 as ((v1l & S''l) & le_S''l_S'' & ?); [exact le_S'l_S' | ].
+      apply le_val_state_integer in le_S''l_S''; [ | assumption..].
+      destruct le_S''l_S'' as (Hv1 & le_S''l_S'').
       destruct Hv0 as [-> | (? & ? & ->)]; destruct Hv1 as [-> | (? & ? & ->)].
       * execution_step. { econstructor; eassumption. }
-        apply leq_base_implies_leq_val_state_base; eauto with spath.
+        apply le_base_implies_le_val_state_base; eauto with spath.
       * assert (exists wl, eval_binary_op BAdd v0 v1l wl) as (wl & Hwl)
           by now apply binop_integers.
         destruct (add_is_integer _ _ _ Hwl) as (_ & _ & ?).
         destruct (add_no_loan _ _ _ Hwl) as (_ & _ & ?).
         execution_step. { econstructor; eassumption. }
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := (anon_accessor a, [])).
           all: autorewrite with spath; eauto with spath. }
         { autorewrite with spath. reflexivity. }
         replace w with (VSymbolic TInt) by now inversion Hbinop.
-        apply leq_base_implies_leq_val_state_base; eauto with spath.
+        apply le_base_implies_le_val_state_base; eauto with spath.
       * assert (exists wl, eval_binary_op BAdd v0l v1 wl) as (wl & Hwl)
           by now apply binop_integers.
         destruct (add_is_integer _ _ _ Hwl) as (_ & _ & ?).
         destruct (add_no_loan _ _ _ Hwl) as (_ & _ & ?).
         execution_step. { econstructor; eassumption. }
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := (anon_accessor a, [])).
           all: autorewrite with spath; eauto with spath. }
         { autorewrite with spath. reflexivity. }
         replace w with (VSymbolic TInt) by now inversion Hbinop.
-        apply leq_base_implies_leq_val_state_base; eauto with spath.
+        apply le_base_implies_le_val_state_base; eauto with spath.
       * assert (exists wl, eval_binary_op BAdd v0l v1l wl) as (wl & Hwl)
           by now apply binop_integers.
         destruct (add_is_integer _ _ _ Hwl) as (_ & _ & ?).
         destruct (add_no_loan _ _ _ Hwl) as (_ & _ & ?).
         execution_step. { econstructor; eassumption. }
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := (anon_accessor a, [])).
           all: autorewrite with spath; eauto with spath. }
         { autorewrite with spath. reflexivity. }
         replace w with (VSymbolic TInt) by now inversion Hbinop.
-        apply leq_base_implies_leq_val_state_base; eauto with spath.
+        apply le_base_implies_le_val_state_base; eauto with spath.
     + destruct (le_is_bool _ _ _ Hbinop) as (? & ? & ?).
       destruct (le_no_loan _ _ _ Hbinop) as (? & ? & ?).
-      apply leq_val_state_integer in leq_S'l_S'; [ | assumption..].
-      destruct leq_S'l_S' as (Hv0 & leq_S'l_S').
-      edestruct eval_op_1 as ((v1l & S''l) & leq_S''l_S'' & ?); [exact leq_S'l_S' | ].
-      apply leq_val_state_integer in leq_S''l_S''; [ | assumption..].
-      destruct leq_S''l_S'' as (Hv1 & leq_S''l_S'').
+      apply le_val_state_integer in le_S'l_S'; [ | assumption..].
+      destruct le_S'l_S' as (Hv0 & le_S'l_S').
+      edestruct eval_op_1 as ((v1l & S''l) & le_S''l_S'' & ?); [exact le_S'l_S' | ].
+      apply le_val_state_integer in le_S''l_S''; [ | assumption..].
+      destruct le_S''l_S'' as (Hv1 & le_S''l_S'').
       destruct Hv0 as [-> | (? & ? & ->)]; destruct Hv1 as [-> | (? & ? & ->)].
       * execution_step. { econstructor; eassumption. }
-        apply leq_base_implies_leq_val_state_base; eauto with spath.
+        apply le_base_implies_le_val_state_base; eauto with spath.
       * assert (exists wl, eval_binary_op BLe v0 v1l wl) as (wl & Hwl)
           by now apply binop_integers.
         destruct (le_is_bool _ _ _ Hwl) as (_ & _ & ?).
         destruct (le_no_loan _ _ _ Hwl) as (_ & _ & ?).
         execution_step. { econstructor; eassumption. }
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := (anon_accessor a, [])).
           all: autorewrite with spath; eauto with spath. }
         { autorewrite with spath. reflexivity. }
         replace w with (VSymbolic TBool) by now inversion Hbinop.
-        apply leq_base_implies_leq_val_state_base; eauto with spath; not_contains.
+        apply le_base_implies_le_val_state_base; eauto with spath; not_contains.
       * assert (exists wl, eval_binary_op BLe v0l v1 wl) as (wl & Hwl)
           by now apply binop_integers.
         destruct (le_is_bool _ _ _ Hwl) as (_ & _ & ?).
         destruct (le_no_loan _ _ _ Hwl) as (_ & _ & ?).
         execution_step. { econstructor; eassumption. }
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := (anon_accessor a, [])).
           all: autorewrite with spath; eauto with spath. }
         { autorewrite with spath. reflexivity. }
         replace w with (VSymbolic TBool) by now inversion Hbinop.
-        apply leq_base_implies_leq_val_state_base; eauto with spath; not_contains.
+        apply le_base_implies_le_val_state_base; eauto with spath; not_contains.
       * assert (exists wl, eval_binary_op BLe v0l v1l wl) as (wl & Hwl)
           by now apply binop_integers.
         destruct (le_is_bool _ _ _ Hwl) as (_ & _ & ?).
         destruct (le_no_loan _ _ _ Hwl) as (_ & _ & ?).
         execution_step. { econstructor; eassumption. }
-        leq_step_left.
-        { apply Leq_ToSymbolic with (sp := (anon_accessor a, [])).
+        le_step_left.
+        { apply Le_ToSymbolic with (sp := (anon_accessor a, [])).
           all: autorewrite with spath; eauto with spath. }
         { autorewrite with spath. reflexivity. }
         replace w with (VSymbolic TBool) by now inversion Hbinop.
-        apply leq_base_implies_leq_val_state_base; eauto with spath; not_contains.
+        apply le_base_implies_le_val_state_base; eauto with spath; not_contains.
 
-  - destruct Hleq.
-    (* Case Leq_ToSymbolic: *)
+  - destruct Hle.
+    (* Case Le_ToSymbolic: *)
     + eval_place_preservation.
       execution_step.
       { eapply E_MutBorrow with (l := l); [eassumption | not_contains.. | ].
         eapply is_of_type_sset_rev; try eassumption. constructor. }
       destruct (decidable_prefix pi sp) as [(q & <-) | ].
       (* Case 1: the symbolic value is in the borrowed value. *)
-      * leq_step_left.
-        { eapply Leq_ToSymbolic with (sp := (anon_accessor a, [0] ++ q)).
+      * le_step_left.
+        { eapply Le_ToSymbolic with (sp := (anon_accessor a, [0] ++ q)).
           all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         autorewrite with spath. reflexivity.
       (* Case 2: the symbolic value is out of the borrowed value, the place where it is and
        * the borrowed place are disjoint. *)
       * assert (disj pi sp) by solve_comp.
-        leq_step_left.
-        { eapply Leq_ToSymbolic with (sp := sp).
+        le_step_left.
+        { eapply Le_ToSymbolic with (sp := sp).
           all: autorewrite with spath; eassumption. }
         { autorewrite with spath. reflexivity. }
         states_eq.
-    (* Case Leq_ToAbs: *)
+    (* Case Le_ToAbs: *)
     + eval_place_preservation. autorewrite with spath in *.
       execution_step.
       { eapply E_MutBorrow with (l := l); autorewrite with spath; try eassumption.
         not_contains. eapply to_abs_not_contains; eassumption. }
-      autorewrite with spath. leq_step_left.
-      { apply Leq_ToAbs with (i := i); eauto with spath. }
+      autorewrite with spath. le_step_left.
+      { apply Le_ToAbs with (i := i); eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    (* Case Leq_RemoveAnon: *)
+    (* Case Le_RemoveAnon: *)
     + eval_place_preservation.
       execution_step.
       { eapply E_MutBorrow with (l := l). eassumption.
         all: autorewrite with spath; not_contains. }
-      autorewrite with spath. leq_step_left.
-      { apply Leq_RemoveAnon; eauto with spath. }
+      autorewrite with spath. le_step_left.
+      { apply Le_RemoveAnon; eauto with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    (* Case Leq_MoveValue: *)
+    (* Case Le_MoveValue: *)
     + eval_place_preservation.
       (* The moved value cannot be in the borrowed value, because it does not contain
        * uninitialized values. *)
@@ -1609,28 +1609,28 @@ Proof.
       autorewrite with spath in *.
       execution_step.
       { eapply E_MutBorrow with (l := l); try eassumption. not_contains. }
-      leq_val_state_add_anon.
-      { apply Leq_MoveValue with (a := a) (sp := sp). not_contains_outer.
+      le_val_state_add_anon.
+      { apply Le_MoveValue with (a := a) (sp := sp). not_contains_outer.
         eauto with spath. validity. eauto with spath. assumption. }
       { autorewrite with spath. reflexivity. }
       states_eq.
-    (* Case Leq_MergeAbs: *)
+    (* Case Le_MergeAbs: *)
     + autorewrite with spath. eval_place_preservation.
       destruct (exists_fresh_loan_id (S,,, i |-> A,,, j |-> B)) as (l' & fresh_l').
       execution_step.
       { eapply E_MutBorrow with (l := l'); try eassumption.
         all: autorewrite with spath in *; not_contains. }
-      autorewrite with spath. leq_step_left.
-      { eapply Leq_MergeAbs; eauto with spath. }
+      autorewrite with spath. le_step_left.
+      { eapply Le_MergeAbs; eauto with spath. }
       { autorewrite with spath. reflexivity. }
-      apply leq_val_state_by_equiv.
+      apply le_val_state_by_equiv.
       (* Sadly I have to undo the automatic rewritings, there is probably a better way to do
        * it. *)
       rewrite <-!sset_add_abstraction_notin by auto with spath.
       rewrite <-!(sget_add_abstraction_notin S i C) by auto with spath.
       apply rename_loan_eval_mut_borrow; eauto with spath.
       eapply merge_abstraction_is_fresh; eassumption.
-    (* Case Leq_Fresh_MutLoan: *)
+    (* Case Le_Fresh_MutLoan: *)
     + eval_place_preservation.
       (* The loan cannot be in the borrowed value. *)
       assert (~prefix pi sp).
@@ -1641,12 +1641,12 @@ Proof.
       assert (disj pi sp) by solve_comp. autorewrite with spath in *.
       execution_step.
       { eapply E_MutBorrow with (l := l); try eassumption. not_contains. }
-      leq_val_state_add_anon.
-      { apply Leq_Fresh_MutLoan with (a := a) (sp := sp) (l' := l'). not_contains.
+      le_val_state_add_anon.
+      { apply Le_Fresh_MutLoan with (a := a) (sp := sp) (l' := l'). not_contains.
         eauto with spath. validity. assumption. autorewrite with spath. eassumption. }
       { autorewrite with spath. reflexivity. }
       states_eq.
-    (* Case Leq_Reborrow_MutBorrow: *)
+    (* Case Le_Reborrow_MutBorrow: *)
     + eval_place_preservation. rewrite sget_add_anon in * by assumption.
       autorewrite with spath in Htype.
       execution_step.
@@ -1654,50 +1654,50 @@ Proof.
         eapply is_of_type_rename_mut_borrow; eassumption. }
       destruct (decidable_prefix pi sp) as [(q & <-) | ].
       (* Case 1: the reborrow is in the borrowed value. *)
-      * leq_val_state_add_anon.
-        { eapply Leq_Reborrow_MutBorrow
+      * le_val_state_add_anon.
+        { eapply Le_Reborrow_MutBorrow
             with (sp := (anon_accessor a0, [0] ++ q)) (l1 := l1) (a := a).
           not_contains. eauto with spath. autorewrite with spath. eassumption. eauto with spath.
           autorewrite with spath in Htype0 |- *. eassumption. }
         { autorewrite with spath. reflexivity. }
         autorewrite with spath. reflexivity.
       (* Case 2: the reborrow is not in the borrowed value. *)
-      * leq_val_state_add_anon.
-        { eapply Leq_Reborrow_MutBorrow with (sp := sp) (l1 := l1) (a := a).
+      * le_val_state_add_anon.
+        { eapply Le_Reborrow_MutBorrow with (sp := sp) (l1 := l1) (a := a).
           not_contains. eauto with spath. autorewrite with spath. eassumption. eauto with spath.
           rewrite sget_add_anon by eauto with spath.
           eapply is_of_type_rename_mut_borrow in Htype; [ | eassumption].
           eapply is_of_type_sset_sget; try eassumption. constructor. }
         { autorewrite with spath. reflexivity. }
         autorewrite with spath. reflexivity.
-    (* Case Leq_Borrow_Abstraction: *)
+    (* Case Le_Borrow_Abstraction: *)
     + eval_place_preservation. autorewrite with spath in * |-.
       execution_step.
       { eapply E_MutBorrow with (l := l). eassumption.
         all: autorewrite with spath; try eassumption. not_contains. }
-      leq_val_state_add_anon.
+      le_val_state_add_anon.
       { autorewrite with spath. rewrite <-add_abstraction_add_anon.
-        eapply Leq_Borrow_Abstraction with (j := j) (l' := l') (ty' := ty') (a := a).
+        eapply Le_Borrow_Abstraction with (j := j) (l' := l') (ty' := ty') (a := a).
         auto with spath. assumption. not_contains.
         apply fresh_anon_add_anon in H2. destruct H2. auto with spath. }
       { autorewrite with spath. reflexivity. }
       states_eq.
-    (* Case Leq_Abs_ClearValue: *)
+    (* Case Le_Abs_ClearValue: *)
     + eval_place_preservation. autorewrite with spath in *.
       execution_step.
       { eapply E_MutBorrow with (l := l); autorewrite with spath; try eassumption.
         apply not_state_contains_add_abstraction_value; auto with spath. }
-      autorewrite with spath. leq_step_left.
-      { apply Leq_Abs_ClearValue with (i := i) (j := j). autorewrite with spath. all: auto
+      autorewrite with spath. le_step_left.
+      { apply Le_Abs_ClearValue with (i := i) (j := j). autorewrite with spath. all: auto
         with spath. }
       { autorewrite with spath. reflexivity. }
       reflexivity.
-    (* Case Leq_AnonValue: *)
+    (* Case Le_AnonValue: *)
     + eval_place_preservation. autorewrite with spath in *.
       execution_step.
       { apply E_MutBorrow with (l := l); [eassumption.. | | eassumption]. not_contains. }
-      leq_val_state_add_anon.
-      { eapply Leq_AnonValue with (a := a). eauto with spath. }
+      le_val_state_add_anon.
+      { eapply Le_AnonValue with (a := a). eauto with spath. }
       { reflexivity. }
       reflexivity.
 Qed.
@@ -1744,16 +1744,16 @@ Proof.
     + cbn [rename_value]. unfold rename_loan_id. setoid_rewrite Hl'. auto.
 Qed.
 
-Lemma rvalue_preserves_leq rv :
-  forward_simulation leq_symbolic leq_val_state (eval_rvalue rv) (eval_rvalue rv).
+Lemma rvalue_preserves_le rv :
+  forward_simulation le_symbolic le_val_state (eval_rvalue rv) (eval_rvalue rv).
 Proof.
-  intros S0 (v & S'0) eval_rv S2 (S1 & equiv_S2_S1 & leq_S1_S0).
+  intros S0 (v & S'0) eval_rv S2 (S1 & equiv_S2_S1 & le_S1_S0).
   eapply rvalue_preserves_LLBC_plus_rel in eval_rv.
-  specialize (eval_rv S1 leq_S1_S0). destruct eval_rv as (vS'1 & leq_S'1_S'0 & eval_rv).
+  specialize (eval_rv S1 le_S1_S0). destruct eval_rv as (vS'1 & le_S'1_S'0 & eval_rv).
   eapply rvalue_preserves_equiv in eval_rv.
   specialize (eval_rv S2 equiv_S2_S1). destruct eval_rv as (vS'2 & equiv_S'2_S'1 & eval_rv).
   exists vS'2. split; [ | exact eval_rv].
-  destruct leq_S'1_S'0 as (vS''1 & ? & ?). exists vS''1. split; [ | assumption].
+  destruct le_S'1_S'0 as (vS''1 & ? & ?). exists vS''1. split; [ | assumption].
   etransitivity; [eassumption | ].
   apply equiv_val_state_up_to_loan_renaming_implies_equiv_val_state. assumption.
 Qed.
@@ -1783,15 +1783,15 @@ Qed.
 
 (** The stronger relation between pairs of value and state with the absence of loans and
     unitilialized values. *)
-Definition leq_val_state_base' vSl vSr :=
-  leq_val_state_base leq_state_base vSl vSr /\
+Definition le_val_state_base' vSl vSr :=
+  le_val_state_base le_state_base vSl vSr /\
   not_contains_bot (fst vSr) /\ not_contains_loan (fst vSr).
 
 (** If [Sl <^* Sr] and [Sr] does not contain any loan or unitialized value, then this is the case for
     all of the intermediary states. *)
 (* Note: this proof is very repetitive, it could easily be automated. *)
-Lemma leq_base_does_not_insert_bot_loan vSl vSr :
-  leq_val_state_base' vSl vSr -> not_contains_bot (fst vSl) /\ not_contains_loan (fst vSl).
+Lemma le_base_does_not_insert_bot_loan vSl vSr :
+  le_val_state_base' vSl vSr -> not_contains_bot (fst vSl) /\ not_contains_loan (fst vSl).
 Proof.
   intros (Hle & Hno_bot & Hno_loan).
   edestruct exists_fresh_anon2 as (a & fresh_a_l & fresh_a_r).
@@ -1840,16 +1840,16 @@ Proof.
   - process_state_eq. rewrite !eq_val. auto.
 Qed.
 
-Lemma leq_val_state_no_bot_loan_right vSl vSr :
-  (leq_val_state_base leq_state_base)^* vSl vSr ->
-  not_contains_bot (fst vSr) -> not_contains_loan (fst vSr) -> leq_val_state_base'^* vSl vSr.
+Lemma le_val_state_no_bot_loan_right vSl vSr :
+  (le_val_state_base le_state_base)^* vSl vSr ->
+  not_contains_bot (fst vSr) -> not_contains_loan (fst vSr) -> le_val_state_base'^* vSl vSr.
 Proof.
   intros Hle Hno_loan Hno_loc.
   apply proj1 with (B := (not_contains_bot (fst vSl)) /\ (not_contains_loan (fst vSl))).
   induction Hle.
   - split.
     + constructor. repeat split; assumption.
-    + eapply leq_base_does_not_insert_bot_loan. repeat split; eassumption.
+    + eapply le_base_does_not_insert_bot_loan. repeat split; eassumption.
   - repeat split; [reflexivity | assumption..].
   - destruct IHHle2 as (? & ? & ?); [assumption.. | ].
     destruct IHHle1 as (? & ? & ?); [assumption.. | ].
@@ -1896,21 +1896,21 @@ Qed.
 
 (* Note: there are "boilerplate lemmas" like [states_add_anon_eq],
  * [add_anon_commute] that we could automate the usage. *)
-Lemma store_preserves_leq_rel p :
-  forward_simulation leq_val_state_base'^* leq_symbolic (store p) (store p).
+Lemma store_preserves_le_rel p :
+  forward_simulation le_val_state_base'^* le_symbolic (store p) (store p).
 Proof.
   eapply preservation_by_base_case.
-  intros vSr S'r Hstore (vl & Sl) (Hleq & val_no_bot & val_no_loan).
+  intros vSr S'r Hstore (vl & Sl) (Hle & val_no_bot & val_no_loan).
   destruct Hstore as [vr Sr sp_store a ? ? ? fresh_a].
   assert (valid_spath Sr sp_store) by eauto with spath.
   assert (not_in_abstraction sp_store) by (eapply eval_place_not_in_abstraction; eassumption).
   (* In general, we cannot store the overwritten value in the anonymous variable a in the left
-   * state. Indeed, this anonymous binding can be used in the left state (rules Leq_ToAbs and
-   * Leq_RemoveAnon). Thus, we are going to store it in an anonymous variable b that is fresh in
+   * state. Indeed, this anonymous binding can be used in the left state (rules Le_ToAbs and
+   * Le_RemoveAnon). Thus, we are going to store it in an anonymous variable b that is fresh in
    * both the left and the right state. *)
   destruct (exists_fresh_anon2 Sl Sr) as (b & fresh_b_l & fresh_b_r).
   (* By equivalence, we can rename a into b. *)
-  cut (exists S'l, leq_state_base^* S'l (Sr .[sp_store <- vr],, b |-> Sr .[sp_store]) /\
+  cut (exists S'l, le_state_base^* S'l (Sr .[sp_store <- vr],, b |-> Sr .[sp_store]) /\
                    store p (vl, Sl) S'l).
   { intros (S'l & ? & ?). exists S'l. split; [ | assumption].
     etransitivity.
@@ -1918,11 +1918,11 @@ Proof.
     - eexists. split; [ | reflexivity]. eapply prove_equiv_states; [reflexivity | ].
       apply equiv_states_add_anon; eauto with spath. }
   clear a fresh_a.
-  specialize (Hleq b fresh_b_l fresh_b_r). rewrite !fst_pair, !snd_pair in * |-.
+  specialize (Hle b fresh_b_l fresh_b_r). rewrite !fst_pair, !snd_pair in * |-.
   remember (Sl,, b |-> vl) eqn:EQN_l. remember (Sr,, b |-> vr) eqn:EQN_r.
-  destruct Hleq; subst.
+  destruct Hle; subst.
 
-  (* Case Leq_ToSymbolic: *)
+  (* Case Le_ToSymbolic: *)
   - destruct (decide (fst sp = anon_accessor b)).
     (* Case 1: the symbolic value is introduced in the value vr we store. *)
     + autorewrite with spath in EQN_r. process_state_eq.
@@ -1930,8 +1930,8 @@ Proof.
       execution_step.
       { econstructor; try eassumption.
         eapply store_compatible_types_vset_symbolic; eassumption. }
-      eapply leq_step_left.
-      { eapply Leq_ToSymbolic with (sp := sp_store +++ (snd sp)).
+      eapply le_step_left.
+      { eapply Le_ToSymbolic with (sp := sp_store +++ (snd sp)).
         all: autorewrite with spath; eassumption. }
       autorewrite with spath. reflexivity.
     (* Case 2: the symbolic value in introduced in the state Sr. *)
@@ -1942,17 +1942,17 @@ Proof.
         eapply store_compatible_types_sset; try eassumption. constructor. }
       destruct (decidable_prefix sp_store sp) as [(r & <-) | ].
       (* Case 2.a: the symbolic value is introduced in the overwritten value. *)
-      * autorewrite with spath in *. eapply leq_step_left.
-        { eapply Leq_ToSymbolic with (sp := (encode_anon b, r)).
+      * autorewrite with spath in *. eapply le_step_left.
+        { eapply Le_ToSymbolic with (sp := (encode_anon b, r)).
           all: autorewrite with spath; eassumption. }
         autorewrite with spath. reflexivity.
       (* Case 2.b: the symbolic value is introduced in the overwritten value. *)
       * assert (disj sp_store sp) by solve_comp.
-        autorewrite with spath in *. eapply leq_step_left.
-        { eapply Leq_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
+        autorewrite with spath in *. eapply le_step_left.
+        { eapply Le_ToSymbolic with (sp := sp); autorewrite with spath; eassumption. }
         states_eq.
 
-  (* Case Leq_ToAbs: *)
+  (* Case Le_ToAbs: *)
   - process_state_eq.
     assert (fresh_anon (S0,, a |-> v) b) by eauto with spath.
     clear fresh_b_l fresh_b_r. eval_place_preservation. autorewrite with spath in *.
@@ -1961,11 +1961,11 @@ Proof.
       rewrite store_compatible_types_add_abstraction in Hstore_type by eauto with spath.
       rewrite store_compatible_types_add_anon; assumption. }
     autorewrite with spath.
-    rewrite add_anon_commute by congruence. eapply leq_step_left.
-    { apply Leq_ToAbs with (i := i); eauto with spath. }
+    rewrite add_anon_commute by congruence. eapply le_step_left.
+    { apply Le_ToAbs with (i := i); eauto with spath. }
     autorewrite with spath. reflexivity.
 
-  (* Case Leq_RemoveAnon: *)
+  (* Case Le_RemoveAnon: *)
   - process_state_eq.
     assert (fresh_anon (Sr,, a |-> v) b) by auto with spath.
     clear val_no_loan fresh_b_r fresh_b_l. eval_place_preservation.
@@ -1973,11 +1973,11 @@ Proof.
     { apply Store with (a := b); autorewrite with spath; try eassumption.
       rewrite store_compatible_types_add_anon; assumption. }
     autorewrite with spath.
-    rewrite add_anon_commute by congruence. eapply leq_step_left.
-    { apply Leq_RemoveAnon; eauto with spath. }
+    rewrite add_anon_commute by congruence. eapply le_step_left.
+    { apply Le_RemoveAnon; eauto with spath. }
     reflexivity.
 
-  (* Case Leq_MoveValue: *)
+  (* Case Le_MoveValue: *)
   - apply valid_spath_add_anon_cases in valid_sp.
     (* Because vr does not contain any unitialized value, the moved value cannot be in it (that
      * means it cannot be in the anonymous binding b). *)
@@ -1997,8 +1997,8 @@ Proof.
       eapply store_compatible_types_moved_value; eassumption. }
     destruct (decidable_prefix sp_store sp) as [(r & <-) | ].
     + autorewrite with spath in *.
-      leq_step_left.
-      { eapply Leq_MoveValue with (sp := (anon_accessor b, r)) (a := a).
+      le_step_left.
+      { eapply Le_MoveValue with (sp := (anon_accessor b, r)) (a := a).
         autorewrite with spath. assumption.
         eauto with spath.
         eauto with spath.
@@ -2011,12 +2011,12 @@ Proof.
       }
       autorewrite with spath. rewrite add_anon_commute by congruence. reflexivity.
     + assert (disj sp_store sp) by solve_comp. autorewrite with spath in *.
-      leq_step_left.
-      { eapply Leq_MoveValue with (sp := sp) (a := a).
+      le_step_left.
+      { eapply Le_MoveValue with (sp := sp) (a := a).
         autorewrite with spath. all: eauto with spath. }
       states_eq.
 
-  (* Case Leq_MergeAbs: *)
+  (* Case Le_MergeAbs: *)
   - process_state_eq. autorewrite with spath in *.
     eval_place_preservation.
     execution_step.
@@ -2024,10 +2024,10 @@ Proof.
       rewrite !store_compatible_types_add_abstraction in *; eauto with spath.
       eauto with spath. }
     autorewrite with spath. rewrite <-!add_abstraction_add_anon.
-    leq_step_left. { eapply Leq_MergeAbs; eauto with spath. }
+    le_step_left. { eapply Le_MergeAbs; eauto with spath. }
     reflexivity.
 
-  (* Case Leq_Fresh_MutLoan: *)
+  (* Case Le_Fresh_MutLoan: *)
   - apply valid_spath_add_anon_cases in valid_sp.
     destruct valid_sp as [(? & valid_sp) | (? & ?)].
     (* Because vr does not contain any loan, the moved value cannot be in it (that
@@ -2047,21 +2047,21 @@ Proof.
       eapply store_compatible_types_sset; try eassumption. constructor. }
     destruct (decidable_prefix sp_store sp) as [(q & <-) | ].
     (* Case 1: the fresh mutable loan is introduced in the value we overwrite. *)
-    + leq_step_left.
-      { eapply Leq_Fresh_MutLoan with (a := a) (sp := (anon_accessor b, q)) (l' := l').
+    + le_step_left.
+      { eapply Le_Fresh_MutLoan with (a := a) (sp := (anon_accessor b, q)) (l' := l').
         not_contains. eauto with spath. validity. eauto with spath.
         autorewrite with spath. eassumption. }
       states_eq.
     (* Case 2: the fresh mutable loan is introduced in a place disjoint from the place we
      * overwrite. *)
     + assert (disj sp_store sp) by solve_comp.
-      leq_step_left.
-      { eapply Leq_Fresh_MutLoan with (a := a) (sp := sp) (l' := l').
+      le_step_left.
+      { eapply Le_Fresh_MutLoan with (a := a) (sp := sp) (l' := l').
         not_contains. eauto with spath. validity. assumption.
         autorewrite with spath. eassumption. }
       states_eq.
 
-  (* Case Leq_Reborrow_MutBorrow: *)
+  (* Case Le_Reborrow_MutBorrow: *)
   - destruct (decide (fst sp = anon_accessor b)).
     (* Case 1: the renamed borrow is in the value vl we store. *)
     + autorewrite with spath in EQN_r. process_state_eq.
@@ -2070,8 +2070,8 @@ Proof.
       { apply Store with (a := b); try eassumption.
         rewrite store_compatible_types_add_anon in Hstore_type by assumption.
         eapply store_compatible_types_rename_mut_borrow_val; eassumption. }
-      leq_step_left.
-      { eapply Leq_Reborrow_MutBorrow with (a := a) (sp := sp_store +++ snd sp) (l1 := l1).
+      le_step_left.
+      { eapply Le_Reborrow_MutBorrow with (a := a) (sp := sp_store +++ snd sp) (l1 := l1).
         not_contains. auto with spath. autorewrite with spath. eassumption. assumption.
         autorewrite with spath. eassumption. }
       states_eq.
@@ -2086,8 +2086,8 @@ Proof.
         eapply store_compatible_types_rename_mut_borrow; eassumption. }
       destruct (decidable_prefix sp_store sp) as [(r & <-) | ].
       (* Case 2.a: the renames borrow is in the ovewritten value. *)
-      * leq_step_left.
-        { eapply Leq_Reborrow_MutBorrow with (sp := (anon_accessor b, r)) (a := a) (l1 := l1).
+      * le_step_left.
+        { eapply Le_Reborrow_MutBorrow with (sp := (anon_accessor b, r)) (a := a) (l1 := l1).
           not_contains. eauto with spath. autorewrite with spath. eassumption.
           eauto with spath. autorewrite with spath in Htype |- *. exact Htype. }
         states_eq.
@@ -2105,14 +2105,14 @@ Proof.
               autorewrite with spath in G |- *. exact G.
           - assert (disj sp_store sp) by solve_comp. autorewrite with spath. assumption.
         }
-        leq_step_left.
-        { eapply Leq_Reborrow_MutBorrow with (sp := sp) (a := a) (l1 := l1).
+        le_step_left.
+        { eapply Le_Reborrow_MutBorrow with (sp := sp) (a := a) (l1 := l1).
           not_contains. eauto with spath. autorewrite with spath. eassumption.
           eauto with spath.
           rewrite sget_add_anon by assumption. eassumption. }
         states_eq.
 
-  (* Case Leq_Borrow_Abstraction: *)
+  (* Case Le_Borrow_Abstraction: *)
   - process_state_eq. eval_place_preservation.
     autorewrite with spath in * |-.
     execution_step.
@@ -2120,9 +2120,9 @@ Proof.
       rewrite store_compatible_types_add_anon in * |- by congruence.
       rewrite store_compatible_types_add_abstraction in * by auto with spath.
       assumption. auto with spath. }
-    leq_step_left.
+    le_step_left.
     { autorewrite with spath. rewrite <-add_abstraction_add_anon.
-      eapply Leq_Borrow_Abstraction with (j := j) (l' := l') (ty' := ty') (a := a).
+      eapply Le_Borrow_Abstraction with (j := j) (l' := l') (ty' := ty') (a := a).
       auto with spath. assumption.
       (* TODO: automate. *)
       not_contains. apply eval_place_valid in eval_p_in_Sl.
@@ -2130,23 +2130,23 @@ Proof.
       auto with spath. }
     states_eq.
 
-  (* Case Leq_Abs_ClearValue: *)
+  (* Case Le_Abs_ClearValue: *)
   - process_state_eq. eval_place_preservation. autorewrite with spath in no_outer_loan.
     execution_step.
     { eapply Store with (a := b); autorewrite with spath; try eassumption.
       rewrite store_compatible_types_add_abstraction in * by auto with spath. assumption. }
-    autorewrite with spath. leq_step_left.
+    autorewrite with spath. le_step_left.
     { rewrite <-add_abstraction_add_anon.
-      apply Leq_Abs_ClearValue with (i := i) (j := j); auto with spath. }
+      apply Le_Abs_ClearValue with (i := i) (j := j); auto with spath. }
     states_eq.
 
-  (* Case Leq_AnonValue: *)
+  (* Case Le_AnonValue: *)
   - process_state_eq.
     eval_place_preservation. autorewrite with spath in no_outer_loan.
     rewrite store_compatible_types_add_anon in Hstore_type by assumption.
     execution_step. { eapply Store with (a := b); eassumption. }
-    leq_step_left.
-    { apply Leq_AnonValue with (a := a). eauto with spath. }
+    le_step_left.
+    { apply Le_AnonValue with (a := a). eauto with spath. }
     states_eq.
 Qed.
 
@@ -2232,13 +2232,13 @@ Qed.
 
 Lemma store_preserves_LLBC_plus_rel p vr Sr S'r vl Sl :
   not_contains_loan vr -> not_contains_bot vr ->
-  store p (vr, Sr) S'r -> leq_val_state (vl, Sl) (vr, Sr) ->
-  exists S'l, store p (vl, Sl) S'l /\ leq_symbolic S'l S'r.
+  store p (vr, Sr) S'r -> le_val_state (vl, Sl) (vr, Sr) ->
+  exists S'l, store p (vl, Sl) S'l /\ le_symbolic S'l S'r.
 Proof.
-  intros no_loan no_bot Hstore ((vm & Sm) & Hequiv & Hleq).
-  edestruct store_preserves_leq_rel as (S'm & (? & Hequiv' & Hleq') & Hstore').
+  intros no_loan no_bot Hstore ((vm & Sm) & Hequiv & Hle).
+  edestruct store_preserves_le_rel as (S'm & (? & Hequiv' & Hle') & Hstore').
   { exact Hstore. }
-  { eapply leq_val_state_no_bot_loan_right; eassumption. }
+  { eapply le_val_state_no_bot_loan_right; eassumption. }
   eapply store_preserves_equiv in Hstore'. specialize (Hstore' _ Hequiv).
   destruct Hstore' as (S'l & ? & ?).
   exists S'l. split.
@@ -2266,7 +2266,7 @@ Hint Rewrite size_abstraction_add_anon : weight.
 Hint Rewrite size_abstraction_add_abstraction using auto with spath; fail : weight.
 Hint Rewrite (@map_size_insert_Some positive) using auto : weight.
 
-Lemma leq_state_base_n_decreases n Sl Sr (H : leq_state_base_n n Sl Sr) :
+Lemma le_state_base_n_decreases n Sl Sr (H : le_state_base_n n Sl Sr) :
   measure Sl < measure Sr + n.
 Proof.
   unfold measure. destruct H.
@@ -2302,7 +2302,7 @@ Proof.
     unfold measure. autorewrite with weight. lia.
 Qed.
 
-(** Lemmas used to prove the local commutation between leq_state_base and reorg: *)
+(** Lemmas used to prove the local commutation between le_state_base and reorg: *)
 Lemma vget_borrow l v p c : get_node (borrow^m(l, v).[[p]]) = c -> c <> nbot ->
   p = [] /\ nborrow^m(l) = c \/ exists q, p = [0] ++ q /\ get_node (v.[[q]]) = c.
 Proof.
@@ -2313,7 +2313,7 @@ Proof.
     replace nbot with (get_node bot) by reflexivity. f_equal. exact (vget_bot q).
 Qed.
 
-(* This variant is used for the commutation of the rule Leq_Reborrow_MutBorrow_n with the ending of
+(* This variant is used for the commutation of the rule Le_Reborrow_MutBorrow_n with the ending of
  * a borrow. *)
 Lemma vget_borrow_loan l0 l1 p c ty :
   get_node (borrow^m(l0, loan^m(ty, l1)).[[p]]) = c -> c <> nbot ->
@@ -2327,7 +2327,7 @@ Proof.
       replace nbot with (get_node bot) by reflexivity. f_equal. exact (vget_bot q).
 Qed.
 
-(* This lemma is used once, when studying reorganizations and the rule Leq_Fresh_MutLoan. *)
+(* This lemma is used once, when studying reorganizations and the rule Le_Fresh_MutLoan. *)
 Lemma fresh_mut_loan_get_loan S l sp a p ty ty' (fresh_l : is_fresh l S) :
   get_node ((S.[sp <- loan^m(ty, l)],, a |-> borrow^m(l, S.[sp])).[p]) = nloan^m(ty', l) ->
   p = sp.
@@ -2384,7 +2384,7 @@ Lemma prove_add_anons S0 A S1 :
   (exists S', add_anons S' A S1 /\ S0 = S') -> add_anons S0 A S1.
 Proof. intros (? & ? & ->). assumption. Qed.
 
-(* The crucial lemma for the commutation between leq and reorganizations, when we end a region C that
+(* The crucial lemma for the commutation between le and reorganizations, when we end a region C that
  * is the merge of two regions A and B. By definition, C is the union of A' and B' where we removed
  * common loans and borrows.
  * After ending the region B and placing its borrows in anonymous bindings, we must end all the
@@ -2457,15 +2457,15 @@ Proof.
     exists S'1. split; [assumption | ]. constructor; assumption.
 Qed.
 
-Lemma leq_n_add_anonymous_bots S S' n :
-  add_anonymous_bots n S S' -> leq_state_base_n^{2 * n} S' S.
+Lemma le_n_add_anonymous_bots S S' n :
+  add_anonymous_bots n S S' -> le_state_base_n^{2 * n} S' S.
 Proof.
   induction 1 as [ | ? ? ? S'].
   - apply MC_refl.
   - replace (2 * (1 + n)) with (2 + 2 * n) by lia. eapply MC_trans.
     + constructor.
       replace 2 with (1 + vweight (fun _ => 1) bot) by reflexivity.
-      apply Leq_RemoveAnon_n; autorewrite with spath.
+      apply Le_RemoveAnon_n; autorewrite with spath.
       assumption. unfold not_contains_loan. not_contains. unfold not_contains_borrow. not_contains.
     + apply IHadd_anonymous_bots.
 Qed.
@@ -2551,13 +2551,13 @@ Proof.
 Qed.
 
 Lemma reorg_local_preservation :
-    forall p Sh q S'h, reorg_n q Sh S'h -> forall Sl, leq_state_base_n p Sl Sh ->
-    exists r s S'l, leq_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q.
+    forall p Sh q S'h, reorg_n q Sh S'h -> forall Sl, le_state_base_n p Sl Sh ->
+    exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q.
 Proof.
   intros a ? b ? Hreorg. destruct Hreorg.
   (* Case Reorg_End_MutBorrow: *)
-  - intros c Hleq. destruct Hleq.
-    (* Case Leq_ToSymbolic_n: *)
+  - intros c Hle. destruct Hle.
+    (* Case Le_ToSymbolic_n: *)
     + assert (disj sp p). solve_comp.
       autorewrite with spath in *. (* TODO: takes a bit of time. *)
       reorg_step.
@@ -2569,31 +2569,31 @@ Proof.
       destruct (decidable_prefix (q +++ [0]) sp) as [(r & <-) | ].
       * autorewrite with spath in *.
         reorg_done.
-        leq_step_left.
-        { eapply Leq_ToSymbolic_n with (sp := p +++ r); autorewrite with spath; eassumption. }
-        leq_done. { states_eq. } { autorewrite with spath. cbn. lia. }
+        le_step_left.
+        { eapply Le_ToSymbolic_n with (sp := p +++ r); autorewrite with spath; eassumption. }
+        le_done. { states_eq. } { autorewrite with spath. cbn. lia. }
       * assert (disj sp q) by solve_comp.
         reorg_done.
-        leq_step_left.
-        { eapply Leq_ToSymbolic_n with (sp := sp); autorewrite with spath; eassumption. }
-        leq_done. { states_eq. } { autorewrite with spath. lia. }
-    (* Case Leq_ToAbs_n: *)
+        le_step_left.
+        { eapply Le_ToSymbolic_n with (sp := sp); autorewrite with spath; eassumption. }
+        le_done. { states_eq. } { autorewrite with spath. lia. }
+    (* Case Le_ToAbs_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_End_MutBorrow_n with (p := p) (q := q).
         all: autorewrite with spath; eauto with spath. }
       reorg_done. autorewrite with spath.
-      leq_step_left.
-      { eapply Leq_ToAbs_n; eauto with spath. }
-      leq_done. { reflexivity. } { lia. }
-    (* Case Leq_RemoveAnon_n: *)
+      le_step_left.
+      { eapply Le_ToAbs_n; eauto with spath. }
+      le_done. { reflexivity. } { lia. }
+    (* Case Le_RemoveAnon_n: *)
     + reorg_step.
       { eapply Reorg_End_MutBorrow_n with (p := p) (q := q).
         all: autorewrite with spath; eauto with spath. }
       reorg_done. autorewrite with spath.
-      leq_step_left.
-      { eapply Leq_RemoveAnon_n; eauto with spath. }
-      leq_done. { reflexivity. } { lia. }
-    (* Case Leq_MoveValue_n: *)
+      le_step_left.
+      { eapply Le_RemoveAnon_n; eauto with spath. }
+      le_done. { reflexivity. } { lia. }
+    (* Case Le_MoveValue_n: *)
     + destruct (decide (fst p = anon_accessor a)).
       * destruct (decide (fst q = anon_accessor a)).
         (* Case 1: the borrow and the loan are in the value we move. *)
@@ -2602,10 +2602,10 @@ Proof.
            reorg_step.
            { eapply Reorg_End_MutBorrow_n; try eassumption. eauto with spath.
              all: autorewrite with spath; try assumption. not_contains. solve_comp. }
-           reorg_done. leq_step_left.
-           { eapply Leq_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
+           reorg_done. le_step_left.
+           { eapply Le_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
              not_contains_outer. assumption. not_contains. assumption. assumption. }
-           leq_done. { autorewrite with spath. reflexivity. } { reflexivity. }
+           le_done. { autorewrite with spath. reflexivity. } { reflexivity. }
         (* Case 2: the loan is in the value we move, not the borrow. *)
         -- rewrite sget_add_anon in * by assumption.
            assert (~prefix sp q) by solve_comp.
@@ -2616,10 +2616,10 @@ Proof.
            assert (disj sp q). solve_comp. autorewrite with spath in *.
            reorg_step.
            { eapply Reorg_End_MutBorrow_n; try eassumption. solve_comp. }
-           reorg_done. leq_step_left.
-           { eapply Leq_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
+           reorg_done. le_step_left.
+           { eapply Le_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
              not_contains_outer. assumption. not_contains. assumption. assumption. }
-           leq_done. { states_eq. } { reflexivity. }
+           le_done. { states_eq. } { reflexivity. }
       * rewrite sget_add_anon in get_loan by assumption.
         assert (disj sp p). solve_comp.
         destruct (decide (fst q = anon_accessor a)).
@@ -2628,10 +2628,10 @@ Proof.
            reorg_step.
            { eapply Reorg_End_MutBorrow_n; try eassumption.
              all: autorewrite with spath; eauto with spath. solve_comp. }
-           reorg_done. leq_step_left.
-           { eapply Leq_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
+           reorg_done. le_step_left.
+           { eapply Le_MoveValue_n with (sp := sp) (a := a); autorewrite with spath.
              not_contains_outer. assumption. not_contains. assumption. assumption. }
-           leq_done. { states_eq. } { reflexivity. }
+           le_done. { states_eq. } { reflexivity. }
         (* Case 4: neither the borrow nor the loan is in the value we move. *)
         -- rewrite sget_add_anon in * by eassumption.
            assert (~prefix sp q) by solve_comp. autorewrite with spath in get_borrow.
@@ -2641,17 +2641,17 @@ Proof.
            assert (disj sp q) by solve_comp. autorewrite with spath in *.
            reorg_step.
            { eapply Reorg_End_MutBorrow_n with (p := p) (q := q); eassumption. }
-           reorg_done. leq_step_left.
-           { eapply Leq_MoveValue_n with (sp := sp) (a := a).
+           reorg_done. le_step_left.
+           { eapply Le_MoveValue_n with (sp := sp) (a := a).
              all: autorewrite with spath; try assumption. validity. }
-           leq_done. { states_eq. } { reflexivity. }
-    (* Case Leq_MergeAbs_n: *)
+           le_done. { states_eq. } { reflexivity. }
+    (* Case Le_MergeAbs_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_End_MutBorrow_n with (p := p) (q := q); autorewrite with spath; eassumption. }
-      reorg_done. autorewrite with spath. leq_step_left.
-      { eapply Leq_MergeAbs_n; eauto with spath. }
-      leq_done. { reflexivity. } { lia. }
-    (* Case Leq_Fresh_MutLoan_n: *)
+      reorg_done. autorewrite with spath. le_step_left.
+      { eapply Le_MergeAbs_n; eauto with spath. }
+      le_done. { reflexivity. } { lia. }
+    (* Case Le_Fresh_MutLoan_n: *)
     + destruct (decidable_spath_eq q (anon_accessor a, [])) as [-> | ].
       (* Case 1: the borrow we end is the newly introduced borrow of identifier l'. *)
       * (* We prove that l' = l. *)
@@ -2664,9 +2664,9 @@ Proof.
          * loan id l. Thus, we don't have to do any reorganization step. *)
         reorg_done.
         (* We just have to do one step: adding an anonymous binding a |-> bot. *)
-        leq_step_left.
-        { apply Leq_AnonValue_n with (a := a). assumption. }
-        leq_done. { reflexivity. } { lia. }
+        le_step_left.
+        { apply Le_AnonValue_n with (a := a). assumption. }
+        le_done. { reflexivity. } { lia. }
       * assert (fst q <> anon_accessor a).
         { eapply not_in_borrow_add_borrow_anon; eassumption. }
         rewrite sget_add_anon in * by assumption.
@@ -2681,15 +2681,15 @@ Proof.
            autorewrite with spath in *. rewrite G.
            reorg_step.
            { eapply Reorg_End_MutBorrow_n; try eassumption. solve_comp. }
-           reorg_done. leq_step_left.
-           { eapply Leq_Fresh_MutLoan_n with (sp := sp) (l' := l') (a := a).
+           reorg_done. le_step_left.
+           { eapply Le_Fresh_MutLoan_n with (sp := sp) (l' := l') (a := a).
              not_contains. eauto with spath. validity. eauto with spath.
              (* TODO: automate. *)
              autorewrite with spath. eapply vset_preserves_type; autorewrite with spath; eauto.
              (* TODO: for zeroary values, we should more easily derive their value
               * when we know their nodes. *)
              destruct (S.[sp +++ r]); inversion get_loan. constructor. }
-           leq_done. { states_eq. } { reflexivity. }
+           le_done. { states_eq. } { reflexivity. }
         (* Case 3: the loan we end is disjoint from the anonymous binding a, containing the
            value of the newly introduced loan. *)
         -- autorewrite with spath in *.
@@ -2700,12 +2700,12 @@ Proof.
            autorewrite with spath in *.
            reorg_step.
            { eapply Reorg_End_MutBorrow_n; eassumption. }
-           reorg_done. leq_step_left.
-           { eapply Leq_Fresh_MutLoan_n with (sp := sp) (l' := l') (a := a).
+           reorg_done. le_step_left.
+           { eapply Le_Fresh_MutLoan_n with (sp := sp) (l' := l') (a := a).
              not_contains. eauto with spath. validity. assumption.
              autorewrite with spath. eassumption. }
-           leq_done. { states_eq. } { reflexivity. }
-    (* Case Leq_Reborrow_MutBorrow_n: *)
+           le_done. { states_eq. } { reflexivity. }
+    (* Case Le_Reborrow_MutBorrow_n: *)
     + (* The pointer we end cannot be in the anonymous binding a, because it contains a loan. *)
       assert (fst q <> anon_accessor a).
       { eapply not_in_borrow_add_borrow_anon; [eassumption | ].
@@ -2721,10 +2721,10 @@ Proof.
         autorewrite with spath in *. assert (not_contains_loan (S.[q])) as Hno_loan'.
         { rewrite sget_app in Hno_loan. destruct (S.[q]); inversion get_borrow_l0.
           eapply not_value_contains_unary; eauto with spath. }
-        leq_step_left.
-        { apply Leq_MoveValue_n with (sp := q) (a := a). not_contains_outer.
+        le_step_left.
+        { apply Le_MoveValue_n with (sp := q) (a := a). not_contains_outer.
           assumption. validity. assumption. assumption. }
-        leq_done.
+        le_done.
         { rewrite sget_app. destruct (S.[q]); inversion get_borrow_l0. reflexivity. }
         { reflexivity. }
       (* Case 2: the borrow we end is different to the renamed borrow. *)
@@ -2747,22 +2747,22 @@ Proof.
         reorg_done.
         destruct (decidable_prefix (q +++ [0]) sp) as [(r & <-) | ].
         (* Case 2a: the renamed borrow is in the ended borrow. *)
-        -- autorewrite with spath in get_borrow_l0. leq_step_left.
-           { apply Leq_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := p +++ r).
+        -- autorewrite with spath in get_borrow_l0. le_step_left.
+           { apply Le_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := p +++ r).
              not_contains. eauto with spath. autorewrite with spath. eassumption. assumption.
              autorewrite with spath in Htype |- *. exact Htype. }
-           leq_done. { states_eq. } { reflexivity. }
+           le_done. { states_eq. } { reflexivity. }
            (* Case 2b: the renamed borrow is disjoint from the from the ended borrow. *)
-        -- assert (disj sp q) by solve_comp. autorewrite with spath. leq_step_left.
-           { apply Leq_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := sp).
+        -- assert (disj sp q) by solve_comp. autorewrite with spath. le_step_left.
+           { apply Le_Reborrow_MutBorrow_n with (l1 := l1) (a := a) (sp := sp).
              not_contains. eauto with spath. autorewrite with spath. eassumption. assumption.
              (* TODO: automate. *)
              autorewrite with spath.
              eapply is_of_type_sset_sget; [eassumption | ..].
              eapply is_of_type_rename_mut_borrow; eassumption.
              destruct (S.[p]); inversion get_loan; constructor. }
-           leq_done. { states_eq. } { reflexivity. }
-    (* Case Leq_Borrow_Abstraction_n: *)
+           le_done. { states_eq. } { reflexivity. }
+    (* Case Le_Borrow_Abstraction_n: *)
     + assert (fst p <> anon_accessor a).
       { intros ?. autorewrite with spath in get_loan.
         assert (not_contains_loan (borrow^m(l', VSymbolic ty'))) as G by not_contains.
@@ -2778,18 +2778,18 @@ Proof.
       { eapply Reorg_End_MutBorrow_n with (p := p) (q := q).
         all: autorewrite with spath; eassumption. }
       reorg_done.
-      autorewrite with spath. leq_step_left.
-      { apply Leq_Borrow_Abstraction_n with (j := j) (ty' := ty') (l' := l') (a := a).
+      autorewrite with spath. le_step_left.
+      { apply Le_Borrow_Abstraction_n with (j := j) (ty' := ty') (l' := l') (a := a).
         auto with spath. assumption. not_contains. auto with spath. }
-      leq_done. { reflexivity. } { lia. }
-    (* Case Leq_Abs_ClearValue_n: *)
+      le_done. { reflexivity. } { lia. }
+    (* Case Le_Abs_ClearValue_n: *)
     + autorewrite with spath in *. reorg_step.
       { eapply Reorg_End_MutBorrow_n with (p := p) (q := q).
         all: autorewrite with spath; eassumption. }
-      reorg_done. autorewrite with spath. leq_step_left.
-      { apply Leq_Abs_ClearValue_n; auto with spath. }
-      leq_done. { reflexivity. } { lia. }
-    (* Case Leq_AnonValue_n: *)
+      reorg_done. autorewrite with spath. le_step_left.
+      { apply Le_Abs_ClearValue_n; auto with spath. }
+      le_done. { reflexivity. } { lia. }
+    (* Case Le_AnonValue_n: *)
     + (* TODO: automate? *)
       assert (fst q <> anon_accessor a).
       { intros ?. autorewrite with spath in get_borrow. rewrite vget_bot in get_borrow. discriminate. }
@@ -2798,14 +2798,14 @@ Proof.
       autorewrite with spath in *.
       reorg_step.
       { eapply Reorg_End_MutBorrow_n with (p := p) (q := q); eauto with spath. }
-      reorg_done. leq_step_left.
-      { apply Leq_AnonValue_n with (a := a). eauto with spath. }
-      leq_done. { reflexivity. } { lia. }
+      reorg_done. le_step_left.
+      { apply Le_AnonValue_n with (a := a). eauto with spath. }
+      le_done. { reflexivity. } { lia. }
 
   (* Case Reorg_End_MutBorrow_in_abstraction: *)
-  - intros ? Hleq. remember (S,,, i' |-> (insert j' (loan^m(ty, l)) A')) as _S eqn:EQN.
-    destruct Hleq; subst.
-    (* Case Leq_ToSymbolic_n: *)
+  - intros ? Hle. remember (S,,, i' |-> (insert j' (loan^m(ty, l)) A')) as _S eqn:EQN.
+    destruct Hle; subst.
+    (* Case Le_ToSymbolic_n: *)
     + destruct (decide (in_abstraction i' (fst sp))) as [(j & Hj) | ].
       * process_state_eq.
         assert (valid_spath (S,,, i' |-> B) sp) as (w & get_w & valid_sp) by validity.
@@ -2818,12 +2818,12 @@ Proof.
           rewrite valid_sp in contradiction. discriminate.
         -- simpl_map. reorg_step.
            { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q); assumption. }
-           reorg_done. leq_step_left.
-           { apply Leq_ToSymbolic_n with (sp := sp).
+           reorg_done. le_step_left.
+           { apply Le_ToSymbolic_n with (sp := sp).
              all: erewrite sget_add_abstraction; eassumption. }
            erewrite sset_add_abstraction, !sget_add_abstraction
              by (try eassumption; simpl_map; reflexivity).
-           leq_done. { reflexivity. } { lia. }
+           le_done. { reflexivity. } { lia. }
       * process_state_eq.
         assert (~prefix sp q) by solve_comp. autorewrite with spath in *.
         reorg_step.
@@ -2832,11 +2832,11 @@ Proof.
           eapply is_of_type_sset_rev; try eassumption. constructor. solve_comp. not_contains. }
         reorg_done.
         destruct (decidable_prefix (q +++ [0]) sp) as [(r & <-) | ].
-        -- leq_done. { states_eq. } { autorewrite with spath weight. lia. }
-        -- assert (disj sp q) by solve_comp. leq_step_left.
-           { eapply Leq_ToSymbolic_n with (sp := sp); autorewrite with spath; eassumption. }
-           leq_done. { states_eq. } { autorewrite with spath. lia. }
-    (* Case Leq_ToAbs_n: *)
+        -- le_done. { states_eq. } { autorewrite with spath weight. lia. }
+        -- assert (disj sp q) by solve_comp. le_step_left.
+           { eapply Le_ToSymbolic_n with (sp := sp); autorewrite with spath; eassumption. }
+           le_done. { states_eq. } { autorewrite with spath. lia. }
+    (* Case Le_ToAbs_n: *)
     + process_state_eq.
       * inversion Hto_abs.
         -- assert (j' = kl /\ l = l1 /\ ty0 = ty) as (-> & <- & ->).
@@ -2851,12 +2851,12 @@ Proof.
            { eapply Reorg_End_MutBorrow_n with (p := (anon_accessor a, []) +++ [0]) (q := q).
              all: autorewrite with spath; eauto with spath. }
            reorg_done.
-           autorewrite with spath. leq_step_left.
-           { apply Leq_ToAbs_n with (i := i') (a := a). eauto with spath. eauto with spath.
+           autorewrite with spath. le_step_left.
+           { apply Le_ToAbs_n with (i := i') (a := a). eauto with spath. eauto with spath.
              apply ToAbs_MutBorrow with (k := kb); [eassumption.. | ].
              (* For the moment, typed values do not contain borrows. *)
              inversion type_borrow; not_contains. }
-           leq_done.
+           le_done.
            { reflexivity. }
            { autorewrite with weight. lia. }
         (* The abstraction H does not contain loans, we can eliminate this case. *)
@@ -2867,21 +2867,21 @@ Proof.
         { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q).
           all: autorewrite with spath; eauto with spath. }
         reorg_done.
-      autorewrite with spath. leq_step_left.
-      { apply Leq_ToAbs_n; eauto with spath. }
-      leq_done.
+      autorewrite with spath. le_step_left.
+      { apply Le_ToAbs_n; eauto with spath. }
+      le_done.
       { (* TODO: states_eq *) rewrite add_abstraction_commute by congruence. reflexivity. }
       { lia. }
-    (* Case Leq_RemoveAnon_n: *)
+    (* Case Le_RemoveAnon_n: *)
     + autorewrite with spath in fresh_a.
       rewrite <-add_abstraction_add_anon. reorg_step.
       { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q).
         all: autorewrite with spath; eauto with spath. }
       reorg_done. autorewrite with spath.
-      leq_step_left.
-      { apply Leq_RemoveAnon_n; auto with spath. }
-      leq_done. { reflexivity. } { lia. }
-    (* Case Leq_MoveValue_n: *)
+      le_step_left.
+      { apply Le_RemoveAnon_n; auto with spath. }
+      le_done. { reflexivity. } { lia. }
+    (* Case Le_MoveValue_n: *)
     + process_state_eq. destruct (decide (fst q = anon_accessor a)).
       (* Case 1: the borrow we end is in the anonymous binding a that contains the moved
        * value. *)
@@ -2889,10 +2889,10 @@ Proof.
         rewrite <-add_abstraction_add_anon. reorg_step.
         { apply Reorg_End_MutBorrow_in_abstraction_n with (q := sp +++ snd q).
           all: autorewrite with spath; eauto with spath. }
-        reorg_done. leq_step_left.
-        { apply Leq_MoveValue_n with (sp := sp) (a := a).
+        reorg_done. le_step_left.
+        { apply Le_MoveValue_n with (sp := sp) (a := a).
           all: autorewrite with spath; eauto with spath. not_contains_outer. }
-        leq_done; autorewrite with spath. { reflexivity. } { lia. }
+        le_done; autorewrite with spath. { reflexivity. } { lia. }
       * autorewrite with spath in valid_sp.
         assert (~prefix sp q).
         { intros (? & <-). autorewrite with spath in get_borrow.
@@ -2911,11 +2911,11 @@ Proof.
         reorg_step.
         { eapply Reorg_End_MutBorrow_in_abstraction_n with (i' := i') (j' := j') (q := q).
           all: eauto with spath. }
-        reorg_done. leq_step_left.
-        { apply Leq_MoveValue_n with (sp := sp) (a := a).
+        reorg_done. le_step_left.
+        { apply Le_MoveValue_n with (sp := sp) (a := a).
           all: autorewrite with spath; eauto with spath. }
-        leq_done. { states_eq. } { autorewrite with spath. lia. }
-    (* Case Leq_MergeAbs_n: *)
+        le_done. { states_eq. } { autorewrite with spath. lia. }
+    (* Case Le_MergeAbs_n: *)
     + process_state_eq.
       * eapply merge_abstractions_contains in Hmerge; [ | eassumption].
         destruct Hmerge as [(A'' & -> & G & Hmerge) | (B'' & k & -> & G & Hmerge)].
@@ -2924,18 +2924,18 @@ Proof.
              all: autorewrite with spath; eauto with spath. }
            reorg_done.
            autorewrite with spath. rewrite add_abstraction_commute by congruence.
-           leq_step_left.
-           { apply Leq_MergeAbs_n; eauto with spath. }
-           leq_done.
+           le_step_left.
+           { apply Le_MergeAbs_n; eauto with spath. }
+           le_done.
            { reflexivity. }
            { autorewrite with weight. lia. }
         -- reorg_step.
            { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q).
              all: autorewrite with spath; eauto with spath. }
            reorg_done.
-           autorewrite with spath. leq_step_left.
-           { apply Leq_MergeAbs_n; eauto with spath. }
-           leq_done.
+           autorewrite with spath. le_step_left.
+           { apply Le_MergeAbs_n; eauto with spath. }
+           le_done.
            { reflexivity. }
            { autorewrite with weight. lia. }
       * autorewrite with spath in * |-.
@@ -2946,10 +2946,10 @@ Proof.
           all: autorewrite with spath; eauto with spath. }
         reorg_done.
         autorewrite with spath. rewrite <-!(add_abstraction_commute _ i') by congruence.
-        leq_step_left.
-        { apply Leq_MergeAbs_n; eauto with spath. }
-        leq_done. { reflexivity. } { lia. }
-    (* Case Leq_Fresh_MutLoan_n: *)
+        le_step_left.
+        { apply Le_MergeAbs_n; eauto with spath. }
+        le_done. { reflexivity. } { lia. }
+    (* Case Le_Fresh_MutLoan_n: *)
     + process_state_eq.
       assert (fst q <> anon_accessor a).
       { eapply not_in_borrow_add_borrow_anon; [eassumption | ]. intros ->.
@@ -2960,11 +2960,11 @@ Proof.
       autorewrite with spath in *.
       rewrite <-add_abstraction_add_anon. reorg_step.
       { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q); eassumption. }
-      reorg_done. leq_step_left.
-      { apply Leq_Fresh_MutLoan_n with (l' := l') (a := a) (sp := sp); eauto with spath.
+      reorg_done. le_step_left.
+      { apply Le_Fresh_MutLoan_n with (l' := l') (a := a) (sp := sp); eauto with spath.
         not_contains. autorewrite with spath. eassumption. }
-      leq_done. { states_eq. } { lia. }
-    (* Case Leq_Reborrow_MutBorrow_n: *)
+      le_done. { states_eq. } { lia. }
+    (* Case Le_Reborrow_MutBorrow_n: *)
     + process_state_eq.
       assert (fst q <> anon_accessor a).
       { eapply not_in_borrow_add_borrow_anon; [eassumption | ].
@@ -2996,16 +2996,16 @@ Proof.
       autorewrite with spath in *.
       reorg_step.
       { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q); assumption. }
-      reorg_done. leq_step_left.
-      { apply Leq_Reborrow_MutBorrow_n with (l0 := l0) (l1 := l1) (a := a) (sp := sp).
+      reorg_done. le_step_left.
+      { apply Le_Reborrow_MutBorrow_n with (l0 := l0) (l1 := l1) (a := a) (sp := sp).
         not_contains. eauto with spath. all: autorewrite with spath; eassumption. }
-      leq_done. { states_eq. } { lia. }
-    (* Case Leq_Borrow_Abstraction_n: *)
+      le_done. { states_eq. } { lia. }
+    (* Case Le_Borrow_Abstraction_n: *)
     + process_state_eq.
-      (* Case 1: the loan we end is in the abstraction we add a loan with [Leq_Borrow_Abstraction_n] *)
+      (* Case 1: the loan we end is in the abstraction we add a loan with [Le_Borrow_Abstraction_n] *)
        * apply insert_is_insert in eq_abs; [ | assumption..].
          destruct eq_abs as [(<- & [=-> ->] & <-) | (? & B & -> & ->)].
-         (* Case 1a: the loan we end is the loan we added with [Leq_Borrow_Abstraction_n]. *)
+         (* Case 1a: the loan we end is the loan we added with [Le_Borrow_Abstraction_n]. *)
          -- assert (q = (anon_accessor a, [])) as ->.
             { apply dec_stable.
               intros K. eapply not_in_borrow_add_borrow_anon in K; [ | eassumption].
@@ -3014,12 +3014,12 @@ Proof.
               autorewrite with spath. rewrite get_borrow. constructor. }
             autorewrite with spath.
             (* The reorganization step at the right only ended borrow introduced by
-               rule [Leq_Borrow_Abstraction_n]. Thus, there is no reorganization to
+               rule [Le_Borrow_Abstraction_n]. Thus, there is no reorganization to
                do en the left. *)
             reorg_done.
-            leq_step_left.
-            { apply Leq_AnonValue_n with (a := a). auto with spath. }
-            leq_done. { reflexivity. } { lia. }
+            le_step_left.
+            { apply Le_AnonValue_n with (a := a). auto with spath. }
+            le_done. { reflexivity. } { lia. }
          (* Case 1b: the loan we end is another loan in thi abstraction. *)
          -- simpl_map.
              assert (fst q <> anon_accessor a).
@@ -3030,10 +3030,10 @@ Proof.
              reorg_step.
              { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q); assumption. }
              reorg_done.
-             leq_step_left.
-             { eapply Leq_Borrow_Abstraction_n with (j := j) (l' := l') (ty' := ty') (a := a).
+             le_step_left.
+             { eapply Le_Borrow_Abstraction_n with (j := j) (l' := l') (ty' := ty') (a := a).
                all: auto with spath. not_contains. }
-             leq_done. { reflexivity. } { lia. }
+             le_done. { reflexivity. } { lia. }
        (* Case 2: the loan we end is in another abstraction. *)
        * assert (fst q <> anon_accessor a).
          { eapply not_in_borrow_add_borrow_anon; [eassumption | ]. intros ->.
@@ -3047,46 +3047,46 @@ Proof.
            all: autorewrite with spath; assumption. }
          reorg_done.
          autorewrite with spath. rewrite !(add_abstraction_commute _ i) by congruence.
-         leq_step_left.
-         { apply Leq_Borrow_Abstraction_n with (j := j) (l' := l') (ty' := ty') (a := a).
+         le_step_left.
+         { apply Le_Borrow_Abstraction_n with (j := j) (l' := l') (ty' := ty') (a := a).
            all: auto with spath. not_contains. }
-         leq_done. { reflexivity. } { lia. }
-    (* Case Leq_Abs_ClearValue_n: *)
+         le_done. { reflexivity. } { lia. }
+    (* Case Le_Abs_ClearValue_n: *)
     + process_state_eq.
       * rewrite lookup_insert_None in fresh_j. destruct fresh_j as (fresh_j & ?).
         rewrite insert_insert_ne by congruence.
         reorg_step.
         { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q); try assumption.
           simpl_map. assumption. }
-        reorg_done. leq_step_left.
-        { apply Leq_Abs_ClearValue_n; auto with spath. }
-        leq_done. { reflexivity. } { lia. }
+        reorg_done. le_step_left.
+        { apply Le_Abs_ClearValue_n; auto with spath. }
+        le_done. { reflexivity. } { lia. }
       * autorewrite with spath in *.
         reorg_step.
         { rewrite add_abstraction_commute by congruence.
           apply Reorg_End_MutBorrow_in_abstraction_n with (q := q).
           all: autorewrite with spath; assumption. }
-        reorg_done. autorewrite with spath. leq_step_left.
+        reorg_done. autorewrite with spath. le_step_left.
         { rewrite add_abstraction_commute by congruence.
-          apply Leq_Abs_ClearValue_n; auto with spath. }
-        leq_done.
+          apply Le_Abs_ClearValue_n; auto with spath. }
+        le_done.
         { rewrite add_abstraction_commute by congruence. reflexivity. }
         { lia. }
-    (* Case Leq_AnonValue_n: *)
+    (* Case Le_AnonValue_n: *)
     + process_state_eq.
       assert (fst q <> anon_accessor a).
       { intros ?. autorewrite with spath in get_borrow.
         rewrite vget_bot in get_borrow. discriminate. }
       autorewrite with spath in *. reorg_step.
       { apply Reorg_End_MutBorrow_in_abstraction_n with (q := q); assumption. }
-      reorg_done. leq_step_left.
-      { apply Leq_AnonValue_n with (a := a). auto with spath. }
-      leq_done. { reflexivity. } { lia. }
+      reorg_done. le_step_left.
+      { apply Le_AnonValue_n with (a := a). auto with spath. }
+      le_done. { reflexivity. } { lia. }
 
   (* Case Reorg_End_Abstraction: *)
-  - intros ? Hleq. remember (S,,, i' |-> A') as _S eqn:EQN.
-    destruct Hleq.
-    (* Case Leq_ToSymbolic *)
+  - intros ? Hle. remember (S,,, i' |-> A') as _S eqn:EQN.
+    destruct Hle.
+    (* Case Le_ToSymbolic *)
     + destruct (decide (in_abstraction i' (fst sp))) as [(j & Hj) | ].
       * process_state_eq.
         assert (valid_spath (S,,, i' |-> B) sp) as valid_sp by validity.
@@ -3099,9 +3099,9 @@ Proof.
         reorg_step.
         { apply Reorg_End_Abstraction_n. eassumption.
           eapply not_contains_loan_abstraction_alter; eassumption. eassumption. }
-        reorg_done. leq_step_left.
-        { apply Leq_ToSymbolic_n; rewrite get_S''_a_q; eassumption. }
-        leq_done.
+        reorg_done. le_step_left.
+        { apply Le_ToSymbolic_n; rewrite get_S''_a_q; eassumption. }
+        le_done.
         { reflexivity. }
         { rewrite get_S''_a_q. cbn. lia. }
       * process_state_eq. autorewrite with spath in *.
@@ -3109,12 +3109,12 @@ Proof.
         destruct Hadd_anons as (S'' & Hadd_anons & ->).
         reorg_step.
         { eapply Reorg_End_Abstraction_n; eassumption. }
-        reorg_done. leq_step_left.
-        { eapply Leq_ToSymbolic_n; erewrite add_anons_sget; eauto with spath. }
-        leq_done.
+        reorg_done. le_step_left.
+        { eapply Le_ToSymbolic_n; erewrite add_anons_sget; eauto with spath. }
+        le_done.
         { reflexivity. }
         { erewrite add_anons_sget by eauto with spath. lia. }
-    (* Case Leq_ToAbs *)
+    (* Case Le_ToAbs *)
     + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
       (* Case 1: we end the abstraction we just introduced. *)
       * destruct EQN as (<- & -> & <-). destruct Hto_abs.
@@ -3129,10 +3129,10 @@ Proof.
             * symbolic value. Because when we end the region A, the anonymous binding introduced
             * is a symbolic value. *)
            reorg_done.
-           leq_step_left.
-           { eapply Leq_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
+           le_step_left.
+           { eapply Le_ToSymbolic_n with (sp := (anon_accessor a, []) +++ [0]).
              all: autorewrite with spath; eassumption. }
-           autorewrite with spath. leq_done.
+           autorewrite with spath. le_done.
            { eapply prove_equiv_states; [reflexivity | ].
              apply equiv_states_add_anon; assumption. }
            { autorewrite with weight. lia. }
@@ -3152,38 +3152,38 @@ Proof.
         reorg_step.
         { rewrite <-add_abstraction_add_anon.
           apply Reorg_End_Abstraction_n; eauto with spath. }
-        reorg_done. leq_step_left.
-        { eapply Leq_ToAbs_n; eassumption. }
-        leq_done.
+        reorg_done. le_step_left.
+        { eapply Le_ToAbs_n; eassumption. }
+        le_done.
         { eapply prove_equiv_states; [reflexivity | ].
           apply equiv_add_abstraction; assumption. }
         { lia. }
-    (* Case Leq_RemoveAnon_n: *)
+    (* Case Le_RemoveAnon_n: *)
     + subst. rewrite fresh_anon_add_abstraction in fresh_a.
         apply add_anons_add_anon with (a := a) (v := v) in Hadd_anons; [ | assumption].
         destruct Hadd_anons as (S'' & Hadd_anons & ? & ?).
       reorg_step.
         { rewrite <-add_abstraction_add_anon.
           apply Reorg_End_Abstraction_n; eauto with spath. }
-        reorg_done. leq_step_left.
-        { eapply Leq_RemoveAnon_n; eassumption. }
-        leq_done. { eapply prove_equiv_states; easy. } { lia. }
-    (* Case Leq_MoveValue_n: *)
+        reorg_done. le_step_left.
+        { eapply Le_RemoveAnon_n; eassumption. }
+        le_done. { eapply prove_equiv_states; easy. } { lia. }
+    (* Case Le_MoveValue_n: *)
     + process_state_eq. autorewrite with spath in * |-.
       apply add_anons_remove_anon_sset in Hadd_anons; [ | assumption..].
       destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
       reorg_step.
       { apply Reorg_End_Abstraction_n; eauto with spath. }
-      reorg_done. leq_step_left.
-      { apply Leq_MoveValue_n with (sp := sp) (a := a).
+      reorg_done. le_step_left.
+      { apply Le_MoveValue_n with (sp := sp) (a := a).
         all: autorewrite with spath; eauto with spath.
         erewrite add_anons_sget by eauto with spath. eassumption.
         eapply add_anons_valid_spath; eassumption.
         eapply not_in_borrow_add_anons; eauto with spath. }
-      leq_done.
+      le_done.
       { erewrite add_anons_sget by eassumption. reflexivity. }
       { reflexivity. }
-    (* Case Leq_MergeAbs_n: *)
+    (* Case Le_MergeAbs_n: *)
     + apply eq_add_abstraction in EQN; [ | assumption..]. destruct EQN as [EQN | EQN].
       * destruct EQN as (<- & -> & <-).
         assert (map_Forall (fun _ => not_contains_loan) B) by eauto using merge_no_loan.
@@ -3210,9 +3210,9 @@ Proof.
           [exact Hadd_bots | exact Hadd_anons_Sl2 | ].
         edestruct commute_add_anonymous_bots_anons as (Sl2' & Hadd_anons_Sl2' & Hadd_bots_Sl3);
           [exact Hadd_bots_Sl2 | exact HSl3 | ].
-        eapply leq_n_steps.
-        { eapply leq_n_add_anonymous_bots. eassumption. }
-        leq_done.
+        eapply le_n_steps.
+        { eapply le_n_add_anonymous_bots. eassumption. }
+        le_done.
         { eapply add_anons_assoc; eassumption. }
         { eapply map_sum_union_maps in union_A'_B'. rewrite union_A'_B'. lia. }
       * destruct EQN as (? & ? & -> & ->).
@@ -3225,10 +3225,10 @@ Proof.
         { apply Reorg_End_Abstraction_n. eauto with spath. assumption.
           repeat apply add_abstraction_add_anons. eassumption. }
         reorg_done.
-        leq_step_left.
-        { apply Leq_MergeAbs_n; eauto with spath. }
-        leq_done. { reflexivity. } { lia. }
-    (* Case Leq_Fresh_MutLoan_n: *)
+        le_step_left.
+        { apply Le_MergeAbs_n; eauto with spath. }
+        le_done. { reflexivity. } { lia. }
+    (* Case Le_Fresh_MutLoan_n: *)
     + process_state_eq.
       apply not_in_abstraction_valid_spath in valid_sp; [ | eauto].
       apply add_anons_remove_anon_sset in Hadd_anons; [ | assumption..].
@@ -3237,33 +3237,33 @@ Proof.
       { apply Reorg_End_Abstraction_n; eauto with spath. }
       reorg_done.
       autorewrite with spath in Htype |- *.
-      leq_step_left.
-      { apply Leq_Fresh_MutLoan_n with (sp := sp) (a := a) (l' := l').
+      le_step_left.
+      { apply Le_Fresh_MutLoan_n with (sp := sp) (a := a) (l' := l').
         all: autorewrite with spath; eauto with spath.
         eapply is_fresh_add_anons; eassumption.
         eapply add_anons_valid_spath; eassumption.
         erewrite add_anons_sget by eauto with spath. eassumption. }
-      leq_done.
+      le_done.
       { erewrite add_anons_sget by eassumption. reflexivity. }
       { reflexivity. }
-    (* Case Leq_Reborrow_MutBorrow_n: *)
+    (* Case Le_Reborrow_MutBorrow_n: *)
     + process_state_eq. autorewrite with spath in *.
       apply add_anons_remove_anon_sset in Hadd_anons; [ | eauto with spath..].
       destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
       reorg_step.
       { apply Reorg_End_Abstraction_n; eauto with spath. }
-      reorg_done. leq_step_left.
-      { apply Leq_Reborrow_MutBorrow_n with (sp := sp) (a := a) (l0 := l0) (l1 := l1).
+      reorg_done. le_step_left.
+      { apply Le_Reborrow_MutBorrow_n with (sp := sp) (a := a) (l0 := l0) (l1 := l1).
         all: autorewrite with spath; eauto with spath.
         eapply is_fresh_add_anons; eassumption.
         erewrite add_anons_sget; eauto with spath.
         erewrite add_anons_sget; eauto with spath. }
-      leq_done.
+      le_done.
       { erewrite add_anons_sget by eauto with spath. reflexivity. }
       { reflexivity. }
-    (* Case Leq_Borrow_Abstraction_n: *)
+    (* Case Le_Borrow_Abstraction_n: *)
     + process_state_eq.
-      (* The loan we add with [Leq_Borrow_Abstraction_n] cannot be in the
+      (* The loan we add with [Le_Borrow_Abstraction_n] cannot be in the
          abstraction we end. *)
       * exfalso. eapply A_no_loans; [apply lookup_insert_eq | constructor..].
       * (* TODO: unconsistent lemma naming. *)
@@ -3276,42 +3276,42 @@ Proof.
         { rewrite add_abstraction_commute by congruence.
           apply Reorg_End_Abstraction_n. auto with spath. assumption.
           apply add_abstraction_add_anons. eassumption. }
-        reorg_done. leq_step_left.
-        { apply Leq_Borrow_Abstraction_n with (j := j) (l' := l') (ty' := ty') (a := a).
+        reorg_done. le_step_left.
+        { apply Le_Borrow_Abstraction_n with (j := j) (l' := l') (ty' := ty') (a := a).
           all: eauto with spath.
           rewrite add_abstraction_commute in fresh_l' by congruence.
           eapply is_fresh_add_anons; [ | eassumption | ].
           auto with spath. apply add_abstraction_add_anons. assumption. }
-        leq_done. { reflexivity. } { lia. }
-    (* Case Leq_Abs_ClearValue_n: *)
+        le_done. { reflexivity. } { lia. }
+    (* Case Le_Abs_ClearValue_n: *)
     + process_state_eq.
       * destruct (exists_fresh_anon S') as (a & fresh_a).
         eapply add_anons_insert with (v := v) in Hadd_anons; [ | eassumption..].
         reorg_step.
         { eapply Reorg_End_Abstraction_n; try eassumption. apply map_Forall_insert_2; auto. }
         reorg_done.
-        leq_step_left.
-        { apply Leq_RemoveAnon_n; assumption. }
-        leq_done. { reflexivity. } { lia. }
+        le_step_left.
+        { apply Le_RemoveAnon_n; assumption. }
+        le_done. { reflexivity. } { lia. }
       * autorewrite with spath in *.
         apply add_anons_add_abstraction in Hadd_anons.
         destruct Hadd_anons as (S2 & -> & Hadd_anons).
         reorg_step.
         { rewrite add_abstraction_commute. apply Reorg_End_Abstraction_n. auto with spath.
           assumption. apply add_abstraction_add_anons. eassumption. congruence. }
-        reorg_done. leq_step_left.
-        { apply Leq_Abs_ClearValue_n with (v := v); try assumption.
+        reorg_done. le_step_left.
+        { apply Le_Abs_ClearValue_n with (v := v); try assumption.
           eapply add_anons_fresh_abstraction; eassumption. }
-        leq_done. { reflexivity. } { lia. }
-    (* Case Leq_AnonValue_n: *)
+        le_done. { reflexivity. } { lia. }
+    (* Case Le_AnonValue_n: *)
     + process_state_eq.
       apply add_anons_remove_anon in Hadd_anons; [ | assumption].
       destruct Hadd_anons as (S'' & -> & ? & Hadd_anons).
       reorg_step.
       { eapply Reorg_End_Abstraction_n; eassumption. }
-      reorg_done. leq_step_left.
-      { eapply Leq_AnonValue_n. eassumption. }
-      leq_done. { reflexivity. } { lia. }
+      reorg_done. le_step_left.
+      { eapply Le_AnonValue_n. eassumption. }
+      le_done. { reflexivity. } { lia. }
 Qed.
 
 Lemma reorg_preserve_equiv n :
@@ -3374,15 +3374,15 @@ Section Reorg_n_is_reorg.
   Qed.
 End Reorg_n_is_reorg.
 
-Lemma reorg_preservation : forward_simulation leq_symbolic leq_symbolic reorg^* reorg^*.
+Lemma reorg_preservation : forward_simulation le_symbolic le_symbolic reorg^* reorg^*.
 Proof.
   eapply preservation_reorg_l.
-  - exact leq_state_base_n_decreases.
+  - exact le_state_base_n_decreases.
   - exact reorg_decreases.
   - exact reorg_preserve_equiv.
-  - exact leq_n_equiv_states_commute.
+  - exact le_n_equiv_states_commute.
   - exact reorg_local_preservation.
-  - exact leq_state_base_n_is_leq_state_base.
+  - exact le_state_base_n_is_le_state_base.
   - exact reorg_n_is_reorg.
 Qed.
 
@@ -3402,11 +3402,11 @@ Bl <= Br
 (* TODO: lemma and tactic names. *)
 Lemma execution_join_state n s Sl (B0 B1 Br : branching_state) :
   (forall Bl, is_join B0 B1 Bl -> Sl |-{stmt} s ~>{n} Bl) ->
-  leq_branching B0 Br ->
-  leq_branching B1 Br ->
-  exists Bl, leq_branching Bl Br /\ Sl |-{stmt} s ~>{n} Bl.
+  le_branching B0 Br ->
+  le_branching B1 Br ->
+  exists Bl, le_branching Bl Br /\ Sl |-{stmt} s ~>{n} Bl.
 Proof.
-  intros G leq_0 leq_1. destruct (exists_join_state _ _ _ leq_0 leq_1) as (? & ?).
+  intros G le_0 le_1. destruct (exists_join_state _ _ _ le_0 le_1) as (? & ?).
   exists (compute_join B0 B1 Br). auto.
 Qed.
 Ltac execution_join_state :=
@@ -3417,27 +3417,27 @@ Ltac execution_join_state :=
 (* Note: most of that is a copy-paste of similar theorems for integers. *)
 (* Note: rewrite the following results when we introduce enumerations. Some of the assumptions this section relies on (e.g: boolean are zeroary, they do not contain borrows) are wrong in general.
    We should prove a more general lemma:
-   - The relations [leq_symbolic] and [leq_val_state] preserve types.
+   - The relations [le_symbolic] and [le_val_state] preserve types.
    - A value of type A + B is either:
      - inl v, with v : A, and v do not contain loans.
      - inr v, with v : B, and v do not contain loans.
      - sigma_{A + B}
  *)
-(* TODO: rewrite the lemma [leq_val_state_integer] accordingly. *)
-Definition leq_boolean_state leq (vSl vSr : value * state) :=
+(* TODO: rewrite the lemma [le_val_state_integer] accordingly. *)
+Definition le_boolean_state le (vSl vSr : value * state) :=
   let (vl, Sl) := vSl in
   let (vr, Sr) := vSr in
   (vl = vr \/ is_of_type TBool vl /\ not_contains_loan vl /\ vr = VSymbolic TBool) /\
-  leq Sl Sr.
+  le Sl Sr.
 
 Lemma boolean_zeroary v :
   not_contains_loan v -> is_of_type TBool v -> arity (get_node v) = 0.
 Proof. intros ? H. inversion H; reflexivity. Qed.
 
-Lemma leq_val_state_base_boolean vl Sl vr Sr :
-  leq_val_state_base leq_state_base (vl, Sl) (vr, Sr) ->
+Lemma le_val_state_base_boolean vl Sl vr Sr :
+  le_val_state_base le_state_base (vl, Sl) (vr, Sr) ->
   is_of_type TBool vr -> not_contains_loan vr ->
-  (vl = vr /\ leq_state_base Sl Sr) \/
+  (vl = vr /\ le_state_base Sl Sr) \/
   (is_of_type TBool vl /\ not_contains_loan vl /\ vr = VSymbolic TBool /\ Sl = Sr).
 Proof.
   destruct (exists_fresh_anon2 Sl Sr) as (a & fresh_a_l & fresh_a_r).
@@ -3473,7 +3473,7 @@ Proof.
       - apply vset_same_valid. validity.
       - autorewrite with spath. constructor. }
     autorewrite with spath in *. process_state_eq.
-    left. split; [reflexivity | ]. apply Leq_Fresh_MutLoan; auto. not_contains.
+    left. split; [reflexivity | ]. apply Le_Fresh_MutLoan; auto. not_contains.
   - destruct (decide (fst sp = anon_accessor a)).
     { autorewrite with spath in * |-. process_state_eq.
       exfalso. eapply boolean_does_not_contain_borrow.
@@ -3481,7 +3481,7 @@ Proof.
       - apply vset_same_valid. validity.
       - autorewrite with spath. constructor. }
     autorewrite with spath in *. process_state_eq.
-    left. split; [reflexivity | ]. apply Leq_Reborrow_MutBorrow; auto. not_contains.
+    left. split; [reflexivity | ]. apply Le_Reborrow_MutBorrow; auto. not_contains.
   - process_state_eq.
     left. split; [reflexivity | ]. constructor; auto with spath. not_contains.
   - autorewrite with spath in *. process_state_eq.
@@ -3489,37 +3489,37 @@ Proof.
   - process_state_eq. left. split; [reflexivity | ]. constructor. assumption.
 Qed.
 
-Lemma _leq_val_state_boolean vl Sl vr Sr :
-  (leq_val_state_base leq_state_base)^* (vl, Sl) (vr, Sr) ->
+Lemma _le_val_state_boolean vl Sl vr Sr :
+  (le_val_state_base le_state_base)^* (vl, Sl) (vr, Sr) ->
   is_of_type TBool vr -> not_contains_loan vr ->
-  leq_boolean_state (leq_state_base^*) (vl, Sl) (vr, Sr).
+  le_boolean_state (le_state_base^*) (vl, Sl) (vr, Sr).
 Proof.
   intros H Htype no_loan.
   remember (vl, Sl) as vSl eqn:EQN_l. remember (vr, Sr) as vSr eqn:EQN_r.
   revert vl Sl vr Sr EQN_l EQN_r Htype no_loan.
-  induction H as [ | ? (vm & Sm) ? Hleq_l IH Hleq_r]
+  induction H as [ | ? (vm & Sm) ? Hle_l IH Hle_r]
     using clos_refl_trans_ind_left';
     intros  vl Sl vr Sr -> -> Htype no_loan.
   - split; [ | reflexivity]. left. reflexivity.
-  - eapply leq_val_state_base_boolean in Hleq_r; [ | eassumption..].
-    destruct Hleq_r as [(? & ?) | (? & ? & ? & ?)]; subst.
+  - eapply le_val_state_base_boolean in Hle_r; [ | eassumption..].
+    destruct Hle_r as [(? & ?) | (? & ? & ? & ?)]; subst.
     + edestruct IH; [reflexivity | reflexivity | assumption.. | ]. split; [assumption | ].
       transitivity Sm; [ | constructor]; assumption.
     + edestruct IH as ([ | (? & ? & ?)] & ?); [reflexivity | reflexivity | assumption.. | | ];
-        subst; unfold leq_boolean_state; auto.
+        subst; unfold le_boolean_state; auto.
 Qed.
 
-Lemma leq_val_state_boolean vl Sl vr Sr :
-  leq_val_state (vl, Sl) (vr, Sr) -> is_of_type TBool vr -> not_contains_loan vr ->
-  leq_boolean_state leq_symbolic (vl, Sl) (vr, Sr).
+Lemma le_val_state_boolean vl Sl vr Sr :
+  le_val_state (vl, Sl) (vr, Sr) -> is_of_type TBool vr -> not_contains_loan vr ->
+  le_boolean_state le_symbolic (vl, Sl) (vr, Sr).
 Proof.
-  intros ((v'r & S'r) & Hequiv & Hleq) Htype no_loan.
-  apply _leq_val_state_boolean in Hleq; [ | assumption..]. destruct Hleq as (Hv & Hleq).
+  intros ((v'r & S'r) & Hequiv & Hle) Htype no_loan.
+  apply _le_val_state_boolean in Hle; [ | assumption..]. destruct Hle as (Hv & Hle).
   destruct Hequiv as (perm & Hequiv & _ & -> & ->).
   rewrite !rename_value_no_loan_id in Hv.
   - split.
     + exact Hv.
-    + eexists. split; [ | exact Hleq]. exists perm. auto.
+    + eexists. split; [ | exact Hle]. exists perm. auto.
   (* This ugly case could be simply resolved with a hypothesis [is_of_type TBool vl]. *)
   - destruct Hv as [<- | (type_vl & no_loan_l & ->)].
     + destruct vl; inversion Htype; subst; try reflexivity.
@@ -3528,27 +3528,27 @@ Proof.
       exfalso. eapply no_loan_l; constructor.
 Qed.
 
-Lemma leq_val_state_concrete_boolean b vl Sl Sr :
-  leq_val_state (vl, Sl) (VBool b, Sr) -> vl = VBool b /\ leq_symbolic Sl Sr.
+Lemma le_val_state_concrete_boolean b vl Sl Sr :
+  le_val_state (vl, Sl) (VBool b, Sr) -> vl = VBool b /\ le_symbolic Sl Sr.
 Proof.
-  intros (Hvl & Hleq)%leq_val_state_boolean.
-  - split; [ | exact Hleq]. destruct Hvl as [ | (_ & _ & [=])]. assumption.
+  intros (Hvl & Hle)%le_val_state_boolean.
+  - split; [ | exact Hle]. destruct Hvl as [ | (_ & _ & [=])]. assumption.
   - constructor.
   - not_contains.
 Qed.
 
-Lemma leq_val_state_symbolic_boolean vl Sl Sr :
-  leq_val_state (vl, Sl) (VSymbolic TBool, Sr) ->
-  ((exists b, vl = VBool b) \/ vl = VSymbolic TBool) /\ leq_symbolic Sl Sr.
+Lemma le_val_state_symbolic_boolean vl Sl Sr :
+  le_val_state (vl, Sl) (VSymbolic TBool, Sr) ->
+  ((exists b, vl = VBool b) \/ vl = VSymbolic TBool) /\ le_symbolic Sl Sr.
 Proof.
-  intros (Hvl & Hleq)%leq_val_state_boolean.
-  - split; [ | exact Hleq]. destruct Hvl as [ | (Htype & no_loan & _)]; auto.
+  intros (Hvl & Hle)%le_val_state_boolean.
+  - split; [ | exact Hle]. destruct Hvl as [ | (Htype & no_loan & _)]; auto.
     inversion Htype; subst; eauto. exfalso. eapply no_loan; constructor.
   - constructor.
   - not_contains.
 Qed.
 
-Lemma leq_end_loop Bl Br : leq_branching Bl Br -> leq_branching (end_loop Bl) (end_loop Br).
+Lemma le_end_loop Bl Br : le_branching Bl Br -> le_branching (end_loop Bl) (end_loop Br).
 Proof.
   intros H r. destruct (lookup r (end_loop Bl)) eqn:EQN.
   - pose proof EQN as G.
@@ -3560,27 +3560,27 @@ Proof.
     inversion H. constructor. assumption.
   - constructor.
 Qed.
-Hint Resolve leq_end_loop : spath.
+Hint Resolve le_end_loop : spath.
 
-Lemma leq_branching_None_left_branch Bl Br r :
-  leq_branching Bl Br -> lookup r Br = None -> lookup r Bl = None.
+Lemma le_branching_None_left_branch Bl Br r :
+  le_branching Bl Br -> lookup r Br = None -> lookup r Bl = None.
 Proof.
-  intros Hleq G. specialize (Hleq r). rewrite G in Hleq. inversion Hleq. reflexivity.
+  intros Hle G. specialize (Hle r). rewrite G in Hle. inversion Hle. reflexivity.
 Qed.
-Hint Resolve leq_branching_None_left_branch : spath.
+Hint Resolve le_branching_None_left_branch : spath.
 
 Lemma lookup_token_cases Bl Br Sr r :
-  leq_branching Bl Br -> lookup r Br = Some Sr ->
-  (lookup r Bl = None /\ leq_branching Bl (delete r Br) \/
+  le_branching Bl Br -> lookup r Br = Some Sr ->
+  (lookup r Bl = None /\ le_branching Bl (delete r Br) \/
    exists Sl, lookup r Bl = Some Sl /\
-              leq_symbolic Sl Sr /\ leq_branching (delete r Bl) (delete r Br)).
+              le_symbolic Sl Sr /\ le_branching (delete r Bl) (delete r Br)).
 Proof.
-  intros Hleq_B Hcontinue.
-  pose proof (Hleq_B r) as Hleq_S. apply (leq_branching_delete r) in Hleq_B.
-  rewrite Hcontinue in Hleq_S.
+  intros Hle_B Hcontinue.
+  pose proof (Hle_B r) as Hle_S. apply (le_branching_delete r) in Hle_B.
+  rewrite Hcontinue in Hle_S.
   destruct (lookup r Bl) as [Sl | ] eqn:EQN.
-  - inversion Hleq_S; subst. eauto.
-  - rewrite (delete_id _ _ EQN) in Hleq_B. auto.
+  - inversion Hle_S; subst. eauto.
+  - rewrite (delete_id _ _ EQN) in Hle_B. auto.
 Qed.
 
 Lemma end_loop_delete_rContinue B : end_loop (delete rContinue B) = end_loop B.
@@ -3595,37 +3595,37 @@ Proof.
 Qed.
 
 Lemma stmt_preserves_LLBC_plus_rel n s :
-  forward_simulation leq_symbolic leq_branching (eval_stmt n s) (eval_stmt n s).
+  forward_simulation le_symbolic le_branching (eval_stmt n s) (eval_stmt n s).
 Proof.
-  intros Sr S'r Heval. induction Heval; intros Sl Hleq.
+  intros Sr S'r Heval. induction Heval; intros Sl Hle.
   (* Case [E_Step_Zero] *)
   - execution_step. { constructor. } reflexivity.
 
   (* Case [E_Nop]. *)
-  - execution_step. { constructor. } apply leq_singleton. assumption.
+  - execution_step. { constructor. } apply le_singleton. assumption.
   (* Case [E_Panic]. *)
-  - execution_step. { constructor. } apply leq_singleton. assumption.
+  - execution_step. { constructor. } apply le_singleton. assumption.
   (* Case [E_Break]. *)
-  - execution_step. { constructor. } apply leq_singleton. assumption.
+  - execution_step. { constructor. } apply le_singleton. assumption.
   (* Case [E_Continue]. *)
-  - execution_step. { constructor. } apply leq_singleton. assumption.
+  - execution_step. { constructor. } apply le_singleton. assumption.
 
   (* Case [E_Propagate] *)
-  - specialize (IHHeval _ Hleq). destruct IHHeval as (Bl & ? & ?).
+  - specialize (IHHeval _ Hle). destruct IHHeval as (Bl & ? & ?).
     execution_step.
     { apply E_Seq_Propagate; eauto with spath. }
     assumption.
 
   (* Case [E_Seq_Unit_Propagate] *)
-  - specialize (IHHeval1 _ Hleq). destruct IHHeval1 as (B1l & Hleq1 & ?).
-    eapply lookup_token_cases in Hleq1; [ | exact H_unit].
-    destruct Hleq1 as [(? & ?) | (S1l & ? & Hleq1 & ?)].
+  - specialize (IHHeval1 _ Hle). destruct IHHeval1 as (B1l & Hle1 & ?).
+    eapply lookup_token_cases in Hle1; [ | exact H_unit].
+    destruct Hle1 as [(? & ?) | (S1l & ? & Hle1 & ?)].
     (* Case 1: the state after the execution of the first statement ([B1_l]) does not contain
         a [rUnit] token, we simply propagate. *)
     + execution_step. { apply E_Seq_Propagate; eassumption. }
       etransitivity; eauto with spath.
     (* Case 2. *)
-    + specialize (IHHeval2 _ Hleq1). destruct IHHeval2 as (B_unit_l & Hleq2 & Heval2_l).
+    + specialize (IHHeval2 _ Hle1). destruct IHHeval2 as (B_unit_l & Hle2 & Heval2_l).
       execution_join_state.
       { eapply E_Seq_Unit_Propagate; eassumption. }
       { etransitivity; eauto with spath. }
@@ -3635,69 +3635,69 @@ Proof.
   - destruct vS' as (vr & S'r).
     assert (not_contains_bot vr). { eapply eval_rvalue_no_bot. eassumption. }
     assert (not_contains_loan vr). { eapply eval_rvalue_no_loan. eassumption. }
-    apply rvalue_preserves_leq in eval_rv. specialize (eval_rv _ Hleq).
+    apply rvalue_preserves_le in eval_rv. specialize (eval_rv _ Hle).
     destruct eval_rv as ((v'l & S'l) & ? & ?).
     eapply store_preserves_LLBC_plus_rel in Hstore; [ | eassumption..].
     destruct Hstore as (S''l & Hstore & ?).
     execution_step. { econstructor; eassumption. }
-    apply leq_singleton. assumption.
+    apply le_singleton. assumption.
 
   (* Case [E_IfThenElse_T] *)
-  - apply operand_preserves_leq in eval_cond. apply eval_cond in Hleq.
-    destruct Hleq as ((v' & S'l) & Hleq' & eval_cond').
-    apply leq_val_state_concrete_boolean in Hleq'. destruct Hleq' as (-> & Hleq').
-    apply IHHeval in Hleq'. destruct Hleq' as (S''l & Hleq'' & eval_if).
+  - apply operand_preserves_le in eval_cond. apply eval_cond in Hle.
+    destruct Hle as ((v' & S'l) & Hle' & eval_cond').
+    apply le_val_state_concrete_boolean in Hle'. destruct Hle' as (-> & Hle').
+    apply IHHeval in Hle'. destruct Hle' as (S''l & Hle'' & eval_if).
     execution_step. { econstructor; eassumption. } assumption.
 
   (* Case [E_IfThenElse_F] *)
-  - apply operand_preserves_leq in eval_cond. apply eval_cond in Hleq.
-    destruct Hleq as ((v' & S'l) & Hleq' & eval_cond').
-    apply leq_val_state_concrete_boolean in Hleq'. destruct Hleq' as (-> & Hleq').
-    apply IHHeval in Hleq'. destruct Hleq' as (S''l & Hleq'' & eval_else).
+  - apply operand_preserves_le in eval_cond. apply eval_cond in Hle.
+    destruct Hle as ((v' & S'l) & Hle' & eval_cond').
+    apply le_val_state_concrete_boolean in Hle'. destruct Hle' as (-> & Hle').
+    apply IHHeval in Hle'. destruct Hle' as (S''l & Hle'' & eval_else).
     execution_step. { econstructor; eassumption. } assumption.
 
   (* Case [E_IfThenElse_Symbolic] *)
-  - apply operand_preserves_leq in eval_cond. apply eval_cond in Hleq.
-    destruct Hleq as ((v' & S'l) & Hleq' & eval_cond').
-    apply leq_val_state_symbolic_boolean in Hleq'.
-    destruct Hleq' as ([([ | ] & ->) | ->] & Hleq').
+  - apply operand_preserves_le in eval_cond. apply eval_cond in Hle.
+    destruct Hle as ((v' & S'l) & Hle' & eval_cond').
+    apply le_val_state_symbolic_boolean in Hle'.
+    destruct Hle' as ([([ | ] & ->) | ->] & Hle').
     (* Case 1: the symbolic value abstracts the boolean true. We apply the rule [E_IfThenElse_T]. *)
-    + apply IHHeval1 in Hleq'. destruct Hleq' as (B''l & Hleq'' & eval_if).
+    + apply IHHeval1 in Hle'. destruct Hle' as (B''l & Hle'' & eval_if).
       execution_step. { econstructor; eassumption. }
-      transitivity B_if; eauto using leq_is_join_l.
+      transitivity B_if; eauto using le_is_join_l.
     (* Case 2: the symbolic value abstracts the boolean false. We apply the rule [E_IfThenElse_F]. *)
-    + apply IHHeval2 in Hleq'. destruct Hleq' as (B''l & Hleq'' & eval_else).
+    + apply IHHeval2 in Hle'. destruct Hle' as (B''l & Hle'' & eval_else).
       execution_step. { econstructor; eassumption. }
-      transitivity B_else; eauto using leq_is_join_r.
+      transitivity B_else; eauto using le_is_join_r.
     (* Case 3: the symbolic value abstracts a symbolic value. *)
-    + specialize (IHHeval1 _ Hleq'). destruct IHHeval1 as (Bl_if & Hleq'_l & eval_if).
-      specialize (IHHeval2 _ Hleq'). destruct IHHeval2 as (Bl_else & Hleq'_r & eval_else).
+    + specialize (IHHeval1 _ Hle'). destruct IHHeval1 as (Bl_if & Hle'_l & eval_if).
+      specialize (IHHeval2 _ Hle'). destruct IHHeval2 as (Bl_else & Hle'_r & eval_else).
       execution_join_state.
       { eapply E_IfThenElse_Symbolic; eassumption. }
       { etransitivity; eauto with spath. }
       { etransitivity; eauto with spath. }
 
   (* Case [E_Reorg] *)
-  - eapply reorg_preservation in Hreorg. specialize (Hreorg _ Hleq).
-    destruct Hreorg as (S'l & Hleq' & ?).
-    specialize (IHHeval _ Hleq'). destruct IHHeval as (? & ? & ?).
+  - eapply reorg_preservation in Hreorg. specialize (Hreorg _ Hle).
+    destruct Hreorg as (S'l & Hle' & ?).
+    specialize (IHHeval _ Hle'). destruct IHHeval as (? & ? & ?).
     execution_step. { econstructor; eassumption. } assumption.
 
   (* Case [E_Loop_Stop] *)
-  - apply IHHeval in Hleq. destruct Hleq as (B1l & Hleq' & Heval').
+  - apply IHHeval in Hle. destruct Hle as (B1l & Hle' & Heval').
     execution_step.
     { apply E_Loop_Stop; eauto with spath. }
     auto with spath.
 
   (* Case [E_Loop_Continue] *)
-  - apply IHHeval1 in Hleq. destruct Hleq as (B1_l & Hleq' & Heval').
-    eapply lookup_token_cases in Hcontinue; [ | exact Hleq'].
-    destruct Hcontinue as [(? & ?) | (S1_l & ? & Hleq_S1 & ?)].
+  - apply IHHeval1 in Hle. destruct Hle as (B1_l & Hle' & Heval').
+    eapply lookup_token_cases in Hcontinue; [ | exact Hle'].
+    destruct Hcontinue as [(? & ?) | (S1_l & ? & Hle_S1 & ?)].
     + execution_step.
       { eapply E_Loop_Stop; eauto with spath. }
       etransitivity; [eauto with spath | ].
       rewrite end_loop_delete_rContinue. eauto with spath.
-    + apply IHHeval2 in Hleq_S1. destruct Hleq_S1 as (B2_l & Hleq'' & Heval2_l).
+    + apply IHHeval2 in Hle_S1. destruct Hle_S1 as (B2_l & Hle'' & Heval2_l).
       execution_join_state.
       { eapply E_Loop_Continue; eauto with spath. }
       { etransitivity; eauto with spath. }

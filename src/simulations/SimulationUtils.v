@@ -97,7 +97,7 @@ Global Instance reflexive_chain {A} (R S : relation A) `{Reflexive A R} `{Reflex
 Proof. intros x. exists x. split; reflexivity. Qed.
 
 (* TODO: new documentation. *)
-(* TODO: the direction of the relations LeqAB and LeqCD are the opposite of the diagrams. *)
+(* TODO: the direction of the relations LeAB and LeCD are the opposite of the diagrams. *)
 (* TODO: The relation RedAC is supposed to be the "right" reduction, and RedBC the "left"
  * reduction, but these relations are reversed. *)
 (** The general definition of forward simulation. That means that for all [a >= b] (with
@@ -112,7 +112,7 @@ d <= c
     If [A = B] and [C = D], we call it "preservation".
 
     Genarally,
-    - The Leq relations is between states ([S <= S']), or pairs of value and state ([(v, S) <= (v', S')]).
+    - The Le relations is between states ([S <= S']), or pairs of value and state ([(v, S) <= (v', S')]).
     - The Red relations are among the following ones:
       - Evaluation of operands.
       - Evalutaion of rvalues.
@@ -121,14 +121,14 @@ d <= c
       - Evaluation of statements.
  *)
 Definition forward_simulation {A B C D : Type}
-  (LeqBA : B -> A -> Prop) (LeqDC : D -> C -> Prop)
+  (LeBA : B -> A -> Prop) (LeDC : D -> C -> Prop)
   (RedAC : A -> C -> Prop) (RedBD : B -> D -> Prop) :=
-  forall a c, RedAC a c -> forall b, LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
+  forall a c, RedAC a c -> forall b, LeBA b a -> exists d, LeDC d c /\ RedBD b d.
 
 Lemma prove_execution_step {B C D : Type}
-  (LeqDC : D -> C -> Prop) (RedBD : B -> D -> Prop) Sl S'l S'r :
-  RedBD Sl S'l -> LeqDC S'l S'r
-  -> exists S'l, LeqDC S'l S'r /\ RedBD Sl S'l.
+  (LeDC : D -> C -> Prop) (RedBD : B -> D -> Prop) Sl S'l S'r :
+  RedBD Sl S'l -> LeDC S'l S'r
+  -> exists S'l, LeDC S'l S'r /\ RedBD Sl S'l.
 Proof. exists S'l. split; assumption. Qed.
 
 Ltac execution_step := eapply prove_execution_step.
@@ -136,13 +136,13 @@ Ltac execution_step := eapply prove_execution_step.
 (** Generally, to prove preservation when the relation is a reflexive transitive closure, it
     suffices to prove it for the base cases. *)
 Lemma preservation_by_base_case {A B : Type}
-  {LeqA : relation A} {LeqB : relation B} `{Reflexive _ LeqB} `{Transitive _ LeqB}
+  {LeA : relation A} {LeB : relation B} `{Reflexive _ LeB} `{Transitive _ LeB}
   {Red : A -> B -> Prop} :
-  forward_simulation LeqA LeqB Red Red ->
-  forward_simulation LeqA^* LeqB Red Red.
+  forward_simulation LeA LeB Red Red ->
+  forward_simulation LeA^* LeB Red Red.
 Proof.
-  intros Hloc a b red_ab a' Leq_a_a'. revert b red_ab.
-  induction Leq_a_a' as [ | | a2 a1 a0 _ IH0 _ IH1].
+  intros Hloc a b red_ab a' Le_a_a'. revert b red_ab.
+  induction Le_a_a' as [ | | a2 a1 a0 _ IH0 _ IH1].
   - intros. eapply Hloc; eassumption.
   - intros. eexists. split; [reflexivity | eassumption].
   - intros b0 Red_a0_b0.
@@ -163,41 +163,41 @@ Proof.
   exists S'l. split; [ | assumption]. exists S'm. split; assumption.
 Qed.
 
-Section LeqValStateUtils.
+Section LeValStateUtils.
   Context `{State state V}.
-  Context (leq_base : state -> state -> Prop).
+  Context (le_base : state -> state -> Prop).
 
-  Definition leq_val_state_base (vSl vSr : V * state) :=
+  Definition le_val_state_base (vSl vSr : V * state) :=
     forall a, fresh_anon (snd vSl) a -> fresh_anon (snd vSr) a ->
-    leq_base ((snd vSl),, a |-> fst vSl) ((snd vSr),, a |-> fst vSr).
+    le_base ((snd vSl),, a |-> fst vSl) ((snd vSr),, a |-> fst vSr).
 
-  (* The following two lemmas are used by the tactic `leq_val_state_step`. *)
-  Lemma prove_leq_val_state_right_to_left vSl vm Sm vr Sr
+  (* The following two lemmas are used by the tactic `le_val_state_step`. *)
+  Lemma prove_le_val_state_right_to_left vSl vm Sm vr Sr
     (G : forall a, fresh_anon Sr a ->
-         exists vSm, leq_base vSm (Sr,, a |-> vr) /\ vSm = Sm,, a |-> vm) :
-    leq_val_state_base^* vSl (vm, Sm) ->
-    leq_val_state_base^* vSl (vr, Sr).
+         exists vSm, le_base vSm (Sr,, a |-> vr) /\ vSm = Sm,, a |-> vm) :
+    le_val_state_base^* vSl (vm, Sm) ->
+    le_val_state_base^* vSl (vr, Sr).
   Proof.
     intros ?. eapply rt_trans; [eassumption | ]. constructor.
     intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
   Qed.
 
-  Lemma prove_leq_val_state_left_to_right vl Sl vm Sm vSr
+  Lemma prove_le_val_state_left_to_right vl Sl vm Sm vSr
     (G : forall a, fresh_anon Sl a ->
-         exists vSm, leq_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm) :
-    leq_val_state_base^* (vm, Sm) vSr ->
-    leq_val_state_base^* (vl, Sl) vSr.
+         exists vSm, le_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm) :
+    le_val_state_base^* (vm, Sm) vSr ->
+    le_val_state_base^* (vl, Sl) vSr.
   Proof.
     intros ?. eapply rt_trans; [ | eassumption]. constructor.
     intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
   Qed.
 
-  Lemma prove_leq_val_state_anon_left vl Sl vm Sm vSr b w
+  Lemma prove_le_val_state_anon_left vl Sl vm Sm vSr b w
     (fresh_b : fresh_anon Sl b)
     (G : forall a, fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
-         exists vSm, leq_base (Sl,, a |-> vl,, b |-> w) vSm /\ vSm = Sm,, a |-> vm) :
-    leq_val_state_base^* (vm, Sm) vSr ->
-    leq_val_state_base^* (vl, Sl,, b |-> w) vSr.
+         exists vSm, le_base (Sl,, a |-> vl,, b |-> w) vSm /\ vSm = Sm,, a |-> vm) :
+    le_val_state_base^* (vm, Sm) vSr ->
+    le_val_state_base^* (vl, Sl,, b |-> w) vSr.
   Proof.
     intros ?. eapply rt_trans; [ | eassumption]. constructor.
     intros a (? & ?)%fresh_anon_add_anon ?. cbn in *.
@@ -205,13 +205,13 @@ Section LeqValStateUtils.
     destruct (G a) as (? & ? & ->); try assumption. rewrite fresh_anon_add_anon. auto.
   Qed.
 
-  (* This lemma is used by the tactic `leq_val_state_add_anon`. *)
-  Lemma prove_leq_val_state_add_anon vl Sl vm Sm vSr b w
+  (* This lemma is used by the tactic `le_val_state_add_anon`. *)
+  Lemma prove_le_val_state_add_anon vl Sl vm Sm vSr b w
     (fresh_b : fresh_anon Sl b)
     (G : forall a, fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
-         exists vSm, leq_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm,, b |-> w) :
-    leq_val_state_base^* (vm, Sm,, b |-> w) vSr ->
-    leq_val_state_base^* (vl, Sl) vSr.
+         exists vSm, le_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm,, b |-> w) :
+    le_val_state_base^* (vm, Sm,, b |-> w) vSr ->
+    le_val_state_base^* (vl, Sl) vSr.
   Proof.
     intros ?. eapply rt_trans; [ | eassumption]. constructor.
     intros a ? (? & ?)%fresh_anon_add_anon. cbn in *.
@@ -219,27 +219,27 @@ Section LeqValStateUtils.
     destruct (G a) as (? & ? & ->); try assumption.
     now apply fresh_anon_add_anon.
   Qed.
-End LeqValStateUtils.
+End LeValStateUtils.
 
 (** Tactics to prove commutation of reorganizations. *)
 (* TODO: document it *)
-Lemma leq_step_right {S} {R : relation S} Sl Sm Sr : R Sm Sr -> R^* Sl Sm -> R^* Sl Sr.
+Lemma le_step_right {S} {R : relation S} Sl Sm Sr : R Sm Sr -> R^* Sl Sm -> R^* Sl Sr.
 Proof. intros. transitivity Sm; [ | constructor]; assumption. Qed.
 
-Lemma leq_step_left {S} {R : relation S} Sl Sm Sr : R Sl Sm -> R^* Sm Sr -> R^* Sl Sr.
+Lemma le_step_left {S} {R : relation S} Sl Sm Sr : R Sl Sm -> R^* Sm Sr -> R^* Sl Sr.
 Proof. intros. transitivity Sm; [constructor | ]; assumption. Qed.
 
 Section WellFormedSimulations.
   Context {state : Type}.
-  Context (leq_base : state -> state -> Prop).
+  Context (le_base : state -> state -> Prop).
   Context (reorg : state -> state -> Prop).
   Context (well_formed : state -> Prop).
-  Context (leq_base_preserves_wf_r : forall a b, well_formed b -> leq_base a b -> well_formed a).
+  Context (le_base_preserves_wf_r : forall a b, well_formed b -> le_base a b -> well_formed a).
   Context (reorg_preserves_wf : forall a b, reorg a b -> well_formed a -> well_formed b).
 
   (* Well-formedness is preserved by sequences of the base. *)
-  Lemma leq_preserves_well_formedness Sl Sr :
-    well_formed Sr -> leq_base^* Sl Sr -> well_formed Sl.
+  Lemma le_preserves_well_formedness Sl Sr :
+    well_formed Sr -> le_base^* Sl Sr -> well_formed Sl.
   Proof. intros ?. induction 1; eauto. Qed.
 
   (* Preservation of reorgs require well-formedness. However, well-formedness for related states is
@@ -250,11 +250,11 @@ Section WellFormedSimulations.
    *   if Sl < Sr and Sl is well-formed, than Sr is well-formed.
    * Thus, we are going to state two different definitions and lemmas. *)
   Definition well_formed_forward_simulation_r {B C D : Type}
-    (LeqBA : B -> state -> Prop) (LeqDC : D -> C -> Prop)
+    (LeBA : B -> state -> Prop) (LeDC : D -> C -> Prop)
     (RedAC : state -> C -> Prop) (RedBD : B -> D -> Prop) :=
-    forall a c, well_formed a -> RedAC a c -> forall b, LeqBA b a -> exists d, LeqDC d c /\ RedBD b d.
+    forall a c, well_formed a -> RedAC a c -> forall b, LeBA b a -> exists d, LeDC d c /\ RedBD b d.
 
-  (* Reorganizations and leq are defined as reflexive-transitive closure of relations (that we are
+  (* Reorganizations and le are defined as reflexive-transitive closure of relations (that we are
    * going to denote < and reorg). When we want to prove the preservation, ie:
 
       Sl <*  Sr
@@ -281,10 +281,10 @@ Section WellFormedSimulations.
    *)
   Lemma preservation_reorg_r
     (measure : state -> nat)
-    (leq_decreasing : forall a b, leq_base a b -> measure a < measure b)
+    (le_decreasing : forall a b, le_base a b -> measure a < measure b)
     (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
-    (H : well_formed_forward_simulation_r leq_base leq_base^* reorg reorg^*) :
-    well_formed_forward_simulation_r leq_base^* leq_base^* reorg^* reorg^*.
+    (H : well_formed_forward_simulation_r le_base le_base^* reorg reorg^*) :
+    well_formed_forward_simulation_r le_base^* le_base^* reorg^* reorg^*.
   Proof.
     (* Sequences of reorgenizations make the measure decrease. *)
     assert (forall S S', reorg^* S S' -> measure S' <= measure S).
@@ -293,21 +293,21 @@ Section WellFormedSimulations.
     induction n as [? IH] using lt_wf_ind. intros Sr -> Sr' well_formed_Sr reorg_Sr_Sr'.
     destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using clos_refl_trans_ind_right'.
     { intros. eexists. split; [eassumption | apply rt_refl]. }
-    intros Sl leq_Sl_Sr.
-    destruct leq_Sl_Sr as [ | Sl Sm Sr ? _ leq_Sm_Sr] using clos_refl_trans_ind_left'.
+    intros Sl le_Sl_Sr.
+    destruct le_Sl_Sr as [ | Sl Sm Sr ? _ le_Sm_Sr] using clos_refl_trans_ind_left'.
     { eexists. split; [apply rt_refl | ]. eapply rt_trans; [constructor | ]; eassumption. }
-    specialize (H _ _ well_formed_Sr reorg_Sr_Sr' _ leq_Sm_Sr). destruct H as (Sm' & leq_Sm'_Sr' & reorg_Sm_Sm').
-    assert (exists Sl', leq_base^* Sl' Sm' /\ reorg^* Sl Sl')
+    specialize (H _ _ well_formed_Sr reorg_Sr_Sr' _ le_Sm_Sr). destruct H as (Sm' & le_Sm'_Sr' & reorg_Sm_Sm').
+    assert (exists Sl', le_base^* Sl' Sm' /\ reorg^* Sl Sl')
       as (Sl' & ? & ?)
       by eauto.
-    assert (exists Sm'', leq_base^* Sm'' Sr'' /\ reorg^* Sm' Sm'')
+    assert (exists Sm'', le_base^* Sm'' Sr'' /\ reorg^* Sm' Sm'')
       as (Sm'' & ? & ?)
       by eauto.
-    assert (exists Sl'', leq_base^* Sl'' Sm'' /\ reorg^* Sl' Sl'')
+    assert (exists Sl'', le_base^* Sl'' Sm'' /\ reorg^* Sl' Sl'')
       as (? & ? & ?).
     { eapply IH;
         [ | reflexivity | | eassumption..];
-        [eauto using Nat.le_lt_trans | eauto using leq_preserves_well_formedness].
+        [eauto using Nat.le_lt_trans | eauto using le_preserves_well_formedness].
     }
     eexists. split; eapply rt_trans; eassumption.
   Qed.
@@ -319,20 +319,20 @@ Section SymbolicSimulations.
   Context {equiv : state -> state -> Prop}.
   Context `{Reflexive _ equiv}.
   Context `{Transitive _ equiv}.
-  Context (leq_base : state -> state -> Prop).
-  Context (sim_leq_base_equiv : forward_simulation leq_base leq_base equiv equiv).
+  Context (le_base : state -> state -> Prop).
+  Context (sim_le_base_equiv : forward_simulation le_base le_base equiv equiv).
 
-  Definition leq := chain equiv leq_base^*.
+  Definition le := chain equiv le_base^*.
 
-  Global Instance reflexive_leq : Reflexive leq.
+  Global Instance reflexive_le : Reflexive le.
   Proof. intros x. exists x. split; reflexivity. Qed.
 
-  Lemma sim_leq_equiv : forward_simulation leq_base^* leq_base^* equiv equiv.
+  Lemma sim_le_equiv : forward_simulation le_base^* le_base^* equiv equiv.
   Proof.
-    intros a b red_ab a' Leq_a_a'. revert b red_ab.
-    induction Leq_a_a' as [? ? Leq_a_a' | | a2 a1 a0 _ IH0 _ IH1].
-    - intros. specialize (sim_leq_base_equiv _ _ red_ab _ Leq_a_a').
-      destruct sim_leq_base_equiv as (d & ? & ?). exists d. split; [constructor | ]; assumption.
+    intros a b red_ab a' Le_a_a'. revert b red_ab.
+    induction Le_a_a' as [? ? Le_a_a' | | a2 a1 a0 _ IH0 _ IH1].
+    - intros. specialize (sim_le_base_equiv _ _ red_ab _ Le_a_a').
+      destruct sim_le_base_equiv as (d & ? & ?). exists d. split; [constructor | ]; assumption.
     - intros. eexists. split; [reflexivity | eassumption].
     - intros b0 Red_a0_b0.
       destruct (IH1 _ Red_a0_b0) as (b1 & ? & Red_a1_b1).
@@ -340,10 +340,10 @@ Section SymbolicSimulations.
       exists b2. split; [ | assumption]. transitivity b1; assumption.
   Qed.
 
-  Global Instance transitive_leq : Transitive leq.
+  Global Instance transitive_le : Transitive le.
   Proof.
-    intros x y z (y' & ? & leq_y'_y) (z' & equiv_y_z' & ?).
-    pose proof (sim_leq_equiv _ _ equiv_y_z' _ leq_y'_y) as G.
+    intros x y z (y' & ? & le_y'_y) (z' & equiv_y_z' & ?).
+    pose proof (sim_le_equiv _ _ equiv_y_z' _ le_y'_y) as G.
     destruct G as (z'' & ? & ?). exists z''. split.
     - transitivity y'; assumption.
     - transitivity z'; assumption.
@@ -352,10 +352,10 @@ Section SymbolicSimulations.
   Context (measure : state -> nat).
   Context (reorg : state -> state -> Prop).
   Context (reorg_n : nat -> state -> state -> Prop).
-  Context (leq_base_n : nat -> state -> state -> Prop).
-  Definition leq_n n := chain equiv (measured_closure leq_base_n n).
+  Context (le_base_n : nat -> state -> state -> Prop).
+  Definition le_n n := chain equiv (measured_closure le_base_n n).
 
-  Hypothesis (leq_decreasing : forall n a b, leq_base_n n a b -> measure a < measure b + n).
+  Hypothesis (le_decreasing : forall n a b, le_base_n n a b -> measure a < measure b + n).
   Hypothesis (reorg_decreasing : forall n a b, reorg_n n a b -> measure b + n < measure a).
   (*Hypothesis (equiv_measure : forall S S', equiv S S' -> measure S = measure S').*)
 
@@ -380,12 +380,12 @@ Section SymbolicSimulations.
       exists b2. split; [assumption | ]. eapply MC_trans; eassumption.
   Qed.
 
-  Context (sim_equiv_leq_base_n :
-    forall n, forward_simulation (leq_base_n n) (leq_base_n n) equiv equiv).
+  Context (sim_equiv_le_base_n :
+    forall n, forward_simulation (le_base_n n) (le_base_n n) equiv equiv).
 
-  Lemma leq_n_cases n Sl Sr (G : leq_n n Sl Sr) :
+  Lemma le_n_cases n Sl Sr (G : le_n n Sl Sr) :
     (equiv Sl Sr) \/
-    (exists p q Sm, leq_n p Sl Sm /\ leq_base_n q Sm Sr /\ n = p + q).
+    (exists p q Sm, le_n p Sl Sm /\ le_base_n q Sm Sr /\ n = p + q).
   Proof.
     destruct G as (Sr' & Gequiv & Gcases%measure_closure_cases_left).
     destruct Gcases as [(-> & ->) | (p & q & Sm & ? & G & ->)].
@@ -393,12 +393,12 @@ Section SymbolicSimulations.
     - right. exists p, q, Sm. firstorder.
   Qed.
 
-  Lemma sim_equiv_leq_n n : forward_simulation (leq_base_n^{n}) (leq_base_n^{n}) equiv equiv.
+  Lemma sim_equiv_le_n n : forward_simulation (le_base_n^{n}) (le_base_n^{n}) equiv equiv.
   Proof.
-    intros a b equiv_ab a' Leq_a'_a. revert b equiv_ab.
-    induction Leq_a'_a as [n ? ? Leq_a'_a | | p q a2 a1 a0 _ IH0 _ IH1].
-    - intros. specialize (sim_equiv_leq_base_n n _ _ equiv_ab _ Leq_a'_a).
-      destruct sim_equiv_leq_base_n as (d & ? & ?). exists d. split; [constructor | ]; assumption.
+    intros a b equiv_ab a' Le_a'_a. revert b equiv_ab.
+    induction Le_a'_a as [n ? ? Le_a'_a | | p q a2 a1 a0 _ IH0 _ IH1].
+    - intros. specialize (sim_equiv_le_base_n n _ _ equiv_ab _ Le_a'_a).
+      destruct sim_equiv_le_base_n as (d & ? & ?). exists d. split; [constructor | ]; assumption.
     - intros. eexists. split; [apply MC_refl | eassumption].
     - intros b0 equiv_a0_b0.
       destruct (IH1 _ equiv_a0_b0) as (b1 & ? & equiv_a1_b1).
@@ -406,45 +406,45 @@ Section SymbolicSimulations.
       exists b2. split; [ | assumption]. eapply MC_trans; eassumption.
   Qed.
 
-  Lemma leq_n_trans Sl Sm Sr p q : leq_n p Sl Sm -> leq_n q Sm Sr -> leq_n (p + q) Sl Sr.
+  Lemma le_n_trans Sl Sm Sr p q : le_n p Sl Sm -> le_n q Sm Sr -> le_n (p + q) Sl Sr.
   Proof.
-    intros (S'l & ? & leq_S'l_Sm) (S'm & equiv_Sm_S'm & ?).
-    pose proof (sim_equiv_leq_n p _ _ equiv_Sm_S'm _ leq_S'l_Sm) as (S''l & ? & ?).
+    intros (S'l & ? & le_S'l_Sm) (S'm & equiv_Sm_S'm & ?).
+    pose proof (sim_equiv_le_n p _ _ equiv_Sm_S'm _ le_S'l_Sm) as (S''l & ? & ?).
     exists S''l. split.
     - transitivity S'l; assumption.
     - eapply MC_trans; eassumption.
   Qed.
 
   Context (local_commutation :
-    forall p Sh q S'h, reorg_n q Sh S'h -> forall Sl, leq_base_n p Sl Sh ->
-    exists r s S'l, leq_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q
+    forall p Sh q S'h, reorg_n q Sh S'h -> forall Sl, le_base_n p Sl Sh ->
+    exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q
   ).
 
   Lemma measured_preservation_reorg_l :
-    forall p Sh q S'h, reorg_n^{q} Sh S'h -> forall Sl, leq_n p Sl Sh ->
-    exists r s S'l, leq_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q.
+    forall p Sh q S'h, reorg_n^{q} Sh S'h -> forall Sl, le_n p Sl Sh ->
+    exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q.
   Proof.
     intros p Sr. remember (measure Sr + p) as N eqn:EQN.
     revert p Sr EQN. induction N as [? IH] using lt_wf_ind.
-    intros ? Sr -> q S''r reorg_Sr_S''r Sl leq_Sl_Sr.
+    intros ? Sr -> q S''r reorg_Sr_S''r Sl le_Sl_Sr.
     destruct (measure_closure_cases_right _ _ _ _ reorg_Sr_S''r)
       as [(-> & ->) | (? & ? & S'r & reorg_Sr_S'r & ? & ->)].
     { eexists _, _, _. repeat split; [eassumption | apply MC_refl | lia]. }
-    apply leq_n_cases in leq_Sl_Sr.
-    destruct leq_Sl_Sr as [Hequiv | (? & ? & Sm & leq_Sl_Sm & leq_Sm_Sr & ->)].
+    apply le_n_cases in le_Sl_Sr.
+    destruct le_Sl_Sr as [Hequiv | (? & ? & Sm & le_Sl_Sm & le_Sm_Sr & ->)].
     { eapply reorgs_preserve_equiv in Hequiv; [ | exact reorg_Sr_S''r].
       destruct Hequiv as (Sl' & ? & ?).
       eexists 0, _, Sl'. repeat split; [ | eassumption | lia].
       eexists. split; [eassumption | apply MC_refl]. }
-    specialize (local_commutation _ _ _ _ reorg_Sr_S'r _ leq_Sm_Sr).
-    destruct local_commutation as (? & ? & S'm & leq_S'm_S'r & reorg_Sm_S'm & ?).
-    pose proof (leq_decreasing _ _ _ leq_Sm_Sr).
-    edestruct IH with (Sr := Sm) as (? & ? & S'l & leq_S'l_S'm & reorg_Sl_S'l & ?);
+    specialize (local_commutation _ _ _ _ reorg_Sr_S'r _ le_Sm_Sr).
+    destruct local_commutation as (? & ? & S'm & le_S'm_S'r & reorg_Sm_S'm & ?).
+    pose proof (le_decreasing _ _ _ le_Sm_Sr).
+    edestruct IH with (Sr := Sm) as (? & ? & S'l & le_S'l_S'm & reorg_Sl_S'l & ?);
       [ | reflexivity | eassumption.. | ];
       [lia | ].
     pose proof (reorg_decreasing _ _ _ reorg_Sr_S'r).
     edestruct IH with (Sr := S'r);
-      [ | reflexivity | eassumption | eapply leq_n_trans; eassumption | ];
+      [ | reflexivity | eassumption | eapply le_n_trans; eassumption | ];
       [lia | ].
     edestruct IH with (Sr := S'r) as (? & ? & S''m & ? & ? & ?);
       [ | reflexivity | eassumption.. | ];
@@ -454,36 +454,36 @@ Section SymbolicSimulations.
       [ | reflexivity | eassumption.. | ];
       [lia | ].
     eexists _, _, S''l. split; [ | split].
-    - eapply leq_n_trans; eassumption.
+    - eapply le_n_trans; eassumption.
     - eapply MC_trans; eassumption.
     - lia.
   Qed.
 
-  Context (leq_base_is_leq_base_n : forall Sl Sr, leq_base Sl Sr <-> exists n, leq_base_n n Sl Sr).
+  Context (le_base_is_le_base_n : forall Sl Sr, le_base Sl Sr <-> exists n, le_base_n n Sl Sr).
   Context (reorg_is_reorg_n : forall Sl Sr, reorg Sl Sr <-> exists n, reorg_n n Sl Sr).
 
-  Lemma leq_n_is_leq Sl Sr : leq Sl Sr <-> exists n, leq_n n Sl Sr.
+  Lemma le_n_is_le Sl Sr : le Sl Sr <-> exists n, le_n n Sl Sr.
   Proof.
     split.
-    - intros (Sl' & Hequiv & Hleq).
-      rewrite measured_closure_equiv in Hleq by exact leq_base_is_leq_base_n.
-      destruct Hleq as (n & Hleq). exists n, Sl'. auto.
-    - intros (n & Sl' & Hequiv & Hleq). exists Sl'. split; [assumption | ].
-      rewrite measured_closure_equiv by exact leq_base_is_leq_base_n.
-      exists n. exact Hleq.
+    - intros (Sl' & Hequiv & Hle).
+      rewrite measured_closure_equiv in Hle by exact le_base_is_le_base_n.
+      destruct Hle as (n & Hle). exists n, Sl'. auto.
+    - intros (n & Sl' & Hequiv & Hle). exists Sl'. split; [assumption | ].
+      rewrite measured_closure_equiv by exact le_base_is_le_base_n.
+      exists n. exact Hle.
   Qed.
 
-  Corollary preservation_reorg_l : forward_simulation leq leq reorg^* reorg^*.
+  Corollary preservation_reorg_l : forward_simulation le le reorg^* reorg^*.
   Proof.
-    intros Sr S'l reorg_Sr_S'r Sl leq_Sl_Sr.
-    rewrite leq_n_is_leq in leq_Sl_Sr.
-    destruct leq_Sl_Sr as (p & leq_n_Sl_Sr).
+    intros Sr S'l reorg_Sr_S'r Sl le_Sl_Sr.
+    rewrite le_n_is_le in le_Sl_Sr.
+    destruct le_Sl_Sr as (p & le_n_Sl_Sr).
     rewrite measured_closure_equiv in reorg_Sr_S'r by exact reorg_is_reorg_n.
     destruct reorg_Sr_S'r as (q & reorgs_n_Sr_S'r).
-    pose proof (measured_preservation_reorg_l _ _ _ _ reorgs_n_Sr_S'r _ leq_n_Sl_Sr)
+    pose proof (measured_preservation_reorg_l _ _ _ _ reorgs_n_Sr_S'r _ le_n_Sl_Sr)
       as (r & s & Sl' & ? & ? & _).
     exists Sl'. split.
-    - rewrite leq_n_is_leq. exists r. assumption.
+    - rewrite le_n_is_le. exists r. assumption.
     - rewrite measured_closure_equiv by exact reorg_is_reorg_n. exists s. assumption.
   Qed.
 End SymbolicSimulations.

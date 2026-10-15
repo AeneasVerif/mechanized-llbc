@@ -293,12 +293,12 @@ Proof.
     + cbn in IH |- *. congruence.
 Qed.
 
-Definition leq_item {A} : relation (positive * A) := fun x y => (fst x <= fst y)%positive.
-Instance RelDecision_leq_item {A} : RelDecision (leq_item (A := A)).
-Proof. unfold RelDecision, Decision, leq_item. intros. apply Pos.le_dec. Defined.
+Definition le_item {A} : relation (positive * A) := fun x y => (fst x <= fst y)%positive.
+Instance RelDecision_le_item {A} : RelDecision (le_item (A := A)).
+Proof. unfold RelDecision, Decision, le_item. intros. apply Pos.le_dec. Defined.
 
 Definition pretty_print_map {A} (m : Pmap A) :=
-  list_to_map' (merge_sort leq_item (map_to_list m)).
+  list_to_map' (merge_sort le_item (map_to_list m)).
 
 Lemma pretty_print_map_correct {A} (m : Pmap A) : pretty_print_map m = m.
 Proof.
@@ -330,7 +330,7 @@ Lemma simpl_state_rel (A : Type) (R : state -> A -> Prop) a S S' :
   pretty_print_state S = S' -> R S' a -> R S a.
 Proof. rewrite pretty_print_state_correct. congruence. Qed.
 
-(** When we have a relation [R S a] (for example, [leq_state S S'] or [S |-# s ~> B], we only
+(** When we have a relation [R S a] (for example, [le_state S S'] or [S |-# s ~> B], we only
    reduce the state [S] and not the other terms. *)
 Ltac simpl_state :=
   lazymatch goal with
