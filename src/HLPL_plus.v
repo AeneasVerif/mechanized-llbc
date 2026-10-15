@@ -337,10 +337,10 @@ Variant eval_rvalue : rvalue -> state -> (value * state) -> Prop :=
       (Hbinop : eval_binary_op binop v0 v1 w) :
       S |-{rv} (BinaryOp binop op_0 op_1) => (w, S'')
   | E_Pointer_Loc S p pi l
-      (Heval_place : S |-{p} p =>^{Mut} pi)
+      (Heval_place : S |-{p} p =>^{Imm} pi)
       (Hloc : get_node (S.[pi]) = nloc(l)) : S |-{rv} &mut p => (ptr(l), S)
   | E_Pointer_Fresh S p pi l
-      (Heval_place : S |-{p} p =>^{Mut} pi)
+      (Heval_place : S |-{p} p =>^{Imm} pi)
       (* This hypothesis is not necessary for the proof of preservation of HLPL+, but it is
          useful in that it can help us eliminate cases. *)
       (Hno_loan : not_contains_loan (S.[pi])) :
