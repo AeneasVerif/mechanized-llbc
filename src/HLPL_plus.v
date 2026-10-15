@@ -18,64 +18,6 @@ Inductive value :=
 | VMutBorrow (l : loan_id) (v : value)
 | VLoc (l : loan_id) (v : value)
 | VPtr (l : loan_id)
-| VTuple (t : value_list)
-with value_list :=
-| VNil
-| VCons (v : value) (vl : value_list)
-.
-
-Module ValueList.
-  Fixpoint length (vl : value_list) : nat :=
-    match vl with
-    | VNil => 0
-    | VCons _ vl' => S (length vl')
-    end.
-
-  Fixpoint from_list (vl : list value) : value_list :=
-    match vl with
-    | [] => VNil
-    | t :: tl => VCons t (from_list tl)
-    end.
-
-  Fixpoint to_list (vl : value_list) : list value :=
-    match vl with
-    | VNil => []
-    | VCons t tl => t :: (to_list tl)
-    end.
-
-  Lemma from_list_to_list_inv (vl : value_list) :
-    from_list (to_list vl) = vl.
-  Proof. induction vl ; simpl ; congruence. Qed.
-
-  Lemma to_list_from_list_inv (vl : list value) :
-    to_list (from_list vl) = vl.
-  Proof. induction vl ; simpl ; congruence. Qed.
-
-  Lemma to_list_inj (vl0 vl1 : value_list) :
-    to_list vl0 = to_list vl1 -> vl0 = vl1.
-  Proof.
-    intros. apply f_equal with (f := from_list) in H.
-    by rewrite !from_list_to_list_inv in H.
-  Qed.
-
-  Lemma from_list_inj (vl0 vl1 : list value) :
-    from_list vl0 = from_list vl1 -> vl0 = vl1.
-  Proof.
-    intros. apply f_equal with (f := to_list) in H.
-    by rewrite !to_list_from_list_inv in H.
-  Qed.
-
-  Lemma length_from_list (vl : list value) :
-    List.length vl = length (from_list vl).
-  Proof. induction vl; simpl ; congruence. Qed.
-
-  Lemma length_to_list (vl : value_list) :
-    length vl = List.length (to_list vl).
-  Proof. induction vl; simpl ; congruence. Qed.
-
-  Definition Forall (P : value -> Prop) (vl : value_list) : Prop :=
-    List.Forall P (to_list vl).
-End ValueList
 .
 
 Variant nodes :=
@@ -86,7 +28,6 @@ Variant nodes :=
 | NMutBorrow (l : loan_id)
 | NLoc (l : loan_id)
 | NPtr (l : loan_id)
-| NTuple (n : nat)
 .
 
 Instance EqDec_nodes : EqDecision nodes.
@@ -100,7 +41,6 @@ Definition HLPL_plus_arity c := match c with
 | NMutBorrow _ => 1
 | NLoc _ => 1
 | NPtr _ => 0
-| NTuple n => n
 end.
 
 Definition HLPL_plus_get_node v := match v with
@@ -111,7 +51,6 @@ Definition HLPL_plus_get_node v := match v with
 | VMutBorrow l _ => NMutBorrow l
 | VLoc l _ => NLoc l
 | VPtr l => NPtr l
-| VTuple l => NTuple (ValueList.length l)
 end.
 
 Definition HLPL_plus_children v := match v with
@@ -122,7 +61,6 @@ Definition HLPL_plus_children v := match v with
 | VMutBorrow _ v => [v]
 | VLoc _ v => [v]
 | VPtr l => []
-| VTuple l => ValueList.to_list l
 end.
 
 Definition HLPL_plus_fold c vs := match c, vs with
@@ -132,7 +70,6 @@ Definition HLPL_plus_fold c vs := match c, vs with
 | NMutBorrow l, [v] => VMutBorrow l v
 | NLoc l, [v] => VLoc l v
 | NPtr l, [] => VPtr l
-| NTuple _, l => VTuple (ValueList.from_list l)
 | _, _ => VBottom
 end.
 
@@ -140,13 +77,7 @@ Fixpoint HLPL_plus_weight node_weight v :=
   match v with
   | VMutBorrow l v => node_weight (NMutBorrow l) + HLPL_plus_weight node_weight v
   | VLoc l v => node_weight (NLoc l) + HLPL_plus_weight node_weight v
-  | VTuple t =>
-      node_weight (NTuple (ValueList.length t)) + HLPL_plus_tuple_weight node_weight t
   | v => node_weight (HLPL_plus_get_node v)
-end with HLPL_plus_tuple_weight node_weight vl :=
-  match vl with
-  | VNil => 0
-  | VCons v vl => (HLPL_plus_weight node_weight v) + (HLPL_plus_tuple_weight node_weight vl)
   end
 .
 
@@ -160,33 +91,26 @@ Program Instance ValueHLPL : Value value nodes := {
 }.
 Next Obligation.
   destruct v; try reflexivity.
-  induction t ; simpl ; [reflexivity | by f_equal].
 Qed.
 Next Obligation.
   intros [] [] eq_node eq_children; inversion eq_node; inversion eq_children;
     simpl in * ; try congruence.
-  by apply ValueList.to_list_inj in H1 as ->.
 Qed.
 Next Obligation.
  intros [] ? H;
   first [rewrite length_zero_iff_nil in H; rewrite H
         | destruct (length_1_is_singleton H) as [? ->] | idtac ];
    simpl in * ; try congruence.
- by rewrite <- ValueList.length_from_list, H.
 Qed.
 Next Obligation.
  intros [] ? H;
   first [rewrite length_zero_iff_nil in H; rewrite H
         | destruct (length_1_is_singleton H) as [? ->] | idtac ];
   try reflexivity.
- generalize dependent n. induction vs ; simpl in * ; intros. reflexivity.
- apply f_equal with (f := pred) in H. simpl in H.
- apply f_equal, (IHvs (pred n)). congruence.
 Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation.
   intros ? []; unfold HLPL_plus_children; cbn; try lia.
-  induction t ;  simpl ; lia.
 Qed.
 
 Record state := {
@@ -394,21 +318,8 @@ Inductive eval_operand : operand -> state -> (value * state) -> Prop :=
 | E_Move S (p : place) pi : eval_place S Mov p pi ->
     not_contains_loan (S.[pi]) -> not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
-| E_Tuple S S' opl vl
-    (H : eval_tuple opl S (vl, S')) :
-  S |-{op} Tuple opl => (VTuple vl, S')
 where "S |-{op} op => r" := (eval_operand op S r)
-with eval_tuple : list operand -> state -> (value_list * state) -> Prop :=
-| E_Tuple_Nil S : eval_tuple [] S (VNil, S)
-| E_Tuple_Cons S S' S'' op opl v v'
-    (Hop : eval_operand op S (v, S'))
-    (Hrec : eval_tuple opl S' (v', S'')) :
-  eval_tuple (op :: opl) S (VCons v v', S'')
 .
-Scheme eval_operand_mut := Minimality for eval_operand Sort Prop
-with   eval_tuple_mut   := Minimality for eval_tuple   Sort Prop.
-
-Combined Scheme eval_operand_tuple_mutind from eval_operand_mut, eval_tuple_mut.
 
 Variant eval_binary_op : BinOp -> value -> value -> value -> Prop :=
   | E_Add m n :

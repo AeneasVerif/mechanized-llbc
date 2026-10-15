@@ -412,177 +412,11 @@ Qed.
 Definition forward_simulation_eval_operand :=
   forall op, forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op).
 
-Definition eval_tuple_as_value opl S vS :=
-  exists vl S', vS = (VTuple vl, S') /\ eval_tuple opl S (vl, S').
-
-Lemma aux op S S' Sl Sl' v v' vl vl' :
-  (leq_val_state_base leq_base)^* (vl, Sl) (v, S) ->
-  S |-{op} op => (v', S') ->
-  Sl |-{op} op => (vl', Sl') ->
-  (leq_val_state_base leq_base)^* (vl', Sl') (v', S').
-Proof.
-  intros Hle Hop Hop_l. induction Hop ; subst ; inversion Hop_l ; subst.
-  - inversion Hle ; subst.
-    + apply rt_step. intros a **.
-      destruct (exists_fresh_anon2 Sl' S) as (a' & ? & ?).
-      specialize (H a' H2 H3). simpl fst in *. simpl snd in *.
-      remember (Sl',, a' |-> vl) as Sl'_a'. remember (S,, a' |-> v) as S_a'.
-      inversion H ; subst. 
-Admitted.
-
-
-Lemma forward_simulation_eval_tuple opl :
-  (forall op, In op opl -> 
-         forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op)) ->
-  forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_tuple_as_value opl) (eval_tuple_as_value opl).
-Proof.
-  intros sim_op. apply preservation_by_base_case.
-  intros Sr vrS'r (vl & S & Heq & Heval) Sl Hle.
-  remember (vl, S) as vlS. generalize dependent vrS'r.
-  replace vl with vlS.1 by (rewrite HeqvlS ; easy).
-  replace S with vlS.2 by (rewrite HeqvlS ; easy).
-  clear HeqvlS. induction Heval.
-  - exists (VTuple VNil, Sl) ; split.
-    + rewrite Heq.
-      apply rt_step. destruct Hle. unfold leq_val_state_base. 
-      simpl fst. unfold snd. intros.
-      rewrite <- !sset_add_anon.
-      replace ((S0 .[ sp_borrow +++ [0] ])) with 
-        ((S0,, a |-> VTuple VNil) .[ sp_borrow +++ [0] ]) by
-      (autorewrite with spath ; reflexivity).
-      apply Leq_MutBorrow_To_Ptr ; [ assumption | | ] ;
-        autorewrite with spath ; assumption.
-      all: apply valid_spath_diff_fresh_anon with (S := S0) ;
-        [ assumption | validity ].
-    + exists VNil, Sl; split ; [ reflexivity | constructor ].
-  - simpl in *. simpl.
-Admitted.
-
-Definition result_as_tuple (vlS : value_list * state) :=
-  (VTuple vlS.1, vlS.2).
-
-Definition leq_vals_state_base (leq_base: state -> state -> Prop)
-  (vlSl : value_list * state) (vlSr : value_list * state) : Prop :=
-   leq_val_state_base leq_base (result_as_tuple vlSl) (result_as_tuple vlSr).
-
-Lemma leq_val_state_vals_state_equiv (leq_base: state -> state -> Prop) :
-  forall vlSl vlSr,
-    (leq_val_state_base leq_base) (result_as_tuple vlSl) (result_as_tuple vlSr) <->
-    (leq_vals_state_base leq_base) vlSl vlSr.
-Proof. auto. Qed.
-
-Lemma leq_val_state_star_vals_state_star_equiv (leq_base: state -> state -> Prop) :
-  forall vlSl vlSr,
-    (leq_val_state_base leq_base)^* (result_as_tuple vlSl) (result_as_tuple vlSr) <->
-    (leq_vals_state_base leq_base)^* vlSl vlSr.
-Proof.
-  intros. split ; intro.
-  - remember (result_as_tuple vlSl) as vSl. remember (result_as_tuple vlSr) as vSr.
-Admitted.
-
-Lemma forward_simulation_eval_operand' op :
-  (forall opl, forward_simulation leq_base^* (leq_vals_state_base leq_base)^* (eval_tuple opl) (eval_tuple opl)) ->
-  forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op).
-Proof.
-  intros Htuple.
-  apply preservation_by_base_case.
-  intros Sr (vr & S'r) Heval Sl Hle. destruct Heval.
-  (* op = Const (IntConst n) *)
-  - destruct Hle.
-    + execution_step. { constructor. }
-      leq_step_right.
-      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
-        assumption. all: autorewrite with spath; eassumption. }
-      { autorewrite with spath. reflexivity. }
-      reflexivity.
-
-  (* op = Const (BoolConst b) *)
-  - destruct Hle.
-    + execution_step. { constructor. }
-      leq_step_right.
-      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
-        assumption. all: autorewrite with spath; eassumption. }
-      { autorewrite with spath. reflexivity. }
-      reflexivity.
-
-  (* op = Copy p *)
-  - destruct Hle.
-    + eval_place_preservation.
-      assert (~prefix pi sp_loan).
-      { eapply not_value_contains_not_prefix.
-        - eapply copy_val_no_mut_loan. eassumption.
-        - rewrite HS_loan. constructor.
-        - validity. }
-      assert (disj pi sp_loan) by solve_comp.
-      assert (~prefix pi sp_borrow).
-      { eapply not_value_contains_not_prefix.
-        - eapply copy_val_no_mut_borrow. eassumption.
-        - rewrite HS_borrow. constructor.
-        - validity. }
-      destruct rel_pi_l_pi_r as [(r & -> & ->) | (-> & ?)].
-      * execution_step.
-        { econstructor. eassumption. autorewrite with spath. eassumption. }
-        leq_step_right.
-        { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
-          assumption. all: autorewrite with spath; eassumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-      * assert (disj pi sp_borrow) by solve_comp.
-        execution_step.
-        { econstructor. eassumption. autorewrite with spath. eassumption. }
-        leq_step_right.
-        { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
-          assumption. all: autorewrite with spath; eassumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-
-  (* op = Move p *)
-  - destruct Hle.
-    eval_place_preservation.
-    assert (disj pi sp_loan) by solve_comp.
-    destruct (decidable_prefix pi sp_borrow) as [(q & <-) | ].
-    (* Case 1: the mutable borrow we're transforming to a pointer is in the moved value. *)
-    * execution_step.
-      { constructor. eassumption. all: autounfold with spath; not_contains. }
-      leq_step_right.
-      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan)
-                                        (sp_borrow := (anon_accessor a, q)).
-        eauto with spath. all: autorewrite with spath; eassumption. }
-      { autorewrite with spath. reflexivity. }
-      states_eq.
-    (* Case 2: the mutable borrow is disjoint from the moved value. *)
-    * assert (disj pi sp_borrow) by solve_comp.
-      execution_step.
-      { constructor. eassumption. all: autorewrite with spath; assumption. }
-      leq_step_right.
-      { apply Leq_MutBorrow_To_Ptr with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
-        assumption. all: autorewrite with spath; eassumption. }
-      { autorewrite with spath. reflexivity. }
-      states_eq.
-
-  (* op = Tuple opl *)
-  - destruct (Htuple opl _ _ H Sl (rt_step _ _ _ _ Hle)) as (vlSf & ? & ?).
-    execution_step. { constructor. by rewrite <- surjective_pairing. }
-    destruct vlSf. simpl. inversion H0.
-
-Admitted.
-
-Lemma forward_simulation_eval_operand_eval_tuple :
-  (forall op, forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op)) /\
-    (forall opl, forward_simulation leq_base^* (leq_vals_state_base leq_base)^* (eval_tuple opl) (eval_tuple opl)).
-Proof.
-  apply eval_operand_tuple_mutind.
-Admitted.
-
-
 Lemma operand_preserves_HLPL_plus_rel op :
   forward_simulation leq_base^* (leq_val_state_base leq_base)^* (eval_operand op) (eval_operand op).
 Proof.
   apply preservation_by_base_case.
   intros Sr vrS'r Heval Sl Hle.
-  (* We use the new single-motive principle so the Tuple case hands us
-     [eval_tuple_Forall P opl S (vl, S')] directly, where [P] is exactly the
-     simulation obligation we are proving for each sub-operand. *)
   induction Heval.
 
   (* op = Const (IntConst n) *)
@@ -657,23 +491,7 @@ Proof.
         assumption. all: autorewrite with spath; eassumption. }
       { autorewrite with spath. reflexivity. }
       states_eq.
-
-  - remember (vl, S') as vlS'.
-    replace vl with (vlS'.1) by (rewrite HeqvlS' ; reflexivity).
-    replace S' with (vlS'.2) by (rewrite HeqvlS' ; reflexivity).
-    clear HeqvlS'.
-    destruct Hle.
-    induction H as [ | Si Si' Si'' opi opil vi vil Hop_sim IH_tail].
-
-    + execution_step.
-      * repeat constructor.
-      * leq_step_right.
-        { apply Leq_MutBorrow_To_Ptr
-            with (sp_loan := sp_loan) (sp_borrow := sp_borrow).
-          assumption. all: autorewrite with spath; eassumption. }
-        { autorewrite with spath. reflexivity. }
-        reflexivity.
-Admitted.
+Qed.
 
 (* TODO: move in base.v *)
 Inductive well_formed_state_value : value * state -> Prop :=
@@ -724,11 +542,7 @@ Proof.
   - constructor. intros ? ?. rewrite well_formedness_equiv in *.
     intros l. specialize (WF l). destruct WF.
     split; weight_inequality.
-  - constructor. intros ? ?. rewrite well_formedness_equiv in *.
-    intros l. specialize (WF l). destruct WF.
-    split. autorewrite with weight. 
-    (* Need for induction *)
-Admitted.
+Qed.
 
 (** * Simulation proofs for rvalue evaluation. *)
 Lemma leq_val_state_constant vl vr Sl Sr
@@ -879,24 +693,13 @@ Qed.
 
 Hint Extern 0 (not_value_contains _ _) => not_contains0 : spath.
 Lemma eval_operand_no_loc (S : state) (op : operand) (vS' : value * state) :
-  S |-{op} op => vS' -> not_contains_loc (fst vS')
-with  eval_tuple_no_loc (S : state) (opl : list operand) (vlS' : value_list * state) :
-  eval_tuple opl S vlS' -> Forall (not_contains_loc) (ValueList.to_list (fst vlS')).
+  S |-{op} op => vS' -> not_contains_loc (fst vS').
 Proof.
-  {
-    intros eval_op ; induction eval_op.
-    + not_contains.
-    + not_contains.
-    + induction Hcopy_val; not_contains.
-    + not_contains.
-    + unfold not_contains_loc ; not_contains. remember (vl, S') as vlS'.
-      replace vl with (vlS'.1) by (rewrite HeqvlS' ; auto). simpl. eauto.
-  }
-  {
-    intros eval_t. induction eval_t ; [ constructor | ].
-    simpl. constructor ; [ | assumption ]. replace v with (fst (v, S')) by reflexivity.
-    apply eval_operand_no_loc with (S := S) (op := op) ; auto.
-  }
+  intros eval_op ; induction eval_op.
+  - not_contains.
+  - not_contains.
+  - induction Hcopy_val; not_contains.
+  - not_contains.
 Qed.
 
 Corollary operand_preserves_well_formedness' op S v S' :
@@ -945,24 +748,13 @@ Qed.
     locations. This can be used to prune cases. *)
 
 Lemma eval_operand_no_loan (S : state) (op : operand) (vS' : value * state) :
-  S |-{op} op => vS' -> not_contains_loan (fst vS')
-with  eval_tuple_no_loan (S : state) (opl : list operand) (vlS' : value_list * state) :
-  eval_tuple opl S vlS' -> Forall (not_contains_loan) (ValueList.to_list (fst vlS')).
+  S |-{op} op => vS' -> not_contains_loan (fst vS').
 Proof.
-  {
-    intros eval_op ; induction eval_op.
-    + not_contains.
-    + not_contains.
-    + induction Hcopy_val; not_contains.
-    + not_contains.
-    + unfold not_contains_loan ; not_contains. remember (vl, S') as vlS'.
-      replace vl with (vlS'.1) by (rewrite HeqvlS' ; auto). simpl. eauto.
-  }
-  {
-    intros eval_t. induction eval_t ; [ constructor | ].
-    simpl. constructor ; [ | assumption ]. replace v with (fst (v, S')) by reflexivity.
-    apply eval_operand_no_loan with (S := S) (op := op) ; auto.
-  }
+  intros eval_op ; induction eval_op.
+  - not_contains.
+  - not_contains.
+  - induction Hcopy_val; not_contains.
+  - not_contains.
 Qed.
 
 Lemma eval_rvalue_no_loan S rv vS' : S |-{rv} rv => vS' -> not_contains_loan (fst vS').
