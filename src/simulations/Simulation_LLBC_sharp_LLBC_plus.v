@@ -5,7 +5,7 @@ Require Import Symbolic_states Symbolic_relations LLBC_plus LLBC_sharp Simulatio
 Local Open Scope llbc_sharp_scope.
 Local Open Scope llbc_plus_scope.
 
-Lemma simulation_LLBC_sharp_LLBC_plus n s :
+Lemma simulation_LLBC_plus_LLBC_sharp n s :
   forward_simulation eq le_branching (LLBC_sharp.eval_stmt s) (LLBC_plus.eval_stmt n s).
 Proof.
   intros Sr Br eval_Sr ? ->. revert s Sr Br eval_Sr. induction n as [ | n IHn]; intros.

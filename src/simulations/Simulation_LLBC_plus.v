@@ -745,7 +745,7 @@ Proof.
 Qed.
 Hint Resolve is_fresh_copy : spath.
 
-Lemma operand_preserves_LLBC_plus_rel op :
+Lemma operand_preserves_le_steps op :
   forward_simulation le_state_base^* (le_val_state_base le_state_base)^* (eval_operand op) (eval_operand op).
 Proof.
   apply preservation_by_base_case.
@@ -1209,7 +1209,7 @@ Lemma operand_preserves_le op :
 Proof.
   apply forward_simulation_chain.
   - apply operand_preserves_equiv.
-  - apply operand_preserves_LLBC_plus_rel.
+  - apply operand_preserves_le_steps.
 Qed.
 
 (** * Simulation proofs for rvalue evaluation. *)
@@ -1456,18 +1456,18 @@ Lemma le_val_state_by_equiv vSl vSr :
   equiv_val_state_up_to_loan_renaming vSl vSr -> le_val_state_ut vSl vSr.
 Proof. exists vSr. split; [assumption | reflexivity]. Qed.
 
-Lemma rvalue_preserves_LLBC_plus_rel rv :
+Lemma rvalue_preserves_le_steps rv :
   forward_simulation le_state_base^* le_val_state_ut (eval_rvalue rv) (eval_rvalue rv).
 Proof.
   apply preservation_by_base_case.
   intros Sr vSr eval_rv Sl Hle. destruct eval_rv.
-  - apply operand_preserves_LLBC_plus_rel in Heval_op.
+  - apply operand_preserves_le_steps in Heval_op.
     edestruct Heval_op as (vS'l & ? & ?); [constructor; eassumption | ].
     exists vS'l. split.
     + eexists. split; [reflexivity | assumption].
     + constructor. assumption.
 
-  - apply operand_preserves_LLBC_plus_rel in eval_op_0, eval_op_1.
+  - apply operand_preserves_le_steps in eval_op_0, eval_op_1.
     edestruct eval_op_0 as ((v0l & S'l) & le_S'l_S' & H); [constructor; eassumption | ].
     destruct binop.
     + destruct (add_is_integer _ _ _ Hbinop) as (? & ? & ?).
@@ -1748,7 +1748,7 @@ Lemma rvalue_preserves_le rv :
   forward_simulation le_symbolic le_val_state (eval_rvalue rv) (eval_rvalue rv).
 Proof.
   intros S0 (v & S'0) eval_rv S2 (S1 & equiv_S2_S1 & le_S1_S0).
-  eapply rvalue_preserves_LLBC_plus_rel in eval_rv.
+  eapply rvalue_preserves_le_steps in eval_rv.
   specialize (eval_rv S1 le_S1_S0). destruct eval_rv as (vS'1 & le_S'1_S'0 & eval_rv).
   eapply rvalue_preserves_equiv in eval_rv.
   specialize (eval_rv S2 equiv_S2_S1). destruct eval_rv as (vS'2 & equiv_S'2_S'1 & eval_rv).
@@ -1896,7 +1896,7 @@ Qed.
 
 (* Note: there are "boilerplate lemmas" like [states_add_anon_eq],
  * [add_anon_commute] that we could automate the usage. *)
-Lemma store_preserves_le_rel p :
+Lemma store_preserves_le_steps p :
   forward_simulation le_val_state_base'^* le_symbolic (store p) (store p).
 Proof.
   eapply preservation_by_base_case.
@@ -2236,7 +2236,7 @@ Lemma store_preserves_LLBC_plus_rel p vr Sr S'r vl Sl :
   exists S'l, store p (vl, Sl) S'l /\ le_symbolic S'l S'r.
 Proof.
   intros no_loan no_bot Hstore ((vm & Sm) & Hequiv & Hle).
-  edestruct store_preserves_le_rel as (S'm & (? & Hequiv' & Hle') & Hstore').
+  edestruct store_preserves_le_steps as (S'm & (? & Hequiv' & Hle') & Hstore').
   { exact Hstore. }
   { eapply le_val_state_no_bot_loan_right; eassumption. }
   eapply store_preserves_equiv in Hstore'. specialize (Hstore' _ Hequiv).
@@ -3374,7 +3374,7 @@ Section Reorg_n_is_reorg.
   Qed.
 End Reorg_n_is_reorg.
 
-Lemma reorg_preservation : forward_simulation le_symbolic le_symbolic reorg^* reorg^*.
+Lemma reorg_preserves_LLBC_plus_rel : forward_simulation le_symbolic le_symbolic reorg^* reorg^*.
 Proof.
   eapply preservation_reorg_l.
   - exact le_state_base_n_decreases.
@@ -3678,7 +3678,7 @@ Proof.
       { etransitivity; eauto with spath. }
 
   (* Case [E_Reorg] *)
-  - eapply reorg_preservation in Hreorg. specialize (Hreorg _ Hle).
+  - eapply reorg_preserves_LLBC_plus_rel in Hreorg. specialize (Hreorg _ Hle).
     destruct Hreorg as (S'l & Hle' & ?).
     specialize (IHHeval _ Hle'). destruct IHHeval as (? & ? & ?).
     execution_step. { econstructor; eassumption. } assumption.
