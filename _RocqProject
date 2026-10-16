@@ -1,18 +1,18 @@
 -R Chamois-lib chamois
 -R src rustc
 src/base.v
-src/HLPL_No_Anon.v
-src/HLPL_plus.v
-src/HLPL.v
-src/lang.v
-src/ListBackInd.v
-src/LLBC_plus.v
-src/LLBC_sharp.v
-src/LLBC.v
 src/OptionMonad.v
 src/PathToSubtree.v
-src/PL.v
+src/lang.v
+src/ListBackInd.v
 src/Symbolic_states.v
+src/semantics/HLPL_No_Anon.v
+src/semantics/HLPL_plus.v
+src/semantics/HLPL.v
+src/semantics/LLBC_plus.v
+src/semantics/LLBC_sharp.v
+src/semantics/LLBC.v
+src/semantics/PL.v
 src/simulations/SimulationUtils.v
 src/simulations/Symbolic_relations.v
 src/simulations/Simulation_HLPL_plus.v
