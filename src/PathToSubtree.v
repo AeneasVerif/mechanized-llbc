@@ -290,11 +290,11 @@ Proof. left. symmetry. assumption. Qed.
 Lemma not_vprefix_implies_not_vstrict_prefix p q : ~vprefix p q -> ~vstrict_prefix p q.
 Proof. intros ? ?%vstrict_prefix_is_vprefix. auto. Qed.
 
-Lemma neq_implies_not_prefix p q : ~prefix p q -> p <> q.
+Lemma not_prefix_implies_neq p q : ~prefix p q -> p <> q.
 Proof. intros H <-. apply H. reflexivity. Qed.
 
-Lemma neq_implies_not_prefix' p q : ~prefix p q -> q <> p.
-Proof. intro. symmetry. apply neq_implies_not_prefix. assumption. Qed.
+Lemma not_prefix_implies_neq' p q : ~prefix p q -> q <> p.
+Proof. intro. symmetry. apply not_prefix_implies_neq. assumption. Qed.
 
 Lemma disj_if_left_disj_prefix p q r : disj p q -> disj p (q +++ r).
 Proof.
@@ -385,7 +385,7 @@ Proof. destruct (comparable_spaths p q); easy. Qed.
 
 Lemma prove_disj' (p q : spath) : ~strict_prefix q p -> ~prefix p q -> disj p q.
 Proof.
-  intros. apply prove_disj; auto using not_prefix_implies_not_strict_prefix, neq_implies_not_prefix.
+  intros. apply prove_disj; auto using not_prefix_implies_not_strict_prefix, not_prefix_implies_neq.
 Qed.
 
 Lemma vstrict_prefix_app_last p q i : vstrict_prefix p (q ++ [i]) <-> vprefix p q.
@@ -1853,7 +1853,7 @@ Section GetSetPath.
         erewrite <-(vset_same _ r), <-vset_twice_equal, <-sget_app.
         apply not_contains_outer_vset; eassumption.
       + assert (disj p q)
-          by auto using prove_disj, neq_implies_not_prefix, not_prefix_implies_not_strict_prefix.
+          by auto using prove_disj, not_prefix_implies_neq, not_prefix_implies_not_strict_prefix.
         rewrite sset_sget_disj in G by (symmetry; assumption).
         assumption.
     - rewrite sget_invalid by assumption. rewrite sget_invalid in G; [exact G | ].
@@ -1914,7 +1914,7 @@ Section GetSetPath.
       + intros no_outer _ ?. rewrite sset_sget_disj in no_outer.
         * exact no_outer.
         * symmetry. apply prove_disj.
-          all: auto using neq_implies_not_prefix, not_prefix_implies_not_strict_prefix.
+          all: auto using not_prefix_implies_neq, not_prefix_implies_not_strict_prefix.
     - rewrite sset_invalid; auto.
   Qed.
 
@@ -2271,7 +2271,7 @@ Ltac reduce_comp :=
   | |- disj (?p +++ ?r) ?q => apply disj_if_right_disj_prefix; eauto with spath; fail
   | |- disj ?p ?q => apply prove_disj'
 
-  | |- ?p <> ?q => apply neq_implies_not_prefix; eauto with spath; fail
+  | |- ?p <> ?q => apply not_prefix_implies_neq; eauto with spath; fail
 
   | |- ~prefix ?p ?q => apply prove_not_prefix
 
@@ -2627,7 +2627,7 @@ Proof.
   - by exists npref'.
 Qed.
 
-Definition removelast (p : spath) := (p.1, List.removelast p.2). 
+Definition removelast (p : spath) := (p.1, List.removelast p.2).
 
 Lemma removelast_app :
   forall p q, q <> [] -> removelast (p +++ q) = p +++ List.removelast q.
