@@ -422,3 +422,13 @@ Inductive le_base : state -> state -> Prop :=
     (HS_loan : get_node (S.[sp_loan]) = nloan^m(l))
     (HS_borrow : get_node (S.[sp_borrow]) = nborrow^m(l)) :
     le_base (S.[sp_loan <- loc(l, S.[sp_borrow +++ [0] ])].[sp_borrow <- ptr(l)]) S.
+
+Inductive le_val_state_base : (value * state) -> (value * state) -> Prop :=
+| Le_States v Sl Sh (le_states : le_base Sl Sh) : le_val_state_base (v, Sl) (v, Sh)
+| Le_MutBorrow_To_Ptr_val v S l sp_loan sp_borrow
+    (HS_loan : get_node (S.[sp_loan]) = nloan^m(l))
+    (HS_borrow : get_node (v.[[sp_borrow]]) = nborrow^m(l)) :
+    le_val_state_base
+      (v.[[sp_borrow <- ptr(l)]], S.[sp_loan <- loc(l, v.[[sp_borrow ++ [0] ]])])
+      (v, S)
+.

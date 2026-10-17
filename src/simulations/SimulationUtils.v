@@ -163,64 +163,6 @@ Proof.
   exists S'l. split; [ | assumption]. exists S'm. split; assumption.
 Qed.
 
-Section LeValStateUtils.
-  Context `{State state V}.
-  Context (le_base : state -> state -> Prop).
-
-  Definition le_val_state_base (vSl vSr : V * state) :=
-    forall a, fresh_anon (snd vSl) a -> fresh_anon (snd vSr) a ->
-    le_base ((snd vSl),, a |-> fst vSl) ((snd vSr),, a |-> fst vSr).
-
-  (* The following two lemmas are used by the tactic `le_val_state_step`. *)
-  Lemma prove_le_val_state_right_to_left vSl vm Sm vr Sr
-    (G : forall a, fresh_anon Sr a ->
-         exists vSm, le_base vSm (Sr,, a |-> vr) /\ vSm = Sm,, a |-> vm) :
-    le_val_state_base^* vSl (vm, Sm) ->
-    le_val_state_base^* vSl (vr, Sr).
-  Proof.
-    intros ?. eapply rt_trans; [eassumption | ]. constructor.
-    intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
-  Qed.
-
-  Lemma prove_le_val_state_left_to_right vl Sl vm Sm vSr
-    (G : forall a, fresh_anon Sl a ->
-         exists vSm, le_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm) :
-    le_val_state_base^* (vm, Sm) vSr ->
-    le_val_state_base^* (vl, Sl) vSr.
-  Proof.
-    intros ?. eapply rt_trans; [ | eassumption]. constructor.
-    intros a ? ?. cbn in *. destruct (G a) as (? & ? & ->); [assumption.. | ]. assumption.
-  Qed.
-
-  Lemma prove_le_val_state_anon_left vl Sl vm Sm vSr b w
-    (fresh_b : fresh_anon Sl b)
-    (G : forall a, fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
-         exists vSm, le_base (Sl,, a |-> vl,, b |-> w) vSm /\ vSm = Sm,, a |-> vm) :
-    le_val_state_base^* (vm, Sm) vSr ->
-    le_val_state_base^* (vl, Sl,, b |-> w) vSr.
-  Proof.
-    intros ?. eapply rt_trans; [ | eassumption]. constructor.
-    intros a (? & ?)%fresh_anon_add_anon ?. cbn in *.
-    rewrite add_anon_commute by congruence.
-    destruct (G a) as (? & ? & ->); try assumption. rewrite fresh_anon_add_anon. auto.
-  Qed.
-
-  (* This lemma is used by the tactic `le_val_state_add_anon`. *)
-  Lemma prove_le_val_state_add_anon vl Sl vm Sm vSr b w
-    (fresh_b : fresh_anon Sl b)
-    (G : forall a, fresh_anon Sl a -> fresh_anon (Sl,, a |-> vl) b ->
-         exists vSm, le_base (Sl,, a |-> vl) vSm /\ vSm = Sm,, a |-> vm,, b |-> w) :
-    le_val_state_base^* (vm, Sm,, b |-> w) vSr ->
-    le_val_state_base^* (vl, Sl) vSr.
-  Proof.
-    intros ?. eapply rt_trans; [ | eassumption]. constructor.
-    intros a ? (? & ?)%fresh_anon_add_anon. cbn in *.
-    rewrite add_anon_commute by congruence.
-    destruct (G a) as (? & ? & ->); try assumption.
-    now apply fresh_anon_add_anon.
-  Qed.
-End LeValStateUtils.
-
 (** Tactics to prove commutation of reorganizations. *)
 (* TODO: document it *)
 Lemma le_step_right {S} {R : relation S} Sl Sm Sr : R Sm Sr -> R^* Sl Sm -> R^* Sl Sr.
