@@ -119,13 +119,14 @@ Proof.
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
-        eapply Le_MergeAbs; [reflexivity.. | | discriminate].
+        constructor. eapply Le_MergeAbs; [reflexivity.. | | discriminate].
         econstructor. eexists. split. constructor.
         eapply UnionInsert with (j := 2%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
-      { eapply Le_ToSymbolic with (sp := (encode_var z, [0])). constructor. all: compute_done. }
+      { constructor. eapply Le_ToSymbolic with (sp := (encode_var z, [0])).
+        constructor. all: compute_done. }
       simpl_state.
       reflexivity. }
 
@@ -152,13 +153,14 @@ Proof.
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
-        apply Le_MergeAbs; [reflexivity.. | | discriminate].
+        constructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
         econstructor. eexists. split. constructor.
         eapply UnionInsert with (j := 1%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
-      { eapply Le_ToSymbolic with (sp := (encode_var z, [0])); [constructor | compute_done..]. }
+      { constructor.
+        eapply Le_ToSymbolic with (sp := (encode_var z, [0])); [constructor | compute_done..]. }
       reflexivity. }
   }
 

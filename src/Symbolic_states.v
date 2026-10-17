@@ -368,6 +368,7 @@ Definition get_loan_id c :=
 
 Definition is_loan_id l c := get_loan_id c = Some l.
 Notation is_fresh l S := (not_state_contains (is_loan_id l) S).
+Notation is_fresh_val l v := (not_value_contains (is_loan_id l) v).
 Hint Extern 0 (~is_loan_id _ _) => unfold is_loan_id; cbn; congruence : spath.
 Hint Extern 0 (is_loan_id _ _) => reflexivity : spath.
 
@@ -1911,13 +1912,12 @@ Proof.
 Qed.
 
 (** ** Automation *)
-Lemma not_value_contains_loan_id_loan l0 l1 ty :
-  not_value_contains (is_loan_id l0) (loan^m(ty, l1)) -> l0 <> l1.
+Lemma is_fresh_mut_loan l0 l1 ty :
+  is_fresh_val l0 (loan^m(ty, l1)) -> l0 <> l1.
 Proof. intros H <-. apply (H []); [constructor | reflexivity]. Qed.
 
-Lemma not_value_contains_loan_id_borrow l0 l1 v :
-  not_value_contains (is_loan_id l0) (borrow^m(l1, v)) ->
-  l0 <> l1 /\ not_value_contains (is_loan_id l0) v.
+Lemma is_fresh_mut_borrow l0 l1 v :
+  is_fresh_val l0 (borrow^m(l1, v)) -> l0 <> l1 /\ not_value_contains (is_loan_id l0) v.
 Proof.
   intros H. split.
   - intros <-. apply (H []); [constructor | reflexivity].
@@ -1925,15 +1925,15 @@ Proof.
 Qed.
 
 (* TODO: move *)
-Lemma no_loan_no_borrow_implies_no_loan_id v l :
-  not_contains_loan v -> not_contains_borrow v -> not_value_contains (is_loan_id l) v.
+Lemma no_loan_no_borrow_implies_is_fresh v l :
+  not_contains_loan v -> not_contains_borrow v -> is_fresh_val l v.
 Proof.
   intros no_loan no_borrow p valid_p get_loan_id.
   destruct (get_node (v.[[p]])) eqn:EQN; inversion get_loan_id.
   - eapply no_loan; [eassumption | ]. rewrite EQN. constructor.
   - eapply no_borrow; [eassumption | ]. rewrite EQN. constructor.
 Qed.
-Hint Resolve no_loan_no_borrow_implies_no_loan_id : spath.
+Hint Resolve no_loan_no_borrow_implies_is_fresh : spath.
 
 (* Trying to prove that a value doesn't contain a node (ex: loan, loc, bot).
    This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
@@ -1947,13 +1947,23 @@ Ltac not_contains0 :=
   | H : is_fresh ?l (?S,,, ?i |-> ?A) |- is_fresh ?l ?S' =>
       rewrite not_state_contains_add_abstraction in H by eauto with spath;
       destruct H
+  | H : is_fresh ?l (?S,,, ?i |-> ?A) |- is_fresh_val ?l ?v =>
+      rewrite not_state_contains_add_abstraction in H by eauto with spath;
+      destruct H
   | H : is_fresh ?l (?S,, ?a |-> ?v) |- is_fresh ?l' ?S' =>
       apply not_state_contains_add_anon_rev in H;
         [destruct H | eauto with spath; fail]
-  | H : not_value_contains ?l0 (borrow^m(?l1, ?v)) |- is_fresh ?l' ?S =>
-      apply not_value_contains_loan_id_borrow in H; destruct H
-  | H : not_value_contains ?l0 (loan^m(?ty, ?l1)) |- is_fresh ?l' ?S =>
-      apply not_value_contains_loan_id_loan in H
+  | H : is_fresh ?l (?S,, ?a |-> ?v) |- is_fresh_val ?l' ?w =>
+      apply not_state_contains_add_anon_rev in H;
+        [destruct H | eauto with spath; fail]
+  | H : is_fresh_val ?l0 (borrow^m(?l1, ?v)) |- is_fresh ?l' ?S =>
+      apply is_fresh_mut_borrow in H; destruct H
+  | H : is_fresh_val ?l0 (borrow^m(?l1, ?v)) |- is_fresh_val ?l' ?w =>
+      apply is_fresh_mut_borrow in H; destruct H
+  | H : is_fresh_val ?l0 (loan^m(?ty, ?l1)) |- is_fresh ?l' ?S =>
+      apply is_fresh_mut_loan in H
+  | H : is_fresh_val ?l0 (loan^m(?ty, ?l1)) |- is_fresh_val ?l' ?w =>
+      apply is_fresh_mut_loan in H
 
   (* Proving freshness. *)
   | |- is_fresh ?l (?S,, ?a |-> ?v) =>
@@ -3284,13 +3294,26 @@ Proof.
   - rewrite !fmap_delete. econstructor; simpl_map; eauto.
 Qed.
 
+Lemma rename_value_subseteq p p' v :
+  subseteq p p' -> subseteq (loan_set_val v) (dom p) -> rename_value p v = rename_value p' v.
+Proof.
+  intros H. setoid_rewrite map_subseteq_spec in H. induction v; try reflexivity.
+  - cbn. rewrite singleton_subseteq_l. setoid_rewrite elem_of_dom.
+    unfold rename_loan_id. intros (l' & G). setoid_rewrite G.
+    setoid_rewrite H; [reflexivity | eassumption].
+  - rewrite loan_set_borrow, union_subseteq, singleton_subseteq_l. setoid_rewrite elem_of_dom.
+    intros ((l' & G) & ?). cbn. f_equal.
+    + unfold rename_loan_id. setoid_rewrite G. setoid_rewrite H; [reflexivity | exact G].
+    + auto.
+Qed.
+
 (* We can always extend the map of loan identifiers of [perm] so that it contains every loans
  * of a set L. We obtain a permutation [perm'] that is still a valid permutation of S, and it
  * has the same effect as [perm] when applied on S. *)
 Lemma extend_loan_id_names L perm S :
   valid_loan_id_names perm S ->
   exists perm',
-    valid_loan_id_names perm' S /\ subseteq L (dom perm') /\
+    valid_loan_id_names perm' S /\ subseteq perm perm' /\ subseteq L (dom perm') /\
     rename_state perm S = rename_state perm' S.
 Proof.
   intros (H & Hincl). apply (extend_inj_map L) in H. destruct H as (perm' & ? & ? & ?).
@@ -3298,17 +3321,11 @@ Proof.
   - assumption.
   - etransitivity; [ | apply subseteq_dom]; eassumption.
   - assumption.
+  - assumption.
   - apply state_eq_ext.
     + rewrite !get_map_rename_state. apply map_fmap_ext. intros i v G.
-      apply loan_set_val_subset_eq_loan_set_state in G. induction v; try reflexivity.
-      * cbn in G. apply singleton_subseteq_l, Hincl in G. apply elem_of_dom in G.
-        destruct G as (? & G). cbn. unfold rename_loan_id. setoid_rewrite G.
-        eapply map_subseteq_spec in G; [ | eassumption]. setoid_rewrite G. reflexivity.
-      * rewrite loan_set_borrow, union_subseteq in G. destruct G as (G & ?).
-        cbn. rewrite IHv by assumption. f_equal.
-        apply singleton_subseteq_l, Hincl, elem_of_dom in G. destruct G as (? & G).
-        unfold rename_loan_id. setoid_rewrite G.
-        eapply map_subseteq_spec in G; [ | eassumption]. setoid_rewrite G. reflexivity.
+      apply loan_set_val_subset_eq_loan_set_state in G.
+      apply rename_value_subseteq; set_solver.
     + cbn. rewrite !dom_fmap_L. reflexivity.
 Qed.
 
@@ -3319,7 +3336,7 @@ Lemma extend_state_permutation L perm S :
     apply_state_permutation perm S = apply_state_permutation perm' S.
 Proof.
   intros (? & H). apply (extend_loan_id_names L) in H.
-  unfold apply_state_permutation. destruct H as (m' & ? & ? & ->).
+  unfold apply_state_permutation. destruct H as (m' & ? & ? & ? & ->).
   exists {|accessor_perm := accessor_perm perm; loan_id_names := m'|}.
   split; split; auto.
 Qed.

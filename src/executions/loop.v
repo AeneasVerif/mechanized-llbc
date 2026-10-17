@@ -137,7 +137,7 @@ Proof.
       - constructor. }
     simpl_state.
     eapply prove_le_symbolic; [constructor | ].
-    { apply Le_ToSymbolic with (sp := (encode_var i, [])).
+    { constructor. apply Le_ToSymbolic with (sp := (encode_var i, [])).
       - constructor.
       - compute_done.
       - compute_done. }
@@ -199,14 +199,15 @@ Proof.
       (** Turning the anonymous binding << _ |-> borrow^m(l1, loan^m(int, l2)) >> into
          an abstraction. *)
       eapply prove_le_symbolic; [constructor | ].
-      { remove_anon 1%positive. apply Le_ToAbs with (i := 2%positive); [reflexivity.. | ].
+      { remove_anon 1%positive.
+        constructor. apply Le_ToAbs with (i := 2%positive); [reflexivity.. | ].
         apply ToAbs_MutReborrow with (kb := 1%positive) (kl := 2%positive). discriminate. }
       simpl_state.
       (** Merging the abstractions, and removing loan identifier [l1]. *)
       (* TODO: computation. *)
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
-        apply Le_MergeAbs; [reflexivity.. | | discriminate].
+        constructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
         eexists _, _. split.
         { eapply Remove_MutLoan with (i := 2%positive) (j := 1%positive).
           apply Remove_nothing. simpl_map. reflexivity. simpl_map. reflexivity. }

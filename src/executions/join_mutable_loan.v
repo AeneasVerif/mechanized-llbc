@@ -150,7 +150,7 @@ Proof.
     { apply le_singleton.
       eapply prove_le_symbolic; [constructor | ].
       { remove_anon 1%positive.
-        eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
+        constructor. eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
         apply ToAbs_MutBorrow with (k := 1%positive); [constructor | compute_done..]. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
@@ -171,7 +171,7 @@ Proof.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction Ax. remove_abstraction A_extra.
         rewrite remove_add_abstraction_ne by discriminate.
-        apply Le_MergeAbs; [reflexivity.. | | discriminate].
+        constructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
         eexists _, _. split; [apply Remove_nothing | ].
         apply UnionInsert with (j := 1%positive); [reflexivity.. | ].
         apply UnionEmpty. }
@@ -194,7 +194,7 @@ Proof.
     { apply le_singleton.
       eapply prove_le_symbolic; [constructor | ].
       { remove_anon 1%positive.
-        eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
+        constructor. eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
         apply ToAbs_MutBorrow with (k := 2%positive); [constructor | compute_done..]. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
@@ -215,7 +215,7 @@ Proof.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction Ay. remove_abstraction A_extra.
         rewrite remove_add_abstraction_ne by discriminate.
-        apply Le_MergeAbs; [reflexivity.. | | discriminate].
+        constructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
         eexists _, _. split; [apply Remove_nothing | ].
         apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
         apply UnionEmpty. }

@@ -56,7 +56,7 @@ Proof.
       + exact fresh_a. }
   { apply le_singleton. simpl_map.
     eapply prove_le_symbolic; [ | reflexivity]. constructor.
-    apply Le_RemoveAnon; auto with spath. }
+    constructor. apply Le_RemoveAnon; auto with spath. }
 Qed.
 
 (** * Computation procedures for LLBC## execution. *)
