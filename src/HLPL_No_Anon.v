@@ -106,6 +106,22 @@ Module ValueList.
 
   Definition Forall (P : value -> Prop) (vl : value_list) : Prop :=
     List.Forall P (to_list vl).
+
+  Lemma nth_error_type_equiv_nth_error_value tl vl n :
+    TypeList.length tl = length vl ->
+    (exists t, TypeList.nth_error tl n = Some t) <-> (exists v, ValueList.nth_error vl n = Some v).
+  Proof.
+    intro H. rewrite TypeList.nth_valid_access, nth_valid_access, H. reflexivity.
+  Qed.
+
+  Lemma nth_error_type_implies_nth_error_value tl t vl n :
+    TypeList.length tl = length vl ->
+    TypeList.nth_error tl n = Some t ->
+    exists v, ValueList.nth_error vl n = Some v.
+  Proof.
+    intros. apply nth_error_type_equiv_nth_error_value with (n := n) in H.
+    apply ex_intro with (x := t) in H0.  apply H in H0. assumption.
+  Qed.
 End ValueList.
 
 Variant nodes :=
@@ -268,6 +284,14 @@ Notation "'nptr' ( l )" := (NPtr l) : hlpl_scope.
 
 (* Bind Scope hlpl_scope with HLPL_val. *)
 Open Scope hlpl_scope.
+
+Lemma nth_vget_n (vl : value_list) (n : nat) :
+  n < ValueList.length vl ->
+  ValueList.nth_error vl n = Some (VTuple vl .[[ [n] ]]).
+Proof.
+  intros. cbn. apply ValueList.nth_valid_access in H as (v & ?).
+  by rewrite <- ValueList.nth_error_value_list_list_equiv, H.
+Qed.
 
 Lemma sget_loc l v p : (loc (l, v)).[[ [0] ++  p]] = v.[[p]].
 Proof. reflexivity. Qed.
