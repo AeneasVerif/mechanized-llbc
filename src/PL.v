@@ -23,6 +23,9 @@ From Stdlib Require Import Zwf.
 Require Import PathToSubtree.
 Require Import Stdlib.Classes.RelationClasses.
 
+Module TL := TypeList.
+Module VL := ValueList.
+
 Opaque sset.
 
 Open Scope Z_scope.
@@ -843,14 +846,42 @@ Section Concretization.
     }
   Qed.
 
+  Lemma slice_bytes_list (bytes : list memval) tl :
+    List.length bytes = sizeof_tuple tl ->
+    bytes =
+      concat (TL.mapi (fun i t => firstn (sizeof t) (skipn (pst tl i) bytes)) tl).
+  Proof.
+    generalize dependent bytes. induction tl ; intros bytes Hsize.
+    - cbn in *. apply LB.list.nil_length_inv in Hsize. assumption.
+    - cbn in *. rewrite skipn_0.
+
   Lemma concr_val_tuple_implies_concr_val'' :
-    forall vl t bytes,
-      concr_hlpl_val (VTuple vl) t bytes ->
-      forall n : nat, n <= ValueList.length vl ->
-               exists v, ValueList.nth_error vl n = Some v /\
-               exists tl t', t = TTuple tl /\ TypeList.nth_error tl n = Some t' /\
-                          concr_hlpl_val v t' bytes.
-  Admitted.
+    forall vl tl bytes,
+      concr_hlpl_val_tuple vl tl bytes <->
+        ValueList.length vl = TypeList.length tl /\
+          sizeof_tuple tl = length bytes /\
+          forall n v t,
+            ValueList.nth_error vl n = Some v ->
+            TypeList.nth_error tl n = Some t ->
+            concr_hlpl_val v t (firstn (sizeof t) (skipn (pst tl n) bytes)).
+  Proof.
+    intros. split.
+    {
+      intro H. induction H.
+      - repeat split. intros. cbn in H. discriminate.
+      - destruct IHconcr_hlpl_val_tuple as (Heq1 & Heq2 & IH).
+        apply concr_val_size in H as Hlen.
+        repeat split ; cbn ; [ congruence | rewrite length_app ; congruence | ].
+        intros * nth_val nth_ty.
+        destruct n ; cbn in *.
+        * injection nth_val as <-. injection nth_ty as <-.
+          rewrite Hlen, skipn_0, LB.list.take_app_length. assumption.
+        * rewrite !Hlen, LB.list.drop_app_add. auto.
+    }
+    {
+      intros (Heq1 & Heq2 & IH). rewrite concr_val_tuple_implies_concr_val'.
+    }
+  Proof.
 
   Lemma concr_val_add_loc :
     forall v vp l t bytes,
@@ -2424,9 +2455,16 @@ Section Concretization.
       assert (concr_hlpl_val (loc (l, v)) t' bytes) by (apply Concr_loc ; auto).
       specialize (IHoff_vpath_equiv _ _ H2). assumption.
     - nodes_to_val.
+      assert (concr_hlpl_val_tuple t tl
+                (firstn (sizeof_tuple tl) (skipn (Z.to_nat off) bytesi))).
+      {
+      }
+
+
       assert (off_vpath_equiv vi ti (off + pst tl n) t' (vp ++ [ n]))
         by (eapply Offset_vpath_tuple ; eauto ; rewrite Heqv0 ; cbn ; congruence).
       eapply (proj1 (concr_val_off_vpath_equiv_equiv _ _ _ Hleni)) in H2 as G; eauto.
+      assert (concr_hlpl_val v (TTuple tl) bytes).
       apply IHoff_vpath_equiv in G. cbn in G.
       rewrite vset_app_split.
 
