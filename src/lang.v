@@ -80,6 +80,24 @@ Module TypeList.
       * reflexivity.
       * cbn. rewrite IHtl. reflexivity.
   Qed.
+
+  Fixpoint map {A : Type} (f : type -> A) (tl : type_list) : list A :=
+    match tl with
+    | TNil => []
+    | TCons t tl' => (f t) :: map f tl'
+    end.
+
+  Definition mapi {A : Type} (f : nat -> type -> A) (tl : type_list) : list A :=
+    let fix mapi_rec f tl n :=
+      match tl with
+      | TNil => []
+      | TCons t tl' => (f n t) :: mapi_rec f tl' (S n)
+      end in
+    mapi_rec f tl 0.
+
+  Lemma typelist_map_is_map {A : Type} (f : type -> A) (tl : type_list) :
+    map f tl = List.map f (to_list tl).
+  Proof. induction tl ; cbn ; congruence. Qed.
 End TypeList.
 
 Declare Scope rtype_scope.
