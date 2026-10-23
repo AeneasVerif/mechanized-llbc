@@ -591,11 +591,11 @@ Lemma eval_place_permutation S permission P sp permutation
   apply_state_permutation permutation S |-{p} P =>^{permission} permutation_spath permutation sp.
 Proof.
   intros ((v & get_v & _) & H). split.
-  { eexists. split; [ | constructor]. rewrite fst_pair, get_at_var in *.
+  { eexists. split; [ | constructor]. cbn [fst] in *. rewrite get_at_var in *.
     cbn. simpl_map. reflexivity. }
   remember (encode_var P.1.1, []) as sp0 eqn:EQN.
   replace sp0 with (permutation_spath permutation sp0)
-    by (unfold permutation_spath; now rewrite EQN, fst_pair, perm_at_var).
+    by (unfold permutation_spath; rewrite EQN; cbn [fst]; now rewrite perm_at_var).
   clear EQN get_v. induction H.
   - constructor.
   - econstructor; [ | eassumption]. destruct Heval_proj.

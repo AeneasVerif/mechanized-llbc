@@ -19,8 +19,6 @@ Global Instance reflexive_chain {A} (R S : relation A) `{Reflexive A R} `{Reflex
   Reflexive (chain R S).
 Proof. intros x. exists x. split; reflexivity. Qed.
 
-Lemma fst_pair {A B} (a : A) (b : B) : fst (a, b) = a. Proof. reflexivity. Qed.
-
 Definition indicator {A : Type} `{EqDecision A} (a b : A) :=
   if decide (a = b) then 1 else 0.
 

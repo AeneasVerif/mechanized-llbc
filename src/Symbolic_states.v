@@ -520,11 +520,11 @@ Proof.
     + rewrite map_fold_empty in H. set_solver.
     + rewrite map_fold_insert_first_key, elem_of_union in H by assumption. destruct H as [H | H].
       * rewrite elem_of_loan_set_val in H. destruct H as (q & H).
-        exists (i, q). rewrite fst_pair, lookup_insert_eq. assumption.
+        exists (i, q). cbn [fst]. rewrite lookup_insert_eq. assumption.
       * specialize (IH H). destruct IH as (p & IH). exists p.
         rewrite lookup_insert_ne; [exact IH | ].
         intros ->. rewrite i_fresh in IH. discriminate.
-  - intros ((i & q) & get_l). unfold sget in get_l. rewrite fst_pair, snd_pair in get_l.
+  - intros ((i & q) & get_l). unfold sget in get_l. cbn [fst snd] in get_l.
     destruct (lookup i (get_map S)) as [v | ] eqn:EQN; [ | discriminate].
     unfold loan_set_state. erewrite map_fold_delete_L; [ | set_solver | exact EQN].
     apply elem_of_union_l, elem_of_loan_set_val. exists q. exact get_l.
@@ -1687,7 +1687,7 @@ Lemma eq_sset_add_abstraction S S' sp i j A w
   (H : S.[sp <- w] = S',,, i |-> A) :
   exists B, S = S',,, i |-> B /\ A = abstraction_set j (snd sp) w B.
 Proof.
-  destruct sp as (? & q). rewrite fst_pair, snd_pair in *. subst.
+  destruct sp as (? & q). cbn [fst snd] in *. subst.
   assert (exists B, lookup i (abstractions S) = Some B) as (B & get_B).
   { apply elem_of_dom. apply (f_equal get_extra) in H.
     unfold sset in H. rewrite get_extra_alter in H. cbn in H. rewrite H. set_solver. }
@@ -2221,7 +2221,7 @@ Proof.
   erewrite lookup_pkmap in G; [ | eapply permutation_accessor_inj; eassumption | exact G'].
   exists (j, p). split.
   - exists v. split; assumption.
-  - unfold permutation_spath. rewrite fst_pair, G'. reflexivity.
+  - unfold permutation_spath. cbn [fst]. rewrite G'. reflexivity.
 Qed.
 
 Lemma permutation_spath_app perm p q :
@@ -2244,7 +2244,7 @@ Lemma rename_accessors_sget S perm (H : valid_accessor_permutation perm S)
 Proof.
   destruct valid_sp as (v & get_at_sp & _). unfold permutation_spath, sget.
   edestruct get_at_accessor_rename_accessors as (? & -> & G); [eassumption.. | ].
-  rewrite fst_pair, snd_pair, G, get_at_sp. reflexivity.
+  cbn [fst snd]. rewrite G, get_at_sp. reflexivity.
 Qed.
 
 Lemma permutation_sget S perm (H : is_state_equivalence perm S)
@@ -2255,7 +2255,7 @@ Proof.
   destruct (H) as (? & _).
   destruct valid_sp as (v & get_at_sp & _). unfold permutation_spath, sget.
   edestruct get_at_accessor_state_permutation as (? & -> & G); [eassumption.. | ].
-  rewrite fst_pair, snd_pair, G, get_at_sp, vget_rename_value. reflexivity.
+  cbn [fst snd]. rewrite G, get_at_sp, vget_rename_value. reflexivity.
 Qed.
 
 Lemma loan_set_rename_accessors perm S :
@@ -2699,8 +2699,7 @@ Proof.
     rewrite get_map_rename_accessors by assumption. unfold permutation_spath.
     edestruct get_at_accessor_rename_accessors as (i & K & ?); [exact H | exact G | ].
     rewrite !K. erewrite alter_pkmap by eauto using permutation_accessor_is_equivalence.
-    apply map_eq. intros j. rewrite !fst_pair, !snd_pair.
-    destruct (decide (i = j)) as [<- | ].
+    apply map_eq. intros j. cbn [fst snd]. destruct (decide (i = j)) as [<- | ].
     * simpl_map. destruct (lookup i (pkmap _ _)) eqn:?; reflexivity.
     * simpl_map. reflexivity.
   - rewrite get_extra_rename_accessors by now apply valid_accessor_permutation_sset.

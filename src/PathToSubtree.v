@@ -2450,8 +2450,6 @@ Ltac states_eq :=
 (* Simple simplifications: *)
 (* TODO: I should rely on [cbn [fst]] and [cbn [snd]] instead. *)
 Hint Rewrite app_nil_r : spath.
-Lemma snd_pair [A B] (a : A) (b : B) : snd (a, b) = b. Proof. reflexivity. Qed.
-Hint Rewrite snd_pair : spath.
 Lemma snd_app (v : spath) w : snd (v +++ w) = (snd v) ++ w. Proof. reflexivity. Qed.
 Hint Rewrite @snd_app : spath.
 
