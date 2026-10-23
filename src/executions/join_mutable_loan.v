@@ -150,7 +150,7 @@ Proof.
     { apply le_singleton.
       eapply prove_le_symbolic; [constructor | ].
       { remove_anon 1%positive.
-        constructor. eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
+        econstructor. eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
         apply ToAbs_MutBorrow with (k := 1%positive); [constructor | compute_done..]. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
@@ -171,7 +171,7 @@ Proof.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction Ax. remove_abstraction A_extra.
         rewrite remove_add_abstraction_ne by discriminate.
-        constructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
+        econstructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
         eexists _, _. split; [apply Remove_nothing | ].
         apply UnionInsert with (j := 1%positive); [reflexivity.. | ].
         apply UnionEmpty. }
@@ -194,7 +194,7 @@ Proof.
     { apply le_singleton.
       eapply prove_le_symbolic; [constructor | ].
       { remove_anon 1%positive.
-        constructor. eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
+        econstructor. eapply Le_ToAbs with (i := A_extra); [reflexivity.. | ].
         apply ToAbs_MutBorrow with (k := 2%positive); [constructor | compute_done..]. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
@@ -215,7 +215,7 @@ Proof.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction Ay. remove_abstraction A_extra.
         rewrite remove_add_abstraction_ne by discriminate.
-        constructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
+        econstructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
         eexists _, _. split; [apply Remove_nothing | ].
         apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
         apply UnionEmpty. }
@@ -240,7 +240,7 @@ Proof.
   eapply E_Reorg.
   { etransitivity; [constructor | ].
     (** Ending the borrow in << x >>. *)
-    { remove_abstraction Ax. remove_abstraction_element 3%positive.
+    { remove_abstraction Ax. remove_abstraction_element 3%positive. eexists.
       eapply Reorg_End_MutBorrow_in_abstraction with (q := (encode_var x, [])).
       reflexivity. reflexivity. reflexivity. constructor. compute_done.
       refine (proj2 (try_assert (compute_not_in_borrow _ _) _ _)). reflexivity.
@@ -249,7 +249,7 @@ Proof.
 
     (** Ending the abstraction << Ax >>. *)
     etransitivity; [constructor | ].
-    { remove_abstraction Ax. eapply Reorg_End_Abstraction; [reflexivity | compute_done | ].
+    { eexists. remove_abstraction Ax. eapply Reorg_End_Abstraction; [reflexivity | compute_done | ].
       econstructor.
       eapply UnionInsert with (j := 1%positive); [reflexivity.. | ].
       eapply UnionInsert with (j := 2%positive); [reflexivity.. | ].
@@ -257,7 +257,7 @@ Proof.
     simpl_state.
 
     (** Ending the loan << a >>. *)
-    constructor.
+    constructor. eexists.
     eapply Reorg_End_MutBorrow with (p := (encode_var a, []))
                                     (q := (anon_accessor 1%positive, [])).
     reflexivity. reflexivity. constructor. compute_done.

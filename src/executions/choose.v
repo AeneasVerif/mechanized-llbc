@@ -119,13 +119,13 @@ Proof.
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
-        constructor. eapply Le_MergeAbs; [reflexivity.. | | discriminate].
+        econstructor. eapply Le_MergeAbs; [reflexivity.. | | discriminate].
         econstructor. eexists. split. constructor.
         eapply UnionInsert with (j := 2%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
-      { constructor. eapply Le_ToSymbolic with (sp := (encode_var z, [0])).
+      { econstructor. eapply Le_ToSymbolic with (sp := (encode_var z, [0])).
         constructor. all: compute_done. }
       simpl_state.
       reflexivity. }
@@ -153,13 +153,13 @@ Proof.
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
-        constructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
+        econstructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
         econstructor. eexists. split. constructor.
         eapply UnionInsert with (j := 1%positive); [reflexivity.. | ].
         apply UnionEmpty. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
-      { constructor.
+      { econstructor.
         eapply Le_ToSymbolic with (sp := (encode_var z, [0])); [constructor | compute_done..]. }
       reflexivity. }
   }
@@ -179,7 +179,7 @@ Proof.
     (** Ending the loan [lz] ... *)
     { constructor.
       remove_abstraction 1%positive. remove_abstraction_element 3%positive.
-      apply Reorg_End_MutBorrow_in_abstraction with (q := (encode_var 3%positive, [])).
+      eexists. apply Reorg_End_MutBorrow_in_abstraction with (q := (encode_var 3%positive, [])).
       - reflexivity.
       - reflexivity.
       - reflexivity.
@@ -190,7 +190,7 @@ Proof.
     simpl_state. etransitivity.
     (** ... so that we could end the region abstraction ... *)
     { constructor.
-      remove_abstraction 1%positive. apply Reorg_End_Abstraction.
+      remove_abstraction 1%positive. eexists. apply Reorg_End_Abstraction.
       - reflexivity.
       - compute_done.
       - constructor. cbn. apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
@@ -199,7 +199,7 @@ Proof.
     }
     simpl_state.
     (** ... so that we could end the loan [lx]. *)
-    { constructor.
+    { constructor. eexists.
       eapply Reorg_End_MutBorrow with (p := (encode_var 1%positive, []))
                                      (q := (encode_anon 2%positive, [])).
       - reflexivity.

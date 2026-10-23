@@ -22,137 +22,87 @@ Variant to_abs : value -> Pmap value -> Prop :=
 Definition measure S := sweight (fun _ => 1) S + size (abstractions S).
 Notation abs_measure S := (map_sum (vweight (fun _ => 1)) S).
 
-Variant le_state_base_n : nat -> state -> state -> Prop :=
-| Le_ToSymbolic_n S sp ty (Htype : is_of_type ty (S.[sp]))
-    (no_loan : not_contains_loan (S.[sp])) (no_borrow : not_contains_borrow (S.[sp])) :
-    le_state_base_n (vweight (fun _ => 1) (S.[sp])) S (S.[sp <- VSymbolic ty])
-| Le_ToAbs_n S a i v A
-    (fresh_a : fresh_anon S a)
-    (fresh_i : fresh_abstraction S i)
-    (Hto_abs : to_abs v A) :
-    le_state_base_n (vweight (fun _ => 1) v) (S,, a |-> v) (S,,, i |-> A)
-(* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
- * contain any loan or borrow, no region abstraction is created. *)
-| Le_RemoveAnon_n S a v
-    (fresh_a : fresh_anon S a)
-    (no_loan : not_contains_loan v)
-    (no_borrow : not_contains_borrow v) :
-    le_state_base_n (1 + vweight (fun _ => 1) v) (S,, a |-> v) S
-| Le_MoveValue_n S sp a
-    (no_outer_loan : not_contains_outer_loan (S.[sp]))
-    (fresh_a : fresh_anon S a)
-    (valid_sp : valid_spath S sp)
-    (sp_not_in_borrow : not_in_borrow S sp)
-    (sp_in_abstraction : not_in_abstraction sp) :
-    le_state_base_n 0 S (S.[sp <- bot],, a |-> S.[sp])
-| Le_MergeAbs_n S i j A B C
-    (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
-    (Hmerge : merge_abstractions A B C) :
-    i <> j -> le_state_base_n (abs_measure A + abs_measure B - abs_measure C + 2)
-                                (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
-| Le_Fresh_MutLoan_n S sp l' a ty
-    (fresh_l' : is_fresh l' S)
-    (fresh_a : fresh_anon S a)
-    (valid_sp : valid_spath S sp)
-    (sp_not_in_abstraction : not_in_abstraction sp)
-    (Htype : is_of_type ty (S.[sp])) :
-    le_state_base_n 0 S (S.[sp <- loan^m(ty, l')],, a |-> borrow^m(l', S.[sp]))
-| Le_Reborrow_MutBorrow_n (S : state) (sp : spath) (l0 l1 : loan_id) (a : anon) ty
-    (fresh_l1 : is_fresh l1 S)
-    (fresh_a : fresh_anon S a)
-    (get_borrow_l0 : get_node (S.[sp]) = nborrow^m(l0))
-    (sp_not_in_abstraction : not_in_abstraction sp)
-    (Htype : is_of_type ty (S.[sp +++ [0] ])) :
-    le_state_base_n 0 S ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(ty, l1)))
-| Le_Borrow_Abstraction_n S i j A l' a ty'
-    (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
-    (fresh_l' : is_fresh l' (S,,, i |-> A))
-    (fresh_a : fresh_anon S a) :
-    le_state_base_n 0 (S,,, i |-> A)
-                       (S,,, i |-> insert j (loan^m(ty', l')) A,, a |-> borrow^m(l', VSymbolic ty'))
-| Le_Abs_ClearValue_n S i j v A
-    (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
-    (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
-    le_state_base_n (1 + vweight (fun _ => 1) v) (S,,, i |-> insert j v A) (S,,, i |-> A)
-| Le_AnonValue_n S a (is_fresh : fresh_anon S a) :
-    le_state_base_n 0 S (S,, a |-> bot)
-.
-
-(** Note: the definition is duplicated in [le_state_base_n].
-   Perhaps we should only define le_state_base_n, and define [le_state_base Sl Sr] as
-   [exists n, le_state_base_n n Sl Sr]. *)
-Variant le_state_base_no_fresh_loan : state -> state -> Prop :=
-(* Contrary to the article, symbolic values should be typed. Thus, only an integer can be converted
- * to a symbolic value for the moment. *)
+(** Abstraction relations. *)
+(** In the following rules, the higher-lever state has less loans than the lower-lever
+   state. These rules are also parameterized with a measure. *)
+Variant le_no_fresh_loan : nat -> state -> state -> Prop :=
 | Le_ToSymbolic S sp ty (Htype : is_of_type ty (S.[sp]))
     (no_loan : not_contains_loan (S.[sp])) (no_borrow : not_contains_borrow (S.[sp])) :
-    le_state_base_no_fresh_loan S (S.[sp <- VSymbolic ty])
+    le_no_fresh_loan (vweight (fun _ => 1) (S.[sp])) S (S.[sp <- VSymbolic ty])
 | Le_ToAbs S a i v A
     (fresh_a : fresh_anon S a)
     (fresh_i : fresh_abstraction S i)
     (Hto_abs : to_abs v A) :
-    le_state_base_no_fresh_loan (S,, a |-> v) (S,,, i |-> A)
+    le_no_fresh_loan (vweight (fun _ => 1) v) (S,, a |-> v) (S,,, i |-> A)
 (* Note: in the article, this rule is a consequence of Le_ToAbs, because when the value v doesn't
  * contain any loan or borrow, no region abstraction is created. *)
 | Le_RemoveAnon S a v
     (fresh_a : fresh_anon S a)
     (no_loan : not_contains_loan v)
     (no_borrow : not_contains_borrow v) :
-    le_state_base_no_fresh_loan (S,, a |-> v) S
+    le_no_fresh_loan (1 + vweight (fun _ => 1) v) (S,, a |-> v) S
 | Le_MoveValue S sp a
     (no_outer_loan : not_contains_outer_loan (S.[sp]))
     (fresh_a : fresh_anon S a)
     (valid_sp : valid_spath S sp)
     (sp_not_in_borrow : not_in_borrow S sp)
-    (sp_not_in_abstraction : not_in_abstraction sp) :
-    le_state_base_no_fresh_loan S (S.[sp <- bot],, a |-> S.[sp])
-(* Note: for the merge, we reuse the region abstraction at i. Maybe we should use another region
- * abstraction index k? *)
+    (sp_in_abstraction : not_in_abstraction sp) :
+    le_no_fresh_loan 0 S (S.[sp <- bot],, a |-> S.[sp])
 | Le_MergeAbs S i j A B C
     (fresh_i : fresh_abstraction S i) (fresh_j : fresh_abstraction S j)
     (Hmerge : merge_abstractions A B C) :
-    i <> j -> le_state_base_no_fresh_loan (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
+    i <> j -> le_no_fresh_loan (abs_measure A + abs_measure B - abs_measure C + 2)
+                                (S,,, i |-> A,,, j |-> B) (S,,, i |-> C)
 | Le_Abs_ClearValue S i j v A
     (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
     (no_loan : not_contains_loan v) (no_borrow : not_contains_borrow v) :
-    le_state_base_no_fresh_loan (S,,, i |-> insert j v A) (S,,, i |-> A)
-| Le_AnonValue S a (is_fresh : fresh_anon S a) : le_state_base_no_fresh_loan S (S,, a |-> bot)
+    le_no_fresh_loan (1 + vweight (fun _ => 1) v) (S,,, i |-> insert j v A) (S,,, i |-> A)
+| Le_AnonValue S a (is_fresh : fresh_anon S a) :
+    le_no_fresh_loan 0 S (S,, a |-> bot)
 .
 
-Variant le_state_base_fresh_loan : loan_id -> state -> state -> Prop :=
+(** The following rules introduce a loan identifier, that is added as parameter.
+   We do not include a measure parameter, as it is 0. *)
+Variant le_fresh_loan : loan_id -> state -> state -> Prop :=
 | Le_Fresh_MutLoan S sp l' a ty
     (fresh_a : fresh_anon S a)
     (valid_sp : valid_spath S sp)
     (sp_not_in_abstraction : not_in_abstraction sp)
     (Htype : is_of_type ty (S.[sp]))
     (fresh_l' : is_fresh l' S) :
-    le_state_base_fresh_loan l' S (S.[sp <- loan^m(ty, l')],, a |-> borrow^m(l', S.[sp]))
+    le_fresh_loan l' S (S.[sp <- loan^m(ty, l')],, a |-> borrow^m(l', S.[sp]))
 | Le_Reborrow_MutBorrow (S : state) (sp : spath) (l0 l1 : loan_id) (a : anon) ty
     (fresh_a : fresh_anon S a)
     (get_borrow_l0 : get_node (S.[sp]) = nborrow^m(l0))
     (sp_not_in_abstraction : not_in_abstraction sp)
     (Htype : is_of_type ty (S.[sp +++ [0] ]))
     (fresh_l1 : is_fresh l1 S) :
-    le_state_base_fresh_loan l1 S
+    le_fresh_loan l1 S
       ((rename_mut_borrow S sp l1),, a |-> borrow^m(l0, loan^m(ty, l1)))
 | Le_Borrow_Abstraction S i j A l' a ty'
     (fresh_i : fresh_abstraction S i) (fresh_j : lookup j A = None)
     (fresh_a : fresh_anon S a)
     (fresh_l' : is_fresh l' (S,,, i |-> A)) :
-    le_state_base_fresh_loan l'
+    le_fresh_loan l'
                    (S,,, i |-> A)
                    (S,,, i |-> insert j (loan^m(ty', l')) A,, a |-> borrow^m(l', VSymbolic ty'))
 .
 
+Variant le_state_base_n : nat -> state -> state -> Prop :=
+  | Le_No_FreshLoan_n n Sl Sh (Hle : le_no_fresh_loan n Sl Sh) : le_state_base_n n Sl Sh
+  | Le_FreshLoan_n l' Sl Sh (Hle : le_fresh_loan l' Sl Sh) : le_state_base_n 0 Sl Sh
+.
+
 Variant le_state_base Sl Sh : Prop :=
-  | Le_No_FreshLoan (Hle : le_state_base_no_fresh_loan Sl Sh) : le_state_base Sl Sh
-  | Le_FreshLoan l' (Hle : le_state_base_fresh_loan l' Sl Sh) : le_state_base Sl Sh
+  | Le_No_FreshLoan n (Hle : le_no_fresh_loan n Sl Sh) : le_state_base Sl Sh
+  | Le_FreshLoan l' (Hle : le_fresh_loan l' Sl Sh) : le_state_base Sl Sh
 .
 
 Variant le_val_state_base : (value * state) -> (value * state) -> Prop :=
-| Le_ValState_No_FreshLoan v Sl Sh (le_states : le_state_base_no_fresh_loan Sl Sh) :
+| Le_ValState_No_FreshLoan v n Sl Sh (le_states : le_no_fresh_loan n Sl Sh) :
     le_val_state_base (v, Sl) (v, Sh)
-| Le_ValState_FreshLoan l' v Sl Sh (le_states : le_state_base_fresh_loan l' Sl Sh)
+(** The introduced identifier [l'] must be fresh in the value [v]. *)
+| Le_ValState_FreshLoan l' v Sl Sh (le_states : le_fresh_loan l' Sl Sh)
     (fresh_l'_v : is_fresh_val l' v) :
     le_val_state_base (v, Sl) (v, Sh)
 | Le_ToSymbolic_Val v S vp ty (Htype : is_of_type ty (v.[[vp]]))
@@ -168,27 +118,17 @@ Variant le_val_state_base : (value * state) -> (value * state) -> Prop :=
 
 Definition le_symbolic := chain equiv_states le_state_base^*.
 
-Inductive eval_proj (S : state) perm : proj -> spath -> spath -> Prop :=
-(* Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
-| E_Deref_MutBorrow q l
-    (Hperm : perm <> Mov)
-    (get_q : get_node (S.[q]) = nborrow^m(l)) :
-    eval_proj S perm Deref q (q +++ [0])
-.
-
-Section Le_state_base_n_is_le_state_base.
-  Hint Constructors le_state_base_no_fresh_loan : core.
-  Hint Constructors le_state_base_fresh_loan : core.
-  Hint Constructors le_state_base : core.
-  Hint Constructors le_state_base_n : core.
-  Lemma le_state_base_n_is_le_state_base Sl Sr :
-    le_state_base Sl Sr <-> exists n, le_state_base_n n Sl Sr.
-  Proof.
-    split.
-    - intros [[ ] | l' [ ] ]; eexists; eauto.
-    - intros (n & [ ]); eauto.
-  Qed.
-End Le_state_base_n_is_le_state_base.
+Lemma le_state_base_n_is_le_state_base Sl Sr :
+  le_state_base Sl Sr <-> exists n, le_state_base_n n Sl Sr.
+Proof.
+  split.
+  - intros [n Hle | l' Hle].
+    + exists n. constructor. assumption.
+    + exists 0. eapply Le_FreshLoan_n. eassumption.
+  - intros (n & [? ? ? Hle | ? ? ? Hle]).
+    + econstructor. eassumption.
+    + eapply Le_FreshLoan. eassumption.
+Qed.
 
 (** A branching state [Br] is more general than a branching state [Bl] if for any token [r], if [Bl] maps a control-flow token [r] to a symbolic state [Sl] ([lookup r Bl = Some Sl]), then [Br] maps [r] to a more general state [Sr] ([lookup r Br = Some Sr] and [le_symbolic Sl Sr]).
 
@@ -218,6 +158,14 @@ Definition is_join (B0 B1 Bjoin : branching_state) :=
   forall r, option_is_join (lookup r B0) (lookup r B1) (lookup r Bjoin).
 
 (** * Operational semantics. *)
+Inductive eval_proj (S : state) perm : proj -> spath -> spath -> Prop :=
+(** Coresponds to R-Deref-MutBorrow and W-Deref-MutBorrow in the article. *)
+| E_Deref_MutBorrow q l
+    (Hperm : perm <> Mov)
+    (get_q : get_node (S.[q]) = nborrow^m(l)) :
+    eval_proj S perm Deref q (q +++ [0])
+.
+
 (* TODO: eval_path represents a computation, that evaluates and accumulate the result over [...] *)
 Inductive eval_path (S : state) perm : path -> spath -> spath -> Prop :=
 (* Corresponds to R-Base and W-Base in the article. *)
@@ -293,35 +241,9 @@ where "S  |-{rv}  rv  =>  r" := (eval_rvalue rv S r) : llbc_sharp_scope.
 (* Note: we use the variable names i' and j' instead of i and j that are used for le_state_base.
  * We are also using the name A' instead of A, B or C for the region abstractions.
  *)
-Variant reorg : state -> state -> Prop :=
-(* Ends a borrow when it's not in an abstraction: *)
-| Reorg_End_MutBorrow S (p q : spath) l ty
-    (get_loan : get_node (S.[p]) = nloan^m(ty, l)) (get_borrow : get_node (S.[q]) = nborrow^m(l))
-    (type_borrow : is_of_type ty (S.[q +++ [0] ]))
-    (Hno_loan : not_contains_loan (S.[q +++ [0] ])) (Hnot_in_borrow : not_in_borrow S q)
-    (Hdisj : disj p q)
-    (loan_not_in_abstraction : not_in_abstraction p)
-    (borrow_not_in_abstraction : not_in_abstraction q) :
-    reorg S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
-(* Ends a borrow when it's in an abstraction: *)
-(* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
-| Reorg_End_MutBorrow_in_abstraction S q i' j' A' l ty
-    (fresh_i' : fresh_abstraction S i') (fresh_j' : lookup j' A' = None)
-    (get_borrow : get_node (S.[q]) = nborrow^m(l))
-    (type_borrow : is_of_type ty (S.[q +++ [0] ]))
-    (Hno_loan : not_contains_loan (S.[q +++ [0] ])) (Hnot_in_borrow : not_in_borrow S q)
-    (borrow_not_in_abstraction : not_in_abstraction q) :
-    reorg (S,,, i' |-> insert j' (loan^m(ty, l)) A') (S.[q <- bot],,, i' |-> A')
-(* q refers to a path in abstraction A, at index j. *)
-| Reorg_End_Abstraction S i' A' S'
-    (fresh_i' : fresh_abstraction S i')
-    (A_no_loans : map_Forall (fun _ => not_contains_loan) A')
-    (Hadd_anons : add_anons S A' S') : reorg (S,,, i' |-> A') S'
-.
-
 Variant reorg_n : nat -> state -> state -> Prop :=
 (* Ends a borrow when it's not in an abstraction: *)
-| Reorg_End_MutBorrow_n S (p q : spath) l ty
+| Reorg_End_MutBorrow S (p q : spath) l ty
     (get_loan : get_node (S.[p]) = nloan^m(ty, l)) (get_borrow : get_node (S.[q]) = nborrow^m(l))
     (type_borrow : is_of_type ty (S.[q +++ [0] ]))
     (Hno_loan : not_contains_loan (S.[q +++ [0] ])) (Hnot_in_borrow : not_in_borrow S q)
@@ -331,7 +253,7 @@ Variant reorg_n : nat -> state -> state -> Prop :=
     reorg_n 0 S (S.[p <- (S.[q +++ [0] ])].[q <- bot])
 (* Ends a borrow when it's in an abstraction: *)
 (* The value that is transferred back, S.[q +++ [0]], has to be of integer type. *)
-| Reorg_End_MutBorrow_in_abstraction_n S q i' j' A' l ty
+| Reorg_End_MutBorrow_in_abstraction S q i' j' A' l ty
     (fresh_i' : fresh_abstraction S i') (fresh_j' : lookup j' A' = None)
     (get_borrow : get_node (S.[q]) = nborrow^m(l))
     (type_borrow : is_of_type ty (S.[q +++ [0] ]))
@@ -339,11 +261,12 @@ Variant reorg_n : nat -> state -> state -> Prop :=
     (borrow_not_in_abstraction : not_in_abstraction q) :
     reorg_n (vweight (fun _ => 1) (S.[q +++ [0] ])) (S,,, i' |-> insert j' (loan^m(ty, l)) A') (S.[q <- bot],,, i' |-> A')
 (* q refers to a path in abstraction A, at index j. *)
-| Reorg_End_Abstraction_n S i' A' S'
+| Reorg_End_Abstraction S i' A' S'
     (fresh_i' : fresh_abstraction S i')
     (A_no_loans : map_Forall (fun _ => not_contains_loan) A')
     (Hadd_anons : add_anons S A' S') : reorg_n 0 (S,,, i' |-> A') S'
 .
+Definition reorg S S' := exists n, reorg_n n S S'.
 
 (* This operation realizes the second half of an assignment p <- rv, once the rvalue v has been
  * evaluated to a pair (v, S). *)

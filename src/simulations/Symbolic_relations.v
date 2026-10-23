@@ -88,13 +88,13 @@ Qed.
 Lemma le_n_equiv_states_commute n :
   forward_simulation (le_state_base_n n) (le_state_base_n n) equiv_states equiv_states.
 Proof.
-  intros Sl Sr (perm & valid_perm & ->) ? Hle. destruct Hle.
+  intros Sl Sr (perm & valid_perm & ->) ? Hle. destruct Hle; destruct Hle.
   (* TODO: automation *)
   - process_state_equivalence. rewrite permutation_sset by eauto with spath.
     execution_step.
     { exists perm. eauto. }
     eapply prove_rel_n.
-    { apply Le_ToSymbolic_n. all: rewrite permutation_sget; eauto with spath. }
+    { constructor. apply Le_ToSymbolic. all: rewrite permutation_sget; eauto with spath. }
     { autorewrite with spath. apply vsize_rename_value. }
     reflexivity.
 
@@ -105,7 +105,7 @@ Proof.
     execution_step.
     { eexists. split; eauto with spath. }
     eapply prove_rel_n.
-    { autorewrite with spath. apply Le_ToAbs_n; eauto with spath.
+    { autorewrite with spath. constructor. apply Le_ToAbs; eauto with spath.
       apply to_abs_apply_permutation; eassumption. }
     { apply vsize_rename_value. }
     reflexivity.
@@ -115,12 +115,12 @@ Proof.
     execution_step.
     { eexists. split; eauto with spath. }
     autorewrite with spath. rewrite rename_value_no_loan_id by assumption.
-    apply Le_RemoveAnon_n; assumption.
+    constructor. apply Le_RemoveAnon; assumption.
 
   - repeat process_state_equivalence. autorewrite with spath in *.
     execution_step. { eexists. eauto. }
     eapply prove_rel.
-    { apply Le_MoveValue_n; rewrite ?permutation_sget; eauto with spath. }
+    { constructor. apply Le_MoveValue; rewrite ?permutation_sget; eauto with spath. }
     autorewrite with spath. reflexivity.
 
   - apply (extend_state_permutation (union (loan_set_abstraction A) (loan_set_abstraction B)))
@@ -139,10 +139,33 @@ Proof.
     rewrite pkmap_fmap by apply map_inj_equiv, perm_pA.
     rewrite pkmap_fmap by apply map_inj_equiv, perm_pB.
     eapply prove_rel_n.
-    { apply Le_MergeAbs_n; eauto with spath.
+    { constructor. apply Le_MergeAbs; eauto with spath.
       apply merge_abstraction_rename_value, Hmerge. }
     { rewrite !abs_measure_rename_set, !map_sum_permutation by assumption. reflexivity. }
     rewrite pkmap_fmap by apply map_inj_equiv, perm_A. reflexivity.
+
+  - apply (extend_state_permutation (loan_set_val v)) in valid_perm.
+    destruct valid_perm as (perm' & valid_perm & ? & ->). clear perm.
+    process_state_equivalence. autorewrite with spath.
+    destruct (exist_fresh (map_img (SA := Pset) p)) as (j' & fresh_j').
+    assert (lookup j p = None).
+    { destruct perm_A as (_ & Hdom). now rewrite eq_None_not_Some, Hdom, <-eq_None_not_Some. }
+    rewrite not_elem_of_map_img in fresh_j'.
+    eapply is_permutation_insert in perm_A; [ | eassumption..].
+    assert (subseteq (loan_set_abstraction (insert j v A)) (dom (loan_id_names (remove_abstraction_perm perm' i)))).
+    { unfold loan_set_abstraction. rewrite map_fold_insert_L; set_solver. }
+    execution_step.
+    { eexists. split; [ | reflexivity]. apply add_abstraction_perm_equivalence; eassumption. }
+    autorewrite with spath. (* TODO: hints *) rewrite fmap_insert.
+    erewrite apply_permutation_insert;
+      [ | apply perm_A | now rewrite lookup_fmap, fresh_j | now simpl_map].
+    rewrite delete_insert_id by assumption.
+    erewrite <-vsize_rename_value.
+    constructor. apply Le_Abs_ClearValue; eauto with spath. apply lookup_pkmap_None. assumption.
+
+  - process_state_equivalence.
+    execution_step. { eexists. split; [exact valid_perm | reflexivity]. }
+    autorewrite with spath. constructor. apply Le_AnonValue. auto with spath.
 
   - process_state_equivalence.
     pose proof Hloan_set as ?. rewrite loan_set_borrow, union_subseteq in Hloan_set.
@@ -153,8 +176,9 @@ Proof.
     autorewrite with spath; [ | autorewrite with spath; eauto with spath].
     apply singleton_subseteq_l, elem_of_dom in Hl'. destruct Hl' as (l & Hl).
     eapply prove_rel.
-    { apply Le_Fresh_MutLoan_n. eapply is_fresh_apply_permutation; eassumption.
-      all: eauto with spath. autorewrite with spath. eauto with spath. }
+    { eapply Le_FreshLoan_n, Le_Fresh_MutLoan; eauto with spath.
+      autorewrite with spath. eauto with spath.
+      eapply is_fresh_apply_permutation; eassumption. }
     autorewrite with spath.
     cbn [rename_value]. unfold rename_loan_id. setoid_rewrite Hl. reflexivity.
 
@@ -179,10 +203,11 @@ Proof.
     cbn in Hl1. apply singleton_subseteq_l, elem_of_dom in Hl1.
     destruct Hl1 as (l1' & Hl1').
     eapply prove_rel.
-    { eapply Le_Reborrow_MutBorrow_n with (sp := permutation_spath _ sp); eauto with spath.
-      eapply is_fresh_apply_permutation; eassumption.
+    { eapply Le_FreshLoan_n, Le_Reborrow_MutBorrow with (sp := permutation_spath _ sp).
+      all: eauto with spath.
       rewrite permutation_sget by eauto with spath. rewrite get_node_rename_value, get_borrow_l0.
-      reflexivity. autorewrite with spath. eauto with spath. }
+      reflexivity. autorewrite with spath. eauto with spath.
+      eapply is_fresh_apply_permutation; eassumption. }
     autorewrite with spath.
     cbn [rename_value]. unfold rename_loan_id. setoid_rewrite Hl0'. setoid_rewrite Hl1'.
     reflexivity.
@@ -205,34 +230,11 @@ Proof.
     autorewrite with spath in fresh_l'. rewrite fmap_insert.
     erewrite apply_permutation_insert;
       [ | apply perm_A | simpl_map; now rewrite fresh_j | eassumption].
-    eapply Le_Borrow_Abstraction_n.
+    eapply Le_FreshLoan_n, Le_Borrow_Abstraction.
     + auto with spath.
     + apply lookup_pkmap_None. assumption.
-    + cbn. unfold rename_loan_id. setoid_rewrite Hl. assumption.
     + assumption.
-
-  - apply (extend_state_permutation (loan_set_val v)) in valid_perm.
-    destruct valid_perm as (perm' & valid_perm & ? & ->). clear perm.
-    process_state_equivalence. autorewrite with spath.
-    destruct (exist_fresh (map_img (SA := Pset) p)) as (j' & fresh_j').
-    assert (lookup j p = None).
-    { destruct perm_A as (_ & Hdom). now rewrite eq_None_not_Some, Hdom, <-eq_None_not_Some. }
-    rewrite not_elem_of_map_img in fresh_j'.
-    eapply is_permutation_insert in perm_A; [ | eassumption..].
-    assert (subseteq (loan_set_abstraction (insert j v A)) (dom (loan_id_names (remove_abstraction_perm perm' i)))).
-    { unfold loan_set_abstraction. rewrite map_fold_insert_L; set_solver. }
-    execution_step.
-    { eexists. split; [ | reflexivity]. apply add_abstraction_perm_equivalence; eassumption. }
-    autorewrite with spath. (* TODO: hints *) rewrite fmap_insert.
-    erewrite apply_permutation_insert;
-      [ | apply perm_A | now rewrite lookup_fmap, fresh_j | now simpl_map].
-    rewrite delete_insert_id by assumption.
-    erewrite <-vsize_rename_value.
-    apply Le_Abs_ClearValue_n; eauto with spath. apply lookup_pkmap_None. assumption.
-
-  - process_state_equivalence.
-    execution_step. { eexists. split; [exact valid_perm | reflexivity]. }
-    autorewrite with spath. apply Le_AnonValue_n. auto with spath.
+    + cbn. unfold rename_loan_id. setoid_rewrite Hl. assumption.
 Qed.
 
 Corollary le_equiv_states_commute :
@@ -311,24 +313,25 @@ Proof.
   - rewrite not_state_contains_map_Forall in fresh_l. eapply fresh_l, get_w.
 Qed.
 
-Lemma le_no_fresh_anon_equiv_states_up_to_loan_renaming_commute S S' perm :
+Lemma le_no_fresh_anon_equiv_states_up_to_loan_renaming_commute n S S' perm :
   valid_loan_id_names perm S -> valid_loan_id_names perm S' ->
-  le_state_base_no_fresh_loan S' S ->
-  le_state_base_no_fresh_loan (rename_state perm S') (rename_state perm S).
+  le_no_fresh_loan n S' S ->
+  le_no_fresh_loan n (rename_state perm S') (rename_state perm S).
 Proof.
   intros H G. destruct (H) as (inj_perm & perm_dom_S). destruct (G) as (_ & perm_dom_S').
   intros Hle. destruct Hle.
-  - rewrite rename_state_sset by eauto with spath. apply Le_ToSymbolic.
+  - rewrite rename_state_sset by eauto with spath.
+    erewrite <-vsize_rename_value, <-rename_state_sget. apply Le_ToSymbolic.
     all: rewrite rename_state_sget; eauto with spath.
   - rewrite rename_state_add_abstraction by assumption.
     rewrite loan_set_add_anon, loan_set_add_abstraction in * |- by assumption.
     rewrite rename_state_add_anon by (try split; set_solver).
-    apply Le_ToAbs; auto with spath.
+    erewrite <-vsize_rename_value. apply Le_ToAbs; auto with spath.
     rewrite <-apply_id_permutation. apply to_abs_apply_permutation; [ | assumption].
     eapply is_permutation_dom_eq; [apply dom_fmap_L | apply id_permutation_is_permutation].
   - rewrite loan_set_add_anon in * |- by assumption.
     rewrite rename_state_add_anon by (try split; set_solver).
-    apply Le_RemoveAnon; auto with spath.
+    erewrite <-vsize_rename_value. apply Le_RemoveAnon; auto with spath.
   - pose proof (loan_set_sget S sp).
     clear H perm_dom_S.
     rewrite rename_state_add_anon. 2: etransitivity; eassumption.
@@ -339,10 +342,11 @@ Proof.
     + intros p. rewrite rename_state_sget, get_node_rename_value.
       intros K. apply sp_not_in_borrow. destruct (get_node _); inversion K. constructor.
   - rewrite !rename_state_add_abstraction by auto with spath.
-    apply Le_MergeAbs; auto with spath.
+    erewrite <-(abs_measure_rename_set _ A), <-(abs_measure_rename_set _ B).
+    erewrite <-(abs_measure_rename_set _ C). apply Le_MergeAbs; auto with spath.
     apply merge_abstraction_rename_value. assumption.
   - rewrite !rename_state_add_abstraction, fmap_insert by assumption.
-    apply Le_Abs_ClearValue; auto with spath.
+    erewrite <-vsize_rename_value. apply Le_Abs_ClearValue; auto with spath.
     rewrite lookup_fmap, fresh_j. reflexivity.
   - rewrite rename_state_add_anon by auto with spath.
     apply Le_AnonValue. auto with spath.
@@ -350,8 +354,8 @@ Qed.
 
 Lemma le_equiv_states_up_to_loan_renaming_commute S S' perm l' l'' :
   valid_loan_id_names perm S -> valid_loan_id_names perm S' -> lookup l' perm = Some l'' ->
-  le_state_base_fresh_loan l' S' S ->
-  le_state_base_fresh_loan l'' (rename_state perm S') (rename_state perm S).
+  le_fresh_loan l' S' S ->
+  le_fresh_loan l'' (rename_state perm S') (rename_state perm S).
 Proof.
   intros H G get_l''. destruct (H) as (inj_perm & perm_dom_S). destruct (G) as (_ & perm_dom_S').
   intros Hle. destruct Hle.
@@ -462,7 +466,7 @@ Proof.
     destruct Hperm' as (perm' & Hperm' & ? & ? & ->).
     assert (valid_loan_id_names perm' Sl). { split; [apply Hperm' | assumption]. }
     eexists. split.
-    { constructor.
+    { econstructor.
       apply le_no_fresh_anon_equiv_states_up_to_loan_renaming_commute; [ | | eassumption].
       all: assumption. }
     exists perm'. split; [assumption | ]. erewrite rename_value_subseteq by eassumption.
@@ -539,7 +543,7 @@ Proof.
   destruct (exists_fresh_anon S) as (a & fresh_a).
   etransitivity.
   { constructor. eapply Le_FreshLoan, Le_Reborrow_MutBorrow; eassumption. }
-  constructor. constructor. eapply Le_ToAbs with (a := a).
+  constructor. econstructor. eapply Le_ToAbs with (a := a).
   - eauto with spath.
   - repeat apply fresh_abstraction_sset. eassumption.
   - autorewrite with spath. constructor. assumption.
@@ -557,7 +561,7 @@ Lemma Le_Fresh_MutLoan_Abs S sp l' i k ty
 Proof.
   destruct (exists_fresh_anon S) as (a & fresh_a).
   etransitivity.
-  { constructor. constructor. eapply Le_ToSymbolic; eassumption. }
+  { constructor. econstructor. eapply Le_ToSymbolic; eassumption. }
   etransitivity.
   { constructor. eapply Le_FreshLoan, Le_Fresh_MutLoan with (sp := sp).
     - apply fresh_anon_sset. eassumption.
@@ -566,7 +570,7 @@ Proof.
     - autorewrite with spath. constructor.
     - not_contains. }
   etransitivity.
-  { constructor. constructor. eapply Le_ToAbs with (a := a) (i := i).
+  { constructor. econstructor. eapply Le_ToAbs with (a := a) (i := i).
     - eauto with spath.
     - repeat apply fresh_abstraction_sset. assumption.
     - autorewrite with spath. constructor; [constructor | not_contains..]. }
@@ -582,7 +586,7 @@ Lemma le_uninitialize_value S sp
   le_state_base^* S (S.[sp <- bot]).
 Proof.
   destruct (exists_fresh_anon S) as (a & fresh_a).
-  etransitivity; constructor; constructor.
+  etransitivity; constructor; econstructor.
   { apply Le_MoveValue with (sp := sp) (a := a); try assumption. not_contains_outer. }
   { apply Le_RemoveAnon; auto with spath. }
 Qed.
@@ -608,7 +612,7 @@ Proof.
     all: auto with spath. }
   destruct (exist_fresh (dom (abstractions (S',,, ib |-> B,,, ia |-> insert ja (loan^m (ty, l)) A))))
       as (k & fresh_k%not_elem_of_dom).
-  etransitivity; constructor; constructor.
+  etransitivity; constructor; econstructor.
   { apply Le_ToAbs with (i := k); auto with spath.
     eapply ToAbs_MutBorrow with (k := jb); [constructor | not_contains..]. }
   { rewrite <-!(add_abstraction_commute _ ia) by congruence.
