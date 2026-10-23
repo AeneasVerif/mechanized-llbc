@@ -6,9 +6,11 @@ From Stdlib Require Import Relations.
 From Stdlib Require Import Lia.
 
 Arguments clos_refl_trans {_}.
+Arguments clos_refl {_}.
 
 (* TODO: give a scope. *)
 Global Notation "R ^*" := (clos_refl_trans R).
+Global Notation "R ^=" := (clos_refl R).
 
 Lemma clos_refl_trans_ind_left' A R (P : A -> A -> Prop)
   (Prefl : forall a : A, P a a)
@@ -24,6 +26,9 @@ Proof. intros ? b. eapply clos_refl_trans_ind_right with (P := fun a => P a b); 
 
 Global Instance clos_refl_trans_refl A (R : relation A) : Reflexive R^*.
 Proof. intros ?. apply rt_refl. Qed.
+
+Global Instance clos_refl_refl A (R : relation A) : Reflexive R^=.
+Proof. intros ?. apply r_refl. Qed.
 
 Global Instance clos_refl_trans_trans A (R : relation A) : Transitive R^*.
 Proof. intros ?. apply rt_trans. Qed.
@@ -171,87 +176,55 @@ Proof. intros. transitivity Sm; [ | constructor]; assumption. Qed.
 Lemma le_step_left {S} {R : relation S} Sl Sm Sr : R Sl Sm -> R^* Sm Sr -> R^* Sl Sr.
 Proof. intros. transitivity Sm; [constructor | ]; assumption. Qed.
 
+(** Definition and lemmas for simulation for well-formed states, in HLPL+. *)
 Section WellFormedSimulations.
   Context {state : Type}.
-  Context (le_base : state -> state -> Prop).
-  Context (reorg : state -> state -> Prop).
+  Context (le_base reorg : state -> state -> Prop).
   Context (well_formed : state -> Prop).
   Context (le_base_preserves_wf_r : forall a b, well_formed b -> le_base a b -> well_formed a).
   Context (reorg_preserves_wf : forall a b, reorg a b -> well_formed a -> well_formed b).
 
-  (* Well-formedness is preserved by sequences of the base. *)
-  Lemma le_preserves_well_formedness Sl Sr :
-    well_formed Sr -> le_base^* Sl Sr -> well_formed Sl.
-  Proof. intros ?. induction 1; eauto. Qed.
-
-  (* Preservation of reorgs require well-formedness. However, well-formedness for related states is
-   * not proved the same in LLBC+ and HLPL+:
-   * - In HLPL+, we prove that well-formedness is preserves from right-to-left. That means that
-   *   if Sl < Sr and Sr is well-formed, than Sl is well-formed.
-   * - In LLBC+, we prove that well-formedness is preserves from left-to-right. That means that
-   *   if Sl < Sr and Sl is well-formed, than Sr is well-formed.
-   * Thus, we are going to state two different definitions and lemmas. *)
   Definition well_formed_forward_simulation_r {B C D : Type}
     (LeBA : B -> state -> Prop) (LeDC : D -> C -> Prop)
     (RedAC : state -> C -> Prop) (RedBD : B -> D -> Prop) :=
     forall a c, well_formed a -> RedAC a c -> forall b, LeBA b a -> exists d, LeDC d c /\ RedBD b d.
 
-  (* Reorganizations and le are defined as reflexive-transitive closure of relations (that we are
-   * going to denote < and reorg). When we want to prove the preservation, ie:
+  (** Hindley-Rosen lemma for well-formed states in HLPL+. *)
+  Context
+    (local_commutation : well_formed_forward_simulation_r le_base le_base^= reorg reorg^*).
 
-      Sl <*  Sr
+  Lemma reorgs_preserve_le_base :
+    well_formed_forward_simulation_r le_base le_base^= reorg^* reorg^*.
+  Proof.
+    intros Sr Sl well_formed_Sr reorg_Sr_Sl.
+    induction reorg_Sr_Sl
+        as [Sr | Sr S'r S''r reorg_Sr_S'r reorg_S'r_S''r IH] using clos_refl_trans_ind_right';
+        intros Sl le_Sl_Sr.
+    - exists Sl. split; [ | reflexivity]. constructor. assumption.
+    - specialize (local_commutation Sr S'r well_formed_Sr reorg_Sr_S'r Sl le_Sl_Sr).
+      destruct local_commutation as (S'l & le_S'l_S'r & reorg_Sl_S'l).
+      destruct le_S'l_S'r as [S'r le_S'l_S'r | ]; subst.
+      + edestruct IH as (S''l & le_S''l_S''l & reorg_S'l_S''l).
+        { eapply reorg_preserves_wf; eassumption. }
+        { exact le_S'l_S'r. }
+        exists S''l. split; [assumption | ]. transitivity S'l; assumption.
+      + exists S''r. split; [reflexivity | ]. transitivity S'l; eassumption.
+  Qed.
 
-      |      |
-      *      *
-      v      v
-
-     Sl' <* Sr'
-
-   * We want to derive it by only considering the cases of < and reorg, and ignoring the reflexive and
-   * transitive cases:
-
-      Sl <  Sr
-
-      |     |
-      *     |
-      v     v
-
-     Sl' <* Sr'
-
-   * However, this proof scheme is wrong in general. Our strategy is to exhibit a measure |.| from
-   * states to a well-founded order, that is decreasing by applications of < and reorg.
-   *)
-  Lemma preservation_reorg_r
-    (measure : state -> nat)
-    (le_decreasing : forall a b, le_base a b -> measure a < measure b)
-    (reorg_decreasing : forall a b, reorg a b -> measure b < measure a)
-    (H : well_formed_forward_simulation_r le_base le_base^* reorg reorg^*) :
+  Lemma global_commutation_hlpl_plus :
     well_formed_forward_simulation_r le_base^* le_base^* reorg^* reorg^*.
   Proof.
-    (* Sequences of reorgenizations make the measure decrease. *)
-    assert (forall S S', reorg^* S S' -> measure S' <= measure S).
-    { intros ? ? Hreorg. induction Hreorg; subst; eauto using Nat.lt_le_incl, Nat.le_trans. }
-    intros Sr. remember (measure Sr) as n eqn:EQN. revert Sr EQN.
-    induction n as [? IH] using lt_wf_ind. intros Sr -> Sr' well_formed_Sr reorg_Sr_Sr'.
-    destruct reorg_Sr_Sr' as [ | Sr Sr' Sr'' reorg_Sr_Sr' ? _] using clos_refl_trans_ind_right'.
-    { intros. eexists. split; [eassumption | apply rt_refl]. }
-    intros Sl le_Sl_Sr.
-    destruct le_Sl_Sr as [ | Sl Sm Sr ? _ le_Sm_Sr] using clos_refl_trans_ind_left'.
-    { eexists. split; [apply rt_refl | ]. eapply rt_trans; [constructor | ]; eassumption. }
-    specialize (H _ _ well_formed_Sr reorg_Sr_Sr' _ le_Sm_Sr). destruct H as (Sm' & le_Sm'_Sr' & reorg_Sm_Sm').
-    assert (exists Sl', le_base^* Sl' Sm' /\ reorg^* Sl Sl')
-      as (Sl' & ? & ?)
-      by eauto.
-    assert (exists Sm'', le_base^* Sm'' Sr'' /\ reorg^* Sm' Sm'')
-      as (Sm'' & ? & ?)
-      by eauto.
-    assert (exists Sl'', le_base^* Sl'' Sm'' /\ reorg^* Sl' Sl'')
-      as (? & ? & ?).
-    { eapply IH;
-        [ | reflexivity | | eassumption..];
-        [eauto using Nat.le_lt_trans | eauto using le_preserves_well_formedness].
-    }
-    eexists. split; eapply rt_trans; eassumption.
+    intros Sr S'r well_formed_Sr reorg_Sr_S'r Sl le_Sl_Sr.
+    revert S'r reorg_Sr_S'r.
+    induction le_Sl_Sr
+        as [Sr | Sl Sm Sr le_Sl_Sm IH le_Sm_Sr]
+        using clos_refl_trans_ind_left';
+        intros S'r reorg_Sr_S'r.
+    - exists S'r. split; [reflexivity | assumption].
+    - edestruct reorgs_preserve_le_base as (S'm & le_S'm_S'r%clos_r_clos_rt & reorg_Sm_S'm);
+        [eassumption.. | ].
+      edestruct IH as (S'l & le_S'l_S'm & reorg_Sl_S'l); eauto.
+      exists S'l. split; [ | assumption]. transitivity S'm; assumption.
   Qed.
 End WellFormedSimulations.
 
@@ -362,7 +335,7 @@ Section SymbolicSimulations.
     exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q
   ).
 
-  Lemma measured_preservation_reorg_l :
+  Lemma measured_preservation_reorg :
     forall p Sh q S'h, reorg_n^{q} Sh S'h -> forall Sl, le_n p Sl Sh ->
     exists r s S'l, le_n r S'l S'h /\ reorg_n^{s} Sl S'l /\ r + s <= p + q.
   Proof.
@@ -415,14 +388,14 @@ Section SymbolicSimulations.
       exists n. exact Hle.
   Qed.
 
-  Corollary preservation_reorg_l : forward_simulation le le reorg^* reorg^*.
+  Corollary global_commutation_llbc_plus : forward_simulation le le reorg^* reorg^*.
   Proof.
     intros Sr S'l reorg_Sr_S'r Sl le_Sl_Sr.
     rewrite le_n_is_le in le_Sl_Sr.
     destruct le_Sl_Sr as (p & le_n_Sl_Sr).
     rewrite measured_closure_equiv in reorg_Sr_S'r by exact reorg_is_reorg_n.
     destruct reorg_Sr_S'r as (q & reorgs_n_Sr_S'r).
-    pose proof (measured_preservation_reorg_l _ _ _ _ reorgs_n_Sr_S'r _ le_n_Sl_Sr)
+    pose proof (measured_preservation_reorg _ _ _ _ reorgs_n_Sr_S'r _ le_n_Sl_Sr)
       as (r & s & Sl' & ? & ? & _).
     exists Sl'. split.
     - rewrite le_n_is_le. exists r. assumption.

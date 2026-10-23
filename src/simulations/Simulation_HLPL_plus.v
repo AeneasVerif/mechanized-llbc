@@ -100,6 +100,26 @@ Proof.
 Qed.
 
 (** * Automation. *)
+Lemma le_base_refl_right Sl Sm Sh : le_base Sm Sh -> Sl = Sm -> le_base^= Sl Sh.
+Proof. intros ? ->. constructor. assumption. Qed.
+
+Ltac le_step_right :=
+  match goal with
+  | |- ?R^* ?Sl ?Sh => eapply le_step_right
+  | |- le_base^= ?Sl ?Sh => eapply le_base_refl_right
+  end.
+
+Lemma prove_reorg_step {S} {reorg le : relation S} S0 S1 Sr:
+  reorg S0 S1 -> (exists Sl, le Sl Sr /\ reorg^* S1 Sl) ->
+  exists Sl, le Sl Sr /\ reorg^* S0 Sl.
+Proof.
+  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
+  etransitivity; [constructor | ]; eassumption.
+Qed.
+
+Ltac reorg_step := eapply prove_reorg_step.
+Ltac reorg_done := eexists; split; [ | reflexivity].
+
 (** A tactic to prove that a value or state does not contain some node (ex: loan, loc, bot).
     This tactic tries to solve this by applying the relevant lemmas, and never fails. *)
 (* Note: Can we remove the automatic rewriting out of this tactic? *)
@@ -339,8 +359,6 @@ Proof.
     eexists. split. { eauto with spath. }
     econstructor; [discriminate | autorewrite with spath; eassumption].
 Qed.
-
-Ltac le_step_right := eapply le_step_right.
 
 (** Suppose that [Sl < Sr], and that p evaluates to a spath [pi] in [Sr]
    ([Sr |-{p} p =>^{perm} pi]).
@@ -850,36 +868,12 @@ Definition measure_node c :=
   | _ => 0
   end.
 
-Lemma measure_mut_loan l : measure_node nloan^m(l) = 2. Proof. reflexivity. Qed.
-Hint Rewrite measure_mut_loan : weight.
-Lemma measure_mut_borrow l : measure_node nborrow^m(l) = 1. Proof. reflexivity. Qed.
-Hint Rewrite measure_mut_borrow : weight.
-Lemma measure_loc l : measure_node nloc(l) = 1. Proof. reflexivity. Qed.
-Hint Rewrite measure_loc : weight.
-Lemma measure_ptr l : measure_node nptr(l) = 1. Proof. reflexivity. Qed.
-Hint Rewrite measure_ptr : weight.
-Lemma measure_bot : vweight measure_node bot = 0. Proof. reflexivity. Qed.
-Hint Rewrite measure_bot : weight.
-
-Lemma prove_reorg_step {S} {reorg le : relation S} S0 S1 Sr:
-  reorg S0 S1 -> (exists Sl, le Sl Sr /\ reorg^* S1 Sl) ->
-  exists Sl, le Sl Sr /\ reorg^* S0 Sl.
-Proof.
-  intros ? (Sl & ? & ?). exists Sl. split; [assumption | ].
-  etransitivity; [constructor | ]; eassumption.
-Qed.
-
-Ltac reorg_step := eapply prove_reorg_step.
-Ltac reorg_done := eexists; split; [ | reflexivity].
-
 Lemma reorg_preserves_HLPL_plus_rel :
   well_formed_forward_simulation_r well_formed le_base^* le_base^* reorg^* reorg^*.
 Proof.
-  eapply preservation_reorg_r with (measure := sweight measure_node).
+  eapply global_commutation_hlpl_plus.
   { apply le_base_preserves_wf_r. }
   { apply reorg_preserves_well_formedness. }
-  { intros Sl Sr Hle. destruct Hle; weight_inequality. }
-  { intros ? ? Hreorg. destruct Hreorg; weight_inequality. }
   intros Sr Sr' WF_Sr reorg_Sr_Sr'. destruct reorg_Sr_Sr'.
   (* Case Reorg_End_MutBorrow: *)
   - intros ? Hle. destruct Hle.

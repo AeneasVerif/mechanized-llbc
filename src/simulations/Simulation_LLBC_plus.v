@@ -3021,7 +3021,7 @@ Qed.
 
 Lemma reorg_preserves_LLBC_plus_rel : forward_simulation le_symbolic le_symbolic reorg^* reorg^*.
 Proof.
-  eapply preservation_reorg_l.
+  eapply global_commutation_llbc_plus.
   - exact le_state_base_n_decreases.
   - exact reorg_decreases.
   - exact reorg_preserve_equiv.
