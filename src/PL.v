@@ -853,7 +853,13 @@ Section Concretization.
   Proof.
     generalize dependent bytes. induction tl ; intros bytes Hsize.
     - cbn in *. apply LB.list.nil_length_inv in Hsize. assumption.
-    - cbn in *. rewrite skipn_0.
+    - rewrite TL.mapi_unfold.
+      cbn in *. rewrite <- (LB.list.take_drop (sizeof t) bytes) at 1. f_equal ; auto.
+      assert (H : List.length (skipn (sizeof t) bytes) = sizeof_tuple tl)
+               by (rewrite length_skipn ; lia).
+      rewrite (IHtl (skipn (sizeof t) bytes) H). f_equal.
+      eapply TL.mapi_exten. intros. rewrite skipn_skipn, Nat.add_comm. reflexivity.
+  Qed.
 
   Lemma concr_val_tuple_implies_concr_val'' :
     forall vl tl bytes,
@@ -880,8 +886,16 @@ Section Concretization.
     }
     {
       intros (Heq1 & Heq2 & IH). rewrite concr_val_tuple_implies_concr_val'.
+      symmetry in Heq2. apply slice_bytes_list in Heq2.
+      exists (TL.mapi (fun i t => firstn (sizeof t) (skipn (pst tl i) bytes)) tl).
+      repeat split ; auto.
+      - rewrite <- TL.mapi_length. assumption.
+      - rewrite <- TL.mapi_length. reflexivity.
+      - apply LR.list.Forall_true ; intros. 
+        exists (firstn (sizeof t) (skipn (pst tl x) bytes)).
+        erewrite TL.mapi_nth_error with (t := t) ; auto.
     }
-  Proof.
+  Qed.
 
   Lemma concr_val_add_loc :
     forall v vp l t bytes,
@@ -2455,9 +2469,31 @@ Section Concretization.
       assert (concr_hlpl_val (loc (l, v)) t' bytes) by (apply Concr_loc ; auto).
       specialize (IHoff_vpath_equiv _ _ H2). assumption.
     - nodes_to_val.
+      pose proof (proj1 (concr_val_off_vpath_equiv_equiv _ _ _ Hleni) H0 _ _ _ H).
+      rewrite vset_app_split.
+      specialize
+        (IHoff_vpath_equiv
+           (firstn (sizeof t') (skipn (Z.to_nat off + pst tl n) bytesi))
+           (vi.[[ vp ]].[[ [n] <- v]])).
+      assert (concr_hlpl_val (vi .[[ vp]] .[[ [n] <- v]]) (TTuple tl)
+                (firstn (sizeof t') (skipn (Z.to_nat off + pst tl n) bytesi))).
+      {
+        inversion H2 ; subst ; try congruence ; clear H3. 
+      }
+      apply IHoff_vpath_equiv with (v := vi .[[ vp]] .[[ [n] <- v]]) in H2.
+      spe
+
+      inversion H2 ; subst ; try congruence.
+      eapply (proj1 (concr_val_tuple_implies_concr_val'' _ _ _)).
       assert (concr_hlpl_val_tuple t tl
                 (firstn (sizeof_tuple tl) (skipn (Z.to_nat off) bytesi))).
       {
+        eapply concr_val_tuple_implies_concr_val'' ; repeat split ; eauto.
+        - rewrite length_firstn, Nat.min_l ; [ reflexivity | ].
+          pose proof (off_vpath_equiv_sizeof _ _ _ _ _ H). cbn in H2. 
+          pose proof (offset_is_positive _ _ _ _ _ H).
+          rewrite length_skipn, Hleni. lia.
+        - intros.
       }
 
 

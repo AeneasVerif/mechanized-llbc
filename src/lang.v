@@ -87,13 +87,75 @@ Module TypeList.
     | TCons t tl' => (f t) :: map f tl'
     end.
 
+  Fixpoint mapi_rec {A : Type} (f : nat -> type -> A) (tl : type_list) (n : nat) : list A :=
+    match tl with
+    | TNil => []
+    | TCons t tl' => (f n t) :: mapi_rec f tl' (S n)
+    end.
+
   Definition mapi {A : Type} (f : nat -> type -> A) (tl : type_list) : list A :=
-    let fix mapi_rec f tl n :=
-      match tl with
-      | TNil => []
-      | TCons t tl' => (f n t) :: mapi_rec f tl' (S n)
-      end in
     mapi_rec f tl 0.
+
+  Lemma mapi_rec_length {A : Type} (f : nat -> type -> A) tl n :
+    length tl = List.length (mapi_rec f tl n).
+  Proof. generalize dependent n. induction tl ; intros ; cbn in * ; auto. Qed.
+
+  Lemma mapi_length {A : Type} (f : nat -> type -> A) tl :
+    length tl = List.length (mapi f tl).
+  Proof. apply mapi_rec_length. Qed.
+
+  Lemma mapi_rec_nth_error {A : Type} (f : nat -> type -> A) t tl m n :
+    nth_error tl n = Some t ->
+    List.nth_error (mapi_rec f tl m) n = Some (f (m + n) t).
+  Proof.
+    intros H. generalize dependent n. generalize dependent m. induction tl ; intros.
+    - cbn in H. discriminate.
+    - cbn. destruct n.
+      * rewrite Nat.add_0_r. cbn. injection H as ->. reflexivity.
+      * cbn. rewrite IHtl ; auto. rewrite Nat.add_succ_comm. reflexivity.
+  Qed.
+
+  Lemma mapi_nth_error {A : Type} (f : nat -> type -> A) t tl n :
+    nth_error tl n = Some t ->
+    List.nth_error (mapi f tl) n = Some (f n t).
+  Proof.
+    intros. unfold mapi. rewrite mapi_rec_nth_error with (t := t) ; auto.
+  Qed.
+    
+  Lemma mapi_rec_shift {A : Type}
+    (f : nat -> type -> A) (tl : type_list) (n : nat) :
+    mapi_rec f tl (S n) =  mapi_rec (fun n t => f (S n) t) tl n.
+  Proof.
+    generalize dependent n. induction tl ; intros.
+    - reflexivity.
+    - cbn in *. f_equal. rewrite IHtl. reflexivity.
+  Qed.
+
+  Lemma mapi_rec_unfold {A : Type}
+    (f : nat -> type -> A) (t : type) (tl : type_list) (n : nat) :
+    mapi_rec f (TCons t tl) n = f n t :: mapi_rec (fun n t => f (S n) t) tl n.
+  Proof.
+    generalize dependent t. generalize dependent n. induction tl ; intros.
+    - reflexivity.
+    - cbn in *. f_equal. rewrite IHtl. reflexivity.
+  Qed.
+
+  Lemma mapi_unfold {A : Type} (f : nat -> type -> A) (t : type) (tl : type_list) :
+    mapi f (TCons t tl) = f 0 t :: mapi (fun n t => f (S n) t) tl.
+  Proof.
+    unfold mapi. rewrite <- mapi_rec_unfold. reflexivity.
+  Qed.
+
+  Lemma mapi_rec_exten {A : Type} (f : nat -> type -> A) (g : nat -> type -> A) tl n :
+   (forall n t, f n t = g n t) -> mapi_rec f tl n = mapi_rec g tl n.
+  Proof.
+    generalize dependent n. induction tl ; intros ; [ reflexivity | ].
+    cbn. rewrite IHtl, H ; auto.
+  Qed.
+
+  Lemma mapi_exten {A : Type} (f : nat -> type -> A) (g : nat -> type -> A) tl :
+   (forall n t, f n t = g n t) -> mapi f tl = mapi g tl.
+  Proof. intro. unfold mapi. rewrite mapi_rec_exten with (g := g) ; auto. Qed.
 
   Lemma typelist_map_is_map {A : Type} (f : type -> A) (tl : type_list) :
     map f tl = List.map f (to_list tl).
