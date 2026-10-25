@@ -178,8 +178,8 @@ Next Obligation.
 Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation.
-  intros ? []; unfold HLPL_children; cbn ; try lia.
-  induction t ; simpl ; lia.
+  intros ? []; unfold HLPL_children; cbn; try lia.
+  unfold sum. induction t; cbn; lia.
 Qed.
 
 Record state := {
@@ -248,7 +248,7 @@ Lemma sget_loc' l v : (loc(l, v)).[[ [0] ]] = v.
 Proof. reflexivity. Qed.
 Hint Rewrite sget_loc' : spath.
 
-Lemma valid_vpath_loc (vp : vpath) (v : value) : 
+Lemma valid_vpath_loc (vp : vpath) (v : value) :
   forall l,
   valid_vpath (loc (l, v)) vp ->
   (vp = []) \/ (exists vp', vp = 0 :: vp' ).
@@ -256,48 +256,23 @@ Proof.
   intros ? Hvp. destruct vp as [ | [ | n' ] vp' ].
   - left; reflexivity.
   - right. exists vp'; reflexivity.
-  - inversion Hvp ; subst. simpl in H2. rewrite nth_error_nil in H2. easy.
+  - inversion Hvp ; subst. simpl in H2. rewrite lookup_nil in H2. easy.
 Qed.
 
 Lemma not_value_list_contains_forall (vl : value_list) (P : nodes -> Prop) :
   not_value_contains P (VTuple vl) <->
     ~ P (get_node (VTuple vl)) /\ Forall (not_value_contains P) (ValueList.to_list vl).
 Proof.
-  rewrite List.Forall_nth.
-  split ; [ intros H | intros (? & ?) ].
+  rewrite Forall_lookup.
+  split ; [ intros H | intros (H & G) ].
   - split.
     + specialize (H []). apply H. constructor.
-    + intros ? ? ? ? **. specialize (H (i :: p)). simpl in H.
-      replace (nth_error (ValueList.to_list vl) i) with
-        (Some (nth i (ValueList.to_list vl) d)) in H. 
-      apply H. eapply valid_cons ; eauto.
-      all: rewrite <- nth_error_nth' ; auto.
-  - intros [ | ] ? ; cbn. 
+    + intros i w get_w ? **. specialize (H (i :: p)). cbn in H. rewrite get_w in H.
+      apply H. econstructor; eassumption.
+  - intros [ | i p] valid_p; cbn.
     + apply H.
-    + inversion H1 ; subst. simpl in H5. rewrite H5.
-      apply nth_error_length in H5 as Hlen.
-      apply nth_error_nth with (d := VBottom) in H5.
-      specialize (H0 n bot Hlen l). simpl in H0. rewrite H5 in H0. apply H0.
-      auto.
-Qed.
-
-Lemma not_value_contains_struct_loc (v : value) (f : nodes -> Prop) :
-  forall l,
-  not_value_contains f (loc (l, v))
-  <-> not_value_contains f v /\ ~ f (nloc (l)).
-Proof.
-  split.
-  {
-    intros H. split.
-    - intros p Hvp. apply (H (0 :: p)). eapply valid_cons ; auto.
-    - apply (H []). apply valid_nil.
-  }
-  {
-    intros [H1 Hp ] p Hvp.
-    simpl. 
-    destruct (valid_vpath_loc p v l) as [ Hempty | [vp' ?] ] ; subst ; simpl ; auto.
-    apply H1. inversion Hvp ; subst. simpl in H3. congruence.
-  }
+    + inversion valid_p as [ | ? ? ? w get_w valid_p_w]; subst.
+      cbn in get_w. rewrite get_w. eapply G; eassumption.
 Qed.
 
 (* This property represents the application of a projection p (such as a pointer dereference or a
@@ -431,7 +406,7 @@ Ltac not_contains0 :=
   | |- not_value_contains ?P ?v =>
       simple eapply not_value_contains_unary; [reflexivity | | not_contains0]
   | |- not_value_contains ?P ?v =>
-      simple eapply not_value_contains_nary; [reflexivity | | simpl ]
+      simple eapply not_value_contains_nary; [ | simpl ]
   | |- _ => idtac
   end.
 Ltac not_contains := not_contains0; eauto with spath.
@@ -510,35 +485,35 @@ Proof.
 Qed.
 
 Lemma eval_operand_no_loc (S : state) (op : operand) (vS' : value * state) :
-  S |-{op} op => vS' -> not_contains_loc vS'.1
+  S |-{op} op => vS' -> let (v, _) := vS' in not_contains_loc v
 with  eval_tuple_no_loc (S : state) (opl : list operand) (vlS' : value_list * state) :
-  eval_tuple opl S vlS' -> Forall (not_contains_loc) (ValueList.to_list vlS'.1).
+  eval_tuple opl S vlS' ->
+  let (vl, _) := vlS' in Forall (not_contains_loc) (ValueList.to_list vl).
 Proof.
   {
-    intros eval_op ; induction eval_op.
+    intros eval_op; induction eval_op.
     + unfold not_contains_loc ; not_contains.
     + unfold not_contains_loc ; not_contains.
     + eapply copy_no_loc. eauto
     + unfold not_contains_loc ; not_contains.
     + unfold not_contains_loc ; not_contains.
-    + unfold not_contains_loc ; not_contains. remember (vl, S') as vlS'.
-      replace vl with (vlS'.1) by (rewrite HeqvlS' ; auto). eauto.
+    + apply not_value_list_contains_forall. split; eauto with spath.
+      exact (eval_tuple_no_loc _ _ _ H).
   }
   {
     intros eval_t. induction eval_t ; [ constructor | ].
-    simpl. constructor ; [ | assumption ]. replace v with ((v, S').1) by reflexivity.
-    apply eval_operand_no_loc with (S := S) (op := op) ; auto.
+    simpl. constructor ; [ | assumption ]. exact (eval_operand_no_loc _ _ _ Hop).
   }
 Qed.
 
 Lemma eval_rvalue_no_loc (S: state) (rv : rvalue) (vS : value * state) :
-  S |-{rv} rv => vS -> not_contains_loc vS.1.
+  S |-{rv} rv => vS -> let (v, _) := vS in not_contains_loc v.
 Proof.
   intros Hrv ; induction Hrv.
   - eapply eval_operand_no_loc, Heval_op.
-  - induction Hbinop ; simpl ; unfold not_contains_loc ; not_contains.
-  - unfold not_contains_loc ; not_contains.
-  - unfold not_contains_loc ; not_contains.
+  - induction Hbinop; cbn; unfold not_contains_loc ; not_contains.
+  - unfold not_contains_loc; not_contains.
+  - unfold not_contains_loc; not_contains.
 Qed.
 
 Inductive reorg : state -> state -> Prop :=

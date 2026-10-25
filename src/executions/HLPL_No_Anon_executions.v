@@ -34,17 +34,17 @@ Proof.
   - intros p valid_p. inversion valid_p; subst.
     * cbn in *. intros G%H_implies_P.
       apply andb_prop in decide_is_true as (? & _). rewrite G in H0. discriminate.
-    * rewrite nth_error_nil in H0. discriminate.
+    * setoid_rewrite lookup_nil in H0. discriminate.
   - intros p valid_p. inversion valid_p; subst.
     + cbn in *.
       intros G%H_implies_P. rewrite G in decide_is_true. inversion decide_is_true.
     + destruct i.
       * cbn in *; subst. apply IHv. eapply andb_prop, decide_is_true.
         inversion H0. auto.
-      * simpl in H0. rewrite nth_error_nil in H0; discriminate.
+      * simpl in H0. rewrite lookup_nil in H0; discriminate.
   - intros p valid_p. inversion valid_p; subst.
     + cbn in *. intros G%H_implies_P. rewrite G in decide_is_true. discriminate.
-    + cbn in *. rewrite nth_error_nil in * |-. discriminate.
+    + cbn in *. rewrite lookup_nil in * |-. discriminate.
   - apply not_value_list_contains_forall. split.
     + apply andb_prop in decide_is_true as (?%negb_true_iff & _).
       intros ?%H_implies_P. congruence.

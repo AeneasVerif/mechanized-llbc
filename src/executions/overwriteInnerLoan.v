@@ -212,7 +212,8 @@ Lemma decide_not_contains_outer_loan_correct v :
 Proof.
   intros no_outer_loan [ | ] _ H.
   - destruct v; inversion H. discriminate.
-  - destruct v; rewrite vget_cons, ?nth_error_nil, ?vget_bot in H; inversion H.
+  - rewrite vget_cons in H.
+    destruct v; cbn -[get_node bot] in H; rewrite ?lookup_nil, ?vget_bot in H; inversion H.
     exists []. split.
     * eexists _, _. reflexivity.
     * constructor.
@@ -238,7 +239,7 @@ Proof.
   - apply Some. split; [constructor | ].
     intros ? ? (? & ? & ?). eapply app_cons_not_nil. symmetry. eassumption.
   - destruct (decide (is_mut_borrow (get_node v))); [exact None | ].
-    destruct (nth_error (children v) i) as [w | ] eqn:EQN; [ | exact None].
+    destruct (lookup i (children v)) as [w | ] eqn:EQN; [ | exact None].
     destruct (IH w) as [(valid_w & Hnot_in_borrow) | ]; [ | exact None].
     apply Some. split.
     + econstructor; eassumption.

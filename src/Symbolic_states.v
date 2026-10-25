@@ -416,7 +416,7 @@ Lemma get_node_rename_value m v : get_node (rename_value m v) = rename_node m (g
 Proof. destruct v; reflexivity. Qed.
 Hint Rewrite get_node_rename_value : spath.
 
-Lemma children_rename_value m v : children (rename_value m v) = map (rename_value m) (children v).
+Lemma children_rename_value m v : children (rename_value m v) = fmap (rename_value m) (children v).
 Proof. destruct v; reflexivity. Qed.
 
 Lemma vget_rename_value m p : forall v, rename_value m (v.[[p]]) = (rename_value m v).[[p]].
@@ -424,7 +424,7 @@ Proof.
   induction p.
   - reflexivity.
   - intros v. rewrite !vget_cons, IHp. f_equal.
-    rewrite children_rename_value, nth_error_map. autodestruct.
+    rewrite children_rename_value, list_lookup_fmap. autodestruct.
 Qed.
 
 Lemma vset_rename_value m p w :
@@ -436,11 +436,7 @@ Proof.
     + rewrite get_node_rename_value, !get_node_vset_cons by discriminate.
       symmetry. apply get_node_rename_value.
     + rewrite children_rename_value, !children_vset_cons, children_rename_value.
-      destruct (nth_error (children v) i) eqn:EQN.
-      * erewrite map_alter_list by eassumption. eapply alter_list_equal_Some.
-        -- rewrite nth_error_map, EQN. reflexivity.
-        -- apply IH.
-      * rewrite !alter_list_equal_None; auto. rewrite nth_error_map, EQN. reflexivity.
+      apply list_fmap_alter. apply Forall_true. exact IH.
 Qed.
 
 Lemma valid_vpath_rename_value m v p : valid_vpath v p <-> valid_vpath (rename_value m v) p.
@@ -448,12 +444,11 @@ Proof.
   split.
   - induction 1 as [ | ? ? ? ? H].
     + constructor.
-    + econstructor; [ | eassumption]. rewrite children_rename_value, nth_error_map, H. reflexivity.
+    + econstructor; [ | eassumption]. rewrite children_rename_value, list_lookup_fmap, H. reflexivity.
   - intros H. remember (rename_value m v) as w eqn:EQN. revert v EQN. induction H as [ | v1 ? ? ? H].
     + constructor.
-    + intros v0 ->. rewrite children_rename_value, nth_error_map in H.
-      destruct (nth_error (children v0) i) eqn:?; [ | discriminate]. injection H as <-.
-      econstructor; eauto.
+    + intros v0 ->. rewrite children_rename_value, list_lookup_fmap_Some in H.
+      destruct H as (? & -> & ?). econstructor; eauto.
 Qed.
 
 Lemma get_loan_id_rename_node m c :
@@ -490,8 +485,8 @@ Proof.
     induction G as [ | v i p ? get_i ? IH].
     + destruct v; inversion H; set_solver.
     + rewrite vget_cons, get_i in H. specialize (IH H).
-      destruct v; cbn in get_i; try (rewrite nth_error_nil in get_i; discriminate).
-      apply nth_error_singleton in get_i. destruct get_i as (<- & _).
+      destruct v; cbn in get_i; try (rewrite lookup_nil in get_i; discriminate).
+      apply list_lookup_singleton_Some in get_i. destruct get_i. subst.
       apply elem_of_union_r. exact IH.
 Qed.
 
@@ -2593,8 +2588,8 @@ Lemma loan_set_vget v p (H : valid_vpath v p) : subseteq (loan_set_val (v.[[p]])
 Proof.
   induction H as [ | v ? ? ? H].
   - reflexivity.
-  - destruct v; try now rewrite nth_error_nil in H.
-    apply nth_error_singleton in H. destruct H as (<- & ->). set_solver.
+  - destruct v; cbn in H; try now rewrite lookup_nil in H.
+    apply list_lookup_singleton_Some in H. destruct H as (-> & ->). set_solver.
 Qed.
 
 Lemma loan_set_sget S p : subseteq (loan_set_val (S.[p])) (loan_set_state S).
@@ -2611,8 +2606,8 @@ Lemma loan_set_vset v p w (H : valid_vpath v p) :
 Proof.
   induction H as [ | v ? ? ? H].
   - set_solver.
-  - destruct v; try now rewrite nth_error_nil in H.
-    apply nth_error_singleton in H. destruct H as (<- & ->).
+  - destruct v; cbn in H; try now rewrite lookup_nil in H.
+    apply list_lookup_singleton_Some in H. destruct H as (-> & ->).
     rewrite vset_at_borrow', !loan_set_borrow. set_solver.
 Qed.
 

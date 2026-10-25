@@ -1963,7 +1963,7 @@ Proof.
   intros H G. destruct p as [ | [ | ] q].
   - left. auto.
   - right. exists q. auto.
-  - exfalso. eapply G. rewrite <-H, vget_cons. cbn. rewrite nth_error_nil.
+  - exfalso. eapply G. rewrite <-H, vget_cons. cbn. setoid_rewrite lookup_nil.
     replace nbot with (get_node bot) by reflexivity. f_equal. exact (vget_bot q).
 Qed.
 
@@ -1977,7 +1977,7 @@ Proof.
   - left. assumption.
   - right. destruct q.
     + auto.
-    + exfalso. apply G. rewrite <-H. cbn. rewrite nth_error_nil.
+    + exfalso. apply G. rewrite <-H. cbn. rewrite lookup_nil.
       replace nbot with (get_node bot) by reflexivity. f_equal. exact (vget_bot q).
 Qed.
 

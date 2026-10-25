@@ -149,7 +149,7 @@ Ltac not_contains0 :=
   | |- not_value_contains ?P ?v =>
       simple eapply not_value_contains_unary; [reflexivity | | not_contains0]
   | |- not_value_contains ?P ?v =>
-      simple eapply not_value_contains_nary; [reflexivity | | not_contains0]
+      simple eapply not_value_contains_nary; [ | not_contains0]
   | |- _ => idtac
   end.
 Ltac not_contains := not_contains0; eauto with spath.
