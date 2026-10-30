@@ -54,6 +54,16 @@ Module ValueList.
     | VNil, _ => None
     end.
 
+  Fixpoint alter (vl : value_list) (n : nat) (f : value -> value) : value_list :=
+    match vl with
+    | VNil => VNil
+    | VCons v vl' =>
+        match n with
+        | 0 => VCons (f v) vl'
+        | S m => VCons v (alter vl' m f)
+        end
+    end.
+
   Lemma nth_valid_access (vl : value_list) (n : nat) :
     (exists v, nth_error vl n = Some v) <-> n < length vl.
   Proof.
@@ -87,7 +97,7 @@ Module ValueList.
   Qed.
 
   Lemma nth_error_value_list_list_equiv vl n :
-    nth_error vl n = List.nth_error (to_list vl) n.
+    List.nth_error (to_list vl) n = nth_error vl n.
   Proof.
     generalize dependent n. induction vl ; intro.
     - rewrite nth_error_nil. reflexivity.
@@ -103,6 +113,34 @@ Module ValueList.
   Lemma length_to_list (vl : value_list) :
     length vl = List.length (to_list vl).
   Proof. induction vl; simpl ; congruence. Qed.
+
+  Lemma nth_error_alter_eq vl n f v :
+    nth_error vl n = Some v -> nth_error (alter vl n f) n = Some (f v).
+  Proof.
+    generalize dependent n. induction vl ; intros ; cbn in * ; [ discriminate | ].
+    destruct n.
+    - injection H as ->. reflexivity.
+    - cbn. rewrite IHvl ; auto.
+  Qed. 
+
+  Lemma nth_error_alter_neq vl m n f :
+    m <> n -> nth_error (alter vl n f) m = nth_error vl m.
+  Proof.
+    generalize dependent m. generalize dependent n.
+    induction vl ; intros ; cbn in * ; auto.
+    destruct m ; destruct n ; auto.
+    - congruence.
+    - cbn. apply (Nat.succ_inj_wd_neg m n) in H. auto.
+  Qed. 
+
+  Lemma alter_alter_list_equiv (vl : value_list) (n : nat) (f : value -> value) :
+    alter vl n f = from_list (alter_list (to_list vl) n f).
+  Proof.
+    generalize dependent n. induction vl ; intros ; [ auto | ].
+    destruct n ; cbn.
+    - rewrite from_list_to_list_inv. reflexivity.
+    - rewrite IHvl ; reflexivity.
+  Qed.
 
   Definition Forall (P : value -> Prop) (vl : value_list) : Prop :=
     List.Forall P (to_list vl).
@@ -290,8 +328,12 @@ Lemma nth_vget_n (vl : value_list) (n : nat) :
   ValueList.nth_error vl n = Some (VTuple vl .[[ [n] ]]).
 Proof.
   intros. cbn. apply ValueList.nth_valid_access in H as (v & ?).
-  by rewrite <- ValueList.nth_error_value_list_list_equiv, H.
+  by rewrite ValueList.nth_error_value_list_list_equiv, H.
 Qed.
+
+Lemma tuple_vset_n (vl : value_list) (v : value) (n : nat) (vp : vpath) :
+  (VTuple vl).[[ n :: vp <- v ]] = (VTuple (ValueList.alter vl n (vset vp v))).
+Proof. cbn. rewrite <- ValueList.alter_alter_list_equiv. reflexivity. Qed.
 
 Lemma sget_loc l v p : (loc (l, v)).[[ [0] ++  p]] = v.[[p]].
 Proof. reflexivity. Qed.
