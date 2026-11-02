@@ -120,9 +120,7 @@ Proof.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
         econstructor. eapply Le_MergeAbs; [reflexivity.. | | discriminate].
-        econstructor. eexists. split. constructor.
-        eapply UnionInsert with (j := 2%positive); [reflexivity.. | ].
-        apply UnionEmpty. }
+        econstructor. constructor. compute_done. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { econstructor. eapply Le_ToSymbolic with (sp := (encode_var z, [0])).
@@ -154,9 +152,7 @@ Proof.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
         econstructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
-        econstructor. eexists. split. constructor.
-        eapply UnionInsert with (j := 1%positive); [reflexivity.. | ].
-        apply UnionEmpty. }
+        econstructor. constructor. compute_done. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { econstructor.
@@ -193,15 +189,13 @@ Proof.
       remove_abstraction 1%positive. eexists. apply Reorg_End_Abstraction.
       - reflexivity.
       - compute_done.
-      - constructor. cbn. apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
-       apply UnionInsert with (j := 3%positive); [reflexivity.. | ].
-        apply UnionEmpty.
+      - econstructor. split; [reflexivity | ]. split; [compute_done | reflexivity].
     }
     simpl_state.
     (** ... so that we could end the loan [lx]. *)
     { constructor. eexists.
       eapply Reorg_End_MutBorrow with (p := (encode_var 1%positive, []))
-                                     (q := (encode_anon 2%positive, [])).
+                                      (q := (encode_anon 1%positive, [])).
       - reflexivity.
       - reflexivity.
       - constructor.

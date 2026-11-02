@@ -618,10 +618,8 @@ Proof.
   { rewrite <-!(add_abstraction_commute _ ia) by congruence.
     apply fresh_abstraction_add_abstraction_rev in fresh_k. destruct fresh_k as (fresh_k & ?).
     apply fresh_abstraction_add_abstraction_rev in fresh_k. destruct fresh_k as (fresh_k & ?).
-    apply Le_MergeAbs; auto with spath.
-    eexists _, _. split; [apply Remove_nothing | ].
-    apply UnionInsert with (j := jb); [assumption | now simpl_map | ].
-    apply UnionEmpty. }
+    apply Le_MergeAbs; auto with spath. rewrite insert_union_singleton_r by assumption.
+    econstructor; [constructor | now apply map_disjoint_singleton_r_2]. }
 Qed.
 
 (** * Results about the simulation relation on branching states. *)

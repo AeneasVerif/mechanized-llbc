@@ -208,13 +208,10 @@ Proof.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
         econstructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
-        eexists _, _. split.
+        econstructor.
         { eapply Remove_MutLoan with (i := 2%positive) (j := 1%positive).
           apply Remove_nothing. simpl_map. reflexivity. simpl_map. reflexivity. }
-        { rewrite delete_insert_id by reflexivity. rewrite delete_insert_ne by discriminate.
-          apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
-          apply UnionEmpty.
-        }
+        { compute_done. }
       }
       simpl_state.
       (** Finally, we need to rename the loan [l2] into [l1]. We can do so because

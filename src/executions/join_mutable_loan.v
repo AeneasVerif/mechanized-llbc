@@ -172,9 +172,7 @@ Proof.
       { remove_abstraction Ax. remove_abstraction A_extra.
         rewrite remove_add_abstraction_ne by discriminate.
         econstructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
-        eexists _, _. split; [apply Remove_nothing | ].
-        apply UnionInsert with (j := 1%positive); [reflexivity.. | ].
-        apply UnionEmpty. }
+        econstructor; [constructor | compute_done]. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
       { remove_abstraction Ab. remove_abstraction Ay.
@@ -216,9 +214,7 @@ Proof.
       { remove_abstraction Ay. remove_abstraction A_extra.
         rewrite remove_add_abstraction_ne by discriminate.
         econstructor. apply Le_MergeAbs; [reflexivity.. | | discriminate].
-        eexists _, _. split; [apply Remove_nothing | ].
-        apply UnionInsert with (j := 2%positive); [reflexivity.. | ].
-        apply UnionEmpty. }
+        econstructor; [constructor | compute_done]. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
       { remove_abstraction Ab. remove_abstraction Ax.
@@ -250,10 +246,7 @@ Proof.
     (** Ending the abstraction << Ax >>. *)
     etransitivity; [constructor | ].
     { eexists. remove_abstraction Ax. eapply Reorg_End_Abstraction; [reflexivity | compute_done | ].
-      econstructor.
-      eapply UnionInsert with (j := 1%positive); [reflexivity.. | ].
-      eapply UnionInsert with (j := 2%positive); [reflexivity.. | ].
-      apply UnionEmpty. }
+      econstructor. split; [reflexivity | ]. split; [compute_done | reflexivity]. }
     simpl_state.
 
     (** Ending the loan << a >>. *)
