@@ -3015,7 +3015,8 @@ Proof.
   intros * neq. unfold add_loc_spath.
   destruct (decidable_prefix' r p) as [(s & ?) | ?].
   - destruct (decidable_prefix' r (p +++ [ n ])) as [(s' & ?) | ?] ; subst.
-    + rewrite <- app_spath_vpath_assoc, app_spath_vpath_inv_head in e0 ; subst.
+    + rewrite <- app_spath_vpath_assoc in e0.
+      apply app_spath_vpath_inv_head in e0 ; subst.
       rewrite !app_spath_vpath_assoc ; auto.
     + assert (prefix r (_ +++ [ n ]))
         by (exists (s ++ [n]) ; rewrite app_spath_vpath_assoc ; auto). contradiction.
@@ -3072,10 +3073,10 @@ Qed.
 Lemma add_loc_spath_not_pref :
   forall r p, p <> [] -> add_loc_spath (r +++ p) r = r.
 Proof.
-  intros *. unfold add_loc_spath.
+  intros.  unfold add_loc_spath.
   destruct (decidable_prefix' (r +++ p) r) as [(r' & eq) | npref ]; auto.
   rewrite <- app_spath_vpath_assoc, <- app_spath_vpath_nil_r in eq.
-  apply app_spath_vpath_inv_head, list_basics.app_nil in eq as ( ? & ?) .
+  apply app_spath_vpath_inv_head, LB.list.app_nil in eq as ( ? & ?).
   contradiction.
 Qed.
 
@@ -3095,9 +3096,9 @@ Lemma eval_proj_write_loc' :
 Proof.
   intros * neq fresh eval_proj.
   inversion eval_proj ; subst.
-  - assert (valid_spath (S .[ r <- HLPL_loc l (S .[ r])]) p).
+  - assert (valid_spath (S .[ r <- VLoc l (S .[ r])]) p).
     { apply valid_get_node_sget_not_bot. rewrite get_q. easy. }
-    assert (valid_spath (S .[ r <- HLPL_loc l (S .[ r])]) q).
+    assert (valid_spath (S .[ r <- VLoc l (S .[ r])]) q).
     { apply valid_get_node_sget_not_bot. rewrite get_q'. easy. }
     rewrite get_node_write_loc' in get_q ; auto.
     assert (loc : l0 <> l)
@@ -3107,14 +3108,10 @@ Proof.
       rewrite sset_sget_equal in get_q' ; auto. injection get_q' as ->. easy.
     * rewrite get_node_write_loc' in get_q' ; auto.
       econstructor ; eauto.
-  - assert (valid_spath (S .[ r <- HLPL_loc l (S .[ r])]) p).
+  - assert (valid_spath (S .[ r <- VLoc l (S .[ r])]) p).
     { apply valid_get_node_sget_not_bot. rewrite get_q. easy. }
     rewrite get_node_write_loc' in get_q ; auto.
-    rewrite remove_loc_spath_app ; auto. constructor ; auto.
-  - assert (valid_spath (S .[ r <- HLPL_loc l (S .[ r])]) p).
-    { apply valid_get_node_sget_not_bot. rewrite get_q. easy. }
-    rewrite get_node_write_loc' in get_q ; auto.
-    rewrite remove_loc_spath_app ; auto. constructor ; auto.
+    rewrite remove_loc_spath_app ; auto. econstructor ; eauto.
 Qed.
 
 Lemma app_decidable_prefix :
@@ -3139,9 +3136,6 @@ Proof.
         rewrite (sset_not_prefix_valid S _ r) by (apply strict_prefix_irrefl).
         apply valid_get_node_sget_not_bot.
         rewrite get_q. easy. 
-      * rewrite sset_sget_equal in get_q. simpl in get_q ; congruence.
-        rewrite (sset_not_prefix_valid S _ r) by (apply strict_prefix_irrefl).
-        apply valid_get_node_sget_not_bot. rewrite get_q. easy.
       * rewrite sset_sget_equal in get_q. simpl in get_q ; congruence.
         rewrite (sset_not_prefix_valid S _ r) by (apply strict_prefix_irrefl).
         apply valid_get_node_sget_not_bot. rewrite get_q. easy.
@@ -3172,14 +3166,14 @@ Proof.
   apply eval_path_write_loc' with (l := l) ; auto.
   unfold remove_loc_spath.
   destruct (decidable_prefix' r (encode_var p.1.1, [])) as [(r' & ?) | ] ; auto.
-  apply f_equal with (f := snd) in e as e'. apply list_basics.app_nil in e' as [? ->].
+  apply f_equal with (f := snd) in e as e'. apply LB.list.app_nil in e' as [? ->].
   easy.
 Qed.
 
 Lemma eval_path_end_loc :
   forall S l P p q r,
-    get_node (S.[r]) = locC (l) ->
-    not_state_contains (eq ptrC (l)) S ->
+    get_node (S.[r]) = NLoc l ->
+    not_state_contains (eq (NPtr l)) S ->
     HLPL_No_Anon.eval_path (S.[r <- S.[r +++ [0%nat] ] ]) P p q ->
     HLPL_No_Anon.eval_path S P (add_loc_spath r p) (add_loc_spath r q).
 Proof.
@@ -3191,38 +3185,31 @@ Proof.
       econstructor ; eauto.
     + erewrite get_node_remove_loc in get_q ; eauto. econstructor.
       * econstructor ; eauto.
-      * destruct (decidable_spath_eq (p +++ [0%nat]) r) ; subst.
+      * destruct (decidable_spath_eq (p +++ [k%nat]) r) ; subst.
         ** eapply HLPL_No_Anon.Eval_path_loc ; eauto.
            rewrite add_loc_spath_not_pref, add_loc_spath_eq ; auto.
-           apply Eval_Loc with (l := l) ; auto.
-        ** rewrite add_loc_spath_app in IHeval_path ; auto.
-    + erewrite get_node_remove_loc in get_q ; eauto. econstructor.
-      * econstructor ; eauto.
-      * destruct (decidable_spath_eq (p +++ [1%nat]) r) ; subst.
-        ** eapply HLPL_No_Anon.Eval_path_loc ; eauto.
-           rewrite add_loc_spath_not_pref, add_loc_spath_eq ; auto.
-           apply Eval_Loc with (l := l) ; auto.
+           apply E_Loc with (l := l) ; auto.
         ** rewrite add_loc_spath_app in IHeval_path ; auto.
   - inversion Heval_loc ; subst.
     rewrite get_node_remove_loc with (l := l) in get_q ; auto.
     destruct (decidable_spath_eq (p +++ [0%nat]) r) ; subst.
     + apply Eval_path_loc with (q := (add_loc_spath (p +++ [0%nat]) p) +++ [0%nat]).
-      * apply Eval_Loc with (l := l0) ; auto.
+      * apply E_Loc with (l := l0) ; auto.
       * apply Eval_path_loc with (q := (add_loc_spath (p +++ [0%nat]) (p +++ [0%nat]))) ;
           auto.
         replace (add_loc_spath (p +++ [0%nat]) (p +++ [0%nat])) with
           (add_loc_spath (p +++ [0%nat]) ((p +++ [0%nat]) +++ []))
           by (rewrite app_spath_vpath_nil_r ; auto).
         rewrite add_loc_spath_pref, app_nil_r, add_loc_spath_not_pref ; auto.
-        apply Eval_Loc with (l := l) ; auto.
+        apply E_Loc with (l := l) ; auto.
     + eapply Eval_path_loc ; eauto. rewrite add_loc_spath_app ; auto.
-      apply Eval_Loc with (l := l0) ; auto.
+      apply E_Loc with (l := l0) ; auto.
 Qed.
 
 Lemma eval_place_end_loc :
   forall S l p r sp,
-    get_node (S.[r]) = locC (l) ->
-    not_state_contains (eq ptrC (l)) S ->
+    get_node (S.[r]) = NLoc l ->
+    not_state_contains (eq (NPtr l)) S ->
     (S.[r <- S.[r +++ [0%nat] ] ]) |-{p} p => sp ->
     S |-{p} p => (add_loc_spath r sp).
 Proof.
@@ -3231,7 +3218,7 @@ Proof.
   constructor ; auto. remember (encode_var p.1.1, []) as q.
     destruct (decidable_spath_eq q r).
     + subst q. rewrite !H1 in *. apply Eval_path_loc with (q := (r +++ [0%nat])).
-      * apply Eval_Loc with (l := l) ; auto.
+      * apply E_Loc with (l := l) ; auto.
       * rewrite <- add_loc_spath_eq. apply eval_path_end_loc with (l := l) ; auto.
     + rewrite <- (not_prefix_add_loc_spath r q) ; subst.
       * apply eval_path_end_loc with (l := l) ; auto.
@@ -3322,7 +3309,7 @@ Qed.
   
 Lemma eval_type_remove_loc :
   forall bo S sp sp' l t,
-    get_node (S.[ sp' ]) = locC (l) ->
+    get_node (S.[ sp' ]) = NLoc l ->
     valid_spath (S .[ sp' <- S.[sp' +++ [0%nat] ] ]) sp ->
     eval_type bo S (add_loc_spath sp' sp) t ->
     eval_type bo (S .[  sp' <- S.[sp' +++ [0%nat] ] ]) sp t.
@@ -3345,7 +3332,12 @@ Lemma eval_operand_preserves_eval_place :
     S |-{p} p => sp.
 Proof.
   intros * eval_p eval_op. inversion eval_op ; subst ; auto.
-  apply eval_place_write_bot with (sp' := pi) ; auto.
+  - apply eval_place_write_bot with (sp' := pi) ; auto.
+  - clear eval_op. remember (vl, S') as vlS'.
+    replace S' with (vlS'.2) in * by (subst ; reflexivity). 
+    clear HeqvlS'. induction H2.
+    * assumption.
+    * eauto.
 Qed.
 
 Lemma eval_rvalue_preserves_eval_place : 
