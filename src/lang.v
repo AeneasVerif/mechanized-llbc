@@ -21,6 +21,7 @@ Variant proj :=
 *)
 Inductive type :=
 | TInt
+| TBool
 | TRef (t : type)
 | TTuple (tl : type_list)
 with type_list :=

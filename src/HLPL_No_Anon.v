@@ -142,8 +142,23 @@ Module ValueList.
     - rewrite IHvl ; reflexivity.
   Qed.
 
-  Definition Forall (P : value -> Prop) (vl : value_list) : Prop :=
+  Inductive Forall (P : value -> Prop) : value_list -> Prop :=
+  | Forall_VNil : Forall P VNil
+  | Forall_VCons : forall (v : value) (vl' : value_list), P v -> Forall P vl' ->
+                                                     Forall P (VCons v vl').
+
+  Definition Forall_list (P : value -> Prop) (vl : value_list) : Prop :=
     List.Forall P (to_list vl).
+
+  Lemma Forall_Forall_list_equiv (P : value -> Prop) (vl : value_list) :
+    Forall P vl <-> Forall_list P vl.
+  Proof.
+    induction vl ; split ; intros.
+    - constructor.
+    - constructor.
+    - inversion H ; subst ; constructor ; auto. by rewrite <- IHvl.
+    - inversion H ; subst ; constructor ; auto. by rewrite IHvl.
+  Qed.
 
   Lemma nth_error_type_equiv_nth_error_value tl vl n :
     TypeList.length tl = length vl ->
@@ -355,8 +370,10 @@ Qed.
 
 Lemma not_value_list_contains_forall (vl : value_list) (P : nodes -> Prop) :
   not_value_contains P (VTuple vl) <->
-    ~ P (get_node (VTuple vl)) /\ Forall (not_value_contains P) (ValueList.to_list vl).
+    ~ P (get_node (VTuple vl)) /\
+      ValueList.Forall (not_value_contains P) vl.
 Proof.
+  rewrite ValueList.Forall_Forall_list_equiv. unfold ValueList.Forall_list.
   rewrite List.Forall_nth.
   split ; [ intros H | intros (? & ?) ].
   - split.

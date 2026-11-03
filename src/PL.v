@@ -66,7 +66,7 @@ Record PL_state : Type := Build_PL_state {
 
 Fixpoint sizeof (tau : type) : nat :=
   match tau with
-  | TInt | TRef _ => 8
+  | TInt | TBool | TRef _ => 8 (* TODO: size of boolean? *)
   | TTuple tl => sizeof_tuple tl
   end with
 sizeof_tuple (taul : type_list) : nat :=
@@ -199,6 +199,7 @@ Notation "Spl !!e bi" := (PTree.get bi (env Spl)) (at level 40).
 Fixpoint valid_access (S : PL_state) (b : block) (off : Z)  (t : type) :=
   match t with
   | TInt => Mem.valid_access (mem S) Mint64 b off Freeable
+  | TBool => Mem.valid_access (mem S) Mint64 b off Freeable (* TODO: size of boolean? *)
   | TRef _ => Mem.valid_access (mem S) Many64 b off Freeable
   | TTuple tl => valid_access_tuple S b off tl
   end with
@@ -2662,45 +2663,69 @@ Lemma concr_val_not_val_contains :
     not_value_contains (fun n => get_loc_id n = Some l) v ->
     concr_hlpl_val (fun l0 => if (l =? l0)%positive then
                              Some addr_t
-                           else ao l0) v t bytes.
+                           else ao l0) v t bytes
+with concr_val_not_val_list_contains :
+  forall ao vl tl bytes l addr_t,
+    concr_hlpl_val_tuple ao vl tl bytes ->
+    VL.Forall (not_value_contains (fun n => get_loc_id n = Some l)) vl ->
+    concr_hlpl_val_tuple (fun l0 => if (l =? l0)%positive then
+                             Some addr_t
+                           else ao l0) vl tl bytes.
 Proof.
-  intros. induction H ; try (constructor ; auto).
-  - apply not_value_contains_struct_loc in H0 as (? & ?). auto.
-  - specialize (H0 [] (valid_nil _)). simpl in H0.
-    assert (l <> l0) by (intros ->; easy).
-    rewrite (proj2 (Pos.eqb_neq _ _) H). assumption.
-  - apply not_value_list_contains_forall in H0 as (? & ?).
-Admitted.
+  {
+    intros. induction H ; try (constructor ; auto).
+    - apply not_value_contains_struct_loc in H0 as (? & ?). auto.
+    - specialize (H0 [] (valid_nil _)). simpl in H0.
+      assert (l <> l0) by (intros ->; easy).
+      rewrite (proj2 (Pos.eqb_neq _ _) H). assumption.
+    - apply not_value_list_contains_forall in H0 as (? & ?). auto.
+  }
+  {
+    intros. induction H.
+    - constructor.
+    - inversion H0 ; subst. constructor ; auto.
+  }
+Qed.
 
-Definition op_get_type op :=
+Fixpoint op_get_type op :=
   match op with
-  | IntConst _ => TInt
+  | Const (IntConst _) => TInt
+  | Const (BoolConst _) => TBool
   | Move p => p.2
   | Copy p => p.2
+  | Tuple opl => TTuple (TypeList.from_list (List.map op_get_type opl))
   end.
 
 Definition rv_get_type rv :=
   match rv with
-  | Just op => op_get_type op
-  | BinOp _ _ => TInt
+  | Use op => op_get_type op
+  | BinaryOp BAdd _ _ => TInt
+  | BinaryOp BLe _ _ => TBool
   | BorrowMut p => p.2
-  | Pair fst snd => TPair (op_get_type fst) (op_get_type snd)
   end.
 
 Fixpoint check_type_of_val v t :=
   match v, t with
-  | HLPL_bot, _ => true
-  | HLPL_int _, TInt => true
-  | HLPL_loc _ v, t => check_type_of_val v t
-  | HLPL_ptr _, TRef _ => true
-  | HLPL_pair v0 v1, TPair t0 t1 => check_type_of_val v0 t0 && check_type_of_val v1 t1
+  | VBottom, _ => true
+  | VInt _, TInt => true
+  | VBool _, TBool => true
+  | VLoc _ v, t => check_type_of_val v t
+  | VPtr _, TRef _ => true
+  | VTuple vl, TTuple tl => check_type_of_val_list vl tl
+  | _, _ => false
+  end with
+check_type_of_val_list vl tl :=
+  match vl, tl with
+  | VNil, TNil => true
+  | VCons v vl', TCons t tl' =>
+      check_type_of_val v t && check_type_of_val_list vl' tl'
   | _, _ => false
   end.
 
 Definition WellTypedState S bo :=
   forall sp, valid_spath S sp -> exists t, eval_type bo S sp t.
 
-Definition WellTypedState' (S : HLPL_state) (bo : positive -> block * type) :=
+Definition WellTypedState' (S : state) (bo : positive -> block * type) :=
   forall enc_x, valid_spath S (enc_x, []) ->
            check_type_of_val (S.[(enc_x, [])]) ((bo enc_x).2) = true.
 
@@ -2710,9 +2735,9 @@ Proof.
   intros bo S ; split ; intro WTS.
 Admitted. 
 
-Definition WellTypedOperand S bo op :=
+Fixpoint WellTypedOperand S bo op  :=
   match op with
-  | IntConst _ => True
+  | Const _ => True
   | Move p =>
       forall sp,
         S |-{p} p => sp ->
@@ -2721,21 +2746,27 @@ Definition WellTypedOperand S bo op :=
       forall sp,
         S |-{p} p => sp ->
            eval_type bo S sp p.2
+  | Tuple opl => 
+      (fix go (opl : list operand) : Prop :=
+         match opl with
+         | [] => True
+         | op :: opl' => WellTypedOperand S bo op /\ go opl'
+         end
+      ) opl
   end.
 
 Definition WellTypedRValue S bo rv :=
   match rv with
-  | Just op =>
+  | Use op =>
       WellTypedOperand S bo op
-  | BinOp op_l op_r =>
+  | BinaryOp BAdd op_l op_r =>
       WellTypedOperand S bo op_l /\ WellTypedOperand S bo op_r /\
         TInt = op_get_type op_l /\ TInt = op_get_type op_r
+  | BinaryOp BLe op_l op_r =>
+      WellTypedOperand S bo op_l /\ WellTypedOperand S bo op_r /\
+        TBool = op_get_type op_l /\ TBool = op_get_type op_r
   | BorrowMut p =>
       exists t', p.2 = TRef t' /\ forall sp, S |-{p} p => sp -> eval_type bo S sp t'
-  | Pair op_l op_r =>
-      forall t0 t1,
-      WellTypedOperand S bo op_l /\ WellTypedOperand S bo op_r /\
-        t0 = op_get_type op_l /\ t1 = op_get_type op_r
   end.
 
 Fixpoint WellTypedStmt S bo stmt :=
@@ -2751,10 +2782,10 @@ Fixpoint WellTypedStmt S bo stmt :=
 
 Lemma get_node_write_bot :
   forall S sp sp',
-    get_node (S.[sp' <- bot].[sp]) <> botC ->
+    get_node (S.[sp' <- bot].[sp]) <> NBottom ->
     get_node (S.[sp]) = get_node (S.[sp' <- bot].[sp]).
 Proof.
-  intros. replace botC with (get_node bot) in * by reflexivity.
+  intros. replace NBottom with (get_node bot) in * by reflexivity.
   apply valid_get_node_sget_not_bot in H as Hvp.
   destruct (comparable_spaths sp sp').
   - subst. apply sset_not_prefix_valid in Hvp ; try apply strict_prefix_irrefl.
@@ -2776,7 +2807,7 @@ Proof. intros * pref. rewrite get_node_sset_sget_not_prefix ; auto. Qed.
 Lemma get_node_add_loc_eq :
   forall S l sp,
     valid_spath S sp ->
-    get_node (S.[sp <- loc (l, S.[sp])].[sp]) = (HLPL_locC l).
+    get_node (S.[sp <- loc (l, S.[sp])].[sp]) = (NLoc l).
 Proof. intros * valid_sp. rewrite sset_sget_equal ; auto. Qed.
 
 Lemma get_node_add_loc_pre :
@@ -2874,7 +2905,7 @@ Qed.
 
 Lemma get_node_remove_loc :
   forall S l r p,
-    get_node (S.[ r ]) = locC (l) ->
+    get_node (S.[ r ]) = NLoc (l) ->
     get_node (S.[r <- S.[r +++ [0%nat] ] ].[ p ]) = get_node (S.[ (add_loc_spath r p) ]).
 Proof.
   intros * loc. unfold add_loc_spath.
@@ -2888,18 +2919,18 @@ Lemma get_node_remove_loc' :
   forall S l r p,
     p <> r ->
     valid_spath S p ->
-    get_node (S.[ r ]) = locC (l) ->
+    get_node (S.[ r ]) = NLoc l ->
     get_node (S.[r <- S.[r +++ [0%nat] ] ].[ remove_loc_spath r p ]) = get_node (S.[ p ]).
 Proof.
   intros * neq vsp node. unfold remove_loc_spath.
   destruct (decidable_prefix' r p) as [ (suff & ?) | ] ; subst.
   - nodes_to_val.
     assert (valid_spath S r)
-      by (apply get_not_bot_valid_spath; rewrite Heqh; discriminate).
-    rewrite !sget_app, Heqh, sset_sget_equal ; auto. simpl.
+      by (apply get_not_bot_valid_spath; rewrite Heqv; discriminate).
+    rewrite !sget_app, Heqv, sset_sget_equal ; auto. simpl.
     destruct suff.
     + rewrite app_spath_vpath_nil_r in neq. contradiction.
-    + apply valid_spath_app in vsp as (_ & vsp). rewrite Heqh in vsp.
+    + apply valid_spath_app in vsp as (_ & vsp). rewrite Heqv in vsp.
       inversion vsp ; subst. destruct n ; auto.
       simpl in H4. rewrite nth_error_nil in H4. discriminate.
   - rewrite get_node_sset_sget_not_prefix ; auto.
@@ -2915,7 +2946,10 @@ Proof.
   - constructor.
   - apply HLPL_No_Anon.Eval_cons with (q := q).
     + inversion Heval_proj ; subst ;
-        econstructor ; auto ; erewrite get_node_write_bot ; eauto ; congruence.
+        try (econstructor ; auto ; erewrite get_node_write_bot ; eauto ; congruence).
+      assert (Hnbot : get_node (S .[ sp' <- bot] .[ p0]) <> nbot) by congruence.
+      eapply get_node_write_bot in Hnbot.
+      econstructor ; eauto. congruence.
     + eapply IHeval_path, valid_spath_write_bot, eval_proj_valid ; eauto.
   - apply HLPL_No_Anon.Eval_path_loc with (q := q).
     + inversion Heval_loc ; subst ;
@@ -2934,42 +2968,23 @@ Proof.
   - rewrite get_node_write_loc in * ; econstructor ; eauto.
   - rewrite get_node_write_loc in *. unfold add_loc_spath in H2.
     destruct (decidable_prefix' r p).
-    * destruct s as ([ | n r'] & ?).
+    * destruct s as ([ | n' r'] & ?).
       ** rewrite app_spath_vpath_nil_r in e. congruence.
       ** inversion eval_proj ; subst.
          destruct (decidable_prefix' r q) as [(r0 & eq0) | ?].
          *** rewrite <- !app_spath_vpath_assoc, <- !app_assoc in H2.
              apply app_spath_vpath_inv_head, app_inv_head in H2.
-             rewrite <- eq0, <- H2, app_spath_vpath_assoc. constructor. auto.
+             rewrite <- eq0, <- H2, app_spath_vpath_assoc. econstructor ; eauto.
          *** rewrite <- app_spath_vpath_assoc in H2.
              assert (prefix r q) by (eexists ; eauto). congruence.
     * inversion eval_proj ; subst.
       rewrite not_prefix_add_loc_spath in eval_proj ; auto.
       inversion eval_proj ; subst.
-      unfold add_loc_spath in H0. destruct (decidable_prefix' r q) as [(r0 & eq0) | ?].
-      ** assert (strict_prefix r (p +++ [0%nat]))
-         by (rewrite H0 ; exists 0%nat, r0 ;  reflexivity).
-         apply strict_prefix_app_last in H1. contradiction.
-      ** rewrite <- H0. constructor ; auto.
-  - rewrite get_node_write_loc in *. unfold add_loc_spath in H2.
-    destruct (decidable_prefix' r p).
-    * destruct s as ([ | n r'] & ?).
-      ** rewrite app_spath_vpath_nil_r in e. congruence.
-      ** inversion eval_proj ; subst.
-         destruct (decidable_prefix' r q) as [(r0 & eq0) | ?].
-         *** rewrite <- !app_spath_vpath_assoc, <- !app_assoc in H2.
-             apply app_spath_vpath_inv_head, app_inv_head in H2.
-             rewrite <- eq0, <- H2, app_spath_vpath_assoc. constructor ; auto.
-         *** rewrite <- app_spath_vpath_assoc in H2.
-             assert (prefix r q) by (eexists ; eauto). congruence.
-    * inversion eval_proj ; subst.
-      rewrite not_prefix_add_loc_spath in eval_proj ; auto.
-      inversion eval_proj ; subst.
-      unfold add_loc_spath in H0. destruct (decidable_prefix' r q) as [(r0 & eq0) | ?].
-      ** assert (strict_prefix r (p +++ [1%nat]))
-           by (rewrite H0; exists 0%nat, r0 ; reflexivity).
-         apply strict_prefix_app_last in H1. contradiction.
-      ** rewrite <- H0. constructor ; auto.
+      unfold add_loc_spath in H4. destruct (decidable_prefix' r q) as [(r0 & eq0) | ?].
+      ** assert (strict_prefix r (p +++ [k%nat]))
+         by (rewrite H4 ; exists 0%nat, r0 ;  reflexivity).
+         apply strict_prefix_app_last in H0. contradiction.
+      ** rewrite <- H4. econstructor ; eauto.
 Qed.
 
 Lemma remove_loc_spath_app :
@@ -2979,16 +2994,18 @@ Proof.
   intros * neq. unfold remove_loc_spath.
   destruct (decidable_prefix' r p) as [(s & ?) | ].
   - destruct (decidable_prefix' r (p +++ [n])) as [(s' & ?) | ].
-    + rewrite <- e, <- app_spath_vpath_assoc, app_spath_vpath_inv_head in e0.
+    + rewrite <- e, <- app_spath_vpath_assoc in e0. apply app_spath_vpath_inv_head in e0.
       rewrite e0. destruct s. 
       * rewrite app_spath_vpath_nil_r in e. congruence.
       * rewrite <- app_spath_vpath_assoc ; auto.
     + rewrite <- e in n0. assert (prefix r ((r +++ s) +++ [n]))
         by (rewrite <- app_spath_vpath_assoc; eexists ; eauto). congruence.
   - destruct (decidable_prefix' r (p +++ [n])) as [(s' & ?) | ] ; auto.
-    rewrite <- e. apply app_spath_vpath_inv_head.
-    destruct s' ; auto. assert (strict_prefix r (p +++ [n])) by (eexists ; eauto).
-    apply strict_prefix_app_last in H. contradiction.
+    destruct s' ; cbn in *.
+    + rewrite app_spath_vpath_nil_r in *. assumption.
+    + apply f_equal with (f := removelast) in e. rewrite !removelast_app in e ; auto.
+      rewrite app_spath_vpath_nil_r in e.
+      assert (prefix r p) by (eexists ; eauto). contradiction.
 Qed.
 
 Lemma add_loc_spath_app :
