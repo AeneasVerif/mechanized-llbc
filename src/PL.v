@@ -45,6 +45,12 @@ Definition make_ptr64 (addr : address) :=
 Definition make_int64 (n : nat) :=
   encode_val Mint64 (Vlong (Int64.repr n)).
 
+Definition make_bool (b : bool) :=
+  if b then
+    encode_val Mbool (Vint Int.one)
+  else
+    encode_val Mbool (Vint Int.zero).
+
 Lemma make_ptr64_not_contain_Undef : 
   forall addr, ~ In Undef (make_ptr64 addr).
 Proof.
@@ -66,7 +72,8 @@ Record PL_state : Type := Build_PL_state {
 
 Fixpoint sizeof (tau : type) : nat :=
   match tau with
-  | TInt | TBool | TRef _ => 8 (* TODO: size of boolean? *)
+  | TInt | TRef _ => 8 (* TODO: size of boolean? *)
+  | TBool => 1
   | TTuple tl => sizeof_tuple tl
   end with
 sizeof_tuple (taul : type_list) : nat :=
@@ -490,6 +497,8 @@ Reserved Notation "S  |-{op-pl}  op  =>  r" (at level 60).
 Inductive eval_operand : operand -> PL_state -> list memval -> Prop :=
 | Eval_IntConst S n :
   S |-{op-pl} Const (IntConst n) => (make_int64 n)
+| Eval_BoolConst S b:
+  S |-{op-pl} Const (BoolConst b) => (make_bool b)
 | Eval_copy S t p bytes
     (Hread : read S p t bytes) :
   S |-{op-pl} Copy p => bytes
@@ -663,6 +672,8 @@ Section Concretization.
   Inductive concr_hlpl_val : value -> type -> list memval -> Prop :=
   | Concr_lit n :
     concr_hlpl_val (VInt n) TInt (make_int64 n)
+  | Concr_bool b :
+    concr_hlpl_val (VBool b) TBool (make_bool b)
   | Concr_bot s t (Hs : s = ListDef.repeat Undef (sizeof t)) : 
     concr_hlpl_val bot t s
   | Concr_loc l v t bytes
@@ -686,6 +697,8 @@ Section Concretization.
     match v, t with
     | VInt n, TInt =>
         Some (make_int64 n)
+    | VBool b', TBool =>
+        Some (make_bool b')
     | VBottom, _ =>
         Some (ListDef.repeat Undef (sizeof t))
     | VLoc l v, t =>
@@ -785,7 +798,8 @@ Section Concretization.
   Proof.
     {
       intros v bytes t Hconcr. induction Hconcr ; auto ; try reflexivity.
-      - rewrite Hs, repeat_length. reflexivity.
+      - destruct b ; cbn ; reflexivity.
+      - cbn. rewrite Hs, repeat_length. reflexivity.
       - simpl. eauto.
     }
     {
@@ -1659,6 +1673,7 @@ Section Concretization.
   Proof.
     {
       intros v t bytes Hconcr. induction Hconcr ; auto.
+      - destruct b ; reflexivity.
       - subst s. rewrite repeat_length. reflexivity.
       - eapply tuple_val_concr_implies_correct_type_list_size ; eauto.
     }
@@ -2687,13 +2702,20 @@ Proof.
   }
 Qed.
 
-Fixpoint op_get_type op :=
+Fixpoint op_get_type (op : operand) :=
   match op with
   | Const (IntConst _) => TInt
   | Const (BoolConst _) => TBool
   | Move p => p.2
   | Copy p => p.2
-  | Tuple opl => TTuple (TypeList.from_list (List.map op_get_type opl))
+  | Tuple opl =>
+      TTuple
+        ((fix go opl :=
+            match opl with
+            | [] => TNil
+            | op :: opl' =>
+                TCons (op_get_type op) (go opl')
+            end) opl)
   end.
 
 Definition rv_get_type rv :=
@@ -3326,29 +3348,35 @@ Proof.
 Qed.
 
 Lemma eval_operand_preserves_eval_place : 
-  forall S S' p sp op v,
-    S' |-{p} p => sp ->
-    S |-{op} op => (v, S') ->
-    S |-{p} p => sp.
+  forall S vS' p sp op,
+    vS'.2 |-{p} p => sp -> S |-{op} op => vS' -> S |-{p} p => sp with
+eval_tuple_preserves_eval_place :
+  forall S vlS' p sp opl,
+    vlS'.2 |-{p} p => sp -> HLPL_No_Anon.eval_tuple opl S vlS' -> S |-{p} p => sp.
 Proof.
-  intros * eval_p eval_op. inversion eval_op ; subst ; auto.
-  - apply eval_place_write_bot with (sp' := pi) ; auto.
-  - clear eval_op. remember (vl, S') as vlS'.
-    replace S' with (vlS'.2) in * by (subst ; reflexivity). 
-    clear HeqvlS'. induction H2.
-    * assumption.
-    * eauto.
+  {
+    intros * eval_p eval_op. inversion eval_op ; subst ; auto.
+    - apply eval_place_write_bot with (sp' := pi) ; auto.
+    - apply (eval_tuple_preserves_eval_place _ _ _ _ _ eval_p H).
+  }
+  {
+    intros * eval_p eval_op. induction eval_op.
+    - cbn in eval_p. exact eval_p.
+    - apply (eval_operand_preserves_eval_place _ _ _ _ _ (IHeval_op eval_p) Hop).
+  }
 Qed.
 
 Lemma eval_rvalue_preserves_eval_place : 
-  forall S S' p sp rv v,
-    S' |-{p} p => sp ->
-    S |-{rv} rv => (v, S') ->
+  forall S vS' p sp rv,
+    vS'.2 |-{p} p => sp ->
+    S |-{rv} rv => vS' ->
     exists sp', S |-{p} p => sp'.
 Proof.
   pose proof eval_operand_preserves_eval_place.
   intros * eval_p eval_rv. inversion eval_rv ; subst ; eauto.
-  eexists ; eapply eval_place_write_loc ; eauto.
+  - eapply eval_operand_preserves_eval_place in eval_op_0 ; eauto.
+    eapply eval_operand_preserves_eval_place in eval_op_1 ; eauto.
+  - eexists ; eapply eval_place_write_loc ; eauto.
 Qed.
 
 Lemma eval_stmt_preserves_eval_place : 
@@ -3398,74 +3426,144 @@ Lemma add_loc_welltyped_operand :
     WellTypedOperand S bo op ->
     WellTypedOperand (S.[sp <- loc (l, S.[sp])]) bo op.
 Proof.
-  intros * fresh WTO. destruct op ; auto ; simpl in * ; intros * eval_pl.
-  - apply eval_place_valid in eval_pl as valid_sp.
-    apply eval_place_write_loc in eval_pl ; auto. specialize (WTO _ eval_pl).
+  intros * fresh WTO. induction op using operand_ind' ; auto ; simpl in *.
+  - intros * eval_p.
+    apply eval_place_valid in eval_p as valid_sp.
+    apply eval_place_write_loc in eval_p ; auto. specialize (WTO _ eval_p).
     apply addr_spath_equiv_eval_type in WTO as (addr & equiv).
     eapply addr_spath_equiv_eval_type, ex_intro, addr_spath_equiv_add_loc ; eauto.
-  - apply eval_place_valid in eval_pl as valid_sp.
-    apply eval_place_write_loc in eval_pl ; auto. specialize (WTO _ eval_pl).
+  - intros * eval_p.
+    apply eval_place_valid in eval_p as valid_sp.
+    apply eval_place_write_loc in eval_p ; auto. specialize (WTO _ eval_p).
     apply addr_spath_equiv_eval_type in WTO as (addr & equiv).
     eapply addr_spath_equiv_eval_type, ex_intro, addr_spath_equiv_add_loc ; eauto.
+  - induction opl.
+    * apply I.
+    * destruct WTO as (WTO & WTOl). inversion H ; subst. split.
+      ** auto.
+      ** apply IHopl ; auto.
+Qed.
+
+Lemma remove_loc_welltyped_operand :
+  forall bo S op sp l,
+    not_state_contains (eq nptr (l)) S ->
+    get_node (S.[ sp ]) = NLoc l ->
+    WellTypedOperand S bo op ->
+    WellTypedOperand (S.[sp <- S.[ sp +++ [ 0%nat ] ] ]) bo op.
+Proof.
+  intros * not_contains node WTO.
+  induction op using operand_ind' ; auto ; cbn in * ; intros.
+  - apply eval_place_valid in H as vsp.
+    apply eval_type_remove_loc with (l := l) ; cbn ; auto.
+    apply WTO, eval_place_end_loc with (l := l) ; auto.
+  - apply eval_place_valid in H as vsp.
+    apply eval_type_remove_loc with (l := l) ; cbn ; auto.
+    apply WTO, eval_place_end_loc with (l := l) ; auto.
+  - induction opl ; auto.
+    destruct WTO as (WTO & WTOl). inversion H ; subst.
+    apply H2 in WTO. apply (IHopl H3) in WTOl. split ; auto.
 Qed.
 
 Lemma eval_operand_preserves_valid_spath :
-  forall S S' sp v op,
-    S |-{op} op => (v, S') ->
-    valid_spath S' sp ->
+  forall S vS' sp op,
+    S |-{op} op => vS' ->
+    valid_spath vS'.2 sp ->
+    valid_spath S sp with
+eval_tuple_preserves_valid_spath :
+  forall S vlS' sp opl,
+    HLPL_No_Anon.eval_tuple opl S vlS' ->
+    valid_spath (vlS'.2) sp ->
     valid_spath S sp.
 Proof.                    
-  intros * eval_op vsp.
-  inversion eval_op ; subst ; auto. eapply valid_spath_write_bot ; eauto.
+  {
+    intros * eval_op vsp.
+    induction eval_op ; auto.
+    - eapply valid_spath_write_bot ; eauto.
+    - cbn in vsp. 
+      eapply eval_tuple_preserves_valid_spath ; eauto.
+  }
+  {
+    intros * eval_tuple. induction eval_tuple ; intros vsp.
+    - exact vsp.
+    - cbn in *. eapply (eval_operand_preserves_valid_spath) in Hop ; eauto.
+  }
   Qed.
 
 Lemma eval_operand_preserves_eval_type :
-  forall bo S S' sp v t op,
-    S |-{op} op => (v, S') ->
+  forall bo S vS' sp t op,
+    S |-{op} op => vS' ->
     eval_type bo S sp t ->
-    valid_spath S' sp ->
-    eval_type bo S' sp t.
+    valid_spath vS'.2 sp ->
+    eval_type bo vS'.2 sp t with
+eval_tuple_preserves_eval_type :
+  forall bo S vlS' sp t opl,
+    HLPL_No_Anon.eval_tuple opl S vlS' ->
+    eval_type bo S sp t ->
+    valid_spath vlS'.2 sp ->
+    eval_type bo vlS'.2 sp t.
 Proof.                    
-  intros * eval_op eval_type vsp.
-  inversion eval_op ; subst ; auto.
-  apply eval_type_write_bot ; auto.
+  {
+    intros * eval_op. induction eval_op ; intros eval_type vsp ; auto.
+    - apply eval_type_write_bot ; auto.
+    - cbn in *. eapply eval_tuple_preserves_eval_type ; eauto.
+  }
+  {
+    intros * eval_op eval_type vsp. induction eval_op ; cbn in *.
+    - auto.
+    - apply IHeval_op ; auto. eapply eval_operand_preserves_eval_type ; eauto.
+      eapply eval_tuple_preserves_valid_spath ; eauto.
+  }
+Qed.
+
+Axiom falso : False.
+
+Lemma welltyped_op_write_bot :
+  forall bo S op sp,
+    WellTypedOperand S bo op ->
+    WellTypedOperand (S.[ sp <- bot ]) bo op.
+Proof.
+  pose proof eval_place_valid as eval_place_valid.
+  pose proof eval_place_write_bot as eval_place_write_bot.
+  intros. induction op using operand_ind' ; cbn in * ; auto ; intros.
+  - apply eval_type_write_bot ; eauto.
+  - apply eval_type_write_bot ; eauto.
+  - induction opl ; auto. destruct H as (WTO & WTOl).
+    inversion H0 ; subst. apply H2 in WTO. apply IHopl in WTOl ; auto.
 Qed.
 
 Lemma eval_operand_preserves_welltyped_op :
-  forall bo S S' v op op',
-    S |-{op} op' => (v, S') ->
+  forall bo S vS' op op',
+    S |-{op} op' => vS' ->
     WellTypedOperand S bo op ->
-    WellTypedOperand S' bo op.
+    WellTypedOperand vS'.2 bo op with
+eval_tuple_preserves_welltyped_op :
+  forall bo S vlS' op opl,
+    HLPL_No_Anon.eval_tuple opl S vlS' ->
+    WellTypedOperand S bo op ->
+    WellTypedOperand vlS'.2 bo op.
 Proof.                    
-  intros * eval_op WTO. inversion eval_op ; subst ; auto.
-  destruct op ; simpl in WTO ; auto ; intros ? ?.
-  - apply eval_place_valid in H as Hvp.
-    eapply eval_type_write_bot, WTO, eval_place_write_bot ; eauto.
-  - apply eval_place_valid in H as Hvp.
-    eapply eval_type_write_bot, WTO, eval_place_write_bot ; eauto.
+  {
+    pose proof eval_place_valid as eval_place_valid.
+    pose proof eval_place_write_bot as eval_place_write_bot.
+    intros * eval_op. induction eval_op ; intros WTO ; auto.
+    - eapply welltyped_op_write_bot. exact WTO.
+    - eapply eval_tuple_preserves_welltyped_op. exact H. exact WTO.
+  }
+  {
+    intros. induction H ; auto. cbn. apply IHeval_tuple.
+    eapply eval_operand_preserves_welltyped_op. exact Hop. exact H0.
+  }
 Qed.
 
 Lemma eval_rvalue_preserves_eval_type :
-  forall bo S S' sp v t rv,
-    S |-{rv} rv => (v, S') ->
+  forall bo S vS' sp t rv,
+    S |-{rv} rv => vS' ->
     eval_type bo S sp t ->
-    exists sp', valid_spath S' sp' -> eval_type bo S' sp' t.
+    exists sp', valid_spath vS'.2 sp' -> eval_type bo vS'.2 sp' t.
 Proof.
   intros * eval_rv eval_type.
   inversion eval_rv ; subst ; auto.
   - exists sp ; intro vsp. eapply eval_operand_preserves_eval_type ; eauto.
-  - exists sp ; intro vsp. repeat (eapply eval_operand_preserves_eval_type ; eauto).
-    eapply eval_operand_preserves_valid_spath ; eauto.
-  - exists sp ; intro vsp. apply addr_spath_equiv_eval_type.
-    apply addr_spath_equiv_eval_type in eval_type as (addr & ?). exists addr ; auto.
-  - exists (add_loc_spath pi sp) ; intro vsp. eapply addr_spath_equiv_eval_type.
-    eapply addr_spath_equiv_eval_type in eval_type as (addr & ?). exists addr.
-    rewrite <- (remove_add_loc_spath pi sp) in *.
-    apply addr_spath_equiv_add_loc ; auto.
-    rewrite !(remove_add_loc_spath pi sp) in * ; auto.
-  - exists sp ; intro vsp.
-    repeat (eapply eval_operand_preserves_eval_type ; eauto).
-    eapply eval_operand_preserves_valid_spath ; eauto.
 Abort.
 
 (*
@@ -3478,7 +3576,7 @@ Variant eval_rv_spath : rvalue -> spath -> spath -> Prop :=
     forall sp t op_l op_r, eval_rv_spath (Pair t op_l op_r) sp sp
   | Eval_rv_spath_borrowmut_noloc :
     forall p sp', S |-{p} p => sp' -> .
-  end.
+  end
 
 Lemma eval_rvalue_preserves_eval_type :
   forall bo S S' p sp sp' v t rv,
@@ -3498,47 +3596,59 @@ Proof.
 
 
 Lemma eval_rvalue_preserves_welltyped_op :
-  forall bo S S' v op rv,
-    S |-{rv} rv => (v, S') ->
+  forall bo S vS' op rv,
+    S |-{rv} rv => vS' ->
     WellTypedOperand S bo op ->
-    WellTypedOperand S' bo op.
+    WellTypedOperand vS'.2 bo op.
 Proof.                    
   intros * eval_rv WTO. inversion eval_rv ; subst ; auto.
   - repeat (eapply eval_operand_preserves_welltyped_op ; eauto).
-  - repeat (eapply eval_operand_preserves_welltyped_op ; eauto).
+  - replace (w, S'').2 with (v1, S'').2 by reflexivity.
+    eapply eval_operand_preserves_welltyped_op ; eauto.
+    replace S' with (v0, S').2 by reflexivity.
+    eapply eval_operand_preserves_welltyped_op ; eauto.
   - apply add_loc_welltyped_operand ; auto.
-  - repeat (eapply eval_operand_preserves_welltyped_op ; eauto).
 Qed.
 
 Lemma eval_operand_preserves_welltyped_rv :
-  forall bo S S' v rv op,
-    S |-{op} op => (v, S') ->
+  forall bo S vS' rv op,
+    S |-{op} op => vS' ->
     WellTypedRValue S bo rv ->
-    WellTypedRValue S' bo rv.
+    WellTypedRValue vS'.2 bo rv with
+eval_operand_tuple_preserves_welltyped_rv :
+  forall bo S vlS' rv opl,
+    HLPL_No_Anon.eval_tuple opl S vlS' ->
+    WellTypedRValue S bo rv ->
+    WellTypedRValue vlS'.2 bo rv.
 Proof.
-  intros * eval_op WTRV. destruct rv ; simpl in * ; auto.
-  - eapply eval_operand_preserves_welltyped_op ; eauto.
-  - destruct WTRV as (WTO_l & WTO_r & E & E'). repeat split ; auto ;
-      eapply eval_operand_preserves_welltyped_op ; eauto.
-  - destruct WTRV as (t' & Htype & Hplace_rec). exists t' ; split ; auto.
-    intros sp Hplace.
-    eapply eval_operand_preserves_eval_place in Hplace as Hplace' ; eauto.
-    inversion eval_op ; subst ; auto. apply eval_type_write_bot ; auto.
-    apply eval_place_valid with (p := p) ; auto.
-  - intros. destruct (WTRV t0 t1) as (WTO_l & WTO_r & E & E').
-    repeat split ; auto ;
-      eapply eval_operand_preserves_welltyped_op ; eauto.
+  {
+    intros * eval_op WTRV. destruct rv ; simpl in * ; auto.
+    - eapply eval_operand_preserves_welltyped_op ; eauto.
+    - destruct b ; destruct WTRV as (WTO_l & WTO_r & E & E') ; repeat split ; auto ;
+        eapply eval_operand_preserves_welltyped_op ; eauto.
+    - induction eval_op ; auto.
+      * destruct WTRV as (t' & Htype & Hplace_rec). exists t' ; split ; auto.
+        intros sp Hplace.
+        eapply eval_place_write_bot in Hplace as Hplace' ; eauto.
+        apply eval_type_write_bot ; auto. apply eval_place_valid with (p := p) ; auto.
+      * apply eval_operand_tuple_preserves_welltyped_rv
+          with (bo := bo) (rv := (BorrowMut p)) in H ; auto.
+  }
+  {
+    intros * eval_tuple WTRV. induction eval_tuple ; auto ; cbn.
+    eapply IHeval_tuple, eval_operand_preserves_welltyped_rv ; eauto.
+  }
 Qed.
 
 Lemma eval_rvalue_preserves_welltyped_rv :
-  forall bo S S' v rv rv',
-    S |-{rv} rv' => (v, S') ->
+  forall bo S vS' rv rv',
+    S |-{rv} rv' => vS' ->
     WellTypedRValue S bo rv ->
-    WellTypedRValue S' bo rv.
+    WellTypedRValue vS'.2 bo rv.
 Proof.
   intros * eval_rv WTRV. destruct rv ; simpl in * ; auto.
   - eapply eval_rvalue_preserves_welltyped_op ; eauto.
-  - destruct WTRV as (WTO_l & WTO_r & E & E').
+  - destruct b ; destruct WTRV as (WTO_l & WTO_r & E & E') ;
     repeat split ; auto ; eapply eval_rvalue_preserves_welltyped_op ; eauto.
   - destruct WTRV as (t' & type & Hplace_rec).
     exists t' ; split ; auto. intros * eval_p.
@@ -3546,12 +3656,14 @@ Proof.
     + apply eval_place_valid in eval_p as vsp.
       eapply eval_operand_preserves_eval_type ; eauto.
       apply Hplace_rec. eapply eval_operand_preserves_eval_place ; eauto.
-    + apply eval_place_valid in eval_p as vsp.
+    + cbn in *. apply eval_place_valid in eval_p as vsp.
+      replace S'' with (v1, S'').2 by reflexivity.
       eapply eval_operand_preserves_eval_type ; eauto.
-      eapply eval_operand_preserves_eval_type ; eauto.
+      replace S' with (v0, S').2 by reflexivity.
+      eapply eval_operand_preserves_eval_type ; cbn ; eauto.
       * apply Hplace_rec.
-        eapply eval_operand_preserves_eval_place with (S' := S'0); eauto.
-        eapply eval_operand_preserves_eval_place with (S' := S'); eauto.
+        eapply eval_operand_preserves_eval_place ; eauto.
+        eapply eval_operand_preserves_eval_place ; eauto. cbn. assumption.
       * eapply eval_operand_preserves_valid_spath ; eauto.
     + apply eval_place_valid in eval_p as vsp.
       apply eval_place_write_loc in eval_p ; auto.
@@ -3559,15 +3671,6 @@ Proof.
       apply addr_spath_equiv_eval_type in Hplace_rec as (addr & equiv).
       apply addr_spath_equiv_eval_type.
       exists addr. apply addr_spath_equiv_add_loc ; auto.
-    + eapply eval_operand_preserves_eval_place in eval_p as eval_p' ; eauto.
-      eapply eval_operand_preserves_eval_place in eval_p' as eval_p'' ; eauto.
-      apply eval_place_valid in eval_p as vsp.
-      apply eval_place_valid in eval_p' as vsp'.
-      apply eval_place_valid in eval_p'' as vsp''.
-      eapply eval_operand_preserves_eval_type with (S := S'0) ; eauto.
-      eapply eval_operand_preserves_eval_type with (S := S) ; eauto.
-  - intros. destruct (WTRV t0 t1) as (WTO_l & WTO_r & E & E').
-    repeat split ; auto ; eapply eval_rvalue_preserves_welltyped_op ; eauto.
 Qed.
 
 Lemma reorg_preserves_welltyped_op :
@@ -3577,21 +3680,25 @@ Lemma reorg_preserves_welltyped_op :
     WellTypedOperand S' bo op.
 Proof.
   intros * reorg WTO. pose proof reorg as reorg'.
-  destruct reorg ; destruct op ; simpl in * ; auto ; intros.
-  - apply eval_type_write_bot.
+  destruct reorg ; destruct op ; auto.
+  - simpl in * ; intros. apply eval_type_write_bot.
     + eapply eval_place_valid ; eauto.
     + apply eval_place_write_bot in H0. eauto.
-  - apply eval_type_write_bot.
+  - simpl in * ; intros. apply eval_type_write_bot.
     + eapply eval_place_valid ; eauto.
     + apply eval_place_write_bot in H0. eauto.
-  - apply eval_type_remove_loc with (l := l) ; auto.
+  - simpl in * ; intros. induction opl ; auto. destruct WTO as (WTO & WTOl).
+    apply IHopl in WTOl. apply welltyped_op_write_bot with (sp := p) in WTO.
+    split ; assumption.
+  - simpl in * ; intros. apply eval_type_remove_loc with (l := l) ; auto.
     + eapply eval_place_valid ; eauto.
     + eapply eval_place_reorg in reorg' as (sp' & eval_p') ; eauto. eapply WTO ; eauto.
       apply eval_place_end_loc with (l := l) ; auto.
-  - apply eval_type_remove_loc with (l := l) ; auto.
+  - simpl in * ; intros. apply eval_type_remove_loc with (l := l) ; auto.
     + eapply eval_place_valid ; eauto.
     + eapply eval_place_reorg in reorg' as (sp' & eval_p') ; eauto. eapply WTO ; eauto.
       apply eval_place_end_loc with (l := l) ; auto.
+  - apply remove_loc_welltyped_operand with (l := l) ; auto.
 Qed.
 
 Lemma reorg_preserves_welltyped_rv :
@@ -3603,24 +3710,20 @@ Proof.
   intros * reorg WTRV. pose proof reorg as reorg'.
   destruct reorg ; destruct rv ; simpl in * ; auto ; intros.
   - apply reorg_preserves_welltyped_op with (S := S) ; auto.
-  - destruct WTRV as (WTO_l & WTO_r & type_l & type_r). repeat split ; auto ;
-      apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - destruct b ; destruct WTRV as (WTO_l & WTO_r & type_l & type_r) ;
+      repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
   - destruct WTRV as (t' & type & ?). exists t' ; split ; auto.
     intros sp eval_p. apply eval_place_write_bot in eval_p as eval_p'.
     apply eval_place_valid in eval_p as vsp.
     apply eval_place_valid in eval_p' as vsp'.
     apply eval_type_write_bot ; auto.
-  - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r).
-    repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
-  - apply reorg_preserves_welltyped_op with (S := S) ; auto.
-  - destruct WTRV as (WTO_l & WTO_r & type_l & type_r). repeat split ; auto ;
-      apply reorg_preserves_welltyped_op with (S := S) ; auto.
+  - apply remove_loc_welltyped_operand with (l := l) ; auto.
+  - destruct b ; destruct WTRV as (WTO_l & WTO_r & type_l & type_r) ;
+    repeat split ; auto ; apply remove_loc_welltyped_operand with (l := l) ; auto.
   - destruct WTRV as (t' & type & ?). exists t' ; split ; auto.
     intros sp eval_p. apply eval_place_valid in eval_p as vsp.
     apply eval_type_remove_loc with (l := l) ; auto.
     apply H1. apply eval_place_end_loc with (l := l) ; auto.
-  - destruct (WTRV t0 t1) as (WTO_l & WTO_r & type_l & type_r).
-    repeat split ; auto ; apply reorg_preserves_welltyped_op with (S := S) ; auto.
 Qed.
 
 Lemma reorg_preserves_welltyped_stmt :
@@ -3705,9 +3808,6 @@ Lemma eval_stmt_preserves_welltyped_rv :
     WellTypedRValue S' bo rv.
 Proof.
   intros * eval_stmt WTRV. induction eval_stmt ; auto. destruct vS'.
-  - apply (eval_rvalue_preserves_welltyped_rv _ _ _ _ _ _ eval_rv) in WTRV.
-    admit.
-  - apply IHeval_stmt.
 Abort.
 
 Lemma eval_stmt_preserves_welltyped_stmt :
@@ -3797,40 +3897,66 @@ Lemma Op_Preserves_PL_HLPL_Rel :
       Spl |-{op-pl} op => bytes /\
       le_pl_hlpl blockof addrof Spl vS1.2 /\
       concr_hlpl_val addrof vS1.1 t bytes' /\
+      le_block bytes bytes' with 
+Opl_Preserves_PL_HLPL_Rel :
+  forall blockof addrof S Spl opl tl vlS1,
+    le_pl_hlpl blockof addrof Spl S ->
+    WellTypedOperand S blockof (Tuple opl) ->
+    op_get_type (Tuple opl) = TTuple tl ->
+    HLPL_No_Anon.eval_tuple opl S vlS1 ->
+    exists bytes bytes',
+      eval_tuple opl Spl bytes /\
+      le_pl_hlpl blockof addrof Spl vlS1.2 /\
+      concr_hlpl_val_tuple addrof vlS1.1 tl bytes' /\
       le_block bytes bytes'.
 Proof.
-  intros bo ao S Spl op t vS1 Hle HWTO Htype Heval.
-  pose proof Hle as Htemp ;
-    destruct Htemp as (Spl' & HComp & Hconcr & (Hle_env & Hle_mem)).
-  pose proof proj1 Hconcr as Hconcr_mem.
-  pose proof proj2 Hconcr as Hconcr_env.
-  induction Heval eqn:E.
-  - exists (make_int64 n), (make_int64 n). simpl in * ; subst.
-    repeat split ; try constructor ; auto ; repeat constructor.
-  - specialize (HWTO _ Heval_place). simpl in * ; subst.
-    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle Heval_place HWTO eq_refl)
-    as (bytes & bytes' & Hread & Hconcr_val & Hle_val).
-    exists bytes, bytes' ; repeat split ; simpl ; auto.
-    + econstructor ; eauto.
-    + apply (concr_val_equiv_concr_copy_val ao _ _ _ _ Hcopy_val) ; auto.
-  - simpl in Htype ; subst.
-    specialize (HWTO _ e).
-    destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle e HWTO eq_refl)
-    as (bytes & bytes' & Hread & Hconcr_val & Hle_block).
-    exists bytes, bytes' ; repeat split ; auto.
-    + econstructor ; eauto.
-    + inversion Hread. simpl.
-      exists (Spl'.m.[ addr <- repeat Undef (sizeof p.2) : p.2]).
-      split ; [ idtac | split ] ; auto.
-      * apply sset_preserves_compatibility ; auto.
-        unfold not_contains_loc. not_contains.
-      * apply concr_state_write_at_addr ; auto ; [ apply Concr_bot ; auto | ].
-        eapply read_addr_spath_equiv_equiv ; eauto.
-      * etransitivity ; eauto.
-        eapply le_pl_write_at_addr_r ; eauto ; try reflexivity.
-        eapply le_pl_write_at_addr ; try constructor ; eauto .
-        apply le_block_poison. apply Forall2_length in Hle_block.
-        apply concr_val_size in Hconcr_val. congruence.
+  {
+    intros bo ao S Spl op t vS1 Hle HWTO Htype Heval.
+    pose proof Hle as Htemp ;
+      destruct Htemp as (Spl' & HComp & Hconcr & (Hle_env & Hle_mem)).
+    pose proof proj1 Hconcr as Hconcr_mem.
+    pose proof proj2 Hconcr as Hconcr_env.
+    induction Heval.
+    - exists (make_int64 n), (make_int64 n). simpl in * ; subst.
+      repeat split ; try constructor ; auto ; repeat constructor.
+    - exists (make_bool b), (make_bool b). simpl in * ; subst.
+      repeat split ; try constructor ; auto ; repeat constructor. reflexivity.
+    - specialize (HWTO _ Heval_place). simpl in * ; subst.
+      destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle Heval_place HWTO eq_refl)
+        as (bytes & bytes' & Hread & Hconcr_val & Hle_val).
+      exists bytes, bytes' ; repeat split ; simpl ; auto.
+      + econstructor ; eauto.
+      + apply (concr_val_equiv_concr_copy_val ao _ _ _ _ Hcopy_val) ; auto.
+    - simpl in Htype ; subst. cbn in HWTO.
+      specialize (HWTO _ H).
+      destruct (HLPL_PL_Read _ _ _ _ _ _ _ _ Hle H HWTO eq_refl)
+        as (bytes & bytes' & Hread & Hconcr_val & Hle_block).
+      exists bytes, bytes' ; repeat split ; auto.
+      + econstructor ; eauto.
+      + inversion Hread. simpl.
+        exists (Spl'.m.[ addr <- repeat Undef (sizeof p.2) : p.2]).
+        split ; [ idtac | split ] ; auto.
+        * apply sset_preserves_compatibility ; auto.
+          unfold not_contains_loc. not_contains.
+        * apply concr_state_write_at_addr ; auto ; [ apply Concr_bot ; auto | ].
+          eapply read_addr_spath_equiv_equiv ; eauto.
+        * etransitivity ; eauto.
+          eapply le_pl_write_at_addr_r ; eauto ; try reflexivity.
+          eapply le_pl_write_at_addr ; try constructor ; eauto .
+          apply le_block_poison. apply Forall2_length in Hle_block.
+          apply concr_val_size in Hconcr_val. congruence.
+    - cbn. eapply Opl_Preserves_PL_HLPL_Rel in H
+        as (bytes & bytes' & eval_tuple & le & concr_tuple & le_b) ; eauto.
+      exists bytes, bytes' ; repeat split ; auto.
+      * constructor ; auto.
+      * cbn in Htype. rewrite <- Htype. constructor. auto.
+  }
+  {
+    intros * Hle HWTO Htype Heval. induction Heval ; cbn in *.
+    - destruct tl ; cbn in Htype ; try discriminate.
+      exists [], [] ; repeat split ; try constructor ; auto.
+    - 
+  }
 Qed.
 
 Lemma le_pl_hlpl_write_loc :

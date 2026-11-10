@@ -573,16 +573,16 @@ Inductive eval_operand : operand -> state -> (value * state) -> Prop :=
     eval_place S p pi ->
     not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
-  | E_Tuple S S' opl vl
-      (H : eval_tuple opl S (vl, S')) :
-    S |-{op} Tuple opl => (VTuple vl, S')
+  | E_Tuple S vlS' opl 
+      (H : eval_tuple opl S vlS') :
+    S |-{op} Tuple opl => (VTuple vlS'.1, vlS'.2)
 where "S |-{op} op => r" := (eval_operand op S r)
   with eval_tuple : list operand -> state -> (value_list * state) -> Prop :=
   | E_Tuple_Nil S : eval_tuple [] S (VNil, S)
-  | E_Tuple_Cons S S' S'' op opl v vl
-      (Hop : eval_operand op S (v, S'))
-      (Hrec : eval_tuple opl S' (vl, S'')) :
-    eval_tuple (op :: opl) S (VCons v vl, S'')
+  | E_Tuple_Cons S vS' vlS'' op opl
+      (Hop : eval_operand op S vS')
+      (Hrec : eval_tuple opl vS'.2 vlS'') :
+    eval_tuple (op :: opl) S (VCons vS'.1 vlS''.1, vlS''.2)
 .
 
 Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
@@ -632,12 +632,11 @@ Proof.
     + eapply copy_no_loc. eauto
     + unfold not_contains_loc ; not_contains.
     + unfold not_contains_loc ; not_contains.
-    + unfold not_contains_loc ; not_contains. remember (vl, S') as vlS'.
-      replace vl with (vlS'.1) by (rewrite HeqvlS' ; auto). eauto.
+    + unfold not_contains_loc ; not_contains. 
   }
   {
     intros eval_t. induction eval_t ; [ constructor | ].
-    simpl. constructor ; [ | assumption ]. replace v with ((v, S').1) by reflexivity.
+    simpl. constructor ; [ | assumption ].
     apply eval_operand_no_loc with (S := S) (op := op) ; auto.
   }
 Qed.

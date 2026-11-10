@@ -196,6 +196,26 @@ Inductive operand :=
 | Copy (p : place)
 | Tuple (opl : list operand).
 
+Lemma operand_ind' (P : operand -> Prop)
+  (Hconst : forall c, P (Const c))
+  (Hmove  : forall p, P (Move p))
+  (Hcopy  : forall p, P (Copy p))
+  (Htuple : forall opl, Forall P opl -> P (Tuple opl)) :
+  forall op, P op.
+Proof.
+  fix IH 1.
+  intros [c | p | p | opl].
+  - apply Hconst.
+  - apply Hmove.
+  - apply Hcopy.
+  - apply Htuple.
+    induction opl as [| op opl IHl].
+    + constructor.
+    + constructor.
+      * apply IH.
+      * exact IHl.
+Qed.
+
 Variant BinOp :=
 | BAdd
 | BLe.
