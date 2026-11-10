@@ -216,7 +216,7 @@ Section SemTest.
     eapply E_Seq_Unit.
     {
       eapply E_Assign.
-      - apply E_Pointer_Loc with (pi := (encode_var 1, [])).
+      - apply E_Pointer_Loc with (pi := (Acc_var 1, [])).
         * repeat econstructor; try easy.
         * reflexivity.
       - apply Store with (a := a4) ; [eval_var | ] ; constructor.
@@ -238,7 +238,7 @@ Section SemTest.
       - apply Store with (a := a6).
         * repeat constructor.
           ** eexists; split; constructor.
-          ** simpl. apply Eval_cons with (q := (encode_var 1, []));
+          ** simpl. apply Eval_cons with (q := (Acc_var 1, []));
              repeat econstructor; easy.
         * reflexivity.
     }

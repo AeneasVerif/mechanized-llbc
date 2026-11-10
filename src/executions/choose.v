@@ -107,15 +107,15 @@ Proof.
     { apply le_singleton. unfold branching_state. simpl_map. simpl_state.
       eapply prove_le_symbolic.
       { eapply Le_Reborrow_MutBorrow_Abs
-          with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive)
+          with (sp := (Acc_var z, [])) (l1 := lz) (i := 1%positive)
                (kb := 1%positive) (kl := 3%positive);
           try compute_done.
-        eapply var_not_in_abstraction; reflexivity. reflexivity. constructor. }
+          constructor. reflexivity. constructor. }
       simpl_state.
       eapply prove_le_symbolic.
       { eapply Le_Fresh_MutLoan_Abs
-          with (sp := (encode_var y, [])) (l' := ly) (i := 2%positive) (k := 2%positive);
-          [compute_done | now eapply var_not_in_abstraction | compute_done.. | constructor]. }
+          with (sp := (Acc_var y, [])) (l' := ly) (i := 2%positive) (k := 2%positive);
+          [compute_done | constructor | compute_done.. | constructor]. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
@@ -123,7 +123,7 @@ Proof.
         econstructor. constructor. compute_done. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
-      { econstructor. eapply Le_ToSymbolic with (sp := (encode_var z, [0])).
+      { econstructor. eapply Le_ToSymbolic with (sp := (Acc_var z, [0])).
         constructor. all: compute_done. }
       simpl_state.
       reflexivity. }
@@ -139,15 +139,15 @@ Proof.
     { apply le_singleton. unfold branching_state. simpl_map. simpl_state.
       eapply prove_le_symbolic.
       { eapply Le_Reborrow_MutBorrow_Abs
-          with (sp := (encode_var z, [])) (l1 := lz) (i := 1%positive)
+          with (sp := (Acc_var z, [])) (l1 := lz) (i := 1%positive)
                       (kb := 2%positive) (kl := 3%positive);
           try compute_done.
-        eapply var_not_in_abstraction; reflexivity. reflexivity. constructor. }
+        constructor. reflexivity. constructor. }
       simpl_state.
       eapply prove_le_symbolic.
       { eapply Le_Fresh_MutLoan_Abs
-          with (sp := (encode_var x, [])) (l' := lx) (i := 2%positive) (k := 1%positive);
-          [compute_done | now eapply var_not_in_abstraction | compute_done.. | constructor]. }
+          with (sp := (Acc_var x, [])) (l' := lx) (i := 2%positive) (k := 1%positive);
+          [compute_done | constructor | compute_done.. | constructor]. }
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { remove_abstraction 1%positive. remove_abstraction 2%positive.
@@ -156,7 +156,7 @@ Proof.
       simpl_state.
       eapply prove_le_symbolic; [constructor | ].
       { econstructor.
-        eapply Le_ToSymbolic with (sp := (encode_var z, [0])); [constructor | compute_done..]. }
+        eapply Le_ToSymbolic with (sp := (Acc_var z, [0])); [constructor | compute_done..]. }
       reflexivity. }
   }
 
@@ -175,14 +175,14 @@ Proof.
     (** Ending the loan [lz] ... *)
     { constructor.
       remove_abstraction 1%positive. remove_abstraction_element 3%positive.
-      eexists. apply Reorg_End_MutBorrow_in_abstraction with (q := (encode_var 3%positive, [])).
+      eexists. apply Reorg_End_MutBorrow_in_abstraction with (q := (Acc_var 3%positive, [])).
       - reflexivity.
       - reflexivity.
       - reflexivity.
       - constructor.
       - compute_done.
       - intros ? ?. apply not_strict_prefix_nil.
-      - eapply var_not_in_abstraction. reflexivity. }
+      - constructor. }
     simpl_state. etransitivity.
     (** ... so that we could end the region abstraction ... *)
     { constructor.
@@ -194,16 +194,16 @@ Proof.
     simpl_state.
     (** ... so that we could end the loan [lx]. *)
     { constructor. eexists.
-      eapply Reorg_End_MutBorrow with (p := (encode_var 1%positive, []))
-                                      (q := (encode_anon 1%positive, [])).
+      eapply Reorg_End_MutBorrow with (p := (Acc_var 1%positive, []))
+                                      (q := (anon_accessor 1%positive, [])).
       - reflexivity.
       - reflexivity.
       - constructor.
       - compute_done.
       - intros ? ?. apply not_strict_prefix_nil.
       - left. discriminate.
-      - eapply var_not_in_abstraction. reflexivity.
-      - eapply anon_not_in_abstraction. reflexivity. }
+      - constructor.
+      - constructor. }
   }
   simpl_state.
 

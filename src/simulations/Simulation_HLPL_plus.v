@@ -217,7 +217,7 @@ Qed.
  * The relation R depends on the rule, but for most rules it is simply going to be the equality. *)
 Lemma eval_place_preservation Sl Sr perm p (R : spath -> spath -> Prop)
   (* Initial case: the relation R must be preserved for all spath corresponding to a variable. *)
-  (R_nil : forall x, R (encode_var x, []) (encode_var x, []))
+  (R_nil : forall x, R (Acc_var x, []) (Acc_var x, []))
   (* All of the variables of Sr are variables of Sl.
    * Since most of the time, Sr is Sl with alterations on anonymous variables or by sset, this is
    * always true. *)
@@ -227,13 +227,11 @@ Lemma eval_place_preservation Sl Sr perm p (R : spath -> spath -> Prop)
   :
   forall pi_r, eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
 Proof.
-  intros pi_r ((? & G%mk_is_Some & _) & Heval_path).
-  cbn in G. unfold encode_var in G. rewrite sum_maps_lookup_l in G.
+  intros pi_r ((? & G) & Heval_path). cbn in G. rewrite get_at_var in G. apply mk_is_Some in G.
   rewrite <-elem_of_dom, <-dom_eq, elem_of_dom, <-get_at_var in G. destruct G as (? & ?).
   eapply eval_path_preservation in Heval_path; [ | eassumption..].
   edestruct Heval_path as (pi_l' & ? & ?); [apply R_nil | ].
-  exists pi_l'. split; [assumption | ]. split; [ | assumption].
-  eexists. split; [eassumption | constructor].
+  exists pi_l'. split; [assumption | ]. split; [eexists | ]; eassumption.
 Qed.
 
 Lemma sset_preserves_vars_dom S sp v : dom (vars (S.[sp <- v])) = dom (vars S).
@@ -244,7 +242,7 @@ Qed.
 
 (* Note: instead of defining a relation between a left spath p and a right path q, I could define
  * the left spath q as a function of p. *)
-Definition rel_MutBorrow_to_Ptr sp_loan sp_borrow p q :=
+Definition rel_MutBorrow_to_Ptr sp_loan sp_borrow (p q : @spath Acc) :=
   (exists r, p = sp_loan +++ [0] ++ r /\ q = sp_borrow +++ [0] ++ r) \/
   (p = q /\ ~strict_prefix sp_borrow p).
 

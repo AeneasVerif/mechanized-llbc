@@ -154,17 +154,17 @@ Proof.
         apply ToAbs_MutBorrow with (k := 1%positive); [constructor | compute_done..]. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
-      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ ly Ay 2%positive 3%positive);
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (Acc_var y, []) _ ly Ay 2%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
-      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lbx Ab 1%positive 2%positive);
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (Acc_var x, []) _ lbx Ab 1%positive 2%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
-      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lx Ax 2%positive 3%positive);
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (Acc_var x, []) _ lx Ax 2%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
@@ -196,17 +196,17 @@ Proof.
         apply ToAbs_MutBorrow with (k := 2%positive); [constructor | compute_done..]. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
-      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var x, []) _ lx Ax 1%positive 3%positive);
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (Acc_var x, []) _ lx Ax 1%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
-      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ lby Ab 1%positive 3%positive);
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (Acc_var y, []) _ lby Ab 1%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
       eapply prove_le_symbolic; [ | ].
-      { eapply (Le_Reborrow_MutBorrow_Abs _ (encode_var y, []) _ ly Ay 1%positive 3%positive);
+      { eapply (Le_Reborrow_MutBorrow_Abs _ (Acc_var y, []) _ ly Ay 1%positive 3%positive);
           [compute_done | reflexivity | | reflexivity | discriminate | constructor].
         refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
       simpl_state.
@@ -237,7 +237,7 @@ Proof.
   { etransitivity; [constructor | ].
     (** Ending the borrow in << x >>. *)
     { remove_abstraction Ax. remove_abstraction_element 3%positive. eexists.
-      eapply Reorg_End_MutBorrow_in_abstraction with (q := (encode_var x, [])).
+      eapply Reorg_End_MutBorrow_in_abstraction with (q := (Acc_var x, [])).
       reflexivity. reflexivity. reflexivity. constructor. compute_done.
       refine (proj2 (try_assert (compute_not_in_borrow _ _) _ _)). reflexivity.
       refine (try_assert (compute_not_in_abstraction _) _ _). reflexivity. }
@@ -251,7 +251,7 @@ Proof.
 
     (** Ending the loan << a >>. *)
     constructor. eexists.
-    eapply Reorg_End_MutBorrow with (p := (encode_var a, []))
+    eapply Reorg_End_MutBorrow with (p := (Acc_var a, []))
                                     (q := (anon_accessor 1%positive, [])).
     reflexivity. reflexivity. constructor. compute_done.
     refine (proj2 (try_assert (compute_not_in_borrow _ _) _ _)). reflexivity.

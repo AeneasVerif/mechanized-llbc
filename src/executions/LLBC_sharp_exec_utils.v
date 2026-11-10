@@ -110,12 +110,10 @@ Defined.
 (* TODO: change definition of [eval_place]. *)
 Definition compute_eval_place S perm p : option {sp | S |-{p} p =>^{perm} sp}.
 Proof.
-  destruct (get_at_accessor S (encode_var (fst (fst p)))) as [v | ] eqn:get_at_p; [ | exact None].
-  destruct (compute_eval_path S perm (snd (fst p)) (encode_var (fst (fst p)), [])) as [(q & eval_to_q) | ];
+  destruct (get_at_accessor S (Acc_var (fst (fst p)))) as [v | ] eqn:get_at_p; [ | exact None].
+  destruct (compute_eval_path S perm (snd (fst p)) (Acc_var (fst (fst p)), [])) as [(q & eval_to_q) | ];
     [ | exact None].
-  apply Some. exists q. split; [ | exact eval_to_q]. exists v. split.
-  - exact get_at_p.
-  - constructor.
+  apply Some. exists q. split; [ | exact eval_to_q]. exists v. assumption.
 Defined.
 
 (* TODO: move in << PathToSubtree.v >> *)
@@ -344,21 +342,16 @@ Proof.
     + unfold sget. cbn [fst]. rewrite get_v. assumption.
 Defined.
 
-Definition compute_not_in_abstraction sp : option (not_in_abstraction sp).
-Proof.
-  unfold not_in_abstraction, in_abstraction, encode_abstraction.
-  destruct (decode' (A := positive + positive * positive) (fst sp)) as [[ | (i' & j)] | ] eqn:EQN.
-  - apply Some. intros ? (j & H). rewrite H, decode'_encode in EQN. discriminate.
-  - exact None.
-  - exact None.
-Defined.
+Definition compute_not_in_abstraction acc : option (acc_not_in_abstraction acc).
+Proof. destruct acc; [apply Some; constructor.. | exact None]. Defined.
 
-Definition compute_uninitialize_value (sp : spath) S : option {S' | le_state_base^* S S'}.
+Definition compute_uninitialize_value (sp : @spath Acc) S :
+  option {S' | le_state_base^* S S'}.
 Proof.
   destruct (decide (not_contains_loan (S.[sp]))); [ | exact None].
   destruct (decide (not_contains_borrow (S.[sp]))); [ | exact None].
   destruct (compute_not_in_borrow S sp) as [(? & ?) | ]; [ | exact None].
-  destruct (compute_not_in_abstraction sp); [ | exact None].
+  destruct (compute_not_in_abstraction (fst sp)); [ | exact None].
   apply Some. exists (S.[sp <- bot]). apply le_uninitialize_value; assumption.
 Defined.
 

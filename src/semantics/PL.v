@@ -115,8 +115,8 @@ Definition update_env (S : PL_state) (e : PTree.t (block * type)) :=
 Definition update_mem (S : PL_state) (m : Mem.mem) :=
   {| env := env S ; mem := m |}.
 
-Definition lookup_block_and_type_env (enc_x : positive) (S : PL_state)
-  : option (block * type) := PTree.get enc_x (env S).
+Definition lookup_block_and_type_env (x : positive) (S : PL_state)
+  : option (block * type) := PTree.get x (env S).
 
 Definition lookup_env (enc_x : positive) (S : PL_state) : option block :=
   match PTree.get enc_x (env S) with
@@ -338,7 +338,7 @@ Inductive eval_path (Spl : PL_state) : path -> address * type -> address * type 
 
 Definition eval_place (Spl : PL_state) (p : place) (addr_t : address * type) : Prop :=
   exists bi t,
-    lookup_block_and_type_env (encode_var (p.1).1) Spl = Some (bi, t) /\
+    lookup_block_and_type_env (p.1).1 Spl = Some (bi, t) /\
       eval_path Spl (p.1).2 ((bi, 0), t) addr_t.
 
 Notation "Spl  |-{p}  p =>^{pl} addr_t" := (eval_place Spl p addr_t) (at level 50).
@@ -467,8 +467,8 @@ Lemma list_app_elem_not_nil {A : Type} :
   forall (l : list A) (a : A), l ++ [ a ] <> [].
 Proof. intros l a Hcontr. apply app_eq_nil, proj2 in Hcontr. discriminate. Qed.
 
-Lemma spath_app_elem_not_nil :
-  forall (sp : spath) (n : nat) enc_x, sp +++ [ n ] <> (enc_x, []).
+Lemma spath_app_elem_not_nil {A} :
+  forall (sp : @spath A) (n : nat) x, sp +++ [ n ] <> (x, []).
 Proof.
   intros. unfold app_spath_vpath. intros contra.
   injection contra as _ H. destruct (list_app_elem_not_nil sp.2 n H).
@@ -1392,7 +1392,7 @@ Section Concretization.
       {
         block_dom :
         forall x enc_x : positive,
-          enc_x = encode_var x ->
+          enc_x = Acc_var x ->
           valid_spath S (enc_x, []) ->
           exists bi t, blockof enc_x = (bi, t) 
       ; correct_addrof :
@@ -1786,9 +1786,9 @@ Section Concretization.
       exists addr t, 
         Spl |-{p} p =>^{pl} (addr, t) /\ addr ~^{S, t} sp.
   Proof.
-    intros. destruct (blockof (encode_var (p.1).1)) as (bi, t0) eqn:E.
+    intros. destruct (blockof (Acc_var (p.1).1)) as (bi, t0) eqn:E.
     inversion H0 ; subst.
-    assert (addr_spath_equiv S (bi, 0) t0 (encode_var p.1.1, [])) by
+    assert (addr_spath_equiv S (bi, 0) t0 (Acc_var p.1.1, [])) by
     (econstructor ; eauto ; simpl ; constructor).
     destruct (spath_address_path_simul _ _ _ _ _ _ _ H H2 H3) as (addr & t & ? & ?).
     exists addr, t ; split ; auto.
@@ -1809,7 +1809,7 @@ Section Concretization.
     pose proof Hle as Htemp.
     destruct Htemp as (Spl' & HComp & (Hconcr_mem & Hconcr_env) & Henv & Hmem).
     destruct Hplace as [Hvsp Hpath]. simpl in *.
-    destruct (blockof (encode_var p.1.1)) as [bi t0] eqn:Hbo.
+    destruct (blockof (Acc_var p.1.1)) as [bi t0] eqn:Hbo.
     assert (Hsimul_path_pl : exists addr t,
                eval_path Spl p.1.2 ((bi, 0), t0) (addr, t) /\ addr ~^{S, t} sp).
     { eapply spath_address_path_simul ; eauto.
@@ -2808,10 +2808,10 @@ Proof.
   intros * fresh eval_pl. inversion eval_pl.
   rewrite <- sset_not_prefix_valid in H by apply not_strict_prefix_nil.
   constructor ; auto.
-  replace (encode_var p.1.1, []) with (remove_loc_spath r (encode_var p.1.1, [])).
+  replace (Acc_var p.1.1, []) with (remove_loc_spath r (Acc_var p.1.1, [])).
   apply eval_path_write_loc' with (l := l) ; auto.
   unfold remove_loc_spath.
-  destruct (decidable_prefix' r (encode_var p.1.1, [])) as [(r' & ?) | ] ; auto.
+  destruct (decidable_prefix' r (Acc_var p.1.1, [])) as [(r' & ?) | ] ; auto.
   apply f_equal with (f := snd) in e as e'. apply list_basics.app_nil in e' as [? ->].
   easy.
 Qed.
@@ -2868,7 +2868,7 @@ Lemma eval_place_end_loc :
 Proof.
   intros * node not_contains eval_p. inversion eval_p.
   apply sset_not_prefix_valid in H ; try (apply not_strict_prefix_nil).
-  constructor ; auto. remember (encode_var p.1.1, []) as q.
+  constructor ; auto. remember (Acc_var p.1.1, []) as q.
     destruct (decidable_spath_eq q r).
     + subst q. rewrite !H1 in *. apply Eval_path_loc with (q := (r +++ [0%nat])).
       * apply Eval_Loc with (l := l) ; auto.
@@ -3814,9 +3814,9 @@ Abort.
 
 Section Tests.
   Definition x := 1 % positive.
-  Definition enc_x := encode_var x.
+  Definition enc_x := Acc_var x.
   Definition y := 2 % positive.
-  Definition enc_y := encode_var y.
+  Definition enc_y := Acc_var y.
   Notation l1 := 0%nat.
   Notation l2 := 1%nat.
 

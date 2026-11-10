@@ -102,12 +102,10 @@ Defined.
 (* TODO: change definition of [eval_place]. *)
 Definition compute_eval_place S perm p : option {sp | S |-{p} p =>^{perm} sp}.
 Proof.
-  destruct (get_at_accessor S (encode_var (fst (fst p)))) as [v | ] eqn:get_at_p; [ | exact None].
-  destruct (compute_eval_path S perm (snd (fst p)) (encode_var (fst (fst p)), [])) as [(q & eval_to_q) | ];
+  destruct (get_at_accessor S (Acc_var (fst (fst p)))) as [v | ] eqn:get_at_p; [ | exact None].
+  destruct (compute_eval_path S perm (snd (fst p)) (Acc_var (fst (fst p)), [])) as [(q & eval_to_q) | ];
     [ | exact None].
-  apply Some. exists q. split; [ | exact eval_to_q]. exists v. split.
-  - exact get_at_p.
-  - constructor.
+  apply Some. exists q. split; [ | exact eval_to_q]. exists v. assumption.
 Defined.
 
 (* TODO: move in << PathToSubtree.v >> *)
@@ -376,14 +374,16 @@ Section Eval_LLBC_program.
     }
     simpl_state. eapply E_Reorg.
     { etransitivity; [constructor | ].
-      { apply Reorg_End_MutBorrow with (p := (encode_anon 5, [0])) (q := (encode_var d, [])) (l := 2%positive).
+      { apply Reorg_End_MutBorrow with
+          (p := (anon_accessor 5%positive, [0])) (q := (Acc_var d, [])) (l := 2%positive).
         + left. discriminate.
         + reflexivity.
         + reflexivity.
         + compute_done.
         + refine (proj2 (try_assert (compute_not_in_borrow _ _) _ _)). reflexivity. }
       simpl_state. constructor.
-      { apply Reorg_End_MutBorrow with (l := 1%positive) (p := (encode_var a, [])) (q := (encode_anon 5, [])).
+      { apply Reorg_End_MutBorrow
+          with (l := 1%positive) (p := (Acc_var a, [])) (q := (anon_accessor 5%positive, [])).
         + left. discriminate.
         + reflexivity.
         + reflexivity.

@@ -175,8 +175,8 @@ Inductive eval_path (S : state) perm : path -> spath -> spath -> Prop :=
     eval_path S perm (proj :: P) p r.
 
 Definition eval_place S perm (p : place) pi :=
-  let pi_0 := (encode_var (fst (fst p)), []) in
-  valid_spath S pi_0 /\ eval_path S perm (snd (fst p)) pi_0 pi.
+  is_Some (get_at_accessor S (Acc_var (fst (fst p))))  /\
+  eval_path S perm (snd (fst p)) (Acc_var (fst (fst p)), []) pi.
 (* TODO: reserved notation. *)
 Global Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi)
   (at level 50) : llbc_sharp_scope.

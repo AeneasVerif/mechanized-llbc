@@ -6,7 +6,7 @@ Import ListNotations.
 From Stdlib Require Import PeanoNat Lia.
 (* Notation conflict between stdpp's `+++` and our `+++`. That's why we're importing stpp first,
    then closing the scope. *)
-From stdpp Require Import pmap.
+From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
 Require Import PathToSubtree.
 From Stdlib Require Bool.
@@ -99,42 +99,104 @@ Record state := {
   anons : Pmap value;
 }.
 
-Definition encode_var (x : var) := encode (A := var + anon) (inl x).
-Definition encode_anon (a : positive) := encode (A := var + anon) (inr a).
+Variant Acc :=
+  | Acc_var (x : var)
+  | Acc_anon (a : anon)
+.
 
-Program Instance IsState : State state value := {
+Global Instance EqDecision_Acc : EqDecision Acc.
+Proof. unfold EqDecision, Decision. repeat decide equality. Defined.
+
+Instance Injection_Acc_var : Inj eq eq Acc_var.
+Proof. intros ? ? [=]. assumption. Qed.
+Instance Injection_Acc_anon : Inj eq eq Acc_anon.
+Proof. intros ? ? [=]. assumption. Qed.
+
+Program Global Instance Countable_Acc : Countable Acc := {
+  encode acc := match acc with
+                | Acc_var x => xO x
+                | Acc_anon a => xI a
+                end;
+  decode p := match p with
+              | xO x => Some (Acc_var x)
+              | xI a => Some (Acc_anon a)
+              | _ => None
+              end;
+}.
+Next Obligation. repeat split; discriminate. Qed.
+Next Obligation. intros [ | ]; reflexivity. Qed.
+
+Definition get_map S : gmap Acc value := union (kmap Acc_var (vars S)) (kmap Acc_anon (anons S)).
+
+Lemma map_disjoint_vars_anons S :
+  map_disjoint (M := gmap _) (kmap Acc_var (vars S)) (kmap Acc_anon (anons S)).
+Proof.
+  apply map_disjoint_spec. setoid_rewrite lookup_kmap_Some; [ | typeclasses eauto..].
+  intros acc ? ? (x & ? & _) (a & ? & _). congruence.
+Qed.
+
+Lemma get_at_var x S : lookup (Acc_var x) (get_map S) = lookup x (vars S).
+Proof.
+  unfold get_map. rewrite lookup_union_l.
+  - apply lookup_kmap. typeclasses eauto.
+  - rewrite lookup_kmap_None by typeclasses eauto. intros ? [=].
+Qed.
+Lemma get_at_anon a S : lookup (Acc_anon a) (get_map S) = lookup a (anons S).
+Proof.
+  unfold get_map. rewrite lookup_union_r.
+  - apply lookup_kmap. typeclasses eauto.
+  - rewrite lookup_kmap_None by typeclasses eauto. intros ? [=].
+Qed.
+
+Program Instance IsState : State state value Acc  := {
   extra := unit;
-  get_map S := sum_maps (vars S) (anons S);
+  get_map := get_map;
   get_extra _ := ();
-  alter_at_accessor f a S :=
-    match decode' (A := var + positive) a with
-    | Some (inl x) => {| vars := alter f x (vars S); anons := anons S|}
-    | Some (inr a) => {| vars := vars S; anons := alter f a (anons S)|}
-    | None => S
-    end;
-  anon_accessor := encode_anon;
-  accessor_anon x :=
-    match decode (A := var + positive) x with
-    | Some (inr a) => Some a
+  alter_at_accessor f acc S :=
+  match acc with
+  | Acc_var x => {|vars := alter f x (vars S); anons := anons S|}
+  | Acc_anon a => {|vars := vars S; anons := alter f a (anons S)|}
+  end;
+  anon_accessor := Acc_anon;
+  accessor_anon acc :=
+    match acc with
+    | Acc_anon a => Some a
     | _ => None
     end;
   add_anon a v S := {| vars := vars S; anons := insert a v (anons S)|};
 }.
-Next Obligation. intros [? ?] [? ?]. cbn. intros (-> & ->)%sum_maps_eq _. reflexivity. Qed.
+Next Obligation.
+  intros [vars anons] [vars' anons'] eq_maps _. f_equal.
+  - apply map_eq. intros x. apply (f_equal (lookup (Acc_var x))) in eq_maps.
+    rewrite !get_at_var in eq_maps. exact eq_maps.
+  - apply map_eq. intros a. apply (f_equal (lookup (Acc_anon a))) in eq_maps.
+    rewrite !get_at_anon in eq_maps. exact eq_maps.
+Qed.
 Next Obligation. reflexivity. Qed.
 Next Obligation.
-  intros ? ? i. cbn. destruct (decode' i) eqn:H.
-  - rewrite decode'_is_Some in H.
-    destruct s; cbn; rewrite <-H; symmetry;
-      first [apply sum_maps_alter_inl | apply sum_maps_alter_inr].
-  - symmetry. apply alter_id', sum_maps_lookup_None. assumption.
+  intros ? ? [x | a]; cbn.
+  - apply map_eq. intros [y | ].
+    + rewrite get_at_var. cbn. destruct (decide (x = y)) as [<- | ].
+      * rewrite !lookup_alter_eq. rewrite get_at_var. reflexivity.
+      * rewrite !lookup_alter_ne by congruence. rewrite get_at_var. reflexivity.
+    + rewrite lookup_alter_ne by discriminate. rewrite !get_at_anon. reflexivity.
+  - apply map_eq. intros [ | b].
+    + rewrite lookup_alter_ne by discriminate. rewrite !get_at_var. reflexivity.
+    + rewrite get_at_anon. cbn. destruct (decide (a = b)) as [<- | ].
+      * rewrite !lookup_alter_eq. rewrite get_at_anon. reflexivity.
+      * rewrite !lookup_alter_ne by congruence. rewrite get_at_anon. reflexivity.
 Qed.
 (* What are the two following obligations? *)
 Next Obligation. discriminate. Qed.
-Next Obligation. discriminate. Qed.
 Next Obligation. reflexivity. Qed.
-Next Obligation. intros. cbn. unfold encode_anon. rewrite sum_maps_insert_inr. reflexivity. Qed.
-Next Obligation. intros. unfold encode_anon. reflexivity. Qed.
+Next Obligation.
+  intros a v S. cbn. apply map_eq. intros [ | b].
+  - rewrite lookup_insert_ne by discriminate. rewrite !get_at_var. reflexivity.
+  - rewrite get_at_anon. cbn. destruct (decide (a = b)) as [<- | ].
+    + rewrite !lookup_insert_eq. reflexivity.
+    + rewrite !lookup_insert_ne by congruence. symmetry. apply get_at_anon.
+Qed.
+Next Obligation. reflexivity. Qed.
 
 Declare Scope llbc_scope.
 Delimit Scope llbc_scope with llbc.
@@ -168,8 +230,8 @@ Inductive eval_path (S : state) perm : path -> spath -> spath -> Prop :=
     eval_path S perm (proj :: P) p r.
 
 Definition eval_place S perm (p : place) pi :=
-  let pi_0 := (encode_var (fst (fst p)), []) in
-  valid_spath S pi_0 /\ eval_path S perm (snd (fst p)) (encode_var (fst (fst p)), []) pi.
+  is_Some (get_at_accessor S (Acc_var (fst (fst p))))  /\
+  eval_path S perm (snd (fst p)) (Acc_var (fst (fst p)), []) pi.
 
 Global Notation "S  |-{p}  p =>^{ perm } pi" := (eval_place S perm p pi) (at level 50).
 
@@ -189,10 +251,6 @@ Proof.
   - assumption.
   - apply IHeval_q_r. eapply eval_proj_valid. eassumption.
 Qed.
-
-Lemma eval_place_valid s p perm pi (H : eval_place s perm p pi) : valid_spath s pi.
-Proof. destruct H as (? & ?). eapply eval_path_valid; eassumption. Qed.
-Hint Resolve eval_place_valid : spath.
 
 Variant is_loan : nodes -> Prop :=
 | IsLoan_MutLoan l : is_loan (nloan^m(l)).

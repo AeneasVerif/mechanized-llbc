@@ -9,7 +9,7 @@ From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
 Import ListNotations.
 
-From stdpp Require Import pmap gmap.
+From stdpp Require Import gmap.
 
 Local Open Scope option_monad_scope.
 
@@ -17,6 +17,7 @@ Local Open Scope option_monad_scope.
     between paths.
     As a rewriting database, "spath" is used to reduce computations on paths, values and states, and
     to put them in normal form. *)
+(** TODO: rename database. *)
 Create HintDb spath.
 
 (** This is a hint database used to reduce weight computations. *)
@@ -38,26 +39,6 @@ Coercion Z.of_nat : nat >-> Z.
  *)
 Definition vpath := list nat.
 
-(** A spath ("state path") is used to uniquely represent nodes in a state. It is a pair [(i, q)]. The
-    positive [i] identifies a value in the state, and the vpath [q] identifies the node in this value.
- *)
-Definition spath : Type  := positive * vpath.
-
-(** The concatenation of a spath and a vpath. *)
-Definition app_spath_vpath (p : spath) (q : vpath) := (fst p, snd p ++ q).
-(* TODO: place the notation in a scope? *)
-Notation "p +++ q" := (app_spath_vpath p q) (right associativity, at level 60).
-
-Lemma spath_var_app_vpath :
-  forall p, p = (p.1, []) +++ p.2.
-Proof. intros (?, ?). reflexivity. Qed.
-
-Lemma app_spath_vpath_nil_r (p : spath) : p +++ nil = p.
-Proof. apply injective_projections; reflexivity || apply app_nil_r. Qed.
-
-Lemma app_spath_vpath_assoc (p : spath) q r : p +++ q ++ r = (p +++ q) +++ r.
-Proof. unfold app_spath_vpath. rewrite app_assoc. reflexivity. Qed.
-
 (** The large and strict prefix relations between two paths. *)
 Definition vprefix (p q : vpath) := exists r, p ++ r = q.
 Definition vstrict_prefix (p q : vpath) := exists i r, p ++ i :: r = q.
@@ -74,85 +55,41 @@ Global Instance vdisj_symmetric : Symmetric vdisj.
 Proof. intros ? ? (v & p & q & i & j & ? & ? & ?). exists v, q, p, j, i. auto. Qed.
 
 (** Showing that every two paths are comparable. *)
-Variant vComparable (p q : vpath) : Prop :=
+Variant vComparable (p q : vpath) : Type :=
 | vCompEq (H : p = q)
-| vCompStrictPrefixLeft (H : vstrict_prefix p q)
-| vCompStrictPrefixRight (H : vstrict_prefix q p)
+| vCompStrictPrefixLeft i r (H : p ++ i :: r = q)
+| vCompStrictPrefixRight i r (H : q ++ i :: r = p)
 | vCompDisj (H : vdisj p q).
 
 Lemma comparable_cons p q i (H : vComparable p q) : vComparable (i :: p) (i :: q).
 Proof.
-  destruct H as [ <- | (j & r & <-) | (j & r & <-) | (r & ? & ? & ? & ? & ? & -> & ->)].
+  destruct H as [<- | r ? <- | r ? <- | H].
   - apply vCompEq. reflexivity.
-  - apply vCompStrictPrefixLeft. exists j, r. reflexivity.
-  - apply vCompStrictPrefixRight. exists j, r. reflexivity.
-  - apply vCompDisj. exists (i :: r). repeat eexists. assumption.
+  - eapply vCompStrictPrefixLeft. reflexivity.
+  - eapply vCompStrictPrefixRight. reflexivity.
+  - apply vCompDisj. destruct H as (r & ? & ? & ? & ? & ? & -> & ->).
+    exists (i :: r). repeat eexists. assumption.
 Qed.
 
 Lemma comparable_vpaths p : forall q, vComparable p q.
 Proof.
   induction p as [ | i p' IH]; intro q; destruct q as [ | j q'].
   - apply vCompEq. reflexivity.
-  - apply vCompStrictPrefixLeft. exists j, q'. reflexivity.
-  - apply vCompStrictPrefixRight. exists i, p'. reflexivity.
+  - eapply vCompStrictPrefixLeft. reflexivity.
+  - eapply vCompStrictPrefixRight. reflexivity.
   - destruct (Nat.eq_dec i j) as [<- | diff].
     + apply comparable_cons, IH.
     + apply vCompDisj. exists nil. repeat eexists. assumption.
 Qed.
 
-(** Prefixness and disjointness for spaths: *)
-Definition prefix (p q : spath) := exists r, p +++ r = q.
-
-Definition strict_prefix (p q : spath) := exists i r, p +++ (i :: r) = q.
+Lemma app_same_nil {B : Type} (x y : list B) (H : x ++ y = x) : y = nil.
+Proof. eapply app_inv_head. rewrite H, app_nil_r. reflexivity. Qed.
 
 Lemma vstrict_prefix_is_vprefix p q : vstrict_prefix p q -> vprefix p q.
 Proof. intros (? & ? & ?). eexists. eassumption. Qed.
 
-Lemma strict_prefix_is_prefix (p q : spath) : strict_prefix p q -> prefix p q.
-Proof. intros (? & ? & ?). eexists. eassumption. Qed.
-
-Definition disj (p q : spath) :=
-(fst p <> fst q) \/ (fst p = fst q /\ vdisj (snd p) (snd q)).
-
-Global Instance symmetric_disj : Symmetric disj.
-Proof.
-intros p q [? | [? ?]].
-+ left. auto.
-+ right. split; symmetry; assumption.
-Qed.
-
-Variant Comparable (p q : spath) : Prop :=
-| CompEq (H : p = q)
-| CompStrictPrefixLeft (H : strict_prefix p q)
-| CompStrictPrefixRight (H : strict_prefix q p)
-| CompDisj (H : disj p q)
-.
-
-Lemma comparable_spaths p q : Comparable p q.
-Proof.
-rewrite (surjective_pairing p), (surjective_pairing q).
-destruct (decide (fst p = fst q)) as [<- | ].
-- destruct (comparable_vpaths (snd p) (snd q)) as [ <- | (i & r & <-) | (i & r & <-) | ].
-  + apply CompEq. reflexivity.
-  + apply CompStrictPrefixLeft. exists i, r. unfold app_spath_vpath. cbn. reflexivity.
-  + apply CompStrictPrefixRight. exists i, r. unfold app_spath_vpath. cbn. reflexivity.
-  + apply CompDisj. right. auto.
-- apply CompDisj. left. cbn. assumption.
-Qed.
-
-Lemma app_same_nil {B : Type} (x y : list B) (H : x ++ y = x) : y = nil.
-Proof. eapply app_inv_head. rewrite H, app_nil_r. reflexivity. Qed.
-
-Lemma prefix_antisym p q (H : prefix p q) (G : prefix q p) : p = q.
-Proof.
-  destruct H as [r <-]. destruct G as [r' G]. unfold app_spath_vpath in G.
-  apply (f_equal snd) in G; cbn in G. rewrite <-app_assoc in G.
-  apply app_same_nil, app_eq_nil in G. destruct G as [-> _].
-  rewrite app_spath_vpath_nil_r. reflexivity.
-Qed.
-
 Lemma vstrict_prefix_irrefl p : ~vstrict_prefix p p.
-Proof. intros (? & ? & ?).  apply app_same_nil in H. discriminate. Qed.
+Proof. intros (? & ? & ?). apply app_same_nil in H. discriminate. Qed.
 
 Lemma vdisj_irrefl p : ~vdisj p p.
 Proof.
@@ -160,65 +97,11 @@ Proof.
   congruence.
 Qed.
 
-Lemma strict_prefix_irrefl p : ~strict_prefix p p.
-Proof.
-  intros (? & ? & ?). apply (f_equal snd) in H. unfold app_spath_vpath in H.
-  apply app_same_nil in H. discriminate.
-Qed.
-
-Corollary not_prefix_left_strict_prefix_right p q : strict_prefix q p -> ~ prefix p q.
-Proof.
-  intros ? ?. destruct (prefix_antisym p q).
-  - assumption.
-  - apply strict_prefix_is_prefix. assumption.
-  - apply (strict_prefix_irrefl p). assumption.
-Qed.
-
-Lemma not_prefix_var_equal_or_not_vprefix :
-  forall p q,
-    ~ prefix p q -> p.1 <> q.1 \/ p.1 = q.1 /\ ~ vprefix p.2 q.2.
-Proof.
-  intros p q Hpref.
-  destruct (Positive_as_DT.eqb_spec p.1 q.1).
-  - right ; split ; auto. intros (r & H).
-    assert (prefix p q).
-    {
-      exists r. unfold "+++". rewrite e, H. by rewrite surjective_pairing with (p := q).
-    }
-    contradiction.
-  - left ; auto.
-Qed.
-
-Lemma not_vprefix_left_vstrict_prefix_right p q : vstrict_prefix q p -> ~vprefix p q.
-Proof.
-  intros (? & ? & H) (q' & G). rewrite <-(app_nil_r p), <-G, <-app_assoc in H.
-  apply app_inv_head in H. destruct q'; discriminate.
-Qed.
-
-Lemma not_prefix_implies_not_strict_prefix p q : ~prefix p q -> ~strict_prefix p q.
-Proof. intros ? ?%strict_prefix_is_prefix. auto. Qed.
-
 Global Instance : Reflexive vprefix.
 Proof. intro p. exists nil. apply app_nil_r. Qed.
 
 Global Instance vprefix_trans : Transitive vprefix.
 Proof. intros ? ? ? (? & <-) (? & <-). rewrite<- app_assoc. eexists. reflexivity. Qed.
-
-Global Instance prefix_trans : Transitive prefix.
-Proof.
-  intros ? ? ? (? & <-) (? & <-). rewrite<- app_spath_vpath_assoc. eexists. reflexivity.
-Qed.
-
-Global Instance strict_prefix_trans : Transitive strict_prefix.
-Proof.
-  intros ? ? ? (? & ? & <-) (? & ? & <-). rewrite<- app_spath_vpath_assoc.
-  eexists _, _. reflexivity.
-Qed.
-
-Global Instance reflexive_prefix : Reflexive prefix.
-Proof. intro p. exists nil. apply app_spath_vpath_nil_r. Qed.
-
-Local Hint Unfold app_spath_vpath : core.
 
 Lemma not_vprefix_vdisj p q : vdisj p q -> ~vprefix p q.
 Proof.
@@ -231,19 +114,6 @@ Proof.
   intros (r' & p' & q' & i & j & diff & H & G) (r & n & <-). rewrite H, <-app_assoc in G.
   apply app_inv_head_iff in G. injection G. auto.
 Qed.
-
-Lemma not_prefix_disj p q : disj p q -> ~prefix p q.
-Proof.
-  intros [ | (? & ?)] (? & <-).
-  - auto.
-  - eapply (not_vprefix_vdisj (snd p) (snd _)); [eassumption | ]. eexists. reflexivity.
-Qed.
-
-Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
-Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
-
-Corollary not_disj_strict_prefix' p q : disj q p -> ~strict_prefix p q.
-Proof. intros H. symmetry in H. apply not_disj_strict_prefix. exact H. Qed.
 
 Lemma vdisj_common_prefix p q r : vdisj (p ++ q) (p ++ r) <-> vdisj q r.
 Proof.
@@ -261,61 +131,8 @@ Proof.
     exists (p ++ p'), q', r', i, j. rewrite<- !app_assoc. auto.
 Qed.
 
-Corollary disj_common_prefix p q r : disj (p +++ q) (p +++ r) <-> vdisj q r.
-Proof.
-  split.
-  - intros [H | (_ & H) ].
-    + cbn in H. congruence.
-    + eapply vdisj_common_prefix. exact H.
-  - intro. right. split.
-    + reflexivity.
-    + apply vdisj_common_prefix. assumption.
-Qed.
-
-Lemma disj_common_index i p q : disj (i, p) (i, q) <-> vdisj p q.
-Proof.
-  split.
-  - intros [H | (_ & ?)].
-    + cbn in H. congruence.
-    + assumption.
-  - intro. right. auto.
-Qed.
-
-Lemma disj_diff_fst a p q : fst p <> a -> disj p (a, q).
-Proof. left. assumption. Qed.
-
-Lemma disj_diff_fst' a p q : fst p <> a -> disj (a, q) p.
-Proof. left. symmetry. assumption. Qed.
-
 Lemma not_vprefix_implies_not_vstrict_prefix p q : ~vprefix p q -> ~vstrict_prefix p q.
 Proof. intros ? ?%vstrict_prefix_is_vprefix. auto. Qed.
-
-Lemma not_prefix_implies_neq p q : ~prefix p q -> p <> q.
-Proof. intros H <-. apply H. reflexivity. Qed.
-
-Lemma not_prefix_implies_neq' p q : ~prefix p q -> q <> p.
-Proof. intro. symmetry. apply not_prefix_implies_neq. assumption. Qed.
-
-Lemma disj_if_left_disj_prefix p q r : disj p q -> disj p (q +++ r).
-Proof.
-  intros [ | (? & (x & p' & q' & H))].
-  - left. assumption.
-  - right. split; [assumption | ]. exists x, p', (q' ++ r).
-    decompose [ex and] H. repeat eexists; try eassumption. cbn.
-    rewrite app_comm_cons, app_assoc. apply<- app_inv_tail_iff. assumption.
-Qed.
-
-Lemma prefix_and_strict_prefix_implies_strict_prefix p q r :
-  prefix p q -> strict_prefix q r -> strict_prefix p r.
-Proof.
-  intros (x & <-) (i & y & <-). rewrite<- app_spath_vpath_assoc.
-  destruct (x ++ i :: y) eqn:?.
-  - exfalso. eapply app_cons_not_nil. symmetry. eassumption.
-  - eexists _, _. reflexivity.
-Qed.
-
-Lemma prefix_trans' p q r : prefix (p +++ q) r -> prefix p r.
-Proof. transitivity (p +++ q); [ | assumption]. exists q. reflexivity. Qed.
 
 Lemma vprefix_and_neq_implies_vstrict_prefix p q : vprefix p q -> p <> q -> vstrict_prefix p q.
 Proof.
@@ -324,68 +141,28 @@ Proof.
   - eexists _, _. reflexivity.
 Qed.
 
-Lemma prefix_and_neq_implies_strict_prefix p q : prefix p q -> p <> q -> strict_prefix p q.
-Proof.
-  intros ([ | ] & <-) H.
-  - rewrite app_spath_vpath_nil_r in H. easy.
-  - eexists _, _. reflexivity.
-Qed.
-
-Lemma not_prefix_left_strict_prefix_right' p q : prefix p q -> ~strict_prefix q p.
-Proof. intros ? ?. eapply not_prefix_left_strict_prefix_right; eassumption. Qed.
-
-Corollary disj_if_right_disj_prefix p q r : disj p q -> disj (p +++ r) q.
-Proof. intro. symmetry. apply disj_if_left_disj_prefix. symmetry. assumption. Qed.
-
 Lemma decidable_vpath_eq (p q : vpath) : p = q \/ p <> q.
 Proof.
   destruct (comparable_vpaths p q) as [ | | | ].
   - left. assumption.
-  - right. intros <-. eapply vstrict_prefix_irrefl. eassumption.
-  - right. intros <-. eapply vstrict_prefix_irrefl. eassumption.
+  - right. subst. symmetry. intros ?%app_same_nil. discriminate.
+  - right. subst. intros ?%app_same_nil. discriminate.
   - right. intros <-. eapply vdisj_irrefl. eassumption.
 Qed.
 
-Lemma decidable_spath_eq (p q : spath) : p = q \/ p <> q.
+Lemma not_vprefix_left_vstrict_prefix_right p q : vstrict_prefix q p -> ~vprefix p q.
 Proof.
-  destruct p as (i & p'). destruct q as (j & q').
-  destruct (decide (i = j)); destruct (decidable_vpath_eq p' q'); intuition congruence.
+  intros (? & ? & H) (q' & G). rewrite <-(app_nil_r p), <-G, <-app_assoc in H.
+  apply app_inv_head in H. destruct q'; discriminate.
 Qed.
 
 Lemma decidable_vprefix p q : vprefix p q \/ ~vprefix p q.
 Proof.
   destruct (comparable_vpaths p q) as [<- | | | ].
   - left. reflexivity.
-  - left. apply vstrict_prefix_is_vprefix. assumption.
-  - right. apply not_vprefix_left_vstrict_prefix_right. assumption.
+  - left. subst. eexists. reflexivity.
+  - right. subst. apply not_vprefix_left_vstrict_prefix_right. eexists _, _. reflexivity.
   - right. apply not_vprefix_vdisj. assumption.
-Qed.
-
-Lemma decidable_prefix p q : prefix p q \/ ~prefix p q.
-Proof.
-  destruct (comparable_spaths p q) as [<- | | | ].
-  - left. reflexivity.
-  - left. apply strict_prefix_is_prefix. assumption.
-  - right. apply not_prefix_left_strict_prefix_right. assumption.
-  - right. apply not_prefix_disj. assumption.
-Qed.
-
-Lemma prefix_if_equal_or_strict_prefix (p q : spath) : prefix p q -> p = q \/ strict_prefix p q.
-Proof.
-  intros ([ | i r] & <-).
-  - left. symmetry. apply app_spath_vpath_nil_r.
-  - right. exists i, r. reflexivity.
-Qed.
-
-Lemma prove_not_prefix (p q : spath) : p <> q -> ~strict_prefix p q -> ~prefix p q.
-Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
-
-Lemma prove_disj (p q : spath) : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
-Proof. destruct (comparable_spaths p q); easy. Qed.
-
-Lemma prove_disj' (p q : spath) : ~strict_prefix q p -> ~prefix p q -> disj p q.
-Proof.
-  intros. apply prove_disj; auto using not_prefix_implies_not_strict_prefix, not_prefix_implies_neq.
 Qed.
 
 Lemma vstrict_prefix_app_last p q i : vstrict_prefix p (q ++ [i]) <-> vprefix p q.
@@ -406,53 +183,330 @@ Proof.
   }
 Qed.
 
-Corollary strict_prefix_app_last p q i : strict_prefix p (q +++ [i]) <-> prefix p q.
-Proof.
-  split.
-  - intros (j & r & H). inversion H.
-    destruct (proj1 (vstrict_prefix_app_last (snd p) (snd q) i)) as (r' & ?).
-    + exists j, r. assumption.
-    + exists r'. apply injective_projections; assumption.
-  - intros (r & <-). rewrite<- app_spath_vpath_assoc. destruct (r ++ [i]) eqn:EQN.
-    + symmetry in EQN. apply app_cons_not_nil in EQN. destruct EQN.
-    + eexists _, _. reflexivity.
-Qed.
-
-Corollary not_strict_prefix_app_last p q i : ~strict_prefix p (q +++ [i]) <-> ~prefix p q.
-Proof. split; intros H ?; eapply H, strict_prefix_app_last; eassumption. Qed.
-
-Lemma not_strict_prefix_nil (p : spath) i : ~strict_prefix p (i, []).
-Proof.
-  intros (? & ? & H). apply (f_equal snd) in H. eapply app_cons_not_nil. symmetry. exact H.
-Qed.
-
-Lemma prefix_of_disj_implies_not_prefix p q r : prefix p q -> disj q r -> ~prefix r p.
-Proof.
-  intros ? ? ?. assert (prefix r q) by (transitivity p; assumption).
-  eapply not_prefix_disj; [symmetry | ]; eassumption.
-Qed.
-
-Lemma prefix_nil p i : prefix p (i, []) -> p = (i, []).
-Proof.
-  destruct p as (j & q). intros (r & H). unfold app_spath_vpath in H. cbn in H.
-  apply pair_equal_spec in H. destruct H as (-> & H).
-  apply app_eq_nil in H. destruct H as (-> & _). reflexivity.
-Qed.
-
-Lemma app_spath_vpath_inv_head p q r : p +++ q = p +++ r -> q = r.
-Proof. intros H%(f_equal snd). eapply app_inv_head. exact H. Qed.
-
-Lemma not_prefix_app p q i :
-  ~prefix p (q +++ [i]) -> ~ prefix p q.
-Proof.
-  intros H G. eapply strict_prefix_app_last, strict_prefix_is_prefix in G. eauto.
-Qed.
-
 Lemma not_vprefix_app p q i :
   ~vprefix p (q ++ [i]) -> ~ vprefix p q.
 Proof.
   intros H G. by eapply vstrict_prefix_app_last, vstrict_prefix_is_vprefix in G.
 Qed.
+
+Section Spath.
+  Context {A : Type}.
+  Context `{EqDecision A}.
+
+  (** A spath ("state path") is used to uniquely represent nodes in a state. It is a pair [(i, q)]. The
+      positive [i] identifies a value in the state, and the vpath [q] identifies the node in this value.
+   *)
+  Definition spath : Type  := A * vpath.
+
+  (** The concatenation of a spath and a vpath. *)
+  Definition app_spath_vpath (p : spath) (q : vpath) := (fst p, snd p ++ q).
+  Notation "p +++ q" := (app_spath_vpath p q) (right associativity, at level 60).
+
+  Lemma spath_var_app_vpath : forall p, p = (p.1, []) +++ p.2.
+  Proof. intros (?, ?). reflexivity. Qed.
+
+  Lemma app_spath_vpath_nil_r (p : spath) : p +++ nil = p.
+  Proof. apply injective_projections; reflexivity || apply app_nil_r. Qed.
+
+  Lemma app_spath_vpath_assoc (p : spath) q r : p +++ q ++ r = (p +++ q) +++ r.
+  Proof. unfold app_spath_vpath. rewrite app_assoc. reflexivity. Qed.
+
+  Lemma snd_app (v : spath) w : snd (v +++ w) = (snd v) ++ w. Proof. reflexivity. Qed.
+
+  (** Prefixness and disjointness for spaths: *)
+  Definition prefix (p q : spath) := exists r, p +++ r = q.
+
+  Definition strict_prefix (p q : spath) := exists i r, p +++ (i :: r) = q.
+
+  Lemma strict_prefix_is_prefix (p q : spath) : strict_prefix p q -> prefix p q.
+  Proof. intros (? & ? & ?). eexists. eassumption. Qed.
+
+  Definition disj (p q : spath) :=
+  (fst p <> fst q) \/ (fst p = fst q /\ vdisj (snd p) (snd q)).
+
+  Lemma symmetric_disj p q : disj p q -> disj q p.
+  Proof.
+  intros [? | [? ?]].
+  + left. auto.
+  + right. split; symmetry; assumption.
+  Qed.
+  Global Instance disj_is_symmetric : Symmetric disj. Proof. exact symmetric_disj. Qed.
+
+  Variant Comparable (p q : spath) : Type :=
+  | CompEq (H : p = q)
+  | CompStrictPrefixLeft i r (H : p +++ i :: r = q)
+  | CompStrictPrefixRight i r (H : q +++ i :: r = p)
+  | CompDisj (H : disj p q)
+  .
+
+  Lemma comparable_spaths p q : Comparable p q.
+  Proof.
+  rewrite (surjective_pairing p), (surjective_pairing q).
+  destruct (decide (fst p = fst q)) as [<- | ].
+  - destruct (comparable_vpaths (snd p) (snd q)) as [ <- | i r <- | i r <- | ].
+    + apply CompEq. reflexivity.
+    + eapply CompStrictPrefixLeft. reflexivity.
+    + eapply CompStrictPrefixRight. reflexivity.
+    + apply CompDisj. right. auto.
+  - apply CompDisj. left. cbn. assumption.
+  Qed.
+
+  Lemma prefix_antisym p q (H : prefix p q) (G : prefix q p) : p = q.
+  Proof.
+    destruct H as [r <-]. destruct G as [r' G]. unfold app_spath_vpath in G.
+    apply (f_equal snd) in G; cbn in G. rewrite <-app_assoc in G.
+    apply app_same_nil, app_eq_nil in G. destruct G as [-> _].
+    rewrite app_spath_vpath_nil_r. reflexivity.
+  Qed.
+
+  Lemma strict_prefix_irrefl p : ~strict_prefix p p.
+  Proof.
+    intros (? & ? & ?). apply (f_equal snd) in H. unfold app_spath_vpath in H.
+    apply app_same_nil in H. discriminate.
+  Qed.
+
+  Lemma not_prefix_left_strict_prefix_right p q : strict_prefix q p -> ~ prefix p q.
+  Proof.
+    intros ? ?. destruct (prefix_antisym p q).
+    - assumption.
+    - apply strict_prefix_is_prefix. assumption.
+    - apply (strict_prefix_irrefl p). assumption.
+  Qed.
+
+  Lemma not_prefix_var_equal_or_not_vprefix p q :
+    ~ prefix p q -> p.1 <> q.1 \/ p.1 = q.1 /\ ~ vprefix p.2 q.2.
+  Proof.
+    intros Hpref. destruct (decide (fst p = fst q)).
+    - right ; split ; auto. intros (r & H).
+      assert (prefix p q).
+      {
+        exists r. unfold "+++". rewrite e, H. by rewrite surjective_pairing with (p := q).
+      }
+      contradiction.
+    - left ; auto.
+  Qed.
+
+  Lemma not_prefix_implies_not_strict_prefix p q : ~prefix p q -> ~strict_prefix p q.
+  Proof. intros ? ?%strict_prefix_is_prefix. auto. Qed.
+
+  Global Instance prefix_trans : Transitive prefix.
+  Proof.
+    intros ? ? ? (? & <-) (? & <-). rewrite<- app_spath_vpath_assoc. eexists. reflexivity.
+  Qed.
+
+  Global Instance strict_prefix_trans : Transitive strict_prefix.
+  Proof.
+    intros ? ? ? (? & ? & <-) (? & ? & <-). rewrite<- app_spath_vpath_assoc.
+    eexists _, _. reflexivity.
+  Qed.
+
+  Global Instance reflexive_prefix : Reflexive prefix.
+  Proof. intro p. exists nil. apply app_spath_vpath_nil_r. Qed.
+
+  Local Hint Unfold app_spath_vpath : core.
+
+  Lemma not_prefix_disj p q : disj p q -> ~prefix p q.
+  Proof.
+    intros [ | (? & ?)] (? & <-).
+    - auto.
+    - eapply (not_vprefix_vdisj (snd p) (snd _)); [eassumption | ]. eexists. reflexivity.
+  Qed.
+
+  Lemma not_disj_strict_prefix p q : disj p q -> ~strict_prefix p q.
+  Proof. intros ? ?%strict_prefix_is_prefix. eapply not_prefix_disj; eassumption. Qed.
+
+  Corollary not_disj_strict_prefix' p q : disj q p -> ~strict_prefix p q.
+  Proof. intros H. symmetry in H. apply not_disj_strict_prefix. exact H. Qed.
+
+  Lemma disj_common_prefix p q r : disj (p +++ q) (p +++ r) <-> vdisj q r.
+  Proof.
+    split.
+    - intros [H | (_ & H) ].
+      + cbn in H. congruence.
+      + eapply vdisj_common_prefix. exact H.
+    - intro. right. split.
+      + reflexivity.
+      + apply vdisj_common_prefix. assumption.
+  Qed.
+
+  Lemma disj_common_index i p q : disj (i, p) (i, q) <-> vdisj p q.
+  Proof.
+    split.
+    - intros [H | (_ & ?)].
+      + cbn in H. congruence.
+      + assumption.
+    - intro. right. auto.
+  Qed.
+
+  Lemma disj_diff_fst a p q : fst p <> a -> disj p (a, q).
+  Proof. left. assumption. Qed.
+
+  Lemma disj_diff_fst' a p q : fst p <> a -> disj (a, q) p.
+  Proof. left. symmetry. assumption. Qed.
+
+  Lemma not_prefix_implies_neq p q : ~prefix p q -> p <> q.
+  Proof. intros H <-. apply H. reflexivity. Qed.
+
+  Lemma not_prefix_implies_neq' p q : ~prefix p q -> q <> p.
+  Proof. intro. symmetry. apply not_prefix_implies_neq. assumption. Qed.
+
+  Lemma disj_if_left_disj_prefix p q r : disj p q -> disj p (q +++ r).
+  Proof.
+    intros [ | (? & (x & p' & q' & H))].
+    - left. assumption.
+    - right. split; [assumption | ]. exists x, p', (q' ++ r).
+      decompose [ex and] H. repeat eexists; try eassumption. cbn.
+      rewrite app_comm_cons, app_assoc. apply<- app_inv_tail_iff. assumption.
+  Qed.
+
+  Lemma prefix_and_strict_prefix_implies_strict_prefix p q r :
+    prefix p q -> strict_prefix q r -> strict_prefix p r.
+  Proof.
+    intros (x & <-) (i & y & <-). rewrite<- app_spath_vpath_assoc.
+    destruct (x ++ i :: y) eqn:?.
+    - exfalso. eapply app_cons_not_nil. symmetry. eassumption.
+    - eexists _, _. reflexivity.
+  Qed.
+
+  Lemma prefix_trans' p q r : prefix (p +++ q) r -> prefix p r.
+  Proof. transitivity (p +++ q); [ | assumption]. exists q. reflexivity. Qed.
+
+  Lemma prefix_and_neq_implies_strict_prefix p q : prefix p q -> p <> q -> strict_prefix p q.
+  Proof.
+    intros ([ | ] & <-) H.
+    - rewrite app_spath_vpath_nil_r in H. easy.
+    - eexists _, _. reflexivity.
+  Qed.
+
+  Lemma not_prefix_left_strict_prefix_right' p q : prefix p q -> ~strict_prefix q p.
+  Proof. intros ? ?. eapply not_prefix_left_strict_prefix_right; eassumption. Qed.
+
+  Lemma disj_if_right_disj_prefix p q r : disj p q -> disj (p +++ r) q.
+  Proof. intro. symmetry. apply disj_if_left_disj_prefix. symmetry. assumption. Qed.
+
+  Lemma decidable_spath_eq (p q : spath) : p = q \/ p <> q.
+  Proof.
+    destruct p as (i & p'). destruct q as (j & q').
+    destruct (decide (i = j)); destruct (decidable_vpath_eq p' q'); intuition congruence.
+  Qed.
+
+  Lemma decidable_prefix' (p q : spath) : {r & p +++ r = q} + {~prefix p q}.
+  Proof.
+    destruct (comparable_spaths p q) as [<- | | | ].
+    - left. exists []. apply app_spath_vpath_nil_r.
+    - left. eexists. eassumption.
+    - right. apply not_prefix_left_strict_prefix_right. subst. eexists _, _. reflexivity.
+    - right. apply not_prefix_disj. assumption.
+  Qed.
+
+  Lemma decidable_prefix p q : prefix p q \/ ~prefix p q.
+  Proof.
+    destruct (decidable_prefix' p q) as [(r & ?) | ].
+    - left. exists r. assumption.
+    - right. assumption.
+  Qed.
+
+  Lemma prefix_if_equal_or_strict_prefix (p q : spath) : prefix p q -> p = q \/ strict_prefix p q.
+  Proof.
+    intros ([ | i r] & <-).
+    - left. symmetry. apply app_spath_vpath_nil_r.
+    - right. exists i, r. reflexivity.
+  Qed.
+
+  Lemma prove_not_prefix (p q : spath) : p <> q -> ~strict_prefix p q -> ~prefix p q.
+  Proof. intros ? ? [ | ]%prefix_if_equal_or_strict_prefix; auto. Qed.
+
+  Lemma prove_disj (p q : spath) : p <> q -> ~strict_prefix p q -> ~strict_prefix q p -> disj p q.
+  Proof.
+    destruct (comparable_spaths p q) as [ | ? ? ? | ? ? ? | ].
+    - easy.
+    - intros _ G _. exfalso. apply G. subst. eexists _, _. reflexivity.
+    - intros _ _ G. exfalso. apply G. subst. eexists _, _. reflexivity.
+    - easy.
+  Qed.
+
+  Lemma prove_disj' (p q : spath) : ~strict_prefix q p -> ~prefix p q -> disj p q.
+  Proof.
+    intros. apply prove_disj; auto using not_prefix_implies_not_strict_prefix, not_prefix_implies_neq.
+  Qed.
+
+  Lemma strict_prefix_app_last p q i : strict_prefix p (q +++ [i]) <-> prefix p q.
+  Proof.
+    split.
+    - intros (j & r & H). inversion H.
+      destruct (proj1 (vstrict_prefix_app_last (snd p) (snd q) i)) as (r' & ?).
+      + exists j, r. assumption.
+      + exists r'. apply injective_projections; assumption.
+    - intros (r & <-). rewrite<- app_spath_vpath_assoc. destruct (r ++ [i]) eqn:EQN.
+      + symmetry in EQN. apply app_cons_not_nil in EQN. destruct EQN.
+      + eexists _, _. reflexivity.
+  Qed.
+
+  Corollary not_strict_prefix_app_last p q i : ~strict_prefix p (q +++ [i]) <-> ~prefix p q.
+  Proof. split; intros H ?; eapply H, strict_prefix_app_last; eassumption. Qed.
+
+  Lemma not_strict_prefix_nil (p : spath) i : ~strict_prefix p (i, []).
+  Proof.
+    intros (? & ? & H). apply (f_equal snd) in H. eapply app_cons_not_nil. symmetry. exact H.
+  Qed.
+
+  Lemma prefix_of_disj_implies_not_prefix p q r : prefix p q -> disj q r -> ~prefix r p.
+  Proof.
+    intros ? ? ?. assert (prefix r q) by (transitivity p; assumption).
+    eapply not_prefix_disj; [symmetry | ]; eassumption.
+  Qed.
+
+  Lemma prefix_nil p i : prefix p (i, []) -> p = (i, []).
+  Proof.
+    destruct p as (j & q). intros (r & H). unfold app_spath_vpath in H. cbn in H.
+    apply pair_equal_spec in H. destruct H as (-> & H).
+    apply app_eq_nil in H. destruct H as (-> & _). reflexivity.
+  Qed.
+
+  Lemma app_spath_vpath_inv_head p q r : p +++ q = p +++ r -> q = r.
+  Proof. intros H%(f_equal snd). eapply app_inv_head. exact H. Qed.
+
+  Lemma not_prefix_app p q i :
+    ~prefix p (q +++ [i]) -> ~ prefix p q.
+  Proof.
+    intros H G. eapply strict_prefix_app_last, strict_prefix_is_prefix in G. eauto.
+  Qed.
+
+  Lemma diff_first_app_spath_vpath p q x : fst p <> x -> fst (p +++ q) <> x.
+  Proof. easy. Qed.
+
+  Lemma decidable_prefix_is_prefix :
+    forall p r,
+      exists equ, decidable_prefix' p (p +++ r) = inleft (existT r equ).
+  Proof.
+    intros *. destruct (decidable_prefix' p (p +++ r)) as [ (r' & equ) | npref ].
+    - pose proof equ as equ'.
+      apply app_spath_vpath_inv_head in equ'; subst.
+      repeat apply f_equal. by exists equ.
+    - by assert (prefix p (p +++ r)) by (exists r ; auto).
+  Qed.
+
+  Lemma decidable_prefix_is_not_prefix :
+    forall p r,
+      ~ prefix p r ->
+      exists npref, decidable_prefix' p r = inright npref.
+  Proof.
+    intros * npref. destruct (decidable_prefix' p r) as [ (r' & equ) | npref' ].
+    - by assert (prefix p r) by (exists r'; auto).
+    - by exists npref'.
+  Qed.
+
+  Definition removelast (p : spath) := (p.1, List.removelast p.2).
+
+  Lemma removelast_app :
+    forall p q, q <> [] -> removelast (p +++ q) = p +++ List.removelast q.
+  Proof.
+    intros * neq. unfold removelast. simpl. rewrite List.removelast_app ; auto.
+  Qed.
+End Spath.
+
+(* TODO: place the notation in a scope? *)
+Notation "p +++ q" := (app_spath_vpath p q) (right associativity, at level 60).
 
 (** Automatic resolution of comparisons between path. *)
 Hint Resolve disj_diff_fst : spath.
@@ -538,9 +592,9 @@ Definition anon := positive.
  *)
 (** Note: I am not satisfied with accessors being positive numbers. It should be an arbitrary type.
     In particular, it would be more natural to use a sum type. *)
-Class State (state : Type) V `{Value V} := {
-  get_map : state -> Pmap V;
-  alter_at_accessor : (V -> V) -> positive -> state -> state;
+Class State (state : Type) V Acc `{Value V} `{Countable Acc} := {
+  get_map : state -> gmap Acc V;
+  alter_at_accessor : (V -> V) -> Acc -> state -> state;
 
   (** The [extra] type describes all the information that is not contained in the positive
       map. For example, it can be the unit type if [get_map] is injective. For LLBC## and
@@ -560,9 +614,9 @@ Class State (state : Type) V `{Value V} := {
   (** Generic management of anonymous bindings. *)
   (* TODO: this should be a superclass of [State] *)
   (* The injection from anonymous bindings to positive accessors: *)
-  anon_accessor : anon -> positive;
+  anon_accessor : anon -> Acc;
   (* The reciprocal injection. *)
-  accessor_anon : positive -> option anon;
+  accessor_anon : Acc -> option anon;
   anon_accessor_inj a : accessor_anon (anon_accessor a) = Some a;
   (* It is always possible to add an anonymous value. This insert a new value in the state map,
      and it does not affect the "extra" part of the state. *)
@@ -575,7 +629,7 @@ Notation get_at_accessor S a := (lookup a (get_map S)).
 Notation "S ,, a  |->  v" := (add_anon a v S) (left associativity, at level 63, v at level 61).
 
 (** Read a value at path [p]. If the path p is invalid, return [bot]. *)
-Definition sget {state V} `{State state V} (p : spath) (S : state) : V :=
+Definition sget {state V Acc} `{State state V Acc} (p : spath) (S : state) : V :=
   match get_at_accessor S (fst p) with
   | Some v => v.[[snd p]]
   | None => bot
@@ -590,8 +644,8 @@ Notation "S .[ p <- v ]" := (sset p v S) (left associativity, at level 50).
 Local Hint Unfold sset : core.
 
 Section GetSetPath.
-  Context {V state : Type}.
-  Context `{IsState : State state V}.
+  Context {V state Acc : Type}.
+  Context `{IsState : State state V Acc}.
 
   (** * Definitions and lemmas for values and vpaths. *)
   Lemma vget_app v p q : v.[[p ++ q]] = v.[[p]].[[q]].
@@ -810,9 +864,9 @@ Section GetSetPath.
   Lemma get_node_vset_vget_not_prefix v p q w (Hnot_prefix : ~vprefix q p) :
     get_node (v.[[q <- w]].[[p]]) = get_node (v.[[p]]).
   Proof.
-    destruct (comparable_vpaths p q) as [<- | | (? & ? & ?) | ].
+    destruct (comparable_vpaths p q) as [<- | | ? ? ? | ].
     - destruct Hnot_prefix. exists nil. apply app_nil_r.
-    - apply get_node_vset_vget_strict_prefix. assumption.
+    - apply get_node_vset_vget_strict_prefix. eexists _, _. eassumption.
     - firstorder.
     - rewrite vset_vget_disj; [reflexivity | symmetry; assumption].
   Qed.
@@ -983,9 +1037,7 @@ Section GetSetPath.
 
   Lemma valid_spath_implies_valid_spath_var (S : state) p :
     valid_spath S p -> valid_spath S (p.1, []).
-  Proof.
-    intros. rewrite spath_var_app_vpath in H0. eapply valid_spath_app ; eauto.
-  Qed.
+  Proof. rewrite spath_var_app_vpath at 1. apply valid_spath_app. Qed.
 
   Lemma get_not_bot_valid_spath (S : state) p : S.[p] <> bot -> valid_spath S p.
   Proof.
@@ -1156,8 +1208,8 @@ Section GetSetPath.
   Proof.
     destruct (comparable_spaths p q) as [<- | | | ].
     - destruct Hnot_prefix. reflexivity.
-    - apply get_node_sset_sget_strict_prefix. assumption.
-    - destruct Hnot_prefix. apply strict_prefix_is_prefix. assumption.
+    - apply get_node_sset_sget_strict_prefix. eexists _, _. eassumption.
+    - destruct Hnot_prefix. apply strict_prefix_is_prefix. eexists _, _. eassumption.
     - rewrite sset_sget_disj; reflexivity || symmetry; assumption.
   Qed.
 
@@ -1232,10 +1284,10 @@ Section GetSetPath.
   Lemma vset_not_prefix_valid v p q w :
     ~vstrict_prefix q p -> valid_vpath v p -> valid_vpath (v.[[q <- w]]) p.
   Proof.
-    intros ? G. destruct (comparable_vpaths p q) as [<- |(? & ? & <-) | | ].
+    intros K G. destruct (comparable_vpaths p q) as [<- | ? ? <- | | ].
     - eapply vset_same_valid; exact G.
     - rewrite vset_app_split. eapply vset_same_valid; exact G.
-    - contradiction.
+    - subst. exfalso. apply K. eexists _, _. reflexivity.
     - apply vset_disj_valid; assumption.
   Qed.
 
@@ -1263,11 +1315,11 @@ Section GetSetPath.
   Lemma _sset_not_prefix_valid (S : state) p q v :
     ~strict_prefix q p -> valid_spath S p -> valid_spath (S.[q <- v]) p.
   Proof.
-    intros ? valid_p.
-    destruct (comparable_spaths p q) as [<- | (i & r & <-) | | Hdisj ].
+    intros G valid_p.
+    destruct (comparable_spaths p q) as [<- | i r <- | | Hdisj ].
     - apply sset_prefix_right_valid; [reflexivity | assumption].
     - apply sset_prefix_right_valid; [ | assumption]. eexists. reflexivity.
-    - contradiction.
+    - subst. exfalso. apply G. eexists _, _. reflexivity.
     - destruct valid_p as (w & ? & ?). unfold sset.
       destruct Hdisj as [ | (<- & ?)].
       + exists w. split; [ | assumption]. now rewrite get_map_alter, lookup_alter_ne.
@@ -1830,8 +1882,7 @@ Section GetSetPath.
       + rewrite sset_sget_prefix in G by assumption.
         erewrite <-(vset_same _ r), <-vset_twice_equal, <-sget_app.
         apply not_contains_outer_vset; eassumption.
-      + assert (disj p q)
-          by auto using prove_disj, not_prefix_implies_neq, not_prefix_implies_not_strict_prefix.
+      + assert (disj p q) by now apply prove_disj'.
         rewrite sset_sget_disj in G by (symmetry; assumption).
         assumption.
     - rewrite sget_invalid by assumption. rewrite sget_invalid in G; [exact G | ].
@@ -2038,9 +2089,9 @@ Section GetSetPath.
       + rewrite <-sget_app. exact G.
       + exists i, r. rewrite <-app_spath_vpath_assoc in K.
         eapply app_spath_vpath_inv_head. exact K.
-    - destruct (comparable_spaths sp p) as [ | | (? & ? & <-) | Hdisj].
+    - destruct (comparable_spaths sp p) as [ | ? ? <- | ? ? <- | Hdisj].
       + subst. apply not_prefix. reflexivity.
-      + eapply no_ancestor_p; eassumption.
+      + eapply no_ancestor_p; [eassumption | ]. eexists _, _. reflexivity.
       + apply not_prefix. eexists. reflexivity.
       + eapply disj_if_left_disj_prefix in Hdisj.
         eapply not_prefix_disj; [exact Hdisj | ]. eexists. exact K.
@@ -2185,8 +2236,6 @@ Hint Rewrite<- @fresh_anon_sset : spath.
    They are used to solve the conditions of the rewrite lemmas sget_add_anon and sset_add_anon. *)
 Hint Resolve valid_spath_diff_fresh_anon : spath.
 Hint Resolve valid_spath_diff_fresh_anon' : spath.
-Lemma diff_first_app_spath_vpath p q x : fst p <> x -> fst (p +++ q) <> x.
-Proof. easy. Qed.
 Hint Resolve diff_first_app_spath_vpath : spath.
 
 (** Hints for [no_ancestor]: *)
@@ -2214,14 +2263,14 @@ Hint Immediate not_disj_strict_prefix' : spath.
 Hint Immediate vstrict_prefix_is_vprefix : spath.
 
 (* Hint Immediate<- disj_common_prefix : spath. *)
-Lemma _disj_common_prefix p q r : vdisj q r -> disj (p +++ q) (p +++ r).
+Lemma disj_common_prefixr2l {A} p q r : vdisj q r -> @disj A (p +++ q) (p +++ r).
 Proof. rewrite disj_common_prefix. auto. Qed.
-Hint Immediate _disj_common_prefix : spath.
+Hint Immediate disj_common_prefixr2l : spath.
 
 (* Hint Immediate<- disj_common_index : spath. *)
-Lemma _disj_common_index i p q : vdisj p q -> disj (i, p) (i, q).
+Lemma disj_common_indexr2l {A} i p q : vdisj p q -> @disj A (i, p) (i, q).
 Proof. rewrite disj_common_index. auto. Qed.
-Hint Immediate _disj_common_index : spath.
+Hint Immediate disj_common_indexr2l : spath.
 
 (** In case the where the immediate hints are not sufficient, this tactic helps reduce the goal.
    The idea is that when we prove a comparison [C p q], this tactic generated subgoals [D p q] that are weaker ([D p q -> C p q]) and tries to solve as many goals as possible using automatic resolution.
@@ -2428,13 +2477,12 @@ Ltac states_eq :=
 (* Simple simplifications: *)
 (* TODO: I should rely on [cbn [fst]] and [cbn [snd]] instead. *)
 Hint Rewrite app_nil_r : spath.
-Lemma snd_app (v : spath) w : snd (v +++ w) = (snd v) ++ w. Proof. reflexivity. Qed.
 Hint Rewrite @snd_app : spath.
 
 (* Re-parenthizing spaths and vpaths. *)
 Hint Rewrite <- app_assoc : spath.
 Hint Rewrite <- @app_spath_vpath_assoc : spath.
-Hint Rewrite app_spath_vpath_nil_r : spath.
+Hint Rewrite @app_spath_vpath_nil_r : spath.
 
 (* When the term to rewrite contains a subterm of the form S.[q <- v].[v], it is not in normal
    form. We apply one of the following rewrite rules to commute the get and the set, or to
@@ -2538,75 +2586,7 @@ Ltac weight_inequality :=
 Lemma lookup_alter_at_accessor_None {state} {val} `{IsState : State state val} :
   forall S p1 p2 vset,
     (get_map S) !! p1 = None <-> (get_map (alter_at_accessor vset p2 S)) !! p1 = None.
-  Proof.
-    intros S sp vset ; split ; intros Hget_map ;
-    rewrite get_map_alter in *; rewrite lookup_alter_None in * ; auto.
-  Qed.
-
-Lemma decidable_prefix' (p q : spath) : {r & p +++ r = q } + {~prefix p q}.
 Proof.
-  destruct p. rewrite <- rev_involutive with (l := v).
-  remember (rev v) as rev_v. generalize dependent v. induction rev_v ; intros v Heq.
-  - apply f_equal with (f := @rev nat) in Heq. rewrite rev_involutive in Heq.
-    simpl in Heq. subst.
-    destruct (decide (p = q.1)).
-    * left. subst. apply existT with (x := q.2). by rewrite surjective_pairing.
-    * right. destruct (decidable_prefix (p, []) q) ; auto.
-      destruct H as (r & ?). apply f_equal with (f := fst) in H. simpl in H. auto.
-  - apply f_equal with (f := @rev nat) in Heq. simpl in Heq.
-    rewrite rev_involutive in Heq. 
-    specialize (IHrev_v (rev rev_v)). rewrite rev_involutive in IHrev_v.
-    simpl.
-    destruct (IHrev_v eq_refl) as [(r & ?) | ].
-    * destruct r.
-      ** rewrite Heq. rewrite app_spath_vpath_nil_r in e. right.
-         replace (p, v) with ((p, rev rev_v) +++ [a]) by (rewrite <- Heq ; reflexivity).
-         rewrite <- e. intros ?. destruct H. apply f_equal with (f := snd) in H.
-         simpl in H. apply f_equal with (f := length) in H. rewrite !length_app in H.
-         simpl in H. lia.
-      ** destruct (decide (a = n)).
-         *** rewrite e0 in *. left. apply existT with (x := r).
-             rewrite Heq.
-             replace (p, v) with ((p, rev rev_v) +++ [n]) by (rewrite <- Heq ; easy). 
-             rewrite <- app_spath_vpath_assoc. by simpl.
-         *** right. rewrite Heq. intros (? & ?).
-             replace (p, v) with ((p, rev rev_v) +++ [a]) in H
-                 by (rewrite <- Heq ; easy).
-             rewrite <- app_spath_vpath_assoc, <- e in H.
-             apply app_spath_vpath_inv_head in H. simpl in H.
-             apply f_equal with (f := head) in H. injection H as [=]. auto.
-    * right. simpl. intros (r & ?).
-      assert (prefix (p, rev rev_v) q).
-      { exists (a :: r). unfold "+++" in *. simpl in *. rewrite <- app_assoc in H.
-        by simpl in *. }
-      auto.
-Qed.
-
-Lemma decidable_prefix_is_prefix :
-  forall p r,
-    exists equ, decidable_prefix' p (p +++ r) = inleft (existT r equ).
-Proof.
-  intros *. destruct (decidable_prefix' p (p +++ r)) as [ (r' & equ) | npref ].
-  - pose proof equ as equ'.
-    apply app_spath_vpath_inv_head in equ' ; subst.
-    repeat apply f_equal. by exists equ.
-  - by assert (prefix p (p +++ r)) by (exists r ; auto).
-Qed.
-
-Lemma decidable_prefix_is_not_prefix :
-  forall p r,
-    ~ prefix p r ->
-    exists npref, decidable_prefix' p r = inright npref.
-Proof.
-  intros * npref. destruct (decidable_prefix' p r) as [ (r' & equ) | npref' ].
-  - by assert (prefix p r) by (exists r' ; auto).
-  - by exists npref'.
-Qed.
-
-Definition removelast (p : spath) := (p.1, List.removelast p.2).
-
-Lemma removelast_app :
-  forall p q, q <> [] -> removelast (p +++ q) = p +++ List.removelast q.
-Proof.
-  intros * neq. unfold removelast. simpl. rewrite List.removelast_app ; auto.
+  intros S sp vset ; split ; intros Hget_map ;
+  rewrite get_map_alter in *; rewrite lookup_alter_None in * ; auto.
 Qed.

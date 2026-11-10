@@ -127,17 +127,17 @@ Proof.
   apply Consequence_Precondition with (Sr := S_inv).
   { eapply prove_le_symbolic.
     { apply Le_Reborrow_MutBorrow_Abs
-        with (sp := (encode_var b, [])) (l1 := l1) (i := 1%positive)
+        with (sp := (Acc_var b, [])) (l1 := l1) (i := 1%positive)
               (kb := 1%positive) (kl := 2%positive).
       - compute_done.
       - compute_done.
-      - eapply var_not_in_abstraction. reflexivity.
+      - constructor.
       - reflexivity.
       - discriminate.
       - constructor. }
     simpl_state.
     eapply prove_le_symbolic; [constructor | ].
-    { econstructor. apply Le_ToSymbolic with (sp := (encode_var i, [])).
+    { econstructor. apply Le_ToSymbolic with (sp := (Acc_var i, [])).
       - constructor.
       - compute_done.
       - compute_done. }

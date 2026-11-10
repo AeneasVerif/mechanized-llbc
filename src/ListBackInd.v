@@ -6,9 +6,14 @@ Import ListNotations.
 
 Require Import PathToSubtree.
 
-Theorem state_path_back_ind : forall (P : spath -> Prop) (Hbase : forall enc_x, P (enc_x, [])) (Hrec : (forall (n : nat) (sp : spath), P sp -> P (sp +++ [n]))), forall (sp : spath), P sp.
+Theorem state_path_back_ind {A}
+  (P : @spath A -> Prop)
+  (Hbase : forall enc_x, P (enc_x, []))
+  (Hrec : (forall (n : nat) (sp : spath), P sp -> P (sp +++ [n])))
+  (sp : spath) :
+  P sp.
 Proof.
-  intros P Hbase Hrec sp. rewrite surjective_pairing with (p := sp).
+  rewrite surjective_pairing with (p := sp).
   remember (snd sp) as vp. generalize dependent sp.
   induction vp using rev_ind ; intros sp Hsnd.
   - apply Hbase.

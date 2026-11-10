@@ -148,8 +148,11 @@ Proof.
   - apply IHeval_q_r. eapply eval_proj_valid. eassumption.
 Qed.
 
-Lemma eval_place_valid s p perm pi (H : eval_place s perm p pi) : valid_spath s pi.
-Proof. destruct H as (? & ?). eapply eval_path_valid; eassumption. Qed.
+Lemma eval_place_valid s p perm pi : eval_place s perm p pi -> valid_spath s pi.
+Proof.
+  intros ((? & ?) & ?). eapply eval_path_valid; [ | eassumption].
+  eexists. split; [eassumption | constructor].
+Qed.
 Hint Resolve eval_place_valid : spath.
 
 Lemma eval_path_preservation Sl Sr perm p R :
@@ -171,7 +174,7 @@ Qed.
  * The relation R depends on the rule, but for most rules it is simply going to be the equality. *)
 Lemma eval_place_preservation Sl Sr perm p (R : spath -> spath -> Prop)
   (* Initial case: the relation R must be preserved for all spath corresponding to a variable. *)
-  (R_nil : forall x, R (encode_var x, []) (encode_var x, []))
+  (R_nil : forall x, R (Acc_var x, []) (Acc_var x, []))
   (* All of the variables of Sr are variables of Sl.
    * Since most of the time, Sr is Sl with alterations on region abstractions, anonymous variables
    * or by sset, this is always true. *)
@@ -179,13 +182,11 @@ Lemma eval_place_preservation Sl Sr perm p (R : spath -> spath -> Prop)
   (Hsim : forall proj, forward_simulation R R (eval_proj Sr perm proj) (eval_proj Sl perm proj)) :
   forall pi_r, eval_place Sr perm p pi_r -> exists pi_l, R pi_l pi_r /\ eval_place Sl perm p pi_l.
 Proof.
-  intros pi_r ((? & G%mk_is_Some & _) & Heval_path).
-  cbn in G. unfold encode_var in G. rewrite !sum_maps_lookup_l in G.
+  intros pi_r ((? & G) & Heval_path). cbn in G. rewrite get_at_var in G. apply mk_is_Some in G.
   rewrite <-elem_of_dom, <-dom_eq, elem_of_dom, <-get_at_var in G. destruct G as (? & ?).
   eapply eval_path_preservation in Heval_path; [ | eassumption].
   edestruct Heval_path as (pi_l' & ? & ?); [apply R_nil | ].
-  exists pi_l'. split; [assumption | ]. split; [ | assumption].
-  eexists. split; [eassumption | constructor].
+  exists pi_l'. split; [assumption | ]. split; [eexists | ]; eassumption.
 Qed.
 
 Lemma sset_preserves_vars_dom S sp v : dom (vars (S.[sp <- v])) = dom (vars S).
@@ -230,7 +231,7 @@ Lemma eval_place_ToAbs S a i v A p perm
   exists pi_l, rel_ToAbs a i pi_l pi_r /\ (S,, a |-> v) |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
-  - repeat split; [now eapply var_not_in_abstraction | inversion 1].
+  - repeat split; [eauto with spath | inversion 1].
   - reflexivity.
   - intros proj pi_r pi_r' Heval_proj ? (-> & ? & ?). exists pi_r'.
     inversion Heval_proj; subst. repeat split; auto.
@@ -273,12 +274,12 @@ Qed.
 (* Take Sr = Sl.[sp <- bot],, a |-> Sl.[sp] the left state. Relation between the evaluation
  * pi_l in Sl and pi_r in Sr: *)
 Definition rel_MoveValue_imm sp a pi_l pi_r :=
-  (pi_l = pi_r /\ ~strict_prefix sp pi_l /\ fst pi_l <> encode_anon a) \/
+  (pi_l = pi_r /\ ~strict_prefix sp pi_l /\ fst pi_l <> anon_accessor a) \/
   (* If there is a (non-outer) mutable loan in S.[sp], it's possible to evaluate a place p there.
    * What happens is that in Sl, pi_l is under sp whereas in Sr, pi_r is in the newly added
    * anonymous variable. *)
   (* However, this is only possible when evaluating in mode Imm. *)
-  (exists r, pi_l = sp +++ r /\ pi_r = (encode_anon a, r)).
+  (exists r, pi_l = sp +++ r /\ pi_r = (anon_accessor a, r)).
 
 Lemma eval_place_MoveValue_imm S sp a p
   (fresh_a : fresh_anon S a)
@@ -413,7 +414,7 @@ Proof.
 Qed.
 
 Definition rel_Borrow_Abstraction i j a (p q : spath) :=
-  p = q /\ fst p <> anon_accessor a /\ fst p <> encode_abstraction (i, j).
+  p = q /\ fst p <> anon_accessor a /\ fst p <> Acc_abstraction i j.
 
 Definition rel_Borrow_Abstraction_Mut a (p q : spath) :=
   p = q /\ fst p <> anon_accessor a /\ not_in_abstraction p.
@@ -441,14 +442,14 @@ Lemma eval_place_Borrow_Abstraction_Mut S i j a A perm p l' ty (Hperm : perm <> 
                S,,, i |-> A |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
-  - split; [reflexivity | split; [inversion 1 | eapply var_not_in_abstraction; reflexivity] ].
+  - split; [reflexivity | split; [inversion 1 | eauto with spath] ].
   - reflexivity.
   - intros ? pi_r pi_r' Heval_proj ? (-> & ? & ?). exists pi_r'. destruct Heval_proj.
     + autorewrite with spath in get_q. repeat split; try assumption.
       eapply E_Deref_MutBorrow; autorewrite with spath; eassumption.
 Qed.
 
-Definition rel_Abs_ClearValue i j (p q : spath) := p = q /\ fst p <> encode_abstraction (i, j).
+Definition rel_Abs_ClearValue i j (p q : spath) := p = q /\ fst p <> Acc_abstraction i j.
 
 Definition rel_Abs_ClearValue_Mut (p q : spath) := p = q /\ not_in_abstraction p.
 
@@ -469,7 +470,7 @@ Lemma eval_place_Abs_ClearValue_Mut S i j v A perm p (Hperm : perm <> Imm) :
   exists pi_l, rel_Abs_ClearValue_Mut pi_l pi_r /\ S,,, i |-> insert j v A |-{p} p =>^{perm} pi_l.
 Proof.
   apply eval_place_preservation.
-  - split; [reflexivity | eapply var_not_in_abstraction; reflexivity].
+  - split; [reflexivity | eauto with spath].
   - reflexivity.
   - intros ? pi_r pi_r' Heval_proj ? (-> & ?). exists pi_r'. destruct Heval_proj.
     + repeat split; try assumption.
@@ -590,12 +591,11 @@ Lemma eval_place_permutation S permission P sp permutation
   S |-{p} P =>^{permission} sp ->
   apply_state_permutation permutation S |-{p} P =>^{permission} permutation_spath permutation sp.
 Proof.
-  intros ((v & get_v & _) & H). split.
-  { eexists. split; [ | constructor]. cbn [fst] in *. rewrite get_at_var in *.
-    cbn. simpl_map. reflexivity. }
-  remember (encode_var P.1.1, []) as sp0 eqn:EQN.
+  intros ((v & get_v) & H). split.
+  { eexists. rewrite get_at_var in *. cbn. simpl_map. reflexivity. }
+  remember (Acc_var P.1.1, []) as sp0 eqn:EQN.
   replace sp0 with (permutation_spath permutation sp0)
-    by (unfold permutation_spath; rewrite EQN; cbn [fst]; now rewrite perm_at_var).
+    by (unfold permutation_spath; now rewrite EQN).
   clear EQN get_v. induction H.
   - constructor.
   - econstructor; [ | eassumption]. destruct Heval_proj.
@@ -1009,7 +1009,8 @@ Proof.
     (* Le-Borrow-Abstraction *)
     + eval_place_preservation. autorewrite with spath in * |-.
       execution_step. { econstructor. eassumption. all: autorewrite with spath; assumption. }
-      autorewrite with spath. le_step_left.
+      autorewrite with spath.
+      le_step_left.
       { eapply Le_ValState_FreshLoan.
         eapply Le_Borrow_Abstraction with (l' := l') (a := a).
         all: eauto with spath. not_contains. not_contains. }
@@ -1570,9 +1571,8 @@ Qed.
 
 Lemma eval_place_not_in_abstraction S p sp : S |-{p} p =>^{Mut} sp -> not_in_abstraction sp.
 Proof.
-  intros (_ & H). remember (encode_var p.1.1, []) as sp0 eqn:EQN.
-  assert (not_in_abstraction sp0).
-  { rewrite EQN. intros ? (? & ?). discriminate. }
+  intros (_ & H). remember (Acc_var p.1.1, []) as sp0 eqn:EQN.
+  assert (not_in_abstraction sp0). { rewrite EQN. constructor. }
   clear EQN. induction H.
   - assumption.
   - apply IHeval_path. destruct Heval_proj. assumption.
@@ -1612,7 +1612,7 @@ Proof.
     destruct (decidable_prefix sp_store sp) as [(r & <-) | ].
     (* Case 1: the symbolic value is introduced in the overwritten value. *)
     + autorewrite with spath in *. eapply le_step_left.
-      { econstructor. eapply Le_ToSymbolic with (sp := (encode_anon b, r)).
+      { econstructor. eapply Le_ToSymbolic with (sp := (anon_accessor b, r)).
         all: autorewrite with spath; eassumption. }
       autorewrite with spath. reflexivity.
     (* Case 2: the symbolic value is introduced in the overwritten value. *)
@@ -2205,7 +2205,7 @@ Qed.
 Lemma not_fresh_add_loan S i j A l ty : ~is_fresh l (S,,, i |-> insert j (loan^m(ty, l)) A).
 Proof.
   set (S' := (S,,, i |-> insert j (loan^m(ty, l)) A)).
-  assert (get_loan : S'.[(encode_abstraction (i, j), [])] = loan^m(ty, l)).
+  assert (get_loan : S'.[(Acc_abstraction i j, [])] = loan^m(ty, l)).
   { unfold S'. erewrite sget_add_abstraction; [ | reflexivity | now simpl_map]. reflexivity. }
   intros fresh_l. eapply fresh_l.
   - apply get_not_bot_valid_spath. rewrite get_loan. discriminate.
@@ -2513,7 +2513,7 @@ Proof.
            auto.
            subst. reorg_step.
            { eapply Reorg_End_MutBorrow with (p := (anon_accessor a, []) +++ [0]) (q := q).
-             all: autorewrite with spath; eauto with spath. }
+             all: autorewrite with spath; eauto with spath. cbn. constructor. }
            reorg_done.
            autorewrite with spath. le_step_left.
            { econstructor. apply Le_ToAbs with (i := i') (a := a); eauto with spath.
@@ -2923,7 +2923,7 @@ Proof.
       le_done. { reflexivity. } { lia. }
     (* Case [Le_Fresh_MutLoan]: *)
     + process_state_eq.
-      apply not_in_abstraction_valid_spath in valid_sp; [ | eauto].
+      apply not_in_abstraction_valid_spath in valid_sp; [ | auto with spath].
       apply add_anons_remove_anon_sset in Hadd_anons; [ | assumption..].
       destruct Hadd_anons as (S'' & Hadd_anons & -> & ?).
       reorg_step.
