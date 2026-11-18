@@ -46,6 +46,33 @@ Module ValueList.
     | VCons t tl => t :: (to_list tl)
     end.
 
+  Fixpoint nth_error (vl : value_list) (n : nat) : option value :=
+    match vl, n with
+    | VCons v vl, 0 => Some v
+    | VCons v vl, S n => nth_error vl n
+    | VNil, _ => None
+    end.
+
+  Fixpoint alter (vl : value_list) (n : nat) (f : value -> value) : value_list :=
+    match vl with
+    | VNil => VNil
+    | VCons v vl' =>
+        match n with
+        | 0 => VCons (f v) vl'
+        | S m => VCons v (alter vl' m f)
+        end
+    end.
+
+  Lemma nth_valid_access (vl : value_list) (n : nat) :
+    (exists v, nth_error vl n = Some v) <-> n < length vl.
+  Proof.
+    generalize dependent n. induction vl ; split.
+    - intros (? & [=]).
+    - intros ?%Nat.nlt_0_r. by exfalso.
+    - destruct n ; cbn. lia. intros ?%IHvl. lia.
+    - destruct n ; cbn. repeat econstructor. by intros ?%Nat.succ_lt_mono%IHvl.
+  Qed.
+
   Lemma from_list_to_list_inv (vl : value_list) :
     from_list (to_list vl) = vl.
   Proof. induction vl ; simpl ; congruence. Qed.
@@ -68,6 +95,16 @@ Module ValueList.
     by rewrite !to_list_from_list_inv in H.
   Qed.
 
+  Lemma nth_error_value_list_list_equiv vl n :
+    List.nth_error (to_list vl) n = nth_error vl n.
+  Proof.
+    generalize dependent n. induction vl ; intro.
+    - rewrite nth_error_nil. reflexivity.
+    - destruct n.
+      * reflexivity.
+      * cbn. rewrite IHvl. reflexivity.
+  Qed.
+
   Lemma length_from_list (vl : list value) :
     List.length vl = length (from_list vl).
   Proof. induction vl; simpl ; congruence. Qed.
@@ -76,8 +113,75 @@ Module ValueList.
     length vl = List.length (to_list vl).
   Proof. induction vl; simpl ; congruence. Qed.
 
-  Definition Forall (P : value -> Prop) (vl : value_list) : Prop :=
+  Lemma alter_length (vl : value_list) (n : nat) (f : value -> value) :
+    length (alter vl n f) = length vl.
+  Proof.
+    generalize dependent n. induction vl.
+    - reflexivity.
+    - intros ; cbn. destruct n ; cbn ; congruence.
+  Qed.
+
+  Lemma nth_error_alter_eq vl n f v :
+    nth_error vl n = Some v -> nth_error (alter vl n f) n = Some (f v).
+  Proof.
+    generalize dependent n. induction vl ; intros ; cbn in * ; [ discriminate | ].
+    destruct n.
+    - injection H as ->. reflexivity.
+    - cbn. rewrite IHvl ; auto.
+  Qed. 
+
+  Lemma nth_error_alter_neq vl m n f :
+    m <> n -> nth_error (alter vl n f) m = nth_error vl m.
+  Proof.
+    generalize dependent m. generalize dependent n.
+    induction vl ; intros ; cbn in * ; auto.
+    destruct m ; destruct n ; auto.
+    - congruence.
+    - cbn. apply (Nat.succ_inj_wd_neg m n) in H. auto.
+  Qed. 
+
+  Lemma alter_alter_list_equiv (vl : value_list) (n : nat) (f : value -> value) :
+    alter vl n f = from_list (alter_list (to_list vl) n f).
+  Proof.
+    generalize dependent n. induction vl ; intros ; [ auto | ].
+    destruct n ; cbn.
+    - rewrite from_list_to_list_inv. reflexivity.
+    - rewrite IHvl ; reflexivity.
+  Qed.
+
+  Inductive Forall (P : value -> Prop) : value_list -> Prop :=
+  | Forall_VNil : Forall P VNil
+  | Forall_VCons : forall (v : value) (vl' : value_list), P v -> Forall P vl' ->
+                                                     Forall P (VCons v vl').
+
+  Definition Forall_list (P : value -> Prop) (vl : value_list) : Prop :=
     List.Forall P (to_list vl).
+
+  Lemma Forall_Forall_list_equiv (P : value -> Prop) (vl : value_list) :
+    Forall P vl <-> Forall_list P vl.
+  Proof.
+    induction vl ; split ; intros.
+    - constructor.
+    - constructor.
+    - inversion H ; subst ; constructor ; auto. by rewrite <- IHvl.
+    - inversion H ; subst ; constructor ; auto. by rewrite IHvl.
+  Qed.
+
+  Lemma nth_error_type_equiv_nth_error_value tl vl n :
+    TypeList.length tl = length vl ->
+    (exists t, TypeList.nth_error tl n = Some t) <-> (exists v, ValueList.nth_error vl n = Some v).
+  Proof.
+    intro H. rewrite TypeList.nth_valid_access, nth_valid_access, H. reflexivity.
+  Qed.
+
+  Lemma nth_error_type_implies_nth_error_value tl t vl n :
+    TypeList.length tl = length vl ->
+    TypeList.nth_error tl n = Some t ->
+    exists v, ValueList.nth_error vl n = Some v.
+  Proof.
+    intros. apply nth_error_type_equiv_nth_error_value with (n := n) in H.
+    apply ex_intro with (x := t) in H0.  apply H in H0. assumption.
+  Qed.
 End ValueList.
 
 Variant nodes :=
@@ -241,6 +345,18 @@ Notation "'nptr' ( l )" := (NPtr l) : hlpl_scope.
 (* Bind Scope hlpl_scope with HLPL_val. *)
 Open Scope hlpl_scope.
 
+Lemma nth_vget_n (vl : value_list) (n : nat) :
+  n < ValueList.length vl ->
+  ValueList.nth_error vl n = Some (VTuple vl .[[ [n] ]]).
+Proof.
+  intros. cbn. apply ValueList.nth_valid_access in H as (v & ?).
+  by rewrite ValueList.nth_error_value_list_list_equiv, H.
+Qed.
+
+Lemma tuple_vset_n (vl : value_list) (v : value) (n : nat) (vp : vpath) :
+  (VTuple vl).[[ n :: vp <- v ]] = (VTuple (ValueList.alter vl n (vset vp v))).
+Proof. cbn. rewrite <- ValueList.alter_alter_list_equiv. reflexivity. Qed.
+
 Lemma sget_loc l v p : (loc (l, v)).[[ [0] ++  p]] = v.[[p]].
 Proof. reflexivity. Qed.
 Hint Rewrite sget_loc : spath.
@@ -261,8 +377,10 @@ Qed.
 
 Lemma not_value_list_contains_forall (vl : value_list) (P : nodes -> Prop) :
   not_value_contains P (VTuple vl) <->
-    ~ P (get_node (VTuple vl)) /\ Forall (not_value_contains P) (ValueList.to_list vl).
+    ~ P (get_node (VTuple vl)) /\
+      ValueList.Forall (not_value_contains P) vl.
 Proof.
+  rewrite ValueList.Forall_Forall_list_equiv. unfold ValueList.Forall_list.
   rewrite List.Forall_nth.
   split ; [ intros H | intros (? & ?) ].
   - split.
@@ -462,16 +580,16 @@ Inductive eval_operand : operand -> state -> (value * state) -> Prop :=
     eval_place S p pi ->
     not_contains_loc (S.[pi]) -> not_contains_bot (S.[pi]) ->
     S |-{op} Move p => (S.[pi], S.[pi <- bot])
-  | E_Tuple S S' opl vl
-      (H : eval_tuple opl S (vl, S')) :
-    S |-{op} Tuple opl => (VTuple vl, S')
+  | E_Tuple S vlS' opl 
+      (H : eval_tuple opl S vlS') :
+    S |-{op} Tuple opl => (VTuple vlS'.1, vlS'.2)
 where "S |-{op} op => r" := (eval_operand op S r)
   with eval_tuple : list operand -> state -> (value_list * state) -> Prop :=
   | E_Tuple_Nil S : eval_tuple [] S (VNil, S)
-  | E_Tuple_Cons S S' S'' op opl v vl
-      (Hop : eval_operand op S (v, S'))
-      (Hrec : eval_tuple opl S' (vl, S'')) :
-    eval_tuple (op :: opl) S (VCons v vl, S'')
+  | E_Tuple_Cons S vS' vlS'' op opl
+      (Hop : eval_operand op S vS')
+      (Hrec : eval_tuple opl vS'.2 vlS'') :
+    eval_tuple (op :: opl) S (VCons vS'.1 vlS''.1, vlS''.2)
 .
 
 Reserved Notation "S  |-{rv}  rv  =>  r" (at level 50).
@@ -521,12 +639,11 @@ Proof.
     + eapply copy_no_loc. eauto
     + unfold not_contains_loc ; not_contains.
     + unfold not_contains_loc ; not_contains.
-    + unfold not_contains_loc ; not_contains. remember (vl, S') as vlS'.
-      replace vl with (vlS'.1) by (rewrite HeqvlS' ; auto). eauto.
+    + unfold not_contains_loc ; not_contains. 
   }
   {
     intros eval_t. induction eval_t ; [ constructor | ].
-    simpl. constructor ; [ | assumption ]. replace v with ((v, S').1) by reflexivity.
+    simpl. constructor ; [ | assumption ].
     apply eval_operand_no_loc with (S := S) (op := op) ; auto.
   }
 Qed.

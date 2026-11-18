@@ -18,6 +18,7 @@ src/simulations/Symbolic_relations.v
 src/simulations/Simulation_HLPL_plus.v
 src/simulations/Simulation_LLBC_plus.v
 src/simulations/Simulation_LLBC_sharp_LLBC_plus.v
+src/simulations/Simulation_HLPL_PL.v
 src/executions/overwriteInnerLoan.v
 src/executions/LLBC_sharp_exec_utils.v
 src/executions/loop.v
@@ -25,6 +26,7 @@ src/executions/choose.v
 src/executions/join_mutable_loan.v
 src/executions/HLPL_executions.v
 src/executions/HLPL_No_Anon_executions.v
+src/executions/PL_executions.v
 Chamois-lib/lib/Maps.v
 Chamois-lib/common/AST.v
 Chamois-lib/common/Errors.v
