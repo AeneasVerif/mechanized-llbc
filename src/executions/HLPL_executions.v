@@ -5,7 +5,7 @@ Import ListNotations.
 From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
 
-Require Import PathToSubtree lang HLPL.
+Require Import PathToSubtree lang HLPL HLPL_state.
 
 Fixpoint decide_not_value_contains (P : nodes -> bool) v :=
   negb (P (get_node v)) &&

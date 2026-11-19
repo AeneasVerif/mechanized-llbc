@@ -6,6 +6,7 @@ src/PathToSubtree.v
 src/lang.v
 src/ListBackInd.v
 src/Symbolic_states.v
+src/semantics/HLPL_state.v
 src/semantics/HLPL_No_Anon.v
 src/semantics/HLPL_plus.v
 src/semantics/HLPL.v

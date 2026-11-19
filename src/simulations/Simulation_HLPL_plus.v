@@ -1,11 +1,7 @@
 (** * Mechanized_LLBC.simulations.Simulation_HLPL_plus : Simulation proofs for HLPL+. *)
-Require Import lang.
-Require Import base.
-From Stdlib Require Import List.
-From Stdlib Require Import PeanoNat.
+Require Import lang base.
+From Stdlib Require Import List PeanoNat Lia ZArith Relations.
 Import ListNotations.
-From Stdlib Require Import Lia ZArith.
-From Stdlib Require Import Relations.
 
 From stdpp Require Import pmap gmap.
 Close Scope stdpp_scope.
@@ -13,8 +9,7 @@ Close Scope stdpp_scope.
 Require Import PathToSubtree.
 From rustc Require Import OptionMonad.
 Local Open Scope option_monad_scope.
-Require Import HLPL_plus.
-Require Import SimulationUtils.
+Require Import HLPL_state HLPL_plus SimulationUtils.
 
 (** * Well-formedness property. *)
 Record well_formed (S : state) : Prop := {
