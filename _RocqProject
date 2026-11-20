@@ -6,7 +6,6 @@ src/PathToSubtree.v
 src/lang.v
 src/ListBackInd.v
 src/Symbolic_states.v
-src/semantics/HLPL_No_Anon.v
 src/semantics/HLPL_plus.v
 src/semantics/HLPL.v
 src/semantics/LLBC_plus.v
@@ -25,7 +24,6 @@ src/executions/loop.v
 src/executions/choose.v
 src/executions/join_mutable_loan.v
 src/executions/HLPL_executions.v
-src/executions/HLPL_No_Anon_executions.v
 src/executions/PL_executions.v
 Chamois-lib/lib/Maps.v
 Chamois-lib/common/AST.v
