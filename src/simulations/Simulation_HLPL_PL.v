@@ -2231,13 +2231,6 @@ check_type_of_val_list vl tl :=
   | _, _ => false
   end.
 
-Definition WellTypedState S bo :=
-  forall sp, valid_spath S sp -> exists t, eval_type bo S sp t.
-
-Definition WellTypedState' (S : state) (bo : positive -> block * type) :=
-  forall enc_x, valid_spath S (enc_x, []) ->
-           check_type_of_val (S.[(enc_x, [])]) ((bo enc_x).2) = true.
-
 Fixpoint WellTypedOperand S bo op  :=
   match op with
   | Const _ => True
@@ -2276,8 +2269,8 @@ Fixpoint WellTypedStmt S bo stmt :=
   match stmt with
   | Assign p rv =>
       forall t sp,
-        S |-{p} p => sp -> 
-           WellTypedRValue S bo rv /\ t = rv_get_type rv /\ eval_type bo S sp t
+        S |-{p} p => sp -> t = rv_get_type rv ->
+           WellTypedRValue S bo rv /\ eval_type bo S sp t
   | Seq s1 s2 =>
       WellTypedStmt S bo s1 /\ WellTypedStmt S bo s2
   | _ => True
@@ -3161,13 +3154,13 @@ Proof.
   - destruct reorg.
     + apply eval_place_valid in H as vsp.
       apply eval_place_write_bot in H.
-      destruct (WTS t _ H) as (? & ? & ?) ; auto.
+      destruct (WTS t _ H) as (? & ?) ; auto.
       repeat split ; auto.
       * apply reorg_preserves_welltyped_rv with (S := S) ; auto.
       * apply eval_type_write_bot ; auto.
     + apply eval_place_valid in H as vsp.
       apply eval_place_end_loc with (l := l) in H ; auto.
-      destruct (WTS t _ H) as (? & ? & ?) ; auto. repeat split ; auto.
+      destruct (WTS t _ H) as (? & ?) ; auto. repeat split ; auto.
       * apply reorg_preserves_welltyped_rv with (S := S) ; auto.
       * apply eval_type_remove_loc with (l := l) ; auto.
   - destruct WTS as (WTS1 & WTS2).
@@ -3628,7 +3621,8 @@ Proof.
   - inversion Hstore ; subst. simpl in WTS. remember (v, S0) as vS0.
     replace S0 with vS0.2 in * by (subst ; reflexivity).
     eapply eval_rvalue_preserves_eval_place in eval_p as [sp' eval_p] ; eauto .
-    destruct (WTS (rv_get_type rv) sp' eval_p) as (WTRV & _ & type).
+    injection Heqasgn as -> ->.
+    destruct (WTS (rv_get_type rv) sp' eval_p eq_refl) as (WTRV & type).
     eapply Rvalue_Preserves_PL_HLPL_Rel in eval_rv
         as (ao1 & bytes & bytes' & eval_rv_pl & Hle' & Hconcr & Hle_block) ; eauto.
     simpl fst in *; simpl snd in *.
