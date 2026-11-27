@@ -16,6 +16,8 @@ Require Setoid.
 From stdpp Require list_basics.
 Module LB := list_basics.list.
 Module LR := list_relations.list.
+Import list_monad.list.
+From stdpp Require list.
 
 Require Import semantics.HLPL.
 From rustc Require Import PL.
@@ -23,9 +25,6 @@ Require Import Axioms Coqlib Integers Floats AST Values.
 From Stdlib Require Import Zwf.
 Require Import PathToSubtree.
 Require Import Stdlib.Classes.RelationClasses.
-
-Module TL := TypeList.
-Module VL := ValueList.
 
 Opaque sset.
 
@@ -35,6 +34,10 @@ Notation "p .1" := (fst p).
 Notation "p .2" := (snd p).
 Local Notation "a # b" := (PXMap.get b a) (at level 1).
 Local Notation "a ## b" := (PTree.get b a) (at level 1).
+
+Lemma nth_error_to_lookup {A} (l : list A) (i : nat) :
+  nth_error l i = lookup i l.
+Proof. generalize dependent i. induction l ; intros [ | i ] ; simpl; auto. Qed.
 
 Lemma list_app_elem_not_nil {A : Type} :
   forall (l : list A) (a : A), l ++ [ a ] <> [].
@@ -63,17 +66,6 @@ Ltac sp_discriminate_or_find_equalities :=
   | H: ?sp +++ [?n] = (?enc_x, []) |- _ =>
       destruct (spath_app_elem_not_nil sp n enc_x H)
   end.
-
-(*
-Ltac rewrite_pairs :=
-  match goal with
-  | H1 : ?sp1.1 = ?sp2.1, H2 : ?sp1.2 = ?sp2.2 |- _ =>
-      assert (_Htemp : sp1 = sp2) by
-      (rewrite surjective_pairing with (p := sp1),
-          surjective_pairing with (p := sp2) ; congruence) ;
-      subst sp1 ; clear H1 H2
-  end.
-*)
 
 (* Concretization of HLPL values to PL values *)
 Section Concretization.
@@ -108,8 +100,8 @@ Section Concretization.
     eval_type_val v ti (vp ++ [0%nat]) t
   | Eval_tuple_val vp n len t tl
     (Hnode : get_node ( v.[[ vp ]] ) = NTuple len)
-    (Htypelist_size : TypeList.length tl = len)
-    (Htype : TypeList.nth_error tl n = Some t)
+    (Htypelist_size : List.length tl = len)
+    (Htype : List.nth_error tl n = Some t)
     (Hrec : eval_type_val v ti vp (TTuple tl)) :
     eval_type_val v ti (vp ++ [ n ]) t
   .
@@ -173,12 +165,12 @@ Section Concretization.
   | Concr_tuple vl tl bytes :
     concr_hlpl_val_tuple vl tl bytes ->
     concr_hlpl_val (VTuple vl) (TTuple tl) bytes
-  with concr_hlpl_val_tuple : value_list -> type_list -> list memval -> Prop :=
-  | Concr_tuple_Nil : concr_hlpl_val_tuple VNil TNil []
+  with concr_hlpl_val_tuple : list value -> list type -> list memval -> Prop :=
+  | Concr_tuple_Nil : concr_hlpl_val_tuple [] [] []
   | Concr_tuple_Cons v vl t tl bytes0 bytes1 :
     concr_hlpl_val v t bytes0 ->
     concr_hlpl_val_tuple vl tl bytes1 ->
-    concr_hlpl_val_tuple (VCons v vl) (TCons t tl) (bytes0 ++ bytes1)
+    concr_hlpl_val_tuple (v :: vl) (t :: tl) (bytes0 ++ bytes1)
   .
 
   Fixpoint concr_hlpl_val_comp (v : value) (t : type) :=
@@ -200,76 +192,65 @@ Section Concretization.
               None
         | _ => None
         end
-    | VTuple vl, TTuple tl => concr_hlpl_val_tuple_comp vl tl
-    | _, _ => None
-    end with
-  concr_hlpl_val_tuple_comp (vl : value_list) (tl : type_list) :=
-    match vl, tl with
-    | VNil, TNil => Some []
-    | VCons v vl, TCons t tl =>
-        let byteso0 := concr_hlpl_val_comp v t in
-        let byteso1 := concr_hlpl_val_tuple_comp vl tl in
-        match byteso0, byteso1 with
-        | Some bytes0, Some bytes1 => Some (bytes0 ++ bytes1)
-        | _, _ => None
-        end
+    | VTuple vl, TTuple tl =>
+        (fix go vl tl :=
+           match vl, tl with
+           | [], [] => Some []
+           | v :: vl, t :: tl =>
+               let byteso0 := concr_hlpl_val_comp v t in
+               let byteso1 := go vl tl in
+               match byteso0, byteso1 with
+               | Some bytes0, Some bytes1 => Some (bytes0 ++ bytes1)
+               | _, _ => None
+               end
+           | _, _ => None
+           end
+        ) vl tl
     | _, _ => None
     end.
 
   Lemma concr_val_tuple_implies_valuelist_typelist_same_size vl tl bytes :
-    concr_hlpl_val_tuple vl tl bytes -> ValueList.length vl = TypeList.length tl.
+    concr_hlpl_val_tuple vl tl bytes -> List.length vl = List.length tl.
   Proof. intro H ; induction H ; cbn ; congruence. Qed.
 
   Lemma concr_val_comp_implies_concr_val: forall v t bytes,
-      concr_hlpl_val_comp v t = Some bytes -> concr_hlpl_val v t bytes
-  with concr_val_tuple_comp_implies_concr_val_tuple : forall vl tl bytes,
-      concr_hlpl_val_tuple_comp vl tl = Some bytes ->
-      concr_hlpl_val_tuple vl tl bytes.
+      concr_hlpl_val_comp v t = Some bytes -> concr_hlpl_val v t bytes.
   Proof.
-    {
-      intros v ; induction v ; intros.
-      - destruct t; simpl in * ;
-          injection H ; intros ; constructor ; easy. 
-      - destruct t; simpl in * ;
-          try injection H as H; subst ; try constructor ; discriminate.
-      - destruct t; simpl in * ;
-          try injection H as H; subst ; try constructor ; discriminate.
-      - inversion H. constructor. apply IHv, H1.
-      - destruct t ; simpl in * ; try discriminate.
-        destruct (addrof l) eqn:Haddr ; try discriminate.
-        destruct p ; destruct (base.decide (t = t0)).
-        * injection H as H ; subst. apply Concr_ptr_loc, Haddr.
-        * discriminate.
-      - destruct t0 ; inversion H. constructor. auto.
-    }
-    {
-      intros vl. induction vl ; intros.
-      - destruct tl ; inversion H ; subst ; constructor.
-      - destruct tl ; inversion H ; subst. 
-        destruct (concr_hlpl_val_comp v t) eqn:? ;
-          destruct (concr_hlpl_val_tuple_comp vl tl) eqn:? ;
-          inversion H1 ; subst ; constructor.
-        * apply concr_val_comp_implies_concr_val ; auto.
-        * apply IHvl ; auto.
-    }
+    intros v ; induction v ; intros.
+    - destruct t; simpl in * ;
+        injection H ; intros ; constructor ; easy. 
+    - destruct t; simpl in * ;
+        try injection H as H; subst ; try constructor ; discriminate.
+    - destruct t; simpl in * ;
+        try injection H as H; subst ; try constructor ; discriminate.
+    - inversion H. constructor. apply IHv, H1.
+    - destruct t ; simpl in * ; try discriminate.
+      destruct (addrof l) eqn:Haddr ; try discriminate.
+      destruct p ; destruct (base.decide (t = t0)).
+      * injection H as H ; subst. apply Concr_ptr_loc, Haddr.
+      * discriminate.
+    - destruct t ; try discriminate. generalize dependent bytes. generalize tl.
+      induction H ; intros.
+      * destruct tl0 ; inversion H0 ; subst ; repeat constructor.
+      * destruct tl0 ; cbn in H0 ; [ discriminate | ].
+        destruct (concr_hlpl_val_comp a t) eqn:Hcompa ; [ | discriminate ].
+        destruct (concr_hlpl_val_comp (VTuple l) (TTuple tl0)) eqn:Hcompvl ;
+        cbn in Hcompvl ; rewrite Hcompvl in H0 ; [ | discriminate ].
+        apply p in Hcompa. apply IHlist_all in Hcompvl. inversion Hcompvl ; subst.
+        injection H0 as <-. repeat constructor ; auto.
   Qed.  
 
   Lemma concr_val_implies_concr_val_comp : forall v t bytes,
-       concr_hlpl_val v t bytes -> concr_hlpl_val_comp v t = Some bytes
-  with concr_val_tuple_implies_concr_val_tuple_comp : forall vl tl bytes,
-       concr_hlpl_val_tuple vl tl bytes -> concr_hlpl_val_tuple_comp vl tl = Some bytes.
+      concr_hlpl_val v t bytes -> concr_hlpl_val_comp v t = Some bytes.
   Proof.
-    {
-      intros v t bytes H ; induction H; subst ; simpl ; try easy.
-      - rewrite Haddr. destruct (decide (t = t)) ; easy.
-      - auto.
-    }
-    {
-      intros. induction H.
-      - constructor.
-      - apply concr_val_implies_concr_val_comp in H.
-        simpl. rewrite H, IHconcr_hlpl_val_tuple. reflexivity.
-    }
+    intros v ; induction v ; intros t bytes concr_val ; inversion concr_val ;
+      subst ; simpl ; try reflexivity.
+    - apply IHv. exact Hv.
+    - rewrite Haddr. destruct (decide (t0 = t0)) ; easy.
+    - clear concr_val. generalize dependent bytes. generalize dependent tl.
+      induction H ; intros * concr_tuple ; inversion concr_tuple ; subst.
+      * reflexivity.
+      * apply p in H2. apply IHlist_all in H5. rewrite H5, H2. reflexivity.
   Qed.
 
   Lemma concr_val_eq_concr_val_comp : forall v t bytes,
@@ -280,29 +261,23 @@ Section Concretization.
   Qed.
 
   Lemma concr_val_size : forall v bytes t,
-      concr_hlpl_val v t bytes -> sizeof t = length bytes
-  with concr_val_tuple_size : forall vl bytes tl,
-      concr_hlpl_val_tuple vl tl bytes -> sizeof_tuple tl = length bytes.
+      concr_hlpl_val v t bytes -> sizeof t = length bytes.
   Proof.
-    {
-      intros v bytes t Hconcr. induction Hconcr ; auto ; try reflexivity.
-      - destruct b ; cbn ; reflexivity.
-      - cbn. rewrite Hs, repeat_length. reflexivity.
-      - simpl. eauto.
-    }
-    {
-      intros. induction H.
-      - reflexivity.
-      - simpl. rewrite length_app. erewrite concr_val_tuple_size ; eauto.
-    }
+    induction v ; intros bytes t Hconcr ; inversion Hconcr ; subst ; auto.
+    - rewrite repeat_length. reflexivity.
+    - destruct b ; cbn ; reflexivity.
+    - simpl. clear Hconcr. generalize dependent bytes. generalize dependent tl.
+      induction H ; intros * concr_tuple ; inversion concr_tuple ; subst.
+      * reflexivity.
+      * simpl. rewrite length_app. apply IHlist_all in H5. apply p in H2. lia.
   Qed.
 
   Lemma concr_val_tuple_implies_concr_val vl tl bytes :
     concr_hlpl_val_tuple vl tl bytes ->
-    forall n v, List.nth_error (ValueList.to_list vl) n = Some v ->
+    forall n v, List.nth_error vl n = Some v ->
              exists bytes0 bytesa bytesn t,
              concr_hlpl_val v t bytesa /\ bytes = bytes0 ++ bytesa ++ bytesn /\
-               List.nth_error (TypeList.to_list tl) n = Some t.
+               List.nth_error tl n = Some t.
   Proof.
     intro H. induction H ; intros.
     - rewrite nth_error_nil in H. congruence.
@@ -320,11 +295,11 @@ Section Concretization.
       concr_hlpl_val_tuple vl tl bytes <->
       exists bytes_list,
         concat bytes_list = bytes /\
-          ValueList.length vl = length bytes_list /\
-          TypeList.length tl = length bytes_list /\
+          length vl = length bytes_list /\
+          length tl = length bytes_list /\
           Forall (fun n => forall v t,
-                      ValueList.nth_error vl n = Some v ->
-                      TypeList.nth_error tl n = Some t ->
+                      nth_error vl n = Some v ->
+                      nth_error tl n = Some t ->
                       exists bytesn,
                         List.nth_error bytes_list n = Some bytesn /\
                           concr_hlpl_val v t bytesn)
@@ -334,7 +309,7 @@ Section Concretization.
     {
       induction H ; intros.
       - cbn. exists []. repeat split ; try reflexivity.
-        apply Forall_forall. intros ; discriminate.
+        apply Forall_forall. intros. rewrite nth_error_nil in H0. discriminate.
       - destruct (IHconcr_hlpl_val_tuple)
           as (bytes_list & bytes_eq & vl_len & tl_len & Hforall).
         exists (bytes0 :: bytes_list). split ; [ cbn ; rewrite bytes_eq ; reflexivity | ].
@@ -359,37 +334,40 @@ Section Concretization.
   Qed.
 
   Lemma slice_bytes_list (bytes : list memval) tl :
-    List.length bytes = sizeof_tuple tl ->
+    List.length bytes = sizeof (TTuple tl) ->
     bytes =
-      concat (TL.mapi (fun i t => firstn (sizeof t) (skipn (pst tl i) bytes)) tl).
+      concat (imap
+                (fun i t => firstn (sizeof t) (skipn (pst tl i) bytes)) tl).
   Proof.
     generalize dependent bytes. induction tl ; intros bytes Hsize.
     - cbn in *. apply LB.nil_length_inv in Hsize. assumption.
-    - rewrite TL.mapi_unfold.
-      cbn in *. rewrite <- (LB.take_drop (sizeof t) bytes) at 1. f_equal ; auto.
-      assert (H : List.length (skipn (sizeof t) bytes) = sizeof_tuple tl)
-               by (rewrite length_skipn ; lia).
-      rewrite (IHtl (skipn (sizeof t) bytes) H). f_equal.
-      eapply TL.mapi_exten. intros. rewrite skipn_skipn, Nat.add_comm. reflexivity.
+    - cbn. cbn in Hsize.
+      assert (Hsize': Datatypes.length (skipn (sizeof a) bytes) = sizeof (TTuple tl)).
+      { rewrite length_skipn ; cbn ; unfold sum ; lia. }
+      specialize (IHtl (skipn (sizeof a) bytes) Hsize').
+      rewrite <- (LB.take_drop (sizeof a) bytes) at 1 ; rewrite IHtl ; f_equal ; f_equal.
+      apply imap_ext ; intros. cbn.
+      rewrite skipn_skipn, Nat.add_comm. reflexivity.
   Qed.
 
   Lemma concr_val_tuple_implies_concr_val'' :
     forall vl tl bytes,
       concr_hlpl_val_tuple vl tl bytes <->
-        ValueList.length vl = TypeList.length tl /\
-          sizeof_tuple tl = length bytes /\
+        length vl = length tl /\
+          sizeof (TTuple tl) = length bytes /\
           forall n v t,
-            ValueList.nth_error vl n = Some v ->
-            TypeList.nth_error tl n = Some t ->
+            nth_error vl n = Some v ->
+            nth_error tl n = Some t ->
             concr_hlpl_val v t (firstn (sizeof t) (skipn (pst tl n) bytes)).
   Proof.
     intros. split.
     {
       intro H. induction H.
-      - repeat split. intros. cbn in H. discriminate.
+      - repeat split. intros. cbn in H. rewrite nth_error_nil in H. discriminate.
       - destruct IHconcr_hlpl_val_tuple as (Heq1 & Heq2 & IH).
         apply concr_val_size in H as Hlen.
-        repeat split ; cbn ; [ congruence | rewrite length_app ; congruence | ].
+        repeat split ; simpl sizeof in * ;
+          [cbn ; congruence | rewrite length_app ; lia | ].
         intros * nth_val nth_ty.
         destruct n ; cbn in *.
         * injection nth_val as <-. injection nth_ty as <-.
@@ -399,13 +377,14 @@ Section Concretization.
     {
       intros (Heq1 & Heq2 & IH). rewrite concr_val_tuple_implies_concr_val'.
       symmetry in Heq2. apply slice_bytes_list in Heq2.
-      exists (TL.mapi (fun i t => firstn (sizeof t) (skipn (pst tl i) bytes)) tl).
+      exists (imap (fun i t => firstn (sizeof t) (skipn (pst tl i) bytes)) tl).
       repeat split ; auto.
-      - rewrite <- TL.mapi_length. assumption.
-      - rewrite <- TL.mapi_length. reflexivity.
+      - rewrite length_imap. assumption.
+      - rewrite length_imap. reflexivity.
       - apply LR.Forall_true ; intros. 
         exists (firstn (sizeof t) (skipn (pst tl x) bytes)).
-        erewrite TL.mapi_nth_error with (t := t) ; auto.
+        rewrite nth_error_to_lookup, list_lookup_imap, <- nth_error_to_lookup, H0 ;
+          cbn ; firstorder.
     }
   Qed.
 
@@ -416,17 +395,17 @@ Section Concretization.
   Proof.
     intros until vp. generalize dependent v. induction vp ; intros.
     - simpl. constructor ; auto.
-    - induction v ; inversion H ; subst ; auto.
+    - destruct v ; inversion H ; subst ; auto.
       + destruct a ; auto. simpl. constructor. auto.
       + generalize dependent a. induction H1 ; intro a.
         * simpl ; repeat constructor.
         * induction a.
           ** cbn. repeat constructor ; auto.
-             rewrite ValueList.from_list_to_list_inv. assumption.
           ** cbn. assert (concr_hlpl_val (VTuple vl) (TTuple tl) bytes1)
                by (constructor ; assumption). repeat constructor. assumption.
-             specialize (IHconcr_hlpl_val_tuple H2 a).
-             inversion IHconcr_hlpl_val_tuple ; subst ; auto.
+             inversion IHa ; subst.
+             apply IHconcr_hlpl_val_tuple with (a := a) in H2. inversion H2 ; subst.
+             assumption.
   Qed.
 
   Lemma concr_val_remove_loc :
@@ -445,7 +424,7 @@ Section Concretization.
       + generalize dependent a. induction H3.
         * repeat constructor.
         * intros. destruct a.
-          ** cbn. rewrite ValueList.from_list_to_list_inv. repeat constructor ; eauto.
+          ** cbn. repeat constructor ; eauto.
           ** specialize (IHconcr_hlpl_val_tuple (Concr_tuple _ _ _ H3) a H1).
              cbn in H2. rewrite H2 in IHconcr_hlpl_val_tuple.
              specialize (IHconcr_hlpl_val_tuple eq_refl).
@@ -491,8 +470,8 @@ Section Concretization.
     off_vpath_equiv v t off t' (vp ++ [0%nat])
   | Offset_vpath_tuple n len off vp t' tl
       (Htuple : get_node (v.[[ vp ]]) = NTuple len)
-      (Htypelist_size : TypeList.length tl = len)
-      (Htype : TypeList.nth_error tl n = Some t')
+      (Htypelist_size : length tl = len)
+      (Htype : nth_error tl n = Some t')
       (Hrec : off_vpath_equiv v t off (TTuple tl) vp) :
           off_vpath_equiv v t (off + partial_sizeof_tuple tl n) t' (vp ++ [n]).
 
@@ -537,8 +516,8 @@ Section Concretization.
   Lemma Addr_spath_tuple_n:
     forall S sp addr t tl len n,
       get_node (S.[ sp ]) = NTuple len ->
-      TypeList.length tl = len ->
-      TypeList.nth_error tl n = Some t ->
+      length tl = len ->
+      nth_error tl n = Some t ->
       addr ~^{S, (TTuple tl)} sp ->
       addr +o (partial_sizeof_tuple tl n) ~^{S, t} (sp +++ [n%nat]).
   Proof.
@@ -576,7 +555,7 @@ Section Concretization.
     rewrite <- Z.add_assoc.
     apply partial_sizeof_tuple_last in Htype as ?.
     replace (pst tl n + sizeof t') with (Z.of_nat (pst tl (S n))) by lia.
-    pose proof (partial_sizeof_tuple_leq_sizeof_tuple tl (S n)). lia.
+    pose proof (partial_sizeof_tuple_leq_sizeof_tuple tl (S n)). cbn in H1. lia.
   Qed.
 
   Lemma off_vpath_equiv_eval_type :
@@ -837,10 +816,9 @@ Section Concretization.
     - constructor.
     - apply valid_vpath_app ; split ; auto ; nodes_to_val ; repeat econstructor.
     - apply valid_vpath_app ; split ; auto ; nodes_to_val ; repeat constructor.
-    apply ex_intro with (x := t'), TypeList.nth_valid_access in Htype. 
-    rewrite <- H, <- ValueList.nth_valid_access in Htype. destruct Htype.
-    apply valid_cons with (w := x) ; [ | constructor].
-    cbn. rewrite ValueList.nth_error_value_list_list_equiv. congruence.
+      assert (exists v, nth_error vl n = Some v).
+      { apply nth_error_Some'. apply nth_error_length in Htype. lia. }
+      destruct H0 as (v & nth_vl). econstructor ; eauto. constructor.
   Qed.
 
   Lemma addr_spath_equiv_implies_valid_spath :
@@ -1156,7 +1134,7 @@ Section Concretization.
       concr_hlpl_val v t bytes -> sizeof t = length bytes
   with tuple_val_concr_implies_correct_type_list_size :
     forall vl tl bytes,
-      concr_hlpl_val_tuple vl tl bytes -> sizeof_tuple tl = length bytes.
+      concr_hlpl_val_tuple vl tl bytes -> sizeof (TTuple tl) = length bytes.
   Proof.
     {
       intros v t bytes Hconcr. induction Hconcr ; auto.
@@ -1185,11 +1163,11 @@ Section Concretization.
 
   Lemma lookup_mem_tuple:
     forall Spl addr tl bytes_list,
-      Forall2 (fun bytes t => length bytes = sizeof t) bytes_list (TypeList.to_list tl) ->
+      Forall2 (fun bytes t => length bytes = sizeof t) bytes_list tl ->
       Spl.m.[ addr : TTuple tl ] = Some (concat bytes_list) <->
-        length bytes_list = TypeList.length tl /\
+        length bytes_list = length tl /\
           forall i bytes t, List.nth_error bytes_list i = Some bytes ->
-                       TypeList.nth_error tl i = Some t ->
+                       nth_error tl i = Some t ->
                          Spl.m.[ addr +o partial_sizeof_tuple tl i : t ] = Some bytes.
   Proof.
     intros ? (bi, off) * Hforall. split.
@@ -1197,15 +1175,16 @@ Section Concretization.
       intros H. generalize dependent bytes_list.
       generalize dependent off. generalize dependent bi.
       induction tl ; intros.
-      - inversion Hforall ; subst. cbn. repeat constructor. intros ? ? ? ? [=].
+      - inversion Hforall ; subst. cbn. repeat constructor. intros ? ? ? ?.
+        rewrite nth_error_nil in H0. discriminate.
       - inversion Hforall ; subst. cbn in H. rewrite Nat2Z.inj_add in H.
         apply Mem.loadbytes_split in H as (bytes1 & bytes2 & Hload1 & Hload2 & Heq) ;
           try lia.
         apply Mem.loadbytes_length in Hload1 as Hlen1, Hload2 as Hlen2.
         rewrite Nat2Z.id in Hlen1, Hlen2.
         apply LB.app_inj_1 in Heq as (Heqx & Heql) ; [ | congruence].
-        apply (IHtl bi (off + sizeof t)) in H4 as (Hlen & Hforall') ;
-          [ | cbn ; congruence]. split ; [ cbn ; congruence | ].
+        apply (IHtl bi (off + sizeof a)) in H4 as (Hlen & Hforall') ;
+          [ | cbn ; unfold sum ; congruence]. split ; [ cbn ; congruence | ].
         intros. cbn. destruct i eqn:Ei ; subst.
         * rewrite Z.add_0_r. injection H as <-. injection H0 as <-. assumption.
         * cbn in Hforall'. cbn in H0, H. rewrite Nat2Z.inj_add, Z.add_assoc.
@@ -1215,20 +1194,18 @@ Section Concretization.
       intros (Hlen & H). generalize dependent tl.
       generalize dependent off. generalize dependent bi.
       induction bytes_list; cbn in * ; intros.
-      - inversion Hforall ; subst. destruct tl ; [ | discriminate Hlen].
-        apply Mem.loadbytes_empty ; cbn ; lia.
-      - inversion Hforall ; subst. destruct tl ; [ discriminate H2 | ].
-        cbn. injection H2 as -> ->. rewrite Nat2Z.inj_add.
+      - inversion Hforall ; subst. apply Mem.loadbytes_empty ; cbn ; lia.
+      - inversion Hforall ; subst.
+        cbn. rewrite Nat2Z.inj_add.
         eapply Mem.loadbytes_concat ; try lia.
-        * specialize (H 0%nat a t eq_refl eq_refl). rewrite Z.add_0_r in H. assumption.
+        * specialize (H 0%nat a y eq_refl eq_refl). rewrite Z.add_0_r in H. assumption.
         * apply IHbytes_list ; auto. intros [] **.
-          ** destruct tl ; [ discriminate H1 | ].
-             cbn ; rewrite Nat2Z.inj_0, Z.add_0_r. injection H1 as ->.
-             auto. specialize (H (S 0) bytes t0). cbn in H.
+          ** destruct l' ; [rewrite nth_error_nil in H1 ; discriminate | ].
+             cbn. rewrite Z.add_0_r. injection H1 as ->.
+             auto. specialize (H (S 0) bytes t). cbn in H.
              rewrite Nat.add_0_r in H. apply H ; [ | reflexivity ].
              rewrite <- H0. reflexivity.
-          ** destruct tl ; [ discriminate H1 | ].
-             specialize (H (S (S n)) bytes t0). cbn in *.
+          ** specialize (H (S (S n)) bytes t). cbn in *.
              rewrite !Nat2Z.inj_add, !Z.add_assoc in *. apply H ; auto.
     }
   Qed.
@@ -1236,8 +1213,8 @@ Section Concretization.
   Lemma lookup_mem_tuple':
     forall Spl addr tl bytes,
       Spl.m.[ addr : TTuple tl ] = Some (bytes) ->
-      forall i, (0 <= i < TypeList.length tl)%nat ->
-           exists t, TypeList.nth_error tl i = Some t /\
+      forall i, (0 <= i < length tl)%nat ->
+           exists t, nth_error tl i = Some t /\
                 Spl.m.[ addr +o pst tl i : t ] =
                   Some (firstn (sizeof t) (skipn (pst tl i) bytes)).
   Proof.
@@ -1246,7 +1223,7 @@ Section Concretization.
     induction tl ; cbn ; intros bi off bytes Hread i boundsi.
     - lia.
     - destruct i.
-      * exists t ; split ; [ reflexivity | rewrite Z.add_0_r, skipn_0 ].
+      * exists a ; split ; [ reflexivity | rewrite Z.add_0_r, skipn_0 ].
         rewrite Nat2Z.inj_add in Hread. apply Mem.loadbytes_split in Hread ; try lia.
         destruct Hread as (bytes1 & bytes2 & Hread1 & _ & Heq). subst.
         apply Mem.loadbytes_length in Hread1 as Hlen1. rewrite Nat2Z.id in Hlen1.
@@ -1261,13 +1238,13 @@ Section Concretization.
   Lemma concr_val_tuple_implies_concr_nth_val :
     forall vl v tl t bytes n,
       concr_hlpl_val_tuple vl tl bytes ->
-      ValueList.nth_error vl n = Some v ->
-      TypeList.nth_error tl n = Some t ->
+      nth_error vl n = Some v ->
+      nth_error tl n = Some t ->
       concr_hlpl_val v t (firstn (sizeof t) (skipn (pst tl n) bytes)) .
   Proof.
     intros * H. generalize dependent v. generalize dependent t. generalize dependent n.
     induction H ; intros.
-    - discriminate.
+    - rewrite nth_error_nil in H. discriminate.
     - apply concr_val_size in H as Hlen0. destruct n.
       * injection H1 as <- ; injection H2 as <-.
         rewrite skipn_0, Hlen0, LB.take_app_length' ; auto.
@@ -1318,7 +1295,7 @@ Section Concretization.
           congruence.
       + assert (H : exists (addr : address) (t0 : type) (bytes : list memval),
                    addr ~^{S, t0} sp /\
-                     concr_hlpl_val (VTuple t) t0 bytes /\
+                     concr_hlpl_val (VTuple vl) t0 bytes /\
                      Spl.m.[addr : t0] = Some bytes).
         eapply IHsp ; auto.
         destruct H as (addr & t0 & bytes & Hequiv & Hconcr_val & Hval_mem).
@@ -1330,11 +1307,10 @@ Section Concretization.
         * eapply Addr_spath_tuple_n ; eauto. rewrite E. cbn. f_equal.
           eapply concr_val_tuple_implies_valuelist_typelist_same_size ; eauto.
         * eapply concr_val_tuple_implies_concr_nth_val ; eauto.
-          cbn. apply ex_intro with (x := t'), TypeList.nth_valid_access in Ht'.
-          rewrite <- H0 in Ht'. apply ValueList.nth_valid_access in Ht' as (? & ?).
-          rewrite ValueList.nth_error_value_list_list_equiv, H2. reflexivity.
+          cbn. apply nth_error_length in Ht'. rewrite <- H0 in Ht'.
+          apply nth_error_Some' in Ht' as (v & ?). rewrite H2. reflexivity.
         * rewrite <- H0. inversion Hvvp ; subst. apply nth_error_length in H5.
-          cbn in H5. rewrite ValueList.length_to_list. lia.
+          cbn in H5. lia.
   Qed.
 
   Lemma state_concr_implies_val_concr_at_addr : 
@@ -1506,12 +1482,12 @@ Section Concretization.
     - nodes_to_val.
       assert (Hvsp : valid_spath S sp) by
         (apply get_not_bot_valid_spath ; unfold bot ; simpl ; congruence).
-      assert (Htemp: exists bytes, concr_hlpl_val (VTuple t0) t bytes /\
+      assert (Htemp: exists bytes, concr_hlpl_val (VTuple vl) t bytes /\
                       Spl'.m.[addr : t] = Some bytes).
       { apply state_concr_implies_val_concr_at_addr with (S := S) (sp := sp) ; auto. }
       destruct Htemp as (bytes & Hconcr_val & _). inversion Hconcr_val ; subst.
       apply concr_val_tuple_implies_valuelist_typelist_same_size in H0.
-      rewrite H0 in index. apply TypeList.nth_valid_access in index as (t & ?).
+      rewrite H0 in index. apply nth_error_Some' in index as (t & ?).
       exists (addr +o pst tl k), t ; split.
       * constructor. apply eval_proj_tuple_pst ; assumption.
       * eapply Addr_spath_tuple_n ; eauto. rewrite Heqv. cbn. congruence.
@@ -1934,17 +1910,14 @@ Section Concretization.
         rewrite vget_app, Heqv, Z.add_comm, Z2Nat.inj_add, <- skipn_skipn, Nat2Z.id ;
           [ | lia | eauto].
         inversion IHoff_vpath_equiv ; subst.
-        symmetry in H2.
-        eapply ValueList.nth_error_type_implies_nth_error_value in H2 as (v & ?) ;
-          eauto.
-        eapply concr_val_tuple_implies_concr_nth_val in H5 ; eauto. 
-        apply ex_intro with (x := v) in H2 as ?.
-        apply ValueList.nth_valid_access in H3.
-        rewrite nth_vget_n in H2 ; [ | assumption ].
+        apply nth_error_length in Htype as Hsize. rewrite <- H2 in Hsize.
+        pose proof Hsize as Htemp. apply nth_error_Some' in Htemp as (v & ?).
+        eapply concr_val_tuple_implies_concr_nth_val in H5 ; eauto.
+        rewrite nth_vget_n in H3 ; [ | lia].
         rewrite skipn_firstn_comm, firstn_firstn, min_l in H5 ; [ congruence | ].
         pose proof (partial_sizeof_tuple_leq_sizeof_tuple tl (S n)).
         rewrite partial_sizeof_tuple_last with (t := t') in H4 ; auto.
-        rewrite Nat2Z.inj_le, Nat2Z.inj_sub ; cbn ; lia.
+        rewrite Nat2Z.inj_le, Nat2Z.inj_sub ; cbn in * ; lia.
     }
     {
       assert (off_vpath_equiv vi ti 0 ti []) by constructor.
@@ -1984,7 +1957,8 @@ Section Concretization.
     - nodes_to_val.
       pose proof (proj1 (concr_val_off_vpath_equiv_equiv _ _ _ Hleni) H0 _ _ _ H).
       rewrite vset_app_split.
-      remember (firstn (sizeof_tuple tl) (skipn (Z.to_nat off) bytesi)) as bytes_tup.
+      remember (firstn (sizeof (TTuple tl)) (skipn (Z.to_nat off) bytesi))
+        as bytes_tup.
       pose proof (partial_sizeof_tuple_leq_sizeof_tuple tl n) as Hpst_n.
       pose proof (partial_sizeof_tuple_leq_sizeof_tuple tl (S n)) as Hpst_Sn.
       apply offset_is_positive in H as Hoff.
@@ -1992,46 +1966,46 @@ Section Concretization.
                 (firstn (pst tl n) bytes_tup ++ bytes ++
                    skipn (pst tl (S n)) bytes_tup)).
       {
-        inversion H2 ; subst ; try congruence. assert (t = vl) by congruence ; subst.
+        inversion H2 ; subst ; try congruence. assert (vl = vl0) by congruence ; subst.
         rewrite tuple_vset_n. constructor.
         apply off_vpath_equiv_sizeof in H as Hlen. cbn in Hlen.
         apply concr_val_size in Hconcr as Hsize.
         apply concr_val_tuple_implies_concr_val'' ; repeat split.
-        - rewrite VL.alter_alter_list_equiv, VL.length_to_list,
-            VL.to_list_from_list_inv, alter_list_length, VL.length_from_list,
-            VL.from_list_to_list_inv. assumption.
-        - rewrite !length_app, !length_firstn, !length_skipn,
+        - rewrite alter_list_length. assumption.
+        - cbn. rewrite !length_app, !length_firstn, !length_skipn,
             length_firstn, length_skipn, Hleni.
-          rewrite !(Nat.min_l (sizeof_tuple tl)), Nat.min_l by lia.
+          rewrite !(Nat.min_l (sizeof (TTuple tl))), Nat.min_l by (cbn in * ; lia).
           rewrite partial_sizeof_tuple_last with (t := t') ; auto.
           rewrite <- (concr_val_size _ _ _ Hconcr).
           rewrite partial_sizeof_tuple_last with (t := t') in Hpst_Sn by auto.
-          lia.
+          cbn in * ; lia.
         - intros.
           pose proof (partial_sizeof_tuple_leq_sizeof_tuple tl (S n0)) as Hn0.
           rewrite (partial_sizeof_tuple_last tl n0 t) in * by assumption.
           destruct (decide (n = n0)).
           * subst n0. pose proof H6 as Ht.
-            eapply VL.nth_error_type_implies_nth_error_value in H6 as (v' & ?) ; eauto.
-            erewrite VL.nth_error_alter_eq in H4 ; eauto. injection H4 as <-.
+            apply nth_error_length in H6. rewrite <- H1 in H6.
+            apply nth_error_Some' in H6 as (v' & ?).
+            rewrite nth_error_alter_list_eq, H6 in H4. injection H4 as <-. cbn in *.
             rewrite LB.drop_app_le by (rewrite !length_firstn, length_skipn; lia).
             rewrite !LB.take_drop_commute, !LB.drop_drop, !LB.take_take,
               Nat.min_l by lia.
             rewrite LB.drop_ge by (rewrite length_firstn ; lia). cbn.
             rewrite (partial_sizeof_tuple_last _ _ _ Ht).
             rewrite LB.take_app_length' ; congruence.
-          * rewrite VL.nth_error_alter_neq in H4 by auto.
+          * rewrite nth_error_alter_list_neq in H4 by assumption.
             destruct (le_gt_dec n n0).
             ** assert (Hpst: (S n <= n0)%nat) by lia.
                apply n_leq_m_implies_leq_length_pst with (tl := tl) in Hpst.
                rewrite (partial_sizeof_tuple_last tl n t') in * by assumption.
+               cbn in *.
                rewrite !skipn_app, !skipn_firstn_comm, !length_firstn, !length_skipn.
                replace (pst tl n - pst tl n0)%nat with 0%nat by lia.
                rewrite firstn_0, app_nil_l, !Nat.min_l, LB.drop_ge ; try lia.
                pose proof (partial_sizeof_tuple_leq_sizeof_tuple tl n0). cbn.
-               replace (sizeof_tuple tl - (pst tl n + sizeof t') -
+               replace (sizeof (TTuple tl) - (pst tl n + sizeof t') -
                           (pst tl n0 - pst tl n - List.length bytes))%nat with
-                 (sizeof_tuple tl - pst tl n0)%nat by lia.
+                 (sizeof (TTuple tl) - pst tl n0)%nat by lia.
                rewrite !firstn_skipn_comm, !skipn_skipn, !firstn_firstn.
                replace (pst tl n0 - pst tl n - Datatypes.length bytes +
                           (pst tl n + sizeof t') + Z.to_nat off)%nat
@@ -2050,13 +2024,14 @@ Section Concretization.
                eapply concr_val_tuple_implies_concr_nth_val ; eauto.
                rewrite !skipn_firstn_comm, firstn_firstn, skipn_skipn.
                repeat f_equal. cbn. lia.
-            ** replace (firstn (sizeof t)
+            ** cbn in H5. 
+               replace (firstn (sizeof t)
                           (skipn (pst tl n0)
-                             (firstn (pst tl n) (firstn (sizeof_tuple tl)
+                             (firstn (pst tl n) (firstn (sizeof (TTuple tl))
                                                    (skipn (Z.to_nat off) bytesi)) ++
                                 bytes ++
                                 skipn (pst tl (S n))
-                                (firstn (sizeof_tuple tl)
+                                (firstn (sizeof (TTuple tl))
                                    (skipn (Z.to_nat off) bytesi)))))
                  with (firstn (sizeof t)
                          (skipn (pst tl n0)
@@ -2066,9 +2041,8 @@ Section Concretization.
                assert (S n0 <= n)%nat by lia.
                apply n_leq_m_implies_leq_length_pst with (tl := tl) in H7 as Hpst.
                rewrite partial_sizeof_tuple_last with (t := t) in Hpst by assumption.
-               cbn. 
-               rewrite !LB.drop_app_le
-                 by (rewrite !length_firstn, length_skipn ; lia).
+               cbn in *. rewrite !LB.drop_app_le
+                 by (cbn in * ; rewrite !length_firstn, length_skipn ; lia).
                rewrite firstn_firstn, Nat.min_l by lia.
                rewrite LB.take_app_le by
                  (rewrite length_skipn, length_firstn, length_skipn ; lia).
@@ -2077,9 +2051,9 @@ Section Concretization.
       }
       eapply IHoff_vpath_equiv in H3. subst. simpl sizeof in H3.
       rewrite firstn_firstn, Nat.min_l, !app_assoc, LB.take_take_drop,
-        <- !app_assoc, (Nat.add_comm _ (sizeof_tuple tl)), <- skipn_skipn,
+        <- !app_assoc, (Nat.add_comm _ (sizeof (TTuple tl))), <- skipn_skipn,
         LB.drop_take_drop, skipn_skipn,
-        (partial_sizeof_tuple_last _ _ _ Htype) in H3 by lia. 
+        (partial_sizeof_tuple_last _ _ _ Htype) in H3 by (cbn in * ; lia). 
       replace (Z.to_nat (off + pst tl n))%nat with (Z.to_nat off + pst tl n)%nat by lia.
       replace (Z.to_nat off + pst tl n + sizeof t')%nat with
         (pst tl n + sizeof t' + Z.to_nat off)%nat by lia.
@@ -2169,7 +2143,7 @@ Lemma concr_val_not_val_contains :
 with concr_val_not_val_list_contains :
   forall ao vl tl bytes l addr_t,
     concr_hlpl_val_tuple ao vl tl bytes ->
-    VL.Forall (not_value_contains (fun n => get_loc_id n = Some l)) vl ->
+    Forall (not_value_contains (fun n => get_loc_id n = Some l)) vl ->
     concr_hlpl_val_tuple (fun l0 => if (l =? l0)%positive then
                              Some addr_t
                            else ao l0) vl tl bytes.
@@ -2199,9 +2173,9 @@ Fixpoint op_get_type (op : operand) :=
       TTuple
         ((fix go opl :=
             match opl with
-            | [] => TNil
+            | [] => [] 
             | op :: opl' =>
-                TCons (op_get_type op) (go opl')
+                (op_get_type op) :: (go opl')
             end) opl)
   end.
 
@@ -2220,14 +2194,15 @@ Fixpoint check_type_of_val v t :=
   | VBool _, TBool => true
   | VLoc _ v, t => check_type_of_val v t
   | VPtr _, TRef _ => true
-  | VTuple vl, TTuple tl => check_type_of_val_list vl tl
-  | _, _ => false
-  end with
-check_type_of_val_list vl tl :=
-  match vl, tl with
-  | VNil, TNil => true
-  | VCons v vl', TCons t tl' =>
-      check_type_of_val v t && check_type_of_val_list vl' tl'
+  | VTuple vl, TTuple tl =>
+      (fix go vl tl :=
+         match vl, tl with
+         | [], [] => true
+         | v :: vl', t :: tl' =>
+             check_type_of_val v t && go vl' tl'
+         | _, _ => false
+         end
+      ) vl tl
   | _, _ => false
   end.
 

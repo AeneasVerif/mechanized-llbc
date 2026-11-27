@@ -19,168 +19,28 @@ Variant proj :=
    Do not mix paths (syntactical constructs of the language) with vpaths and spaths (the
    canonical way to denotes sub-values in a value of the state.)
 *)
+Scheme All for list.
+
 Inductive type :=
 | TInt
 | TBool
 | TRef (t : type)
-| TTuple (tl : type_list)
-with type_list :=
-| TNil
-| TCons (t : type) (tl : type_list).
+| TTuple (tl : list type).
 
-Module TypeList.
-  Fixpoint length (tl : type_list) : nat :=
-    match tl with
-    | TNil => 0
-    | TCons _ tl' => S (length tl')
-    end.
-
-  Fixpoint to_list (tl : type_list) : list type :=
-    match tl with
-    | TNil => []
-    | TCons t tl => t :: to_list tl
-    end.
-
-  Fixpoint from_list (tl : list type) : type_list :=
-    match tl with
-    | [] => TNil
-    | t :: tl => TCons t (from_list tl)
-    end.
-
-  Lemma length_from_list (tl : list type) :
-    List.length tl = length (from_list tl).
-  Proof. induction tl; simpl ; congruence. Qed.
-
-  Lemma length_to_list (tl : type_list) :
-    length tl = List.length (to_list tl).
-  Proof. induction tl; simpl ; congruence. Qed.
-
-  Fixpoint nth_error (tl : type_list) (n : nat) : option type :=
-    match tl, n with
-    | TCons t tl, 0 => Some t
-    | TCons t tl, S n => nth_error tl n
-    | TNil, _ => None
-    end.
-
-  Lemma nth_valid_access (tl : type_list) (n : nat) :
-    (exists v, nth_error tl n = Some v) <-> n < length tl.
-  Proof.
-    generalize dependent n. induction tl ; split.
-    - intros (? & [=]).
-    - intros ?%Nat.nlt_0_r. by exfalso.
-    - destruct n ; cbn. lia. intros ?%IHtl. lia.
-    - destruct n ; cbn. repeat econstructor. by intros ?%Nat.succ_lt_mono%IHtl.
-  Qed.
-
-  Lemma nth_error_type_list_list_equiv tl n :
-    nth_error tl n = List.nth_error (to_list tl) n.
-  Proof.
-    generalize dependent n. induction tl ; intro.
-    - rewrite nth_error_nil. reflexivity.
-    - destruct n.
-      * reflexivity.
-      * cbn. rewrite IHtl. reflexivity.
-  Qed.
-
-  Fixpoint map {A : Type} (f : type -> A) (tl : type_list) : list A :=
-    match tl with
-    | TNil => []
-    | TCons t tl' => (f t) :: map f tl'
-    end.
-
-  Fixpoint mapi_rec {A : Type} (f : nat -> type -> A) (tl : type_list) (n : nat) : list A :=
-    match tl with
-    | TNil => []
-    | TCons t tl' => (f n t) :: mapi_rec f tl' (S n)
-    end.
-
-  Definition mapi {A : Type} (f : nat -> type -> A) (tl : type_list) : list A :=
-    mapi_rec f tl 0.
-
-  Lemma mapi_rec_length {A : Type} (f : nat -> type -> A) tl n :
-    length tl = List.length (mapi_rec f tl n).
-  Proof. generalize dependent n. induction tl ; intros ; cbn in * ; auto. Qed.
-
-  Lemma mapi_length {A : Type} (f : nat -> type -> A) tl :
-    length tl = List.length (mapi f tl).
-  Proof. apply mapi_rec_length. Qed.
-
-  Lemma mapi_rec_nth_error {A : Type} (f : nat -> type -> A) t tl m n :
-    nth_error tl n = Some t ->
-    List.nth_error (mapi_rec f tl m) n = Some (f (m + n) t).
-  Proof.
-    intros H. generalize dependent n. generalize dependent m. induction tl ; intros.
-    - cbn in H. discriminate.
-    - cbn. destruct n.
-      * rewrite Nat.add_0_r. cbn. injection H as ->. reflexivity.
-      * cbn. rewrite IHtl ; auto. rewrite Nat.add_succ_comm. reflexivity.
-  Qed.
-
-  Lemma mapi_nth_error {A : Type} (f : nat -> type -> A) t tl n :
-    nth_error tl n = Some t ->
-    List.nth_error (mapi f tl) n = Some (f n t).
-  Proof.
-    intros. unfold mapi. rewrite mapi_rec_nth_error with (t := t) ; auto.
-  Qed.
-    
-  Lemma mapi_rec_shift {A : Type}
-    (f : nat -> type -> A) (tl : type_list) (n : nat) :
-    mapi_rec f tl (S n) =  mapi_rec (fun n t => f (S n) t) tl n.
-  Proof.
-    generalize dependent n. induction tl ; intros.
-    - reflexivity.
-    - cbn in *. f_equal. rewrite IHtl. reflexivity.
-  Qed.
-
-  Lemma mapi_rec_unfold {A : Type}
-    (f : nat -> type -> A) (t : type) (tl : type_list) (n : nat) :
-    mapi_rec f (TCons t tl) n = f n t :: mapi_rec (fun n t => f (S n) t) tl n.
-  Proof.
-    generalize dependent t. generalize dependent n. induction tl ; intros.
-    - reflexivity.
-    - cbn in *. f_equal. rewrite IHtl. reflexivity.
-  Qed.
-
-  Lemma mapi_unfold {A : Type} (f : nat -> type -> A) (t : type) (tl : type_list) :
-    mapi f (TCons t tl) = f 0 t :: mapi (fun n t => f (S n) t) tl.
-  Proof.
-    unfold mapi. rewrite <- mapi_rec_unfold. reflexivity.
-  Qed.
-
-  Lemma mapi_rec_exten {A : Type} (f : nat -> type -> A) (g : nat -> type -> A) tl n :
-   (forall n t, f n t = g n t) -> mapi_rec f tl n = mapi_rec g tl n.
-  Proof.
-    generalize dependent n. induction tl ; intros ; [ reflexivity | ].
-    cbn. rewrite IHtl, H ; auto.
-  Qed.
-
-  Lemma mapi_exten {A : Type} (f : nat -> type -> A) (g : nat -> type -> A) tl :
-   (forall n t, f n t = g n t) -> mapi f tl = mapi g tl.
-  Proof. intro. unfold mapi. rewrite mapi_rec_exten with (g := g) ; auto. Qed.
-
-  Lemma typelist_map_is_map {A : Type} (f : type -> A) (tl : type_list) :
-    map f tl = List.map f (to_list tl).
-  Proof. induction tl ; cbn ; congruence. Qed.
-End TypeList.
-
-Declare Scope rtype_scope.
-Notation "'t[' ']'" := (TTuple TNil) : rtype_scope.
-Notation "'t[' x ']'" := (TTuple (TCons x TNil)) : rtype_scope.
-Notation "'t[' x ; y ; .. ; z ']'" :=
-  (TTuple (TCons x (TCons y .. (TCons z TNil) ..))) : rtype_scope.
-
-Scheme type_ind' := Induction for type Sort Prop
-with type_list_ind' := Induction for type_list Sort Prop.
-
-Fixpoint type_eq_dec (t1 t2 : type) : {t1 = t2} + {t1 <> t2}
-with type_list_eq_dec (l1 l2 : type_list) : {l1 = l2} + {l1 <> l2}.
+Definition type_eq_dec : EqDecision type.
 Proof.
-  - decide equality.
-  - decide equality.
+  intros t. induction t as [| | t IHt | tl IH]; intros [| | t' | tl'];
+    try (right; discriminate); try (left; reflexivity).
+  - destruct (IHt t') as [e|n]; [left; f_equal; exact e | right; congruence].
+  - revert tl'.
+    induction IH as [|a l Ha _ IHl]; intros [|b l'];
+      try (right; congruence); try (left; reflexivity).
+    destruct (l b) as [e1|n1]; [|right; congruence].
+    destruct (IHl l') as [e2|n2]; [|right; congruence].
+    left; congruence.
 Defined.
 
-Instance EqDec_type : EqDecision type := type_eq_dec.
-Instance EqDec_type_list : EqDecision type_list := type_list_eq_dec.
+Global Instance EqDecision_type : EqDecision type := type_eq_dec.
 
 (* TODO: notation *)
 Definition path := list proj.

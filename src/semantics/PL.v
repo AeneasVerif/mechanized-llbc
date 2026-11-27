@@ -72,17 +72,12 @@ Fixpoint sizeof (tau : type) : nat :=
   match tau with
   | TInt | TRef _ => 8 (* TODO: size of boolean? *)
   | TBool => 1
-  | TTuple tl => sizeof_tuple tl
-  end with
-sizeof_tuple (taul : type_list) : nat :=
-  match taul with
-  | TNil => 0
-  | TCons t tl => sizeof t + sizeof_tuple tl
+  | TTuple tl => sum (List.map sizeof tl)
   end. 
 
-Fixpoint partial_sizeof_tuple (taul : type_list) (n : nat) : nat :=
+Fixpoint partial_sizeof_tuple (taul : list type) (n : nat) : nat :=
   match taul, n with
-  | TCons t tl, S n => sizeof t + partial_sizeof_tuple tl n
+  | t :: tl, S n => sizeof t + partial_sizeof_tuple tl n
   | _, _ => 0
   end. 
 
@@ -97,12 +92,8 @@ Proof.
 Qed.
    
 
-Lemma sizeof_tuple_sum (taul : type_list) :
-  sizeof_tuple taul = sum (map sizeof (TypeList.to_list taul)).
-Proof. induction taul ; simpl ; congruence. Qed.
-
-Lemma partial_sizeof_tuple_firstn_sum (taul : type_list) (n : nat) :
-    partial_sizeof_tuple taul n = sum (map sizeof (firstn n (TypeList.to_list taul))).
+Lemma partial_sizeof_tuple_firstn_sum (taul : list type) (n : nat) :
+    partial_sizeof_tuple taul n = sum (map sizeof (firstn n taul)).
 Proof.
   generalize dependent n. induction taul ; intro.
   - cbn. rewrite LB.take_nil. reflexivity.
@@ -111,20 +102,21 @@ Proof.
     * cbn. rewrite IHtaul. reflexivity.
 Qed.
 
-Lemma partial_sizeof_tuple_leq_sizeof_tuple (taul : type_list) (n : nat) : 
-  partial_sizeof_tuple taul n <= sizeof_tuple taul.
+Lemma partial_sizeof_tuple_leq_sizeof_tuple (taul : list type) (n : nat) : 
+  partial_sizeof_tuple taul n <= sizeof (TTuple taul).
 Proof.
   generalize dependent n.
-  induction taul ; destruct n ; cbn ; try lia. specialize (IHtaul n). lia.
+  induction taul ; destruct n ; try (cbn ; lia). specialize (IHtaul n). cbn in *.
+  unfold sum in IHtaul. lia.
 Qed.
 
-Lemma partial_sizeof_tuple_last (taul : type_list) :
+Lemma partial_sizeof_tuple_last (taul : list type) :
   forall n t,
-    TypeList.nth_error taul n = Some t ->
+    List.nth_error taul n = Some t ->
     (partial_sizeof_tuple taul (S n) = partial_sizeof_tuple taul n + sizeof t)%nat.
 Proof.
   induction taul ; intros.
-  - discriminate.
+  - rewrite nth_error_nil in H. discriminate.
   - destruct n.
     * injection H as <-. destruct taul ; cbn ; lia.
     * apply IHtaul in H. cbn. lia.
@@ -206,34 +198,25 @@ Fixpoint valid_access (S : PL_state) (b : block) (off : Z)  (t : type) :=
   | TInt => Mem.valid_access (mem S) Mint64 b off Freeable
   | TBool => Mem.valid_access (mem S) Mint64 b off Freeable (* TODO: size of boolean? *)
   | TRef _ => Mem.valid_access (mem S) Many64 b off Freeable
-  | TTuple tl => valid_access_tuple S b off tl
-  end with
-valid_access_tuple (S : PL_state) (b : block) (off : Z)  (tl : type_list) :=
-  match tl with
-  | TNil => True
-  | TCons t tl' =>
-      valid_access S b off t /\ valid_access_tuple S b (off + sizeof t) tl'
+  | TTuple tl =>
+      (fix go tl off :=
+         match tl with
+         | [] => True
+         | t :: tl' =>
+             valid_access S b off t /\ go tl' (off + sizeof t)
+         end
+      ) tl off
   end.
 
 Lemma valid_access_dec :
   forall S b off t,
-    { valid_access S b off t } + { ~ valid_access S b off t }
-with valid_access_tuple_dec :
-  forall S b off tl,
-    { valid_access_tuple S b off tl } + { ~ valid_access_tuple S b off tl }.
+    { valid_access S b off t } + { ~ valid_access S b off t }.
 Proof.
-  {
-    intros *. generalize dependent off.
-    induction t ; intros * ; try apply Mem.valid_access_dec ;
-      apply valid_access_tuple_dec.
-  }
-  {
-    intros *. generalize dependent off. induction tl ; intros.
-    - left. constructor.
-    - simpl. destruct (valid_access_dec S b off t) ;
-        destruct (IHtl (off + sizeof t)) ;
-        [ left ; auto | | | ] ; right ; firstorder.
-  }
+  intros *. generalize dependent off.
+  induction t ; try (intros * ; apply Mem.valid_access_dec). induction H.
+  - left. apply I.
+  - intros * ; destruct (p off) ; destruct (IHlist_all (off + sizeof a)) ;
+      try (left ; split ; assumption) ; right ; firstorder.
 Defined.
 
 Ltac nodes_to_val :=
@@ -386,18 +369,18 @@ Inductive eval_proj (Spl : PL_state) : proj -> (address * type) -> (address * ty
     Spl.m.[addr : TRef t] = Some (make_ptr64 addr') ->
     eval_proj Spl Deref (addr, TRef t) (addr', t)
 | Eval_Field :
-  forall (addr addr' : address) (t : type) (tl : type_list) (n : nat),
+  forall (addr addr' : address) (t : type) (tl : list type) (n : nat),
     eval_proj_tuple Spl n (addr, tl) (addr', t) ->
     eval_proj Spl (Field n) (addr, TTuple tl) (addr', t)
 with eval_proj_tuple
-       (Spl : PL_state) : nat -> (address * type_list) -> (address * type) -> Prop :=
+       (Spl : PL_state) : nat -> (address * list type) -> (address * type) -> Prop :=
 | ET_Field_Nil :
-  forall (addr : address) (t : type) (tl : type_list),
-    eval_proj_tuple Spl 0 (addr, TCons t tl) (addr, t)
+  forall (addr : address) (t : type) (tl : list type),
+    eval_proj_tuple Spl 0 (addr, t :: tl) (addr, t)
 | ET_Field_Cons :
-  forall (addr addr' : address) (t t' : type) (tl : type_list) (n : nat),
+  forall (addr addr' : address) (t t' : type) (tl : list type) (n : nat),
     eval_proj_tuple Spl n (addr +o sizeof t, tl) (addr', t') ->
-    eval_proj_tuple Spl (S n) (addr, TCons t tl) (addr', t').
+    eval_proj_tuple Spl (S n) (addr, t :: tl) (addr', t').
 
 Inductive eval_path (Spl : PL_state) : path -> address * type -> address * type -> Prop :=
 | Eval_nil_addr : forall addr, eval_path Spl [] addr addr
@@ -463,11 +446,11 @@ Proof.
 Qed.
 
 Lemma eval_proj_tuple_pst Spl addr tl t :
-  forall k, TypeList.nth_error tl k = Some t ->
+  forall k, List.nth_error tl k = Some t ->
        eval_proj_tuple Spl k (addr, tl) (addr +o pst tl k, t).
 Proof.
   generalize dependent addr. induction tl ; intros.
-  - cbn in H. congruence.
+  - rewrite nth_error_nil in H. discriminate.
   - destruct k ; cbn in H.
     * injection H as ->. cbn. rewrite addr_add_offset_0. constructor.
     * constructor. cbn. rewrite Nat2Z.inj_add, addr_add_offset_assoc. auto.
